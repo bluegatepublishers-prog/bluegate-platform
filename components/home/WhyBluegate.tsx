@@ -1,197 +1,101 @@
+"use client";
+
 import {
-  ShieldCheck,
   BookOpen,
   GraduationCap,
   Laptop,
-  Brain,
-  HeartHandshake,
-  Check,
+  Medal,
+  School,
+  ShieldCheck,
 } from "lucide-react";
 
 const features = [
   {
-    title: "NEP 2020 Aligned",
-    description:
-      "Curriculum designed according to the latest National Education Policy with competency-based learning.",
-    icon: ShieldCheck,
-    color: "text-blue-600",
-    bg: "bg-blue-50",
-    tags: ["NEP", "NCF", "CBSE"],
-  },
-  {
-    title: "Competency Based",
-    description:
-      "Learning experiences focused on application, activities and conceptual understanding.",
     icon: BookOpen,
-    color: "text-green-600",
-    bg: "bg-green-50",
-    tags: ["Activities", "Projects", "Learning"],
+    title: "NCF & NEP Aligned",
+    description:
+      "Books carefully developed according to the latest National Education Policy and NCF guidelines.",
   },
   {
-    title: "Teacher Resources",
-    description:
-      "Lesson plans, worksheets, presentations and classroom teaching support.",
     icon: GraduationCap,
-    color: "text-orange-600",
-    bg: "bg-orange-50",
-    tags: ["Lesson Plan", "Worksheets", "PPT"],
+    title: "Competency-Based Learning",
+    description:
+      "Designed to develop conceptual understanding, critical thinking and real-life application.",
   },
   {
-    title: "Digital Learning",
+    icon: School,
+    title: "Trusted by Schools",
     description:
-      "Interactive digital resources designed for modern classrooms and blended learning.",
+      "Schools across India rely on Bluegate for quality educational content and academic excellence.",
+  },
+  {
     icon: Laptop,
-    color: "text-violet-600",
-    bg: "bg-violet-50",
-    tags: ["Videos", "Digital", "Interactive"],
+    title: "Digital Resources",
+    description:
+      "Teacher manuals, lesson plans, worksheets, PPTs and digital support for effective teaching.",
   },
   {
-    title: "Future Skills",
+    icon: Medal,
+    title: "Experienced Authors",
     description:
-      "Artificial Intelligence, Coding, Robotics and Financial Literacy programmes.",
-    icon: Brain,
-    color: "text-pink-600",
-    bg: "bg-pink-50",
-    tags: ["AI", "Coding", "Robotics"],
+      "Created by experienced educators, subject experts and curriculum specialists.",
   },
   {
-    title: "Holistic Development",
+    icon: ShieldCheck,
+    title: "Academic Support",
     description:
-      "Helping learners grow with communication skills, values and creativity.",
-    icon: HeartHandshake,
-    color: "text-cyan-600",
-    bg: "bg-cyan-50",
-    tags: ["Values", "Life Skills", "Confidence"],
+      "Continuous support for principals, coordinators and teachers throughout the academic year.",
   },
 ];
 
 export default function WhyBluegate() {
   return (
-    <section className="bg-white py-16">
-
+    <section className="bg-slate-50 py-20">
       <div className="mx-auto max-w-7xl px-6">
-
-        <div className="mx-auto max-w-3xl text-center">
-
-          <span className="rounded-full bg-blue-100 px-4 py-2 text-sm font-semibold text-blue-700">
-            WHY BLUEGATE
+        <div className="mx-auto mb-14 max-w-3xl text-center">
+          <span className="inline-block rounded-full bg-blue-100 px-4 py-1 text-sm font-semibold text-blue-700">
+            Why Bluegate Publishers
           </span>
 
-          <h2 className="mt-6 text-5xl font-bold text-[#083A75]">
-            Everything Schools Need
-            <br />
-            For Better Learning
+          <h2 className="mt-5 text-4xl font-bold text-slate-900 md:text-5xl">
+            Building Better Learning
+            <span className="block text-blue-700">
+              for Every Classroom
+            </span>
           </h2>
 
           <p className="mt-6 text-lg leading-8 text-slate-600">
-            Bluegate combines innovative textbooks,
-            teacher support and digital learning
-            resources to create engaging classroom
-            experiences for every learner.
+            Bluegate Publishers combines quality content, innovative teaching
+            resources and academic excellence to help schools create meaningful
+            learning experiences for every student.
           </p>
-
         </div>
 
-        <div className="mt-16 grid gap-8 md:grid-cols-2 lg:grid-cols-3">
-                    {features.map((feature) => {
-            const Icon = feature.icon;
+        <div className="grid gap-8 md:grid-cols-2 xl:grid-cols-3">
+          {features.map((item, index) => {
+            const Icon = item.icon;
 
             return (
               <div
-                key={feature.title}
-                className="group rounded-3xl border border-slate-200 bg-white p-8 shadow-sm transition-all duration-300 hover:-translate-y-2 hover:border-blue-200 hover:shadow-2xl"
+                key={index}
+                className="group rounded-3xl border border-slate-200 bg-white p-8 shadow-sm transition-all duration-300 hover:-translate-y-2 hover:border-blue-600 hover:shadow-xl"
               >
-                {/* Icon */}
-
-                <div
-                  className={`flex h-16 w-16 items-center justify-center rounded-2xl ${feature.bg} transition-transform duration-300 group-hover:rotate-6`}
-                >
-                  <Icon
-                    size={30}
-                    className={feature.color}
-                  />
+                <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-600 text-white transition group-hover:scale-110">
+                  <Icon size={30} />
                 </div>
 
-                {/* Title */}
-
-                <h3 className="mt-6 text-2xl font-bold text-slate-900">
-                  {feature.title}
+                <h3 className="mb-3 text-2xl font-bold text-slate-900">
+                  {item.title}
                 </h3>
 
-                {/* Description */}
-
-                <p className="mt-4 leading-7 text-slate-600">
-                  {feature.description}
+                <p className="leading-7 text-slate-600">
+                  {item.description}
                 </p>
-
-                {/* Tags */}
-
-                <div className="mt-6 flex flex-wrap gap-2">
-
-                  {feature.tags.map((tag) => (
-
-                    <span
-                      key={tag}
-                      className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600"
-                    >
-                      {tag}
-                    </span>
-
-                  ))}
-
-                </div>
-
-                {/* Divider */}
-
-                <div className="my-6 h-px bg-slate-200" />
-
-                {/* Highlights */}
-
-                <div className="space-y-3">
-
-                  <div className="flex items-center gap-3 text-sm text-slate-600">
-
-                    <Check
-                      size={16}
-                      className="text-emerald-500"
-                    />
-
-                    Quality Content
-
-                  </div>
-
-                  <div className="flex items-center gap-3 text-sm text-slate-600">
-
-                    <Check
-                      size={16}
-                      className="text-emerald-500"
-                    />
-
-                    Classroom Ready
-
-                  </div>
-
-                  <div className="flex items-center gap-3 text-sm text-slate-600">
-
-                    <Check
-                      size={16}
-                      className="text-emerald-500"
-                    />
-
-                    Teacher Friendly
-
-                  </div>
-
-                </div>
-
               </div>
             );
           })}
-
         </div>
-
       </div>
-
     </section>
   );
 }
