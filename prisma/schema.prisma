@@ -1,0 +1,190 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  TEACHER
+  SCHOOL
+}
+
+enum ResourceType {
+  PDF
+  PPT
+  DOC
+  VIDEO
+  ZIP
+}
+
+model User {
+  id       String  @id @default(cuid())
+  name     String
+  email    String  @unique
+  password String
+  phone    String?
+
+  role UserRole
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  teacher Teacher?
+  school  School?
+}
+
+model Teacher {
+  id String @id @default(cuid())
+
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  schoolName  String
+  designation String
+  subject     String
+  classes     String
+
+  verified Boolean @default(false)
+
+  downloads Download[]
+  bookmarks Bookmark[]
+}
+
+model School {
+  id String @id @default(cuid())
+
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  schoolName String
+  city       String
+  state      String
+}
+
+model Class {
+  id String @id @default(cuid())
+
+  name String
+  code String @unique
+
+  sortOrder Int     @default(0)
+  active    Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  books Book[]
+}
+
+model Subject {
+  id String @id @default(cuid())
+
+  name String
+  code String @unique
+
+  sortOrder Int     @default(0)
+  active    Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  books Book[]
+}
+
+model BookSeries {
+  id String @id @default(cuid())
+
+  name String
+  code String @unique
+
+  description String?
+
+  active Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  books Book[]
+}
+
+model Book {
+  id String @id @default(cuid())
+
+  title    String
+  subtitle String?
+
+  slug String @unique
+
+  isbn String?
+
+  description String?
+
+  coverImage String?
+
+  samplePdf String?
+
+  featured Boolean @default(false)
+
+  published Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  classId   String
+  subjectId String
+  seriesId  String?
+
+  class   Class       @relation(fields: [classId], references: [id])
+  subject Subject     @relation(fields: [subjectId], references: [id])
+  series  BookSeries? @relation(fields: [seriesId], references: [id])
+}
+
+model Resource {
+  id String @id @default(cuid())
+
+  title       String
+  description String
+
+  subject    String
+  classLevel String
+
+  type ResourceType
+
+  fileUrl   String
+  thumbnail String?
+
+  featured Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  downloads Download[]
+  bookmarks Bookmark[]
+}
+
+model Download {
+  id String @id @default(cuid())
+
+  teacherId  String
+  resourceId String
+
+  downloadedAt DateTime @default(now())
+
+  teacher  Teacher  @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  resource Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+}
+
+model Bookmark {
+  id String @id @default(cuid())
+
+  teacherId  String
+  resourceId String
+
+  createdAt DateTime @default(now())
+
+  teacher  Teacher  @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  resource Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+}
