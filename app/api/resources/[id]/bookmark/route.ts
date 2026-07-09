@@ -13,12 +13,16 @@ export async function POST(
   const teacher = await prisma.teacher.findUnique({ where: { userId: user.id } });
   if (!teacher) return NextResponse.json({ message: "Teacher not found." }, { status: 404 });
 
-  const bookmark = await prisma.bookmark.upsert({
-    where: {
-      teacherId_resourceId: { teacherId: teacher.id, resourceId: id },
-    },
-    update: {},
-    create: { teacherId: teacher.id, resourceId: id },
+  const existingBookmark = await prisma.bookmark.findFirst({
+    where: { teacherId: teacher.id, resourceId: id },
+  });
+
+  if (existingBookmark) {
+    return NextResponse.json(existingBookmark);
+  }
+
+  const bookmark = await prisma.bookmark.create({
+    data: { teacherId: teacher.id, resourceId: id },
   });
 
   return NextResponse.json(bookmark);

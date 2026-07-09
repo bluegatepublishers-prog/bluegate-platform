@@ -7,6 +7,143 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model User {
+  id        String   @id @default(cuid())
+  name      String
+  email     String   @unique
+  password  String
+  phone     String?
+  role      UserRole
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  school    School?
+  teacher   Teacher?
+}
+
+model Teacher {
+  id          String     @id @default(cuid())
+  userId      String     @unique
+  schoolName  String
+  designation String
+  subject     String
+  classes     String
+  verified    Boolean    @default(false)
+  bookmarks   Bookmark[]
+  downloads   Download[]
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model School {
+  id         String @id @default(cuid())
+  userId     String @unique
+  schoolName String
+  city       String
+  state      String
+  user       User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Class {
+  id        String   @id @default(cuid())
+  name      String
+  code      String   @unique
+  sortOrder Int      @default(0)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  books     Book[]
+}
+
+model Subject {
+  id        String   @id @default(cuid())
+  name      String
+  code      String   @unique
+  sortOrder Int      @default(0)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  books     Book[]
+}
+
+model BookSeries {
+  id          String   @id @default(cuid())
+  name        String
+  code        String   @unique
+  description String?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  books       Book[]
+}
+
+model Book {
+  id               String      @id @default(cuid())
+  title            String
+  subtitle         String?
+  slug             String      @unique
+  isbn             String?
+  description      String?
+  coverImage       String?
+  samplePdf        String?
+  featured         Boolean     @default(false)
+  published        Boolean     @default(false)
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+  classId          String
+  subjectId        String
+  seriesId         String?
+  aboutBook        String?
+  binding          String?
+  board            String?
+  dimensions       String?
+  edition          String?
+  features         String[]    @default([])
+  galleryImages    String[]    @default([])
+  language         String?
+  learningOutcomes String[]    @default([])
+  pages            Int?
+  price            Decimal?    @db.Decimal(10, 2)
+  publicationYear  String?
+  publisher        String?
+  tableOfContents  String[]    @default([])
+  weight           String?
+  class            Class       @relation(fields: [classId], references: [id])
+  series           BookSeries? @relation(fields: [seriesId], references: [id])
+  subject          Subject     @relation(fields: [subjectId], references: [id])
+}
+
+model Resource {
+  id          String       @id @default(cuid())
+  title       String
+  description String
+  subject     String
+  classLevel  String
+  type        ResourceType
+  fileUrl     String
+  thumbnail   String?
+  featured    Boolean      @default(false)
+  createdAt   DateTime     @default(now())
+  bookmarks   Bookmark[]
+  downloads   Download[]
+}
+
+model Download {
+  id           String   @id @default(cuid())
+  teacherId    String
+  resourceId   String
+  downloadedAt DateTime @default(now())
+  resource     Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  teacher      Teacher  @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+}
+
+model Bookmark {
+  id         String   @id @default(cuid())
+  teacherId  String
+  resourceId String
+  createdAt  DateTime @default(now())
+  resource   Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  teacher    Teacher  @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+}
+
 enum UserRole {
   ADMIN
   TEACHER
@@ -19,254 +156,4 @@ enum ResourceType {
   DOC
   VIDEO
   ZIP
-}
-
-enum InspectionStatus {
-  NEW
-  CONTACTED
-  APPROVED
-  DISPATCHED
-  CLOSED
-}
-
-model User {
-  id       String  @id @default(cuid())
-  name     String
-  email    String  @unique
-  password String
-  phone    String?
-
-  role UserRole
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  teacher Teacher?
-  school  School?
-
-  blogPosts BlogPost[]
-}
-
-model Teacher {
-  id String @id @default(cuid())
-
-  userId String @unique
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  schoolName  String
-  designation String
-  subject     String
-  classes     String
-
-  verified Boolean @default(false)
-
-  downloads Download[]
-  bookmarks Bookmark[]
-}
-
-model School {
-  id String @id @default(cuid())
-
-  userId String @unique
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  schoolName String
-  city       String
-  state      String
-
-  inspectionRequests InspectionRequest[]
-}
-
-model Class {
-  id String @id @default(cuid())
-
-  name String
-  code String @unique
-
-  sortOrder Int     @default(0)
-  active    Boolean @default(true)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  books Book[]
-}
-
-model Subject {
-  id String @id @default(cuid())
-
-  name String
-  code String @unique
-
-  sortOrder Int     @default(0)
-  active    Boolean @default(true)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  books Book[]
-}
-
-model BookSeries {
-  id String @id @default(cuid())
-
-  name String
-  code String @unique
-
-  description String?
-
-  active Boolean @default(true)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  books Book[]
-}
-
-model Book {
-  id String @id @default(cuid())
-
-  title    String
-  subtitle String?
-
-  slug String @unique
-
-  isbn String?
-
-  description String?
-  aboutBook  String?
-
-  pages           Int?
-  edition         String?
-  language        String?
-  board           String?
-  price           Decimal? @db.Decimal(10, 2)
-  binding         String?
-  publisher       String?
-  publicationYear String?
-  weight          String?
-  dimensions      String?
-
-  coverImage String?
-
-  samplePdf String?
-  galleryImages String[] @default([])
-
-  features         String[] @default([])
-  learningOutcomes String[] @default([])
-  tableOfContents  String[] @default([])
-
-  featured Boolean @default(false)
-
-  published Boolean @default(false)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  classId   String
-  subjectId String
-  seriesId  String?
-
-  class   Class       @relation(fields: [classId], references: [id])
-  subject Subject     @relation(fields: [subjectId], references: [id])
-  series  BookSeries? @relation(fields: [seriesId], references: [id])
-}
-
-model Resource {
-  id String @id @default(cuid())
-
-  title       String
-  description String
-
-  subject    String
-  classLevel String
-
-  type ResourceType
-
-  fileUrl   String
-  thumbnail String?
-
-  featured Boolean @default(false)
-  published Boolean @default(true)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  downloads Download[]
-  bookmarks Bookmark[]
-}
-
-model Download {
-  id String @id @default(cuid())
-
-  teacherId  String
-  resourceId String
-
-  downloadedAt DateTime @default(now())
-
-  teacher  Teacher  @relation(fields: [teacherId], references: [id], onDelete: Cascade)
-  resource Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
-}
-
-model Bookmark {
-  id String @id @default(cuid())
-
-  teacherId  String
-  resourceId String
-
-  createdAt DateTime @default(now())
-
-  teacher  Teacher  @relation(fields: [teacherId], references: [id], onDelete: Cascade)
-  resource Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
-
-  @@unique([teacherId, resourceId])
-}
-
-model BlogPost {
-  id String @id @default(cuid())
-
-  title   String
-  slug    String @unique
-  excerpt String
-  content String
-
-  coverImage String?
-  published  Boolean @default(false)
-  featured   Boolean @default(false)
-
-  authorId String
-  author   User @relation(fields: [authorId], references: [id], onDelete: Restrict)
-
-  publishedAt DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-}
-
-model InspectionRequest {
-  id String @id @default(cuid())
-
-  schoolName String
-  teacherName String
-  designation String
-  mobile String
-  email String
-  state String
-  city String
-  address String
-  message String?
-
-  bookId String?
-  bookTitle String
-  bookClass String
-  bookSubject String
-  bookSeries String?
-
-  status InspectionStatus @default(NEW)
-  notes String?
-
-  schoolId String?
-  school School? @relation(fields: [schoolId], references: [id], onDelete: SetNull)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
 }

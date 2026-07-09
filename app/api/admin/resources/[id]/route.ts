@@ -29,7 +29,6 @@ export async function PUT(
         fileUrl: body.fileUrl?.trim(),
         thumbnail: body.thumbnail?.trim() || null,
         featured: Boolean(body.featured),
-        published: body.published !== false,
       },
     })
   );

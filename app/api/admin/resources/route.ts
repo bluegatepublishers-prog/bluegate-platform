@@ -40,7 +40,6 @@ export async function POST(request: Request) {
       fileUrl: body.fileUrl.trim(),
       thumbnail: body.thumbnail?.trim() || null,
       featured: Boolean(body.featured),
-      published: body.published !== false,
     },
   });
 
