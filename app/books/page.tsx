@@ -4,7 +4,7 @@ import BookPageClient from "@/components/books/BookPageClient";
 import { prisma } from "@/lib/prisma";
 import { Book } from "@/types/book";
 
-interface PageProps {
+interface BooksPageProps {
   searchParams: Promise<{
     class?: string;
     subject?: string;
@@ -13,7 +13,7 @@ interface PageProps {
 
 export default async function BooksPage({
   searchParams,
-}: PageProps) {
+}: BooksPageProps) {
   const params = await searchParams;
 
   const dbBooks = await prisma.book.findMany({
@@ -49,17 +49,20 @@ export default async function BooksPage({
 
   return (
     <main className="min-h-screen bg-slate-50">
+      {/* Hero Section */}
       <BooksHero />
 
+      {/* Catalogue */}
       <section className="mx-auto max-w-7xl px-6 py-16">
+        <div className="mb-10">
+          <h1 className="text-4xl font-bold text-slate-900">
+            Bluegate Book Catalogue
+          </h1>
 
-        <div className="mb-8">
-          <h2 className="text-4xl font-bold text-slate-900">
-            Book Catalogue
-          </h2>
-
-          <p className="mt-3 text-lg text-slate-600">
-            Browse books by class, subject and series.
+          <p className="mt-3 max-w-2xl text-lg text-slate-600">
+            Explore our curriculum-aligned books designed for schools,
+            teachers and students. Browse by class, subject and series to
+            discover the perfect learning resources.
           </p>
         </div>
 
@@ -68,7 +71,6 @@ export default async function BooksPage({
           initialClass={params.class ?? ""}
           initialSubject={params.subject ?? ""}
         />
-
       </section>
     </main>
   );

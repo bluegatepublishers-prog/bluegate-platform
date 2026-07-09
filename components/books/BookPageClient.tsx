@@ -23,10 +23,10 @@ export default function BookPageClient({
   const [search, setSearch] = useState("");
 
   const [selectedClass, setSelectedClass] =
-  useState(initialClass);
+    useState(initialClass);
 
   const [selectedSubject, setSelectedSubject] =
-  useState(initialSubject);
+    useState(initialSubject);
 
   const [selectedBoard, setSelectedBoard] =
     useState("");
@@ -40,51 +40,33 @@ export default function BookPageClient({
   const [modalOpen, setModalOpen] =
     useState(false);
 
-  const classes = [
-    ...new Set(books.map((b) => b.class)),
-  ];
+  const classes = [...new Set(books.map((b) => b.class))];
 
-  const subjects = [
-    ...new Set(books.map((b) => b.subject)),
-  ];
+  const subjects = [...new Set(books.map((b) => b.subject))];
 
-  const boards = [
-    ...new Set(books.map((b) => b.board)),
-  ];
+  const boards = [...new Set(books.map((b) => b.board))];
 
-  const series = [
-    ...new Set(books.map((b) => b.series)),
-  ];
+  const series = [...new Set(books.map((b) => b.series))];
 
   const filteredBooks = useMemo(() => {
     return books.filter((book) => {
       const matchesSearch =
         !search ||
-        book.title
-          .toLowerCase()
-          .includes(search.toLowerCase()) ||
-        book.subject
-          .toLowerCase()
-          .includes(search.toLowerCase()) ||
-        book.series
-          .toLowerCase()
-          .includes(search.toLowerCase());
+        book.title.toLowerCase().includes(search.toLowerCase()) ||
+        book.subject.toLowerCase().includes(search.toLowerCase()) ||
+        book.series.toLowerCase().includes(search.toLowerCase());
 
       const matchesClass =
-        !selectedClass ||
-        book.class === selectedClass;
+        !selectedClass || book.class === selectedClass;
 
       const matchesSubject =
-        !selectedSubject ||
-        book.subject === selectedSubject;
+        !selectedSubject || book.subject === selectedSubject;
 
       const matchesBoard =
-        !selectedBoard ||
-        book.board === selectedBoard;
+        !selectedBoard || book.board === selectedBoard;
 
       const matchesSeries =
-        !selectedSeries ||
-        book.series === selectedSeries;
+        !selectedSeries || book.series === selectedSeries;
 
       return (
         matchesSearch &&
@@ -111,40 +93,49 @@ export default function BookPageClient({
     setSelectedSeries("");
   }
 
-  function handleInspectionRequest(
-    book: Book
-  ) {
-    setSelectedBook(book);
-    setModalOpen(true);
-  }
-
   return (
-        <>
-      <SearchBar
-        value={search}
-        onChange={setSearch}
-      />
+    <>
+      {/* Premium Filter Toolbar */}
 
-      <BookFilters
-        classValue={selectedClass}
-        subjectValue={selectedSubject}
-        boardValue={selectedBoard}
-        seriesValue={selectedSeries}
-        classes={classes}
-        subjects={subjects}
-        boards={boards}
-        series={series}
-        onClassChange={setSelectedClass}
-        onSubjectChange={setSelectedSubject}
-        onBoardChange={setSelectedBoard}
-        onSeriesChange={setSelectedSeries}
-        onReset={resetFilters}
-      />
+      <div className="mb-8 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
 
-      <div className="mb-8 flex items-center justify-between">
+        <div className="flex flex-wrap items-center gap-4">
 
-        <h3 className="text-xl font-semibold text-slate-800">
-          Showing {filteredBooks.length} Books
+          <BookFilters
+            classValue={selectedClass}
+            subjectValue={selectedSubject}
+            boardValue={selectedBoard}
+            seriesValue={selectedSeries}
+            classes={classes}
+            subjects={subjects}
+            boards={boards}
+            series={series}
+            onClassChange={setSelectedClass}
+            onSubjectChange={setSelectedSubject}
+            onBoardChange={setSelectedBoard}
+            onSeriesChange={setSelectedSeries}
+            onReset={resetFilters}
+          />
+
+          <SearchBar
+            value={search}
+            onChange={setSearch}
+          />
+
+        </div>
+
+      </div>
+
+      <div className="mb-8 flex items-center justify-between border-b border-slate-200 pb-4">
+
+        <h3 className="text-lg font-semibold text-slate-800">
+          Showing
+          <span className="ml-2 rounded-lg bg-blue-100 px-3 py-1 text-[#0B5ED7]">
+            {filteredBooks.length}
+          </span>
+          <span className="ml-2">
+            Books
+          </span>
         </h3>
 
       </div>

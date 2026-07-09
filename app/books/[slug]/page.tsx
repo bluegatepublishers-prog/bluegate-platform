@@ -3,7 +3,6 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 
 import BookDetailsHero from "@/components/books/BookDetailsHero";
-import SamplePDFPreview from "@/components/books/SamplePDFPreview";
 import BookFeatures from "@/components/books/BookFeatures";
 import LearningOutcomes from "@/components/books/LearningOutcomes";
 import TableOfContents from "@/components/books/TableOfContents";
@@ -87,20 +86,24 @@ export default async function BookDetailsPage({
 
   return (
     <main className="min-h-screen bg-slate-50">
+
       <BookDetailsHero book={book} />
 
-      <SamplePDFPreview book={book} />
+      <section className="mx-auto max-w-5xl px-6 py-12 space-y-6">
 
-      <BookFeatures />
+        <LearningOutcomes />
 
-      <LearningOutcomes />
+        <BookFeatures />
 
-      <TableOfContents />
+        <TableOfContents />
+
+      </section>
 
       <RelatedBooks
         currentBook={book}
         books={relatedBooks}
       />
+
     </main>
   );
 }

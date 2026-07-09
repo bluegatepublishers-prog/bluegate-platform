@@ -1,132 +1,274 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight, BookOpen, GraduationCap } from "lucide-react";
+import {
+  ArrowRight,
+  GraduationCap,
+  BookOpen,
+  FileText,
+  Presentation,
+  Video,
+  FileCheck,
+  BookMarked,
+} from "lucide-react";
 
 export default function Hero() {
   return (
-    <section className="relative overflow-hidden bg-gradient-to-br from-slate-50 via-white to-blue-50">
-      {/* Background Decoration */}
-      <div className="absolute inset-0">
-        <div className="absolute -top-24 -right-24 h-72 w-72 rounded-full bg-blue-100/40 blur-3xl" />
-        <div className="absolute -bottom-24 -left-24 h-72 w-72 rounded-full bg-indigo-100/40 blur-3xl" />
-      </div>
+    <section className="relative overflow-hidden bg-gradient-to-br from-sky-50 via-white to-orange-50">
 
-      <div className="relative mx-auto max-w-7xl px-6 py-20 lg:px-8 lg:py-28">
-        <div className="grid items-center gap-16 lg:grid-cols-2">
-          {/* Left Content */}
+      {/* Background */}
+
+      <div className="absolute -left-32 top-0 h-96 w-96 rounded-full bg-sky-100 blur-3xl opacity-60" />
+
+      <div className="absolute -right-20 bottom-0 h-80 w-80 rounded-full bg-orange-100 blur-3xl opacity-70" />
+
+      <div className="relative mx-auto max-w-7xl px-6 py-20 lg:py-28">
+
+        <div className="grid items-center gap-20 lg:grid-cols-2">
+
+          {/* LEFT */}
+
           <div>
-            <span className="inline-flex items-center rounded-full bg-blue-100 px-4 py-2 text-sm font-semibold text-blue-700">
-              <GraduationCap className="mr-2 h-4 w-4" />
+
+            <span className="inline-flex items-center gap-2 rounded-full bg-blue-100 px-5 py-2 text-sm font-semibold text-[#0B5ED7]">
+
+              <GraduationCap size={18} />
+
               Bluegate Teacher Hub
+
             </span>
 
-            <h1 className="mt-6 text-4xl font-bold tracking-tight text-slate-900 md:text-5xl lg:text-6xl">
-              Empowering
-              <span className="block text-blue-700">
-                Teachers to Inspire
+            <h1 className="mt-8 text-5xl font-bold leading-tight text-slate-900 lg:text-6xl">
+
+              Empowering Teachers
+
+              <span className="block text-[#0B5ED7]">
+                Inspiring Every Classroom
               </span>
-              Every Classroom
+
             </h1>
 
-            <p className="mt-6 max-w-xl text-lg leading-8 text-slate-600">
-              Access professionally developed lesson plans, worksheets,
-              presentations, question banks, teacher manuals, and classroom
-              resources designed to make teaching more engaging, effective,
-              and inspiring.
+            <p className="mt-8 max-w-2xl text-lg leading-9 text-slate-600">
+
+              Discover premium lesson plans, classroom
+              presentations, worksheets, assessments,
+              videos and teaching resources developed
+              by experienced educators for modern
+              classrooms.
+
             </p>
 
+            {/* Buttons */}
+
             <div className="mt-10 flex flex-wrap gap-4">
+
               <Link
                 href="/teacher-login"
-                className="inline-flex items-center rounded-xl bg-blue-600 px-6 py-3 font-semibold text-white transition hover:bg-blue-700"
+                className="flex h-14 items-center rounded-xl bg-[#0B5ED7] px-8 font-semibold text-white transition hover:bg-[#083A75]"
               >
                 Teacher Login
+
                 <ArrowRight className="ml-2 h-5 w-5" />
+
               </Link>
 
               <Link
                 href="#resources"
-                className="inline-flex items-center rounded-xl border border-slate-300 bg-white px-6 py-3 font-semibold text-slate-700 transition hover:border-blue-600 hover:text-blue-700"
+                className="flex h-14 items-center rounded-xl border border-slate-300 bg-white px-8 font-semibold text-slate-700 transition hover:border-[#0B5ED7] hover:text-[#0B5ED7]"
               >
                 Browse Resources
+
               </Link>
+
             </div>
 
-            {/* Quick Highlights */}
-            <div className="mt-12 grid grid-cols-3 gap-6">
-              <div>
-                <p className="text-3xl font-bold text-blue-700">450+</p>
-                <p className="mt-1 text-sm text-slate-600">
-                  Teaching Resources
-                </p>
-              </div>
+            {/* Statistics */}
 
-              <div>
-                <p className="text-3xl font-bold text-blue-700">120+</p>
-                <p className="mt-1 text-sm text-slate-600">
-                  Lesson Plans
-                </p>
-              </div>
+            <div className="mt-14 grid grid-cols-2 gap-5 md:grid-cols-4">
 
-              <div>
-                <p className="text-3xl font-bold text-blue-700">50+</p>
-                <p className="mt-1 text-sm text-slate-600">
-                  Training Videos
-                </p>
-              </div>
+              <StatCard
+                value="450+"
+                label="Resources"
+                color="text-blue-600"
+              />
+
+              <StatCard
+                value="120+"
+                label="Lesson Plans"
+                color="text-emerald-600"
+              />
+
+              <StatCard
+                value="50+"
+                label="Videos"
+                color="text-orange-500"
+              />
+
+              <StatCard
+                value="500+"
+                label="Schools"
+                color="text-purple-600"
+              />
+
             </div>
+
           </div>
 
-          {/* Right Card */}
-          <div className="relative">
-            <div className="rounded-3xl border border-slate-200 bg-white p-10 shadow-xl">
-              <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-blue-100">
-                <BookOpen className="h-10 w-10 text-blue-700" />
+          {/* RIGHT */}
+
+          <div>
+
+            {/* Main Icon */}
+
+            <div className="mx-auto flex h-72 w-72 items-center justify-center rounded-full bg-gradient-to-br from-blue-100 via-white to-emerald-100 shadow-2xl">
+
+              <div className="flex h-48 w-48 items-center justify-center rounded-full bg-white shadow-lg">
+
+                <GraduationCap
+                  size={110}
+                  className="text-[#0B5ED7]"
+                />
+
               </div>
 
-              <h2 className="mt-8 text-2xl font-bold text-slate-900">
-                Professional Teacher Resources
-              </h2>
-
-              <p className="mt-4 leading-7 text-slate-600">
-                Explore curriculum-aligned teaching materials created by
-                experienced educators to support classroom instruction,
-                assessment, and professional development.
-              </p>
-
-              <div className="mt-8 space-y-4">
-                {[
-                  "Lesson Plans",
-                  "Printable Worksheets",
-                  "Question Banks",
-                  "Answer Keys",
-                  "Interactive PPTs",
-                  "Teacher Manuals",
-                ].map((item) => (
-                  <div
-                    key={item}
-                    className="flex items-center rounded-xl bg-slate-50 px-4 py-3"
-                  >
-                    <div className="mr-3 h-2.5 w-2.5 rounded-full bg-blue-600" />
-                    <span className="font-medium text-slate-700">
-                      {item}
-                    </span>
-                  </div>
-                ))}
-              </div>
-
-              <Link
-                href="#resources"
-                className="mt-8 inline-flex items-center font-semibold text-blue-700 hover:text-blue-800"
-              >
-                Explore Resources
-                <ArrowRight className="ml-2 h-4 w-4" />
-              </Link>
             </div>
+
+            {/* Resource Grid */}
+
+            <div className="mt-12 grid grid-cols-2 gap-5 sm:grid-cols-3">
+
+              <ResourceCard
+                icon={<BookOpen />}
+                title="Lesson Plans"
+                color="blue"
+              />
+
+              <ResourceCard
+                icon={<Presentation />}
+                title="PPTs"
+                color="orange"
+              />
+
+              <ResourceCard
+                icon={<Video />}
+                title="Videos"
+                color="purple"
+              />
+
+              <ResourceCard
+                icon={<FileText />}
+                title="Worksheets"
+                color="emerald"
+              />
+                            <ResourceCard
+                icon={<BookMarked />}
+                title="Teacher Manuals"
+                color="pink"
+              />
+
+              <ResourceCard
+                icon={<FileCheck />}
+                title="Question Bank"
+                color="indigo"
+              />
+
+            </div>
+
           </div>
+
         </div>
+
       </div>
+
     </section>
+  );
+}
+
+interface StatCardProps {
+  value: string;
+  label: string;
+  color: string;
+}
+
+function StatCard({
+  value,
+  label,
+  color,
+}: StatCardProps) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 text-center shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-lg">
+
+      <h3 className={`text-3xl font-bold ${color}`}>
+        {value}
+      </h3>
+
+      <p className="mt-2 text-sm text-slate-600">
+        {label}
+      </p>
+
+    </div>
+  );
+}
+
+interface ResourceCardProps {
+  icon: React.ReactNode;
+  title: string;
+  color:
+    | "blue"
+    | "orange"
+    | "purple"
+    | "emerald"
+    | "pink"
+    | "indigo";
+}
+
+function ResourceCard({
+  icon,
+  title,
+  color,
+}: ResourceCardProps) {
+  const styles = {
+    blue: {
+      bg: "bg-blue-50",
+      icon: "text-blue-600",
+    },
+    orange: {
+      bg: "bg-orange-50",
+      icon: "text-orange-600",
+    },
+    purple: {
+      bg: "bg-purple-50",
+      icon: "text-purple-600",
+    },
+    emerald: {
+      bg: "bg-emerald-50",
+      icon: "text-emerald-600",
+    },
+    pink: {
+      bg: "bg-pink-50",
+      icon: "text-pink-600",
+    },
+    indigo: {
+      bg: "bg-indigo-50",
+      icon: "text-indigo-600",
+    },
+  };
+
+  const style = styles[color];
+
+  return (
+    <div
+      className={`rounded-2xl border border-slate-200 ${style.bg} p-5 text-center shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-lg`}
+    >
+      <div
+        className={`mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-white ${style.icon}`}
+      >
+        {icon}
+      </div>
+
+      <h3 className="mt-4 text-sm font-semibold text-slate-800">
+        {title}
+      </h3>
+    </div>
   );
 }

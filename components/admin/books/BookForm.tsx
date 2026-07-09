@@ -20,21 +20,39 @@ interface BookFormProps {
   title: string;
 
   form: {
-    title: string;
-    subtitle: string;
-    isbn: string;
-    description: string;
+  // Basic Information
+  title: string;
+  subtitle: string;
+  isbn: string;
+  description: string;
+  aboutBook: string;
 
-    coverImage: string;
-    samplePdf: string;
+  // Book Details
+  pages: number | "";
+  edition: string;
+  language: string;
+  board: string;
+  price: number | "";
 
-    classId: string;
-    subjectId: string;
-    seriesId: string;
+  // Media
+  coverImage: string;
+  samplePdf: string;
+  galleryImages: string[];
 
-    featured: boolean;
-    published: boolean;
-  };
+  // Dynamic Sections
+  features: string[];
+  learningOutcomes: string[];
+  tableOfContents: string[];
+
+  // Academic
+  classId: string;
+  subjectId: string;
+  seriesId: string;
+
+  // Status
+  featured: boolean;
+  published: boolean;
+};
 
   classes: Option[];
   subjects: Option[];
@@ -43,9 +61,13 @@ interface BookFormProps {
   loading: boolean;
 
   onChange: (
-    field: string,
-    value: string | boolean
-  ) => void;
+  field: string,
+  value:
+    | string
+    | number
+    | boolean
+    | string[]
+) => void;
 
   onSubmit: (
     e: React.FormEvent<HTMLFormElement>
@@ -66,7 +88,7 @@ export default function BookForm({
     useState(false);
 
   const [uploadingPdf, setUploadingPdf] =
-    useState(false);
+  useState(false);
 
   async function uploadFile(
     file: File,
@@ -108,13 +130,39 @@ export default function BookForm({
     }
   }
 
-  function removeCover() {
-    onChange("coverImage", "");
-  }
+  function addItem(
+  field:
+    | "features"
+    | "learningOutcomes"
+    | "tableOfContents"
+) {
+  onChange(field, [...form[field], ""]);
+}
 
-  function removePdf() {
-    onChange("samplePdf", "");
-  }
+function updateItem(
+  field:
+    | "features"
+    | "learningOutcomes"
+    | "tableOfContents",
+  index: number,
+  value: string
+) {
+  const items = [...form[field]];
+  items[index] = value;
+  onChange(field, items);
+}
+
+function removeItem(
+  field:
+    | "features"
+    | "learningOutcomes"
+    | "tableOfContents",
+  index: number
+) {
+  const items = [...form[field]];
+  items.splice(index, 1);
+  onChange(field, items);
+}
 
   return (
     <form

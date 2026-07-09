@@ -1,42 +1,39 @@
-import {
-  Hero,
-  LoginCTA,
-  ResourceCategories,
-  FeaturedResources,
-  TeacherStats,
-  FAQ,
-  CTA,
-} from "@/components/teacher";
+import Hero from "@/components/teacher/Hero";
+import WhyTeacherHub from "@/components/teacher/WhyTeacherHub";
+import ResourceCategories from "@/components/teacher/ResourceCategories";
+import FeaturedResources from "@/components/teacher/FeaturedResources";
+import HowItWorks from "@/components/teacher/HowItWorks";
+import TeacherStats from "@/components/teacher/TeacherStats";
+import Testimonials from "@/components/teacher/Testimonials";
+import FAQ from "@/components/teacher/FAQ";
+import CTA from "@/components/teacher/CTA";
 
 export const metadata = {
   title: "Teacher Hub | Bluegate Publishers",
   description:
-    "Access premium teaching resources including lesson plans, worksheets, presentations, teacher manuals, question banks, answer keys and classroom support from Bluegate Publishers.",
+    "Discover lesson plans, worksheets, presentations, videos, teacher manuals and classroom resources designed for modern educators.",
 };
 
 export default function TeacherHubPage() {
   return (
-    <main className="min-h-screen bg-white">
+    <main className="bg-white">
 
-      {/* Hero */}
       <Hero />
 
-      {/* Login CTA */}
-      <LoginCTA />
+      <WhyTeacherHub />
 
-      {/* Resource Categories */}
       <ResourceCategories />
 
-      {/* Featured Resources */}
       <FeaturedResources />
 
-      {/* Teacher Statistics */}
+      <HowItWorks />
+
       <TeacherStats />
 
-      {/* Frequently Asked Questions */}
+      <Testimonials />
+
       <FAQ />
 
-      {/* Final Call To Action */}
       <CTA />
 
     </main>

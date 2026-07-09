@@ -2,171 +2,149 @@
 
 import Link from "next/link";
 import {
-  Download,
-  Eye,
-  FileText,
-  Presentation,
-  Video,
-  Lock,
   ArrowRight,
+  Eye,
+  Lock,
+  BookOpen,
 } from "lucide-react";
 
-import { featuredResources } from "@/data/teacherResources";
-import { TeacherResource } from "@/types/teacher";
+interface Resource {
+  title: string;
+  className: string;
+  subject: string;
+}
 
-interface ResourceSectionProps {
+interface Props {
   title: string;
   subtitle: string;
   category: string;
-  viewAllLink?: string;
+  resources: Resource[];
 }
 
 export default function ResourceSection({
   title,
   subtitle,
   category,
-  viewAllLink = "#",
-}: ResourceSectionProps) {
-  const resources = featuredResources.filter(
-    (item) => item.category === category
-  );
-
-  const getFileIcon = (type: string) => {
-    switch (type) {
-      case "PPT":
-        return Presentation;
-
-      case "VIDEO":
-        return Video;
-
-      default:
-        return FileText;
-    }
-  };
-
-  if (resources.length === 0) return null;
-
+  resources,
+}: Props) {
   return (
-    <section className="py-24 bg-white">
-      <div className="mx-auto max-w-7xl px-6 lg:px-8">
-        {/* Header */}
+    <section className="py-20">
 
-        <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+      <div className="mx-auto max-w-7xl px-6">
+
+        <div className="mb-12 flex items-end justify-between">
+
           <div>
-            <span className="inline-flex rounded-full bg-blue-100 px-4 py-2 text-sm font-semibold text-blue-700">
-              Teacher Resources
+
+            <span className="rounded-full bg-blue-100 px-4 py-2 text-sm font-semibold text-blue-700">
+
+              {category}
+
             </span>
 
             <h2 className="mt-5 text-4xl font-bold text-slate-900">
               {title}
             </h2>
 
-            <p className="mt-4 max-w-2xl text-lg text-slate-600">
+            <p className="mt-3 max-w-2xl text-lg text-slate-600">
               {subtitle}
             </p>
+
           </div>
 
           <Link
-            href={viewAllLink}
-            className="inline-flex items-center font-semibold text-blue-700 transition hover:text-blue-800"
+            href="/teacher-login"
+            className="hidden items-center gap-2 font-semibold text-[#0B5ED7] md:flex"
           >
             View All
 
-            <ArrowRight className="ml-2 h-4 w-4" />
+            <ArrowRight size={18} />
+
           </Link>
+
         </div>
 
-        {/* Cards */}
+        <div className="grid gap-8 md:grid-cols-2 xl:grid-cols-3">
 
-        <div className="mt-14 grid gap-8 md:grid-cols-2 xl:grid-cols-3">
-          {resources.map((resource: TeacherResource) => {
-            const Icon = getFileIcon(resource.fileType);
+          {resources.map((item) => (
 
-            return (
-              <div
-                key={resource.id}
-                className="group overflow-hidden rounded-3xl border border-slate-200 bg-white transition-all duration-300 hover:-translate-y-2 hover:border-blue-200 hover:shadow-xl"
-              >
-                {/* Thumbnail */}
+            <div
+              key={item.title}
+              className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm transition duration-300 hover:-translate-y-2 hover:shadow-xl"
+            >
 
-                <div className="relative flex h-56 items-center justify-center bg-gradient-to-br from-blue-50 via-slate-50 to-indigo-100">
-                  <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-white shadow-md">
-                    <Icon className="h-10 w-10 text-blue-700" />
-                  </div>
+              <div className="flex h-44 items-center justify-center bg-gradient-to-br from-slate-100 via-white to-slate-50">
 
-                  <span className="absolute left-5 top-5 rounded-full bg-blue-600 px-3 py-1 text-xs font-semibold text-white">
-                    {resource.fileType}
+                <div className="flex h-20 w-20 items-center justify-center rounded-3xl bg-blue-100">
+
+                  <BookOpen
+                    size={38}
+                    className="text-blue-600"
+                  />
+
+                </div>
+
+              </div>
+
+              <div className="p-7">
+
+                <div className="mb-4 flex gap-2">
+
+                  <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-700">
+
+                    {item.className}
+
                   </span>
 
-                  {resource.premium && (
-                    <span className="absolute right-5 top-5 rounded-full bg-amber-400 px-3 py-1 text-xs font-semibold text-slate-900">
-                      Premium
-                    </span>
-                  )}
+                  <span className="rounded-full bg-orange-100 px-3 py-1 text-xs font-semibold text-orange-700">
+
+                    {item.subject}
+
+                  </span>
+
                 </div>
 
-                {/* Body */}
+                <h3 className="text-2xl font-bold text-slate-900">
+                  {item.title}
+                </h3>
 
-                <div className="p-8">
-                  <div className="flex flex-wrap gap-2">
-                    <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
-                      {resource.classLevel}
-                    </span>
+                <p className="mt-3 text-slate-600">
+                  {category}
+                </p>
 
-                    <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
-                      {resource.subject}
-                    </span>
-                  </div>
+                <div className="mt-8 flex gap-3">
 
-                  <h3 className="mt-5 text-2xl font-semibold text-slate-900">
-                    {resource.title}
-                  </h3>
+                  <button className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-slate-300 py-3 font-semibold text-slate-700 hover:bg-slate-50">
 
-                  <p className="mt-3 line-clamp-3 leading-7 text-slate-600">
-                    {resource.description}
-                  </p>
+                    <Eye size={18} />
 
-                  <div className="mt-6 flex flex-wrap gap-5 text-sm text-slate-500">
-                    {resource.pages && (
-                      <span>{resource.pages} Pages</span>
-                    )}
+                    Preview
 
-                    {resource.fileSize && (
-                      <span>{resource.fileSize}</span>
-                    )}
+                  </button>
 
-                    {resource.downloads && (
-                      <span>
-                        {resource.downloads.toLocaleString()} Downloads
-                      </span>
-                    )}
-                  </div>
+                  <Link
+                    href="/teacher-login"
+                    className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[#0B5ED7] py-3 font-semibold text-white hover:bg-[#083A75]"
+                  >
 
-                  <div className="mt-8 flex gap-3">
-                    <button className="flex flex-1 items-center justify-center rounded-xl border border-slate-300 px-4 py-3 font-semibold text-slate-700 transition hover:border-blue-600 hover:text-blue-700">
-                      <Eye className="mr-2 h-4 w-4" />
+                    <Lock size={18} />
 
-                      Preview
-                    </button>
+                    Unlock
 
-                    <button className="flex flex-1 items-center justify-center rounded-xl bg-blue-600 px-4 py-3 font-semibold text-white transition hover:bg-blue-700">
-                      <Download className="mr-2 h-4 w-4" />
+                  </Link>
 
-                      Download
-                    </button>
-                  </div>
-
-                  <div className="mt-5 flex items-center text-sm text-slate-500">
-                    <Lock className="mr-2 h-4 w-4" />
-
-                    Teacher Login Required
-                  </div>
                 </div>
+
               </div>
-            );
-          })}
+
+            </div>
+
+          ))}
+
         </div>
+
       </div>
+
     </section>
   );
 }

@@ -46,37 +46,20 @@ export default function BookFilters({
   onReset,
 }: BookFiltersProps) {
   return (
-    <section className="mb-12 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-lg">
-
-      {/* Header */}
-      <div className="border-b border-slate-100 bg-gradient-to-r from-sky-50 via-white to-emerald-50 p-8">
-
-        <h2 className="text-3xl font-bold text-slate-900">
-          Find Your Book
-        </h2>
-
-        <p className="mt-2 text-slate-600">
-          Browse books by class, subject, board and series.
-        </p>
-
-      </div>
-
-      {/* Filters */}
-      <div className="grid gap-6 p-8 md:grid-cols-2 lg:grid-cols-4">
-
+    <div className="mb-8 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="flex flex-wrap items-center gap-4">
         <FilterSelect
           icon={<GraduationCap size={18} />}
           value={classValue}
           onChange={onClassChange}
         >
           <option value="">All Classes</option>
-
-{classes.map((item) => (
-  <option key={item} value={item}>
-    {item}
-  </option>
-))}
-</FilterSelect>
+          {classes.map((item) => (
+            <option key={item} value={item}>
+              {item}
+            </option>
+          ))}
+        </FilterSelect>
 
         <FilterSelect
           icon={<BookOpen size={18} />}
@@ -84,12 +67,11 @@ export default function BookFilters({
           onChange={onSubjectChange}
         >
           <option value="">All Subjects</option>
-
-{subjects.map((item) => (
-  <option key={item} value={item}>
-    {item}
-  </option>
-))}
+          {subjects.map((item) => (
+            <option key={item} value={item}>
+              {item}
+            </option>
+          ))}
         </FilterSelect>
 
         <FilterSelect
@@ -98,12 +80,11 @@ export default function BookFilters({
           onChange={onBoardChange}
         >
           <option value="">All Boards</option>
-
-{boards.map((item) => (
-  <option key={item} value={item}>
-    {item}
-  </option>
-))}
+          {boards.map((item) => (
+            <option key={item} value={item}>
+              {item}
+            </option>
+          ))}
         </FilterSelect>
 
         <FilterSelect
@@ -112,30 +93,22 @@ export default function BookFilters({
           onChange={onSeriesChange}
         >
           <option value="">All Series</option>
-
-{series.map((item) => (
-  <option key={item} value={item}>
-    {item}
-  </option>
-))}
+          {series.map((item) => (
+            <option key={item} value={item}>
+              {item}
+            </option>
+          ))}
         </FilterSelect>
-
-      </div>
-
-      {/* Footer */}
-      <div className="flex items-center justify-end border-t border-slate-100 bg-slate-50 p-6">
 
         <button
           onClick={onReset}
-          className="flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-3 font-medium text-white transition hover:bg-slate-700"
+          className="flex h-12 items-center gap-2 rounded-xl bg-[#0B5ED7] px-5 font-medium text-white transition hover:bg-[#083A75]"
         >
-          <RotateCcw size={18} />
-          Reset Filters
+          <RotateCcw size={16} />
+          Reset
         </button>
-
       </div>
-
-    </section>
+    </div>
   );
 }
 
@@ -153,8 +126,7 @@ function FilterSelect({
   children,
 }: FilterSelectProps) {
   return (
-    <div className="relative">
-
+    <div className="relative min-w-[170px] flex-1 lg:flex-none">
       <div className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-500">
         {icon}
       </div>
@@ -162,11 +134,10 @@ function FilterSelect({
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="h-14 w-full rounded-2xl border border-slate-200 bg-white pl-12 pr-4 text-slate-700 shadow-sm transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+        className="h-12 w-full rounded-xl border border-slate-200 bg-white pl-11 pr-4 text-sm text-slate-700 shadow-sm outline-none transition-all duration-200 focus:border-[#0B5ED7] focus:ring-4 focus:ring-blue-100"
       >
         {children}
       </select>
-
     </div>
   );
 }
