@@ -21,10 +21,10 @@ function statusBadge(status: string) {
 export default async function ContactMessagesPage() {
   let msgs: any[] = [];
 
-  if (process.env.DATABASE_URL) {
-    msgs = await (prisma as any).contactMessage.findMany({ orderBy: { createdAt: "desc" } });
-  } else {
-    msgs = [];
+  if (process.env.DATABASE_URL && (prisma as any).contactMessage) {
+    msgs = await (prisma as any).contactMessage.findMany({
+      orderBy: { createdAt: "desc" },
+    });
   }
 
   return (
