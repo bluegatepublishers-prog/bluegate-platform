@@ -7,14 +7,7 @@ export async function middleware(req: NextRequest) {
     secret: process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET,
   });
 
-  const { pathname } = req.nextUrl;
-
-  const protectedRoute =
-    pathname.startsWith("/admin") ||
-    pathname.startsWith("/teacher-dashboard") ||
-    pathname.startsWith("/school-dashboard");
-
-  if (protectedRoute && !token) {
+  if (!token) {
     const loginUrl = new URL("/teacher-login", req.url);
     loginUrl.searchParams.set("callbackUrl", req.nextUrl.pathname);
     return NextResponse.redirect(loginUrl);
