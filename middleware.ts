@@ -1,33 +1,32 @@
-import { auth } from "@/auth";
+import { NextRequest, NextResponse } from "next/server";
+import { getToken } from "next-auth/jwt";
 
-export default auth((req) => {
-  const { nextUrl } = req;
+export async function middleware(req: NextRequest) {
+  const token = await getToken({
+    req,
+    secret: process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET,
+  });
 
-  const isLoggedIn = !!req.auth;
+  const { pathname } = req.nextUrl;
 
-  const isTeacherDashboard =
-    nextUrl.pathname.startsWith("/teacher-dashboard");
+  const protectedRoute =
+    pathname.startsWith("/admin") ||
+    pathname.startsWith("/teacher-dashboard") ||
+    pathname.startsWith("/school-dashboard");
 
-  const isAdmin =
-    nextUrl.pathname.startsWith("/admin");
-
-  const isSchool =
-    nextUrl.pathname.startsWith("/school-dashboard");
-
-  if (
-    (isTeacherDashboard || isAdmin || isSchool) &&
-    !isLoggedIn
-  ) {
-    return Response.redirect(
-      new URL("/teacher-login", nextUrl)
-    );
+  if (protectedRoute && !token) {
+    const loginUrl = new URL("/teacher-login", req.url);
+    loginUrl.searchParams.set("callbackUrl", req.nextUrl.pathname);
+    return NextResponse.redirect(loginUrl);
   }
-});
+
+  return NextResponse.next();
+}
 
 export const config = {
   matcher: [
-    "/teacher-dashboard/:path*",
     "/admin/:path*",
+    "/teacher-dashboard/:path*",
     "/school-dashboard/:path*",
   ],
 };
