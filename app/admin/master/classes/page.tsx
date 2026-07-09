@@ -15,13 +15,7 @@ export const metadata = {
 };
 
 export default async function ClassesPage() {
-  let classes = [] as Awaited<ReturnType<typeof getClasses>>;
-
-  if (process.env.DATABASE_URL) {
-    classes = await getClasses();
-  } else {
-    classes = [];
-  }
+  const classes = await getClasses();
 
   return (
     <div className="space-y-8">
