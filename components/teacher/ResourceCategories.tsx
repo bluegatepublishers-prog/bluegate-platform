@@ -16,7 +16,7 @@ const categories = [
     title: "Lesson Plans",
     description:
       "Ready-to-teach lesson plans for every chapter.",
-    href: "/teacher-login",
+    href: "/teacher-hub/resources",
     icon: BookOpen,
     color: "bg-blue-50 text-blue-600",
   },
@@ -24,7 +24,7 @@ const categories = [
     title: "Interactive PPTs",
     description:
       "Engaging classroom presentations.",
-    href: "/teacher-login",
+    href: "/teacher-hub/resources",
     icon: Presentation,
     color: "bg-orange-50 text-orange-600",
   },
@@ -32,7 +32,7 @@ const categories = [
     title: "Worksheets",
     description:
       "Practice and assessment worksheets.",
-    href: "/teacher-login",
+    href: "/teacher-hub/resources",
     icon: FileText,
     color: "bg-emerald-50 text-emerald-600",
   },
@@ -40,7 +40,7 @@ const categories = [
     title: "Video Lessons",
     description:
       "Digital learning videos for classrooms.",
-    href: "/teacher-login",
+    href: "/teacher-hub/resources",
     icon: Video,
     color: "bg-purple-50 text-purple-600",
   },
@@ -48,7 +48,7 @@ const categories = [
     title: "Teacher Manuals",
     description:
       "Teaching guides and instructional support.",
-    href: "/teacher-login",
+    href: "/teacher-hub/resources",
     icon: BookMarked,
     color: "bg-pink-50 text-pink-600",
   },
@@ -56,7 +56,7 @@ const categories = [
     title: "Question Bank",
     description:
       "Question papers and assessment resources.",
-    href: "/teacher-login",
+    href: "/teacher-hub/resources",
     icon: FileCheck,
     color: "bg-indigo-50 text-indigo-600",
   },

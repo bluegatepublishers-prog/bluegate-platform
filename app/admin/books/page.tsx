@@ -10,33 +10,49 @@ export const metadata = {
   title: "Books | Bluegate Admin",
 };
 
-type BookWithRelations = Prisma.BookGetPayload<{
-  include: {
-    class: true;
-    subject: true;
-    series: true;
-  };
-}>;
+// Use a local type to avoid relying on Prisma client helper types which may not be
+// available in the generated client in all environments. Keep the shape narrow to
+// what this page uses so we don't change admin UI/behavior.
+type BookWithRelations = {
+  id: string;
+  title: string;
+  subtitle?: string | null;
+  coverImage?: string | null;
+  featured: boolean;
+  published: boolean;
+  class: { name: string };
+  subject: { name: string };
+  series: { name: string } | null;
+};
 
 export default async function BooksPage() {
-  const books: BookWithRelations[] = await prisma.book.findMany({
-    include: {
-      class: true,
-      subject: true,
-      series: true,
-    },
-    orderBy: {
-      createdAt: "desc",
-    },
-  });
+  // During local builds or CI the DATABASE_URL may not be set. In that case
+  // avoid invoking Prisma at build time to prevent build-time DB errors.
+  let books: BookWithRelations[] = [];
+
+  if (process.env.DATABASE_URL) {
+    books = await prisma.book.findMany({
+      include: {
+        class: true,
+        subject: true,
+        series: true,
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+    });
+  } else {
+    // No DB available: fall back to an empty list so the admin UI still renders
+    books = [];
+  }
 
   const tableBooks: BookTableItem[] = books.map((book) => ({
   id: book.id,
 
   title: book.title,
-  subtitle: book.subtitle,
+  subtitle: book.subtitle ?? null,
 
-  coverImage: book.coverImage,
+  coverImage: book.coverImage ?? null,
 
   featured: book.featured,
   published: book.published,

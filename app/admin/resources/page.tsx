@@ -5,11 +5,18 @@ import { requireUser } from "@/lib/authz";
 export default async function AdminResourcesPage() {
   await requireUser(["ADMIN"]);
 
-  const resources = await prisma.resource.findMany({
-    orderBy: {
-      createdAt: "desc",
-    },
-  });
+  let resources: Awaited<ReturnType<typeof prisma.resource.findMany>> = [];
+
+  if (process.env.DATABASE_URL) {
+    resources = await prisma.resource.findMany({
+      orderBy: {
+        createdAt: "desc",
+      },
+    });
+  } else {
+    // No DB available during build — fall back to empty list so the page can render
+    resources = [];
+  }
 
   return (
     <main className="mx-auto max-w-7xl space-y-8 p-8">
