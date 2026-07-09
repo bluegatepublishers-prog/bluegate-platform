@@ -9,12 +9,15 @@ export async function PATCH(
   const user = await getApiUser(["ADMIN"]);
 
   if (!user) {
-    return NextResponse.json({ message: "Forbidden" }, { status: 403 });
+    return NextResponse.json(
+      { message: "Forbidden" },
+      { status: 403 }
+    );
   }
 
   const { id } = await params;
   const body = await request.json();
-  const { status } = body;
+  const status = body?.status;
 
   const allowedStatuses = ["NEW", "READ", "ARCHIVED"];
 
@@ -25,10 +28,19 @@ export async function PATCH(
     );
   }
 
-  const updated = await prisma.contactMessage.update({
-    where: { id },
-    data: { status },
-  });
+  try {
+    const updated = await (prisma as any).contactMessage.update({
+      where: { id },
+      data: { status },
+    });
 
-  return NextResponse.json(updated);
+    return NextResponse.json(updated);
+  } catch (error) {
+    console.error("Contact message status update failed:", error);
+
+    return NextResponse.json(
+      { message: "Unable to update status" },
+      { status: 500 }
+    );
+  }
 }
