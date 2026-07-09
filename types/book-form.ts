@@ -1,0 +1,58 @@
+export interface BookFormData {
+  // ===========================
+  // Basic Information
+  // ===========================
+
+  title: string;
+  subtitle: string;
+  isbn: string;
+  description: string;
+  aboutBook: string;
+
+  // ===========================
+  // Book Details
+  // ===========================
+
+  pages: number | "";
+  edition: string;
+  language: string;
+  board: string;
+  price: number | "";
+
+  binding: string;
+  publisher: string;
+  publicationYear: string;
+  weight: string;
+  dimensions: string;
+
+  // ===========================
+  // Media
+  // ===========================
+
+  coverImage: string;
+  samplePdf: string;
+  galleryImages: string[];
+
+  // ===========================
+  // Dynamic Sections
+  // ===========================
+
+  features: string[];
+  learningOutcomes: string[];
+  tableOfContents: string[];
+
+  // ===========================
+  // Academic
+  // ===========================
+
+  classId: string;
+  subjectId: string;
+  seriesId: string;
+
+  // ===========================
+  // Status
+  // ===========================
+
+  featured: boolean;
+  published: boolean;
+}
