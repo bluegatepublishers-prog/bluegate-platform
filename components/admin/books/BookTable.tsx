@@ -3,30 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Pencil, Trash2, BookOpen } from "lucide-react";
-
-export interface BookTableItem {
-  id: string;
-
-  title: string;
-  subtitle: string | null;
-
-  coverImage: string | null;
-
-  featured: boolean;
-  published: boolean;
-
-  class: {
-    name: string;
-  };
-
-  subject: {
-    name: string;
-  };
-
-  series: {
-    name: string;
-  } | null;
-}
+import type { BookTableItem } from "@/types/admin-book";
 
 interface BookTableProps {
   books: BookTableItem[];

@@ -18,14 +18,16 @@ interface Props {
   title: string;
   subtitle: string;
   category: string;
-  resources: Resource[];
+  viewAllLink?: string;
+  resources?: Resource[];
 }
 
 export default function ResourceSection({
   title,
   subtitle,
   category,
-  resources,
+  viewAllLink = "/teacher-login",
+  resources = [],
 }: Props) {
   return (
     <section className="py-20">
@@ -53,7 +55,7 @@ export default function ResourceSection({
           </div>
 
           <Link
-            href="/teacher-login"
+            href={viewAllLink}
             className="hidden items-center gap-2 font-semibold text-[#0B5ED7] md:flex"
           >
             View All

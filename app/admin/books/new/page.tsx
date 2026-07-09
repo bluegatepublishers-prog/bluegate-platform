@@ -3,37 +3,25 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import BookForm from "@/components/admin/books/BookForm";
-
-interface Option {
-  id: string;
-  name: string;
-}
+import type { BookFormData } from "@/types/book-form";
+import { createEmptyBookFormData } from "@/lib/book-form-data";
+import type {
+  BookFormChangeHandler,
+  SelectOption,
+} from "@/types/admin-book";
 
 export default function NewBookPage() {
   const router = useRouter();
 
   const [loading, setLoading] = useState(false);
 
-  const [classes, setClasses] = useState<Option[]>([]);
-  const [subjects, setSubjects] = useState<Option[]>([]);
-  const [series, setSeries] = useState<Option[]>([]);
+  const [classes, setClasses] = useState<SelectOption[]>([]);
+  const [subjects, setSubjects] = useState<SelectOption[]>([]);
+  const [series, setSeries] = useState<SelectOption[]>([]);
 
-  const [form, setForm] = useState({
-    title: "",
-    subtitle: "",
-    isbn: "",
-    description: "",
-
-    coverImage: "",
-    samplePdf: "",
-
-    classId: "",
-    subjectId: "",
-    seriesId: "",
-
-    featured: false,
-    published: true,
-  });
+  const [form, setForm] = useState<BookFormData>(
+    createEmptyBookFormData
+  );
 
   useEffect(() => {
     async function loadData() {
@@ -52,15 +40,12 @@ export default function NewBookPage() {
     loadData();
   }, []);
 
-  function onChange(
-    field: string,
-    value: string | boolean
-  ) {
+  const onChange: BookFormChangeHandler = (field, value) => {
     setForm((prev) => ({
       ...prev,
       [field]: value,
     }));
-  }
+  };
 
   async function onSubmit(
     e: React.FormEvent<HTMLFormElement>

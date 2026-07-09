@@ -56,3 +56,12 @@ export interface BookFormData {
   featured: boolean;
   published: boolean;
 }
+
+export type BookFormField = keyof BookFormData;
+
+export interface BookFormRecord extends BookFormData {
+  id: string;
+  slug: string;
+  createdAt: string;
+  updatedAt: string;
+}

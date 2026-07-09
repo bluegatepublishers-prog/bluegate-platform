@@ -21,6 +21,14 @@ enum ResourceType {
   ZIP
 }
 
+enum InspectionStatus {
+  NEW
+  CONTACTED
+  APPROVED
+  DISPATCHED
+  CLOSED
+}
+
 model User {
   id       String  @id @default(cuid())
   name     String
@@ -35,6 +43,8 @@ model User {
 
   teacher Teacher?
   school  School?
+
+  blogPosts BlogPost[]
 }
 
 model Teacher {
@@ -63,6 +73,8 @@ model School {
   schoolName String
   city       String
   state      String
+
+  inspectionRequests InspectionRequest[]
 }
 
 model Class {
@@ -122,10 +134,27 @@ model Book {
   isbn String?
 
   description String?
+  aboutBook  String?
+
+  pages           Int?
+  edition         String?
+  language        String?
+  board           String?
+  price           Decimal? @db.Decimal(10, 2)
+  binding         String?
+  publisher       String?
+  publicationYear String?
+  weight          String?
+  dimensions      String?
 
   coverImage String?
 
   samplePdf String?
+  galleryImages String[] @default([])
+
+  features         String[] @default([])
+  learningOutcomes String[] @default([])
+  tableOfContents  String[] @default([])
 
   featured Boolean @default(false)
 
@@ -158,8 +187,10 @@ model Resource {
   thumbnail String?
 
   featured Boolean @default(false)
+  published Boolean @default(true)
 
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   downloads Download[]
   bookmarks Bookmark[]
@@ -187,4 +218,55 @@ model Bookmark {
 
   teacher  Teacher  @relation(fields: [teacherId], references: [id], onDelete: Cascade)
   resource Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+
+  @@unique([teacherId, resourceId])
+}
+
+model BlogPost {
+  id String @id @default(cuid())
+
+  title   String
+  slug    String @unique
+  excerpt String
+  content String
+
+  coverImage String?
+  published  Boolean @default(false)
+  featured   Boolean @default(false)
+
+  authorId String
+  author   User @relation(fields: [authorId], references: [id], onDelete: Restrict)
+
+  publishedAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model InspectionRequest {
+  id String @id @default(cuid())
+
+  schoolName String
+  teacherName String
+  designation String
+  mobile String
+  email String
+  state String
+  city String
+  address String
+  message String?
+
+  bookId String?
+  bookTitle String
+  bookClass String
+  bookSubject String
+  bookSeries String?
+
+  status InspectionStatus @default(NEW)
+  notes String?
+
+  schoolId String?
+  school School? @relation(fields: [schoolId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }

@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import {
+  parseBookFormData,
+  toBookPersistenceData,
+} from "@/lib/book-form-data";
 
 function generateSlug(title: string) {
   return title
@@ -23,7 +27,12 @@ export async function GET() {
       },
     });
 
-    return NextResponse.json(books);
+    return NextResponse.json(
+      books.map((book) => ({
+        ...book,
+        ...parseBookFormData(book),
+      }))
+    );
   } catch (error) {
     console.error(error);
 
@@ -36,73 +45,41 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
+    const form = parseBookFormData(await request.json());
 
-    const {
-      title,
-      subtitle,
-      isbn,
-      description,
-
-      coverImage,
-      samplePdf,
-
-      classId,
-      subjectId,
-      seriesId,
-
-      featured,
-      published,
-    } = body;
-
-    if (!title?.trim()) {
+    if (!form.title) {
       return NextResponse.json(
         { message: "Book title is required." },
         { status: 400 }
       );
     }
 
-    if (!classId) {
+    if (!form.classId) {
       return NextResponse.json(
         { message: "Please select a class." },
         { status: 400 }
       );
     }
 
-    if (!subjectId) {
+    if (!form.subjectId) {
       return NextResponse.json(
         { message: "Please select a subject." },
         { status: 400 }
       );
     }
 
-    let slug = generateSlug(title);
+    let slug = generateSlug(form.title);
 
     let count = 1;
 
     while (await prisma.book.findUnique({ where: { slug } })) {
-      slug = `${generateSlug(title)}-${count++}`;
+      slug = `${generateSlug(form.title)}-${count++}`;
     }
 
     const book = await prisma.book.create({
       data: {
-        title,
-        subtitle: subtitle || null,
+        ...toBookPersistenceData(form),
         slug,
-
-        isbn: isbn || null,
-        description: description || null,
-
-        coverImage: coverImage || null,
-        samplePdf: samplePdf || null,
-
-        classId,
-        subjectId,
-
-        seriesId: seriesId || null,
-
-        featured: featured ?? false,
-        published: published ?? true,
       },
       include: {
         class: true,
@@ -111,9 +88,13 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    return NextResponse.json(book, {
-      status: 201,
-    });
+    return NextResponse.json(
+      {
+        ...book,
+        ...parseBookFormData(book),
+      },
+      { status: 201 }
+    );
   } catch (error) {
     console.error(error);
 

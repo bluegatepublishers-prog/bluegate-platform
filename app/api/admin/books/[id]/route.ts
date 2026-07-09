@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import {
+  parseBookFormData,
+  toBookPersistenceData,
+} from "@/lib/book-form-data";
 
 function generateSlug(title: string) {
   return title
@@ -43,7 +47,10 @@ export async function GET(
       );
     }
 
-    return NextResponse.json(book);
+    return NextResponse.json({
+      ...book,
+      ...parseBookFormData(book),
+    });
   } catch (error) {
     console.error(error);
 
@@ -69,26 +76,9 @@ export async function PUT(
   try {
     const { id } = await params;
 
-    const body = await request.json();
+    const form = parseBookFormData(await request.json());
 
-    const {
-      title,
-      subtitle,
-      isbn,
-      description,
-
-      coverImage,
-      samplePdf,
-
-      classId,
-      subjectId,
-      seriesId,
-
-      featured,
-      published,
-    } = body;
-
-    if (!title?.trim()) {
+    if (!form.title) {
       return NextResponse.json(
         {
           message: "Book title is required.",
@@ -99,7 +89,7 @@ export async function PUT(
       );
     }
 
-    if (!classId) {
+    if (!form.classId) {
       return NextResponse.json(
         {
           message: "Please select a class.",
@@ -110,7 +100,7 @@ export async function PUT(
       );
     }
 
-    if (!subjectId) {
+    if (!form.subjectId) {
       return NextResponse.json(
         {
           message: "Please select a subject.",
@@ -121,30 +111,29 @@ export async function PUT(
       );
     }
 
-    const slug = generateSlug(title);
+    const baseSlug = generateSlug(form.title);
+    let slug = baseSlug;
+    let count = 1;
+
+    while (
+      await prisma.book.findFirst({
+        where: {
+          slug,
+          NOT: { id },
+        },
+        select: { id: true },
+      })
+    ) {
+      slug = `${baseSlug}-${count++}`;
+    }
 
     const updatedBook = await prisma.book.update({
       where: {
         id,
       },
       data: {
-        title,
-        subtitle: subtitle || null,
+        ...toBookPersistenceData(form),
         slug,
-
-        isbn: isbn || null,
-        description: description || null,
-
-        coverImage: coverImage || null,
-        samplePdf: samplePdf || null,
-
-        classId,
-        subjectId,
-
-        seriesId: seriesId || null,
-
-        featured: featured ?? false,
-        published: published ?? true,
       },
       include: {
         class: true,
@@ -153,7 +142,10 @@ export async function PUT(
       },
     });
 
-    return NextResponse.json(updatedBook);
+    return NextResponse.json({
+      ...updatedBook,
+      ...parseBookFormData(updatedBook),
+    });
   } catch (error) {
     console.error(error);
 

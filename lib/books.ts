@@ -1,4 +1,6 @@
 import { prisma } from "@/lib/prisma";
+import { toBookPersistenceData } from "@/lib/book-form-data";
+import type { BookFormData } from "@/types/book-form";
 
 function generateSlug(title: string): string {
   return title
@@ -35,22 +37,10 @@ export async function getBook(id: string) {
   });
 }
 
-export async function createBook(data: {
-  title: string;
-  subtitle?: string;
-  isbn?: string;
-  description?: string;
-  coverImage?: string;
-  samplePdf?: string;
-  featured?: boolean;
-  published?: boolean;
-  classId: string;
-  subjectId: string;
-  seriesId?: string | null;
-}) {
+export async function createBook(data: BookFormData) {
   return prisma.book.create({
     data: {
-      ...data,
+      ...toBookPersistenceData(data),
       slug: generateSlug(data.title),
     },
   });
@@ -58,29 +48,15 @@ export async function createBook(data: {
 
 export async function updateBook(
   id: string,
-  data: {
-    title?: string;
-    subtitle?: string;
-    isbn?: string;
-    description?: string;
-    coverImage?: string;
-    samplePdf?: string;
-    featured?: boolean;
-    published?: boolean;
-    classId?: string;
-    subjectId?: string;
-    seriesId?: string | null;
-  }
+  data: BookFormData
 ) {
   return prisma.book.update({
     where: {
       id,
     },
     data: {
-      ...data,
-      ...(data.title && {
-        slug: generateSlug(data.title),
-      }),
+      ...toBookPersistenceData(data),
+      slug: generateSlug(data.title),
     },
   });
 }

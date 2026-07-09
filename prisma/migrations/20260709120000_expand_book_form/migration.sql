@@ -1,0 +1,16 @@
+ALTER TABLE "Book"
+ADD COLUMN "aboutBook" TEXT,
+ADD COLUMN "pages" INTEGER,
+ADD COLUMN "edition" TEXT,
+ADD COLUMN "language" TEXT,
+ADD COLUMN "board" TEXT,
+ADD COLUMN "price" DECIMAL(10, 2),
+ADD COLUMN "binding" TEXT,
+ADD COLUMN "publisher" TEXT,
+ADD COLUMN "publicationYear" TEXT,
+ADD COLUMN "weight" TEXT,
+ADD COLUMN "dimensions" TEXT,
+ADD COLUMN "galleryImages" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+ADD COLUMN "features" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+ADD COLUMN "learningOutcomes" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+ADD COLUMN "tableOfContents" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[];

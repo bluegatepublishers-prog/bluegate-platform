@@ -10,64 +10,24 @@ import {
   RefreshCw,
   Trash2,
 } from "lucide-react";
-
-interface Option {
-  id: string;
-  name: string;
-}
+import type { BookFormData } from "@/types/book-form";
+import type {
+  BookFormChangeHandler,
+  SelectOption,
+} from "@/types/admin-book";
 
 interface BookFormProps {
   title: string;
 
-  form: {
-  // Basic Information
-  title: string;
-  subtitle: string;
-  isbn: string;
-  description: string;
-  aboutBook: string;
+  form: BookFormData;
 
-  // Book Details
-  pages: number | "";
-  edition: string;
-  language: string;
-  board: string;
-  price: number | "";
-
-  // Media
-  coverImage: string;
-  samplePdf: string;
-  galleryImages: string[];
-
-  // Dynamic Sections
-  features: string[];
-  learningOutcomes: string[];
-  tableOfContents: string[];
-
-  // Academic
-  classId: string;
-  subjectId: string;
-  seriesId: string;
-
-  // Status
-  featured: boolean;
-  published: boolean;
-};
-
-  classes: Option[];
-  subjects: Option[];
-  series: Option[];
+  classes: SelectOption[];
+  subjects: SelectOption[];
+  series: SelectOption[];
 
   loading: boolean;
 
-  onChange: (
-  field: string,
-  value:
-    | string
-    | number
-    | boolean
-    | string[]
-) => void;
+  onChange: BookFormChangeHandler;
 
   onSubmit: (
     e: React.FormEvent<HTMLFormElement>
@@ -89,6 +49,14 @@ export default function BookForm({
 
   const [uploadingPdf, setUploadingPdf] =
   useState(false);
+
+  function removeCover() {
+    onChange("coverImage", "");
+  }
+
+  function removePdf() {
+    onChange("samplePdf", "");
+  }
 
   async function uploadFile(
     file: File,

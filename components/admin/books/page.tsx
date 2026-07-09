@@ -2,9 +2,8 @@ import Link from "next/link";
 import { Plus } from "lucide-react";
 
 import { prisma } from "@/lib/prisma";
-import BookTable, {
-  BookTableItem,
-} from "@/components/admin/books/BookTable";
+import BookTable from "@/components/admin/books/BookTable";
+import type { BookTableItem } from "@/types/admin-book";
 
 export const metadata = {
   title: "Books | Bluegate Admin",
