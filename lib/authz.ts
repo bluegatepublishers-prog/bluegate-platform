@@ -5,7 +5,10 @@ export async function requireUser(roles?: string[]) {
   const session = await auth();
   const user = session?.user;
 
-  if (!user?.id) redirect("/teacher-login");
+  if (!user?.id) {
+    redirect("/teacher-login");
+  }
+
   if (roles && (!user.role || !roles.includes(user.role))) redirect("/");
 
   return user;

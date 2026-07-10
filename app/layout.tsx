@@ -7,6 +7,7 @@ import AuthProvider from "@/components/providers/AuthProvider";
 import TopBar from "@/components/layout/TopBar";
 import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
+import PublicChrome from "@/components/layout/PublicChrome";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -35,13 +36,16 @@ export default function RootLayout({
         className={`${inter.variable} ${poppins.variable} min-h-screen bg-white`}
       >
         <AuthProvider>
-          <TopBar />
-
-          <Header />
+          <PublicChrome>
+            <TopBar />
+            <Header />
+          </PublicChrome>
 
           <main>{children}</main>
 
-          <Footer />
+          <PublicChrome>
+            <Footer />
+          </PublicChrome>
         </AuthProvider>
       </body>
     </html>
