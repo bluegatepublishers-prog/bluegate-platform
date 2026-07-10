@@ -12,11 +12,17 @@ import {
   User,
   Settings,
   GraduationCap,
+  Sparkles,
   ChevronRight,
 } from "lucide-react";
 import LogoutButton from "./LogoutButton";
 
 const navigation = [
+  {
+    name: "AI Studio",
+    href: "/teacher-dashboard/ai",
+    icon: Sparkles,
+  },
   {
     name: "Dashboard",
     href: "/teacher-dashboard",
@@ -119,7 +125,7 @@ export default function Sidebar({ teacherName, schoolName }: { teacherName: stri
         <ul className="space-y-2">
           {navigation.map((item) => {
             const Icon = item.icon;
-            const active = pathname === item.href;
+            const active = item.href === "/teacher-dashboard" ? pathname === item.href : pathname.startsWith(item.href);
 
             return (
               <li key={item.name}>
