@@ -1,3 +1,4 @@
+import { requireUser } from "@/lib/authz";
 import {
   Users,
   School,
@@ -7,7 +8,11 @@ import {
   Bell,
 } from "lucide-react";
 
-export default function AdminDashboardPage() {
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+export default async function AdminDashboardPage() {
+  await requireUser(["ADMIN"]);
   const stats = [
     {
       title: "Teachers",
@@ -45,6 +50,11 @@ export default function AdminDashboardPage() {
       title: "Manage Teachers",
       href: "/admin/teachers",
       icon: Users,
+    },
+    {
+      title: "Manage Schools",
+      href: "/admin/schools",
+      icon: School,
     },
     {
       title: "Upload Resource",
