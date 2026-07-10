@@ -1,6 +1,9 @@
 import { Mail } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export const metadata = {
   title: "Contact Messages | Bluegate Admin",
 };
@@ -19,12 +22,40 @@ function statusBadge(status: string) {
 }
 
 export default async function ContactMessagesPage() {
-  let msgs: any[] = [];
+  if (!process.env.DATABASE_URL) {
+    return (
+      <div className="space-y-8 p-8">
+        <div className="rounded-2xl border border-rose-200 bg-rose-50 p-8 text-slate-900">
+          <h1 className="text-3xl font-bold">Database configuration required</h1>
+          <p className="mt-4 text-slate-700">
+            The contact messages admin page cannot load because the database is not configured.
+            Check the <code>DATABASE_URL</code> environment variable and try again.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
-  if (process.env.DATABASE_URL && (prisma as any).contactMessage) {
+  let msgs: any[] = [];
+  let errorMessage: string | null = null;
+
+  try {
     msgs = await (prisma as any).contactMessage.findMany({
       orderBy: { createdAt: "desc" },
     });
+  } catch (error) {
+    errorMessage = "Database connection is unavailable. Check the DATABASE_URL environment variable.";
+  }
+
+  if (errorMessage) {
+    return (
+      <div className="space-y-8 p-8">
+        <div className="rounded-2xl border border-rose-200 bg-rose-50 p-8 text-slate-900">
+          <h1 className="text-3xl font-bold">Unable to load contact messages</h1>
+          <p className="mt-4 text-slate-700">{errorMessage}</p>
+        </div>
+      </div>
+    );
   }
 
   return (

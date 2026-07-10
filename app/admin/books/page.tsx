@@ -6,6 +6,9 @@ import { prisma } from "@/lib/prisma";
 import BookTable from "@/components/admin/books/BookTable";
 import type { BookTableItem } from "@/types/admin-book";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export const metadata = {
   title: "Books | Bluegate Admin",
 };
@@ -19,16 +22,48 @@ type BookWithRelations = Prisma.BookGetPayload<{
 }>;
 
 export default async function BooksPage() {
-  const books: BookWithRelations[] = await prisma.book.findMany({
-    include: {
-      class: true,
-      subject: true,
-      series: true,
-    },
-    orderBy: {
-      createdAt: "desc",
-    },
-  });
+  if (!process.env.DATABASE_URL) {
+    return (
+      <div className="space-y-8 p-8">
+        <div className="rounded-2xl border border-rose-200 bg-rose-50 p-8 text-slate-900">
+          <h1 className="text-3xl font-bold">Database configuration required</h1>
+          <p className="mt-4 text-slate-700">
+            The admin books page cannot load because the database is not configured.
+            Check the <code>DATABASE_URL</code> environment variable and try again.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  let books: BookWithRelations[] = [];
+  let errorMessage: string | null = null;
+
+  try {
+    books = await prisma.book.findMany({
+      include: {
+        class: true,
+        subject: true,
+        series: true,
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+    });
+  } catch (error) {
+    errorMessage = "Database connection is unavailable. Check the DATABASE_URL environment variable.";
+  }
+
+  if (errorMessage) {
+    return (
+      <div className="space-y-8 p-8">
+        <div className="rounded-2xl border border-rose-200 bg-rose-50 p-8 text-slate-900">
+          <h1 className="text-3xl font-bold">Unable to load books</h1>
+          <p className="mt-4 text-slate-700">{errorMessage}</p>
+        </div>
+      </div>
+    );
+  }
 
   const tableBooks: BookTableItem[] = books.map((book) => ({
   id: book.id,
