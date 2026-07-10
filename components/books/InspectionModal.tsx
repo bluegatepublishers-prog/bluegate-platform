@@ -17,6 +17,7 @@ export default function InspectionModal({
   onClose,
 }: InspectionModalProps) {
   const [loading, setLoading] = useState(false);
+  const [requestId, setRequestId] = useState(() => crypto.randomUUID());
 
   const [form, setForm] = useState({
     schoolName: "",
@@ -65,6 +66,7 @@ export default function InspectionModal({
         },
         body: JSON.stringify({
           ...form,
+          requestId,
           book,
         }),
       });
@@ -73,6 +75,7 @@ export default function InspectionModal({
 
       if (data.success) {
         alert("Request submitted successfully.");
+        setRequestId(crypto.randomUUID());
         onClose();
       } else {
         alert(data.message || "Unable to submit request.");
@@ -115,7 +118,7 @@ export default function InspectionModal({
             <h3 className="mb-4 text-xl font-semibold">Contact Person</h3>
             <div className="grid gap-5 md:grid-cols-2">
               <Input label="Teacher Name *" name="teacherName" value={form.teacherName} onChange={update}/>
-              <Input label="Designation" name="designation" value={form.designation} onChange={update}/>
+              <Input label="Designation *" name="designation" value={form.designation} onChange={update} required />
               <Input label="Mobile *" name="mobile" value={form.mobile} onChange={update}/>
               <Input label="Email *" name="email" value={form.email} onChange={update}/>
             </div>
@@ -124,10 +127,10 @@ export default function InspectionModal({
           <section>
             <h3 className="mb-4 text-xl font-semibold">Address</h3>
             <div className="grid gap-5 md:grid-cols-2">
-              <Input label="State" name="state" value={form.state} onChange={update}/>
-              <Input label="City" name="city" value={form.city} onChange={update}/>
+              <Input label="State *" name="state" value={form.state} onChange={update} required />
+              <Input label="City *" name="city" value={form.city} onChange={update} required />
               <Input label="PIN Code" name="pinCode" value={form.pinCode} onChange={update}/>
-              <Input label="School Address" name="address" value={form.address} onChange={update}/>
+              <Input label="School Address *" name="address" value={form.address} onChange={update} required />
             </div>
           </section>
 
@@ -183,9 +186,10 @@ interface InputProps {
   onChange: (
     e: React.ChangeEvent<HTMLInputElement>
   ) => void;
+  required?: boolean;
 }
 
-function Input({ label, name, value, onChange }: InputProps) {
+function Input({ label, name, value, onChange, required = false }: InputProps) {
   return (
     <div>
       <label className="mb-2 block font-medium">{label}</label>
@@ -194,6 +198,7 @@ function Input({ label, name, value, onChange }: InputProps) {
         name={name}
         value={value}
         onChange={onChange}
+        required={required || label.includes("*")}
       />
     </div>
   );

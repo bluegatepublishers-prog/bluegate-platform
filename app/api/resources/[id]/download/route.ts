@@ -12,7 +12,7 @@ export async function POST(
   const { id } = await params;
   const teacher = await prisma.teacher.findUnique({ where: { userId: user.id } });
   const resource = await prisma.resource.findFirst({
-    where: { id },
+    where: { id, published: true },
   });
 
   if (!teacher || !resource) {

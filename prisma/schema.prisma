@@ -34,12 +34,37 @@ model Teacher {
 }
 
 model School {
-  id         String @id @default(cuid())
-  userId     String @unique
-  schoolName String
-  city       String
-  state      String
-  user       User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                 String              @id @default(cuid())
+  userId             String              @unique
+  schoolName         String
+  city               String
+  state              String
+  user               User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  inspectionRequests InspectionRequest[]
+}
+
+model InspectionRequest {
+  id          String           @id @default(cuid())
+  schoolName  String
+  teacherName String
+  designation String
+  mobile      String
+  email       String
+  state       String
+  city        String
+  address     String
+  message     String?
+  bookId      String?
+  bookTitle   String
+  bookClass   String
+  bookSubject String
+  bookSeries  String?
+  status      InspectionStatus @default(NEW)
+  notes       String?
+  schoolId    String?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  school      School?          @relation(fields: [schoolId], references: [id], onDelete: SetNull)
 }
 
 model Class {
@@ -121,7 +146,9 @@ model Resource {
   fileUrl     String
   thumbnail   String?
   featured    Boolean      @default(false)
+  published   Boolean      @default(true)
   createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
   bookmarks   Bookmark[]
   downloads   Download[]
 }
@@ -156,4 +183,12 @@ enum ResourceType {
   DOC
   VIDEO
   ZIP
+}
+
+enum InspectionStatus {
+  NEW
+  CONTACTED
+  APPROVED
+  DISPATCHED
+  CLOSED
 }

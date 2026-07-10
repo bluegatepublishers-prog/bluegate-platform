@@ -3,6 +3,7 @@ import type { Resource } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/authz";
+import ResourceRowActions from "@/components/admin/ResourceRowActions";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -94,13 +95,14 @@ export default async function AdminResourcesPage() {
                 <th className="p-4">Subject</th>
                 <th className="p-4">Type</th>
                 <th className="p-4">Status</th>
+                <th className="p-4">Actions</th>
               </tr>
             </thead>
 
             <tbody>
               {resources.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="p-10 text-center">
+                  <td colSpan={6} className="p-10 text-center">
                     <p className="font-semibold text-slate-700">
                       No resources found
                     </p>
@@ -133,14 +135,15 @@ export default async function AdminResourcesPage() {
                     <td className="p-4">
                       <span
                         className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
-                          resource.featured
+                          resource.published
                             ? "bg-green-100 text-green-700"
-                            : "bg-slate-100 text-slate-600"
+                            : "bg-amber-100 text-amber-700"
                         }`}
                       >
-                        {resource.featured ? "Featured" : "Normal"}
+                        {resource.published ? "Published" : "Draft"}{resource.featured ? " · Featured" : ""}
                       </span>
                     </td>
+                    <td className="p-4"><ResourceRowActions id={resource.id} /></td>
                   </tr>
                 ))
               )}

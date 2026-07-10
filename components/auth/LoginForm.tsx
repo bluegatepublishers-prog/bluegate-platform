@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { signIn } from "next-auth/react";
+import { getSession, signIn } from "next-auth/react";
 import {
   Eye,
   EyeOff,
@@ -13,7 +13,17 @@ import {
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 
-export default function LoginForm() {
+interface LoginFormProps {
+  callbackUrl?: string;
+  title?: string;
+  description?: string;
+}
+
+export default function LoginForm({
+  callbackUrl,
+  title = "Teacher Login",
+  description = "Sign in to access your Teacher Dashboard.",
+}: LoginFormProps) {
   const router = useRouter();
 
   const [isPending, startTransition] = useTransition();
@@ -47,7 +57,19 @@ export default function LoginForm() {
         return;
       }
 
-      router.push("/teacher-dashboard");
+      const session = await getSession();
+
+      if (!session?.user) {
+        setError("Sign-in succeeded, but the session could not be loaded. Please try again.");
+        return;
+      }
+
+      const destination = getPostLoginDestination(
+        session.user.role,
+        callbackUrl
+      );
+
+      router.replace(destination);
       router.refresh();
     });
   }
@@ -62,13 +84,9 @@ export default function LoginForm() {
             <GraduationCap className="h-10 w-10 text-white" />
           </div>
 
-          <h1 className="mt-8 text-4xl font-bold">
-            Teacher Login
-          </h1>
+          <h1 className="mt-8 text-4xl font-bold">{title}</h1>
 
-          <p className="mt-3 text-slate-600">
-            Sign in to access your Teacher Dashboard.
-          </p>
+          <p className="mt-3 text-slate-600">{description}</p>
         </div>
 
         {/* Form */}
@@ -201,4 +219,38 @@ export default function LoginForm() {
       </div>
     </div>
   );
+}
+
+function getPostLoginDestination(role: string | undefined, callbackUrl?: string) {
+  const safeCallback = getSafeCallback(role, callbackUrl);
+  if (safeCallback) return safeCallback;
+
+  switch (role) {
+    case "ADMIN":
+      return "/admin";
+    case "TEACHER":
+      return "/teacher-dashboard";
+    case "SCHOOL":
+      return "/school-dashboard";
+    default:
+      return "/";
+  }
+}
+
+function getSafeCallback(role: string | undefined, callbackUrl?: string) {
+  if (!callbackUrl || !callbackUrl.startsWith("/") || callbackUrl.startsWith("//")) {
+    return null;
+  }
+
+  const path = callbackUrl.split(/[?#]/, 1)[0];
+  const allowed =
+    role === "ADMIN"
+      ? path === "/admin" || path.startsWith("/admin/")
+      : role === "TEACHER"
+        ? path === "/teacher-dashboard" || path.startsWith("/teacher-dashboard/")
+        : role === "SCHOOL"
+          ? path === "/school-dashboard" || path.startsWith("/school-dashboard/")
+          : false;
+
+  return allowed ? callbackUrl : null;
 }

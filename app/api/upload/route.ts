@@ -2,9 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { mkdir, writeFile } from "fs/promises";
 import path from "path";
 import { v4 as uuid } from "uuid";
+import { getApiUser } from "@/lib/authz";
 
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
 const MAX_PDF_SIZE = 50 * 1024 * 1024;
+const MAX_RESOURCE_SIZE = 100 * 1024 * 1024;
 
 const IMAGE_TYPES = [
   "image/jpeg",
@@ -15,6 +17,10 @@ const IMAGE_TYPES = [
 
 export async function POST(request: NextRequest) {
   try {
+    if (!(await getApiUser(["ADMIN"]))) {
+      return NextResponse.json({ message: "Forbidden" }, { status: 403 });
+    }
+
     const formData = await request.formData();
 
     const file = formData.get("file") as File | null;
@@ -26,10 +32,21 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const scope = formData.get("scope");
+    const resourceUpload = scope === "resource" || scope === "resource-thumbnail";
     let folder = "";
     let maxSize = 0;
 
-    if (IMAGE_TYPES.includes(file.type)) {
+    const extension = path.extname(file.name).toLowerCase();
+    const resourceExtensions = [".pdf", ".pptx", ".docx", ".zip", ".mp4"];
+
+    if (resourceUpload && scope === "resource-thumbnail" && IMAGE_TYPES.includes(file.type)) {
+      folder = "thumbnails";
+      maxSize = MAX_IMAGE_SIZE;
+    } else if (resourceUpload && resourceExtensions.includes(extension)) {
+      folder = "files";
+      maxSize = MAX_RESOURCE_SIZE;
+    } else if (IMAGE_TYPES.includes(file.type)) {
       folder = "covers";
       maxSize = MAX_IMAGE_SIZE;
     } else if (file.type === "application/pdf") {
@@ -39,7 +56,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           message:
-            "Only JPG, PNG, WEBP and PDF files are allowed.",
+            resourceUpload
+              ? "Only PDF, PPTX, DOCX, ZIP, MP4, JPG, PNG and WEBP files are allowed."
+              : "Only JPG, PNG, WEBP and PDF files are allowed.",
         },
         {
           status: 400,
@@ -64,19 +83,11 @@ export async function POST(request: NextRequest) {
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
 
-    const uploadDir = path.join(
-      process.cwd(),
-      "public",
-      "uploads",
-      "books",
-      folder
-    );
+    const uploadDir = path.join(process.cwd(), "public", "uploads", resourceUpload ? "resources" : "books", folder);
 
     await mkdir(uploadDir, {
       recursive: true,
     });
-
-    const extension = path.extname(file.name);
 
     const filename = `${uuid()}${extension}`;
 
@@ -89,7 +100,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      url: `/uploads/books/${folder}/${filename}`,
+      url: `/uploads/${resourceUpload ? "resources" : "books"}/${folder}/${filename}`,
       filename,
       folder,
     });

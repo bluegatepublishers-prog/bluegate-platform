@@ -11,10 +11,10 @@ import {
   Bell,
   User,
   Settings,
-  LogOut,
   GraduationCap,
   ChevronRight,
 } from "lucide-react";
+import LogoutButton from "./LogoutButton";
 
 const navigation = [
   {
@@ -59,7 +59,7 @@ const navigation = [
   },
 ];
 
-export default function Sidebar() {
+export default function Sidebar({ teacherName, schoolName }: { teacherName: string; schoolName: string }) {
   const pathname = usePathname();
 
   return (
@@ -93,11 +93,11 @@ export default function Sidebar() {
 
             <div>
               <h3 className="font-semibold text-slate-900">
-                Teacher Name
+                {teacherName}
               </h3>
 
               <p className="text-sm text-slate-600">
-                ABC Public School
+                {schoolName}
               </p>
             </div>
           </div>
@@ -155,10 +155,7 @@ export default function Sidebar() {
 
       {/* Footer */}
       <div className="border-t border-slate-200 p-6">
-        <button className="flex w-full items-center justify-center gap-3 rounded-2xl border border-slate-300 px-5 py-4 font-medium text-slate-700 transition hover:border-red-300 hover:bg-red-50 hover:text-red-600">
-          <LogOut className="h-5 w-5" />
-          Logout
-        </button>
+        <LogoutButton className="w-full" />
 
         <p className="mt-6 text-center text-xs text-slate-400">
           Bluegate Publishers

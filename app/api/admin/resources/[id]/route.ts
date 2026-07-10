@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { ResourceType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getApiUser } from "@/lib/authz";
+import { removeManagedResourceFile } from "@/lib/resource-files";
 
 export async function PUT(
   request: Request,
@@ -17,8 +18,10 @@ export async function PUT(
     ? body.type
     : ResourceType.PDF;
 
-  return NextResponse.json(
-    await prisma.resource.update({
+  const existing = await prisma.resource.findUnique({ where: { id } });
+  if (!existing) return NextResponse.json({ message: "Resource not found." }, { status: 404 });
+
+  const resource = await prisma.resource.update({
       where: { id },
       data: {
         title: body.title?.trim(),
@@ -29,9 +32,13 @@ export async function PUT(
         fileUrl: body.fileUrl?.trim(),
         thumbnail: body.thumbnail?.trim() || null,
         featured: Boolean(body.featured),
+        published: body.published !== false,
       },
-    })
-  );
+    });
+
+  if (existing.fileUrl !== resource.fileUrl) await removeManagedResourceFile(existing.fileUrl);
+  if (existing.thumbnail !== resource.thumbnail) await removeManagedResourceFile(existing.thumbnail);
+  return NextResponse.json(resource);
 }
 
 export async function DELETE(
@@ -43,6 +50,9 @@ export async function DELETE(
   }
 
   const { id } = await params;
+  const resource = await prisma.resource.findUnique({ where: { id } });
+  if (!resource) return NextResponse.json({ message: "Resource not found." }, { status: 404 });
   await prisma.resource.delete({ where: { id } });
+  await Promise.all([removeManagedResourceFile(resource.fileUrl), removeManagedResourceFile(resource.thumbnail)]);
   return NextResponse.json({ success: true });
 }
