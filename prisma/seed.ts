@@ -132,11 +132,99 @@ async function main() {
     });
   }
 
+  // ----------------------------
+  // Teacher Test Account
+  // ----------------------------
+
+  const teacherPassword = await bcrypt.hash("Teacher@123", 10);
+  const teacherUser = await prisma.user.upsert({
+    where: {
+      email: "teacher@bluegatepublishers.com",
+    },
+    update: {
+      name: "Bluegate Teacher",
+      password: teacherPassword,
+      role: UserRole.TEACHER,
+    },
+    create: {
+      name: "Bluegate Teacher",
+      email: "teacher@bluegatepublishers.com",
+      password: teacherPassword,
+      role: UserRole.TEACHER,
+    },
+  });
+
+  await prisma.teacher.upsert({
+    where: {
+      userId: teacherUser.id,
+    },
+    update: {
+      schoolName: "Bluegate Demonstration School",
+      designation: "Senior Teacher",
+      subject: "Science",
+      classes: "Classes 6-8",
+      verified: true,
+    },
+    create: {
+      userId: teacherUser.id,
+      schoolName: "Bluegate Demonstration School",
+      designation: "Senior Teacher",
+      subject: "Science",
+      classes: "Classes 6-8",
+      verified: true,
+    },
+  });
+
+  // ----------------------------
+  // School Test Account
+  // ----------------------------
+
+  const schoolPassword = await bcrypt.hash("School@123", 10);
+  const schoolUser = await prisma.user.upsert({
+    where: {
+      email: "school@bluegatepublishers.com",
+    },
+    update: {
+      name: "Bluegate School Admin",
+      password: schoolPassword,
+      role: UserRole.SCHOOL,
+    },
+    create: {
+      name: "Bluegate School Admin",
+      email: "school@bluegatepublishers.com",
+      password: schoolPassword,
+      role: UserRole.SCHOOL,
+    },
+  });
+
+  await prisma.school.upsert({
+    where: {
+      userId: schoolUser.id,
+    },
+    update: {
+      schoolName: "Bluegate Demonstration School",
+      city: "New Delhi",
+      state: "Delhi",
+    },
+    create: {
+      userId: schoolUser.id,
+      schoolName: "Bluegate Demonstration School",
+      city: "New Delhi",
+      state: "Delhi",
+    },
+  });
+
   console.log("✅ Database Seed Completed");
 }
 
 main()
-  .catch(console.error)
+  .catch((error: unknown) => {
+    console.error(
+      "Database seed failed:",
+      error instanceof Error ? error.message : "Unknown error"
+    );
+    process.exitCode = 1;
+  })
   .finally(async () => {
     await prisma.$disconnect();
   });
