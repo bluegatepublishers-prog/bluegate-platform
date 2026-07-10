@@ -24,6 +24,7 @@ model Teacher {
   id          String     @id @default(cuid())
   userId      String     @unique
   schoolName  String
+  schoolId    String?
   designation String
   subject     String
   classes     String
@@ -31,6 +32,9 @@ model Teacher {
   bookmarks   Bookmark[]
   downloads   Download[]
   user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  school      School?    @relation(fields: [schoolId], references: [id], onDelete: SetNull)
+
+  @@index([schoolId])
 }
 
 model School {
@@ -41,6 +45,7 @@ model School {
   state              String
   user               User                @relation(fields: [userId], references: [id], onDelete: Cascade)
   inspectionRequests InspectionRequest[]
+  teachers           Teacher[]
 }
 
 model InspectionRequest {
@@ -103,6 +108,7 @@ model BookSeries {
 model Book {
   id               String      @id @default(cuid())
   title            String
+  author           String?
   subtitle         String?
   slug             String      @unique
   isbn             String?
@@ -131,6 +137,9 @@ model Book {
   publisher        String?
   tableOfContents  String[]    @default([])
   weight           String?
+  seoTitle         String?
+  seoDescription   String?
+  keywords         String[]    @default([])
   class            Class       @relation(fields: [classId], references: [id])
   series           BookSeries? @relation(fields: [seriesId], references: [id])
   subject          Subject     @relation(fields: [subjectId], references: [id])

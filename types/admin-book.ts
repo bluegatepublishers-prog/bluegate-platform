@@ -24,6 +24,11 @@ export type BookFormChangeHandler = (
 export interface BookTableItem {
   id: string;
   title: string;
+  slug: string;
+  author: string | null;
+  isbn: string | null;
+  edition: string | null;
+  price: string | null;
   subtitle: string | null;
   coverImage: string | null;
   featured: boolean;
@@ -31,4 +36,6 @@ export interface BookTableItem {
   class: NamedEntity;
   subject: NamedEntity;
   series: NamedEntity | null;
+  createdAt: string;
+  updatedAt: string;
 }

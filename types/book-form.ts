@@ -4,10 +4,14 @@ export interface BookFormData {
   // ===========================
 
   title: string;
+  author: string;
   subtitle: string;
   isbn: string;
   description: string;
   aboutBook: string;
+  seoTitle: string;
+  seoDescription: string;
+  keywords: string[];
 
   // ===========================
   // Book Details

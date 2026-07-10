@@ -49,6 +49,7 @@ export default function BookForm({
 
   const [uploadingPdf, setUploadingPdf] =
   useState(false);
+  const [uploadingGallery, setUploadingGallery] = useState(false);
 
   function removeCover() {
     onChange("coverImage", "");
@@ -60,7 +61,7 @@ export default function BookForm({
 
   async function uploadFile(
     file: File,
-    field: "coverImage" | "samplePdf"
+    field: "coverImage" | "samplePdf" | "galleryImages"
   ) {
     const formData = new FormData();
 
@@ -68,8 +69,10 @@ export default function BookForm({
 
     if (field === "coverImage") {
       setUploadingCover(true);
-    } else {
+    } else if (field === "samplePdf") {
       setUploadingPdf(true);
+    } else {
+      setUploadingGallery(true);
     }
 
     try {
@@ -85,15 +88,18 @@ export default function BookForm({
         return;
       }
 
-      onChange(field, data.url);
+      if (field === "galleryImages") onChange(field, [...form.galleryImages, data.url]);
+      else onChange(field, data.url);
     } catch (error) {
       console.error(error);
       alert("Upload failed.");
     } finally {
       if (field === "coverImage") {
         setUploadingCover(false);
-      } else {
+      } else if (field === "samplePdf") {
         setUploadingPdf(false);
+      } else {
+        setUploadingGallery(false);
       }
     }
   }
@@ -187,6 +193,11 @@ function removeItem(
           {/* ISBN */}
 
           <div>
+            <label className="mb-2 block font-medium">Author</label>
+            <input type="text" value={form.author} onChange={(e) => onChange("author", e.target.value)} className="w-full rounded-xl border px-4 py-3 outline-none focus:border-blue-500" />
+          </div>
+
+          <div>
             <label className="mb-2 block font-medium">
               ISBN
             </label>
@@ -233,6 +244,35 @@ function removeItem(
 
         </div>
 
+      </div>
+
+      <div className="rounded-2xl border bg-white p-8 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-2xl font-bold">Gallery</h2><p className="mt-1 text-sm text-slate-500">Optional additional JPG, PNG, or WEBP images.</p></div><label className="cursor-pointer rounded-xl bg-blue-600 px-4 py-2 font-semibold text-white">{uploadingGallery ? "Uploading…" : "Add image"}<input hidden type="file" accept="image/png,image/jpeg,image/webp" disabled={uploadingGallery} onChange={(e) => { if (e.target.files?.[0]) uploadFile(e.target.files[0], "galleryImages"); e.currentTarget.value = ""; }}/></label></div>
+        {form.galleryImages.length ? <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">{form.galleryImages.map((image, index) => <div key={`${image}-${index}`} className="relative overflow-hidden rounded-xl border"><Image src={image} alt={`Gallery image ${index + 1}`} width={180} height={140} className="h-32 w-full object-cover"/><button type="button" aria-label={`Remove gallery image ${index + 1}`} onClick={() => onChange("galleryImages", form.galleryImages.filter((_, itemIndex) => itemIndex !== index))} className="absolute right-2 top-2 rounded-full bg-white p-1.5 text-red-600 shadow"><Trash2 className="h-4 w-4"/></button></div>)}</div> : <p className="mt-5 rounded-xl bg-slate-50 p-5 text-sm text-slate-500">No gallery images uploaded.</p>}
+      </div>
+      <div className="rounded-2xl border bg-white p-8 shadow-sm">
+        <h2 className="mb-6 text-2xl font-bold">Publishing Details</h2>
+        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+          {([
+            ["edition", "Edition"], ["publisher", "Publisher"], ["publicationYear", "Publication year"],
+            ["language", "Language"], ["board", "Board"], ["binding", "Binding"],
+            ["weight", "Weight"], ["dimensions", "Dimensions"],
+          ] as const).map(([field, label]) => (
+            <label key={field} className="space-y-2"><span className="block font-medium">{label}</span><input value={form[field]} onChange={(e) => onChange(field, e.target.value)} className="w-full rounded-xl border px-4 py-3" /></label>
+          ))}
+          <label className="space-y-2"><span className="block font-medium">Pages</span><input type="number" min="1" value={form.pages} onChange={(e) => onChange("pages", e.target.value ? Number(e.target.value) : "")} className="w-full rounded-xl border px-4 py-3" /></label>
+          <label className="space-y-2"><span className="block font-medium">Price</span><input type="number" min="0" step="0.01" value={form.price} onChange={(e) => onChange("price", e.target.value ? Number(e.target.value) : "")} className="w-full rounded-xl border px-4 py-3" /></label>
+        </div>
+        <label className="mt-6 block space-y-2"><span className="block font-medium">About the book</span><textarea rows={5} value={form.aboutBook} onChange={(e) => onChange("aboutBook", e.target.value)} className="w-full rounded-xl border px-4 py-3" /></label>
+      </div>
+
+      <div className="rounded-2xl border bg-white p-8 shadow-sm">
+        <h2 className="mb-6 text-2xl font-bold">SEO &amp; Discovery</h2>
+        <div className="space-y-5">
+          <label className="block space-y-2"><span className="block font-medium">SEO title</span><input value={form.seoTitle} maxLength={70} onChange={(e) => onChange("seoTitle", e.target.value)} className="w-full rounded-xl border px-4 py-3" /></label>
+          <label className="block space-y-2"><span className="block font-medium">SEO description</span><textarea rows={3} value={form.seoDescription} maxLength={180} onChange={(e) => onChange("seoDescription", e.target.value)} className="w-full rounded-xl border px-4 py-3" /></label>
+          <label className="block space-y-2"><span className="block font-medium">Keywords</span><input value={form.keywords.join(", ")} onChange={(e) => onChange("keywords", e.target.value.split(",").map((item) => item.trim()).filter(Boolean))} placeholder="mathematics, class 8, workbook" className="w-full rounded-xl border px-4 py-3" /></label>
+        </div>
       </div>
             {/* ==========================================
           UPLOADS
@@ -640,7 +680,8 @@ function removeItem(
           disabled={
             loading ||
             uploadingCover ||
-            uploadingPdf
+            uploadingPdf ||
+            uploadingGallery
           }
           className="inline-flex items-center rounded-xl bg-blue-600 px-8 py-4 text-lg font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
         >

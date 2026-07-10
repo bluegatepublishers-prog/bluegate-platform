@@ -3,10 +3,14 @@ import type { BookFormData } from "@/types/book-form";
 export function createEmptyBookFormData(): BookFormData {
   return {
     title: "",
+    author: "",
     subtitle: "",
     isbn: "",
     description: "",
     aboutBook: "",
+    seoTitle: "",
+    seoDescription: "",
+    keywords: [],
     pages: "",
     edition: "",
     language: "",
@@ -59,10 +63,14 @@ export function parseBookFormData(value: unknown): BookFormData {
 
   return {
     title: text(input.title),
+    author: text(input.author),
     subtitle: text(input.subtitle),
     isbn: text(input.isbn),
     description: text(input.description),
     aboutBook: text(input.aboutBook),
+    seoTitle: text(input.seoTitle),
+    seoDescription: text(input.seoDescription),
+    keywords: textList(input.keywords),
     pages: optionalNumber(input.pages),
     edition: text(input.edition),
     language: text(input.language),
@@ -92,10 +100,14 @@ export function parseBookFormData(value: unknown): BookFormData {
 export function toBookPersistenceData(data: BookFormData) {
   return {
     title: data.title,
+    author: data.author || null,
     subtitle: data.subtitle || null,
     isbn: data.isbn || null,
     description: data.description || null,
     aboutBook: data.aboutBook || null,
+    seoTitle: data.seoTitle || null,
+    seoDescription: data.seoDescription || null,
+    keywords: data.keywords,
     pages: data.pages === "" ? null : data.pages,
     edition: data.edition || null,
     language: data.language || null,

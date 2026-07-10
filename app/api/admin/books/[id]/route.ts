@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getApiUser } from "@/lib/authz";
+import { removeManagedBookFiles } from "@/lib/book-files";
+import { revalidatePath } from "next/cache";
 import {
   parseBookFormData,
   toBookPersistenceData,
@@ -23,6 +26,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    if (!(await getApiUser(["ADMIN"]))) return NextResponse.json({ message: "Forbidden" }, { status: 403 });
     const { id } = await params;
 
     const book = await prisma.book.findUnique({
@@ -74,6 +78,7 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    if (!(await getApiUser(["ADMIN"]))) return NextResponse.json({ message: "Forbidden" }, { status: 403 });
     const { id } = await params;
 
     const form = parseBookFormData(await request.json());
@@ -127,6 +132,14 @@ export async function PUT(
       slug = `${baseSlug}-${count++}`;
     }
 
+    if (form.isbn && await prisma.book.findFirst({ where: { isbn: { equals: form.isbn, mode: "insensitive" }, NOT: { id } }, select: { id: true } })) {
+      return NextResponse.json({ message: "A different book already uses this ISBN." }, { status: 409 });
+    }
+
+    const previous = await prisma.book.findUnique({ where: { id }, select: { slug: true, coverImage: true, samplePdf: true, galleryImages: true } });
+    if (!previous) return NextResponse.json({ message: "Book not found." }, { status: 404 });
+    const existingBook = previous;
+
     const updatedBook = await prisma.book.update({
       where: {
         id,
@@ -146,6 +159,16 @@ export async function PUT(
       ...updatedBook,
       ...parseBookFormData(updatedBook),
     });
+
+    await removeManagedBookFiles([
+      existingBook.coverImage !== updatedBook.coverImage ? existingBook.coverImage : null,
+      existingBook.samplePdf !== updatedBook.samplePdf ? existingBook.samplePdf : null,
+      ...existingBook.galleryImages.filter((file) => !updatedBook.galleryImages.includes(file)),
+    ]);
+    revalidatePath("/admin/books");
+    revalidatePath("/books");
+    revalidatePath(`/books/${existingBook.slug}`);
+    revalidatePath(`/books/${updatedBook.slug}`);
   } catch (error) {
     console.error(error);
 
@@ -169,13 +192,20 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    if (!(await getApiUser(["ADMIN"]))) return NextResponse.json({ message: "Forbidden" }, { status: 403 });
     const { id } = await params;
 
+    const book = await prisma.book.findUnique({ where: { id }, select: { slug: true, coverImage: true, samplePdf: true, galleryImages: true } });
+    if (!book) return NextResponse.json({ message: "Book not found." }, { status: 404 });
     await prisma.book.delete({
       where: {
         id,
       },
     });
+    await removeManagedBookFiles([book.coverImage, book.samplePdf, ...book.galleryImages]);
+    revalidatePath("/admin/books");
+    revalidatePath("/books");
+    revalidatePath(`/books/${book.slug}`);
 
     return NextResponse.json({
       success: true,

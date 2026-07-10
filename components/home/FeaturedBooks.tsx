@@ -15,10 +15,13 @@ import { prisma } from "@/lib/prisma";
 
 export default async function FeaturedBooks() {
   const books = await prisma.book.findMany({
-  include: {
-    class: true,
-    subject: true,
-    series: true,
+  where: { published: true, featured: true },
+  select: {
+    id: true, slug: true, title: true, subtitle: true, description: true,
+    coverImage: true, samplePdf: true,
+    class: { select: { name: true } },
+    subject: { select: { name: true } },
+    series: { select: { name: true } },
   },
   orderBy: {
     createdAt: "desc",

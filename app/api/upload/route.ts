@@ -38,6 +38,7 @@ export async function POST(request: NextRequest) {
     let maxSize = 0;
 
     const extension = path.extname(file.name).toLowerCase();
+    const imageExtensions = [".jpg", ".jpeg", ".png", ".webp"];
     const resourceExtensions = [".pdf", ".pptx", ".docx", ".zip", ".mp4"];
 
     if (resourceUpload && scope === "resource-thumbnail" && IMAGE_TYPES.includes(file.type)) {
@@ -46,10 +47,10 @@ export async function POST(request: NextRequest) {
     } else if (resourceUpload && resourceExtensions.includes(extension)) {
       folder = "files";
       maxSize = MAX_RESOURCE_SIZE;
-    } else if (IMAGE_TYPES.includes(file.type)) {
+    } else if (IMAGE_TYPES.includes(file.type) && imageExtensions.includes(extension)) {
       folder = "covers";
       maxSize = MAX_IMAGE_SIZE;
-    } else if (file.type === "application/pdf") {
+    } else if (file.type === "application/pdf" && extension === ".pdf") {
       folder = "pdfs";
       maxSize = MAX_PDF_SIZE;
     } else {

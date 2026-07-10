@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getApiUser } from "@/lib/authz";
+import { revalidatePath } from "next/cache";
 import {
   parseBookFormData,
   toBookPersistenceData,
@@ -16,6 +18,7 @@ function generateSlug(title: string) {
 
 export async function GET() {
   try {
+    if (!(await getApiUser(["ADMIN"]))) return NextResponse.json({ message: "Forbidden" }, { status: 403 });
     const books = await prisma.book.findMany({
       include: {
         class: true,
@@ -45,6 +48,7 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
+    if (!(await getApiUser(["ADMIN"]))) return NextResponse.json({ message: "Forbidden" }, { status: 403 });
     const form = parseBookFormData(await request.json());
 
     if (!form.title) {
@@ -76,6 +80,10 @@ export async function POST(request: NextRequest) {
       slug = `${generateSlug(form.title)}-${count++}`;
     }
 
+    if (form.isbn && await prisma.book.findFirst({ where: { isbn: { equals: form.isbn, mode: "insensitive" } }, select: { id: true } })) {
+      return NextResponse.json({ message: "A book with this ISBN already exists." }, { status: 409 });
+    }
+
     const book = await prisma.book.create({
       data: {
         ...toBookPersistenceData(form),
@@ -87,6 +95,9 @@ export async function POST(request: NextRequest) {
         series: true,
       },
     });
+
+    revalidatePath("/admin/books");
+    revalidatePath("/books");
 
     return NextResponse.json(
       {

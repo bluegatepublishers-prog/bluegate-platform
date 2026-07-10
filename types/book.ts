@@ -4,6 +4,7 @@ export interface Book {
   slug: string;
 
   title: string;
+  author?: string;
 
   subtitle: string;
 
@@ -26,4 +27,7 @@ export interface Book {
   description: string;
 
   featured: boolean;
+  edition?: string;
+  publisher?: string;
+  price?: string;
 }
