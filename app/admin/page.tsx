@@ -42,6 +42,11 @@ export default function AdminDashboardPage() {
       icon: BookOpen,
     },
     {
+      title: "Manage Teachers",
+      href: "/admin/teachers",
+      icon: Users,
+    },
+    {
       title: "Upload Resource",
       href: "/admin/resources/new",
       icon: FolderOpen,
