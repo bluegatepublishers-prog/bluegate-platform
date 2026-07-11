@@ -14,7 +14,7 @@ export default async function TeacherDashboardLayout({
 
   return (
     <div className="flex min-h-screen bg-slate-100">
-      <Sidebar teacherName={teacher.user.name} schoolName={teacher.schoolName} />
+      <Sidebar teacherName={teacher.user.name} schoolName={teacher.school?.schoolName ?? teacher.schoolName} />
       <div className="min-w-0 flex-1">
         <Header teacherName={teacher.user.name} />
         {children}

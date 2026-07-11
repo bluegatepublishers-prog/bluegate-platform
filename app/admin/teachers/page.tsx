@@ -4,6 +4,8 @@ import { Users, Search, X } from "lucide-react";
 import { requireUser } from "@/lib/authz";
 import { getTeacherSubjects, getTeachers, TeacherWithUser } from "@/lib/teachers";
 import TeacherActions from "@/components/admin/teachers/TeacherActions";
+import { TeacherAiPlan } from "@prisma/client";
+import { getDailyAiUsage } from "@/lib/ai/quota";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -16,6 +18,7 @@ type TeachersSearchParams = {
   query?: string;
   status?: string;
   subject?: string;
+  plan?: string;
 };
 
 function statusLabel(status: string | undefined) {
@@ -62,6 +65,7 @@ export default async function TeachersPage({
 
   const subjectFilter = searchParams.subject?.trim() || undefined;
   const queryFilter = searchParams.query?.trim() || undefined;
+  const planFilter = searchParams.plan === "STANDARD" || searchParams.plan === "PREMIUM" ? searchParams.plan as TeacherAiPlan : undefined;
 
   try {
     subjects = await getTeacherSubjects();
@@ -69,6 +73,7 @@ export default async function TeachersPage({
       query: queryFilter,
       status: statusFilter,
       subject: subjectFilter,
+      aiPlan: planFilter,
     });
   } catch (error) {
     console.error("Admin teachers list error:", error);
@@ -77,8 +82,9 @@ export default async function TeachersPage({
   }
 
   const hasFilters = Boolean(
-    queryFilter || statusFilter || subjectFilter
+    queryFilter || statusFilter || subjectFilter || planFilter
   );
+  const usageByTeacher = new Map((await Promise.all(teachers.map(async teacher => [teacher.id, (await getDailyAiUsage(teacher.id)).consumed] as const))));
 
   if (errorMessage) {
     return (
@@ -139,7 +145,7 @@ export default async function TeachersPage({
               />
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-4 sm:grid-cols-3">
               <label className="block text-sm font-medium text-slate-700">
                 Status
                 <select
@@ -152,6 +158,8 @@ export default async function TeachersPage({
                   <option value="pending">Pending verification</option>
                 </select>
               </label>
+
+              <label className="block text-sm font-medium text-slate-700">AI plan<select name="plan" defaultValue={searchParams.plan ?? ""} className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm"><option value="">All plans</option><option value="STANDARD">Standard</option><option value="PREMIUM">Premium</option></select></label>
 
               <label className="block text-sm font-medium text-slate-700">
                 Subject
@@ -224,6 +232,8 @@ export default async function TeachersPage({
                   <th className="px-6 py-4 text-left text-sm font-semibold text-slate-700">Subject</th>
                   <th className="px-6 py-4 text-left text-sm font-semibold text-slate-700">Classes</th>
                   <th className="px-6 py-4 text-left text-sm font-semibold text-slate-700">Status</th>
+                  <th className="px-6 py-4 text-left text-sm font-semibold text-slate-700">AI Plan</th>
+                  <th className="px-6 py-4 text-left text-sm font-semibold text-slate-700">Today</th>
                   <th className="px-6 py-4 text-left text-sm font-semibold text-slate-700">Registered</th>
                   <th className="px-6 py-4 text-right text-sm font-semibold text-slate-700">Actions</th>
                 </tr>
@@ -236,7 +246,12 @@ export default async function TeachersPage({
                       <div className="text-sm text-slate-500">{teacher.user.role}</div>
                     </td>
                     <td className="px-6 py-5 text-slate-700">{teacher.user.email}</td>
-                    <td className="px-6 py-5 text-slate-700">{teacher.schoolName}</td>
+                    <td className="px-6 py-5 text-slate-700">
+                      <p>{teacher.school?.schoolName ?? teacher.schoolName}</p>
+                      <span className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${teacher.school ? "bg-green-100 text-green-700" : "bg-slate-100 text-slate-600"}`}>
+                        {teacher.school ? "Linked" : "Not linked"}
+                      </span>
+                    </td>
                     <td className="px-6 py-5 text-slate-700">{teacher.user.phone ?? "—"}</td>
                     <td className="px-6 py-5 text-slate-700">{teacher.designation}</td>
                     <td className="px-6 py-5 text-slate-700">{teacher.subject}</td>
@@ -252,6 +267,8 @@ export default async function TeachersPage({
                         </span>
                       )}
                     </td>
+                    <td className="px-6 py-5"><span className={`rounded-full px-3 py-1 text-xs font-semibold ${teacher.aiPlan === "PREMIUM" ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-600"}`}>{teacher.aiPlan}</span></td>
+                    <td className="px-6 py-5 text-slate-700">{usageByTeacher.get(teacher.id) ?? 0} / {teacher.aiPlan === "PREMIUM" ? (teacher.aiDailyLimit || 5) : 0}</td>
                     <td className="px-6 py-5 text-slate-700">
                       {new Date(teacher.user.createdAt).toLocaleDateString()}
                     </td>

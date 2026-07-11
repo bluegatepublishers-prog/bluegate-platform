@@ -1,0 +1,1 @@
+import{ChapterForm}from"@/components/admin/BookKnowledgeForm";export const dynamic="force-dynamic";export default async function Page({params}:{params:Promise<{id:string}>}){const{id}=await params;return <div className="space-y-6"><h2 className="text-2xl font-bold">Add chapter</h2><ChapterForm bookId={id}/></div>}

@@ -1,4 +1,4 @@
-import { PrismaClient, UserRole } from "@prisma/client";
+import { PrismaClient, TeacherAiPlan, UserRole } from "@prisma/client";
 import bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
@@ -164,6 +164,9 @@ async function main() {
       subject: "Science",
       classes: "Classes 6-8",
       verified: true,
+      aiPlan: TeacherAiPlan.PREMIUM,
+      aiDailyLimit: 5,
+      aiPlanExpiresAt: null,
     },
     create: {
       userId: teacherUser.id,
@@ -172,6 +175,9 @@ async function main() {
       subject: "Science",
       classes: "Classes 6-8",
       verified: true,
+      aiPlan: TeacherAiPlan.PREMIUM,
+      aiDailyLimit: 5,
+      aiPlanExpiresAt: null,
     },
   });
 
@@ -197,7 +203,7 @@ async function main() {
     },
   });
 
-  await prisma.school.upsert({
+  const school = await prisma.school.upsert({
     where: {
       userId: schoolUser.id,
     },
@@ -211,6 +217,15 @@ async function main() {
       schoolName: "Bluegate Demonstration School",
       city: "New Delhi",
       state: "Delhi",
+    },
+  });
+
+  await prisma.teacher.update({
+    where: {
+      userId: teacherUser.id,
+    },
+    data: {
+      schoolId: school.id,
     },
   });
 

@@ -17,12 +17,18 @@ interface LoginFormProps {
   callbackUrl?: string;
   title?: string;
   description?: string;
+  emailPlaceholder?: string;
+  showDemo?: boolean;
+  showPublicLink?: boolean;
 }
 
 export default function LoginForm({
   callbackUrl,
   title = "Teacher Login",
   description = "Sign in to access your Teacher Dashboard.",
+  emailPlaceholder = "teacher@school.com",
+  showDemo = true,
+  showPublicLink = false,
 }: LoginFormProps) {
   const router = useRouter();
 
@@ -110,7 +116,7 @@ export default function LoginForm({
                 onChange={(e) =>
                   setEmail(e.target.value)
                 }
-                placeholder="teacher@school.com"
+                placeholder={emailPlaceholder}
                 className="w-full rounded-2xl border border-slate-300 py-4 pl-12 pr-4 outline-none focus:border-blue-600"
               />
             </div>
@@ -197,9 +203,9 @@ export default function LoginForm({
           </button>
         </form>
 
-        <div className="my-8 border-t" />
+        {(showDemo || showPublicLink) && <div className="my-8 border-t" />}
 
-        <div className="rounded-2xl bg-slate-50 p-6">
+        {showDemo && <div className="rounded-2xl bg-slate-50 p-6">
           <h3 className="font-bold">
             Demo Login
           </h3>
@@ -215,7 +221,9 @@ export default function LoginForm({
             <br />
             <strong>123456</strong>
           </p>
-        </div>
+        </div>}
+
+        {showPublicLink && <Link href="/" className="block text-center font-semibold text-blue-700 hover:text-blue-800">← Back to Bluegate Publishers</Link>}
       </div>
     </div>
   );

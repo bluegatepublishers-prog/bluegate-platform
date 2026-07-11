@@ -13,7 +13,7 @@ export async function requireSchool() {
 export async function getSchoolDashboard() {
   const school = await requireSchool();
   const [teachers, resources, requests] = await prisma.$transaction([
-    prisma.teacher.count({ where: { schoolName: { equals: school.schoolName, mode: "insensitive" } } }),
+    prisma.teacher.count({ where: { schoolId: school.id } }),
     prisma.resource.count({ where: { published: true } }),
     prisma.inspectionRequest.count({ where: { schoolId: school.id } }),
   ]);
@@ -24,14 +24,14 @@ export async function getSchoolTeachers(query?: string) {
   const school = await requireSchool();
   return prisma.teacher.findMany({
     where: {
-      schoolName: { equals: school.schoolName, mode: "insensitive" },
+      schoolId: school.id,
       OR: query ? [
         { user: { name: { contains: query, mode: "insensitive" } } },
         { user: { email: { contains: query, mode: "insensitive" } } },
         { subject: { contains: query, mode: "insensitive" } },
         { classes: { contains: query, mode: "insensitive" } },
       ] : undefined,
-    }, include: { user: true }, orderBy: { user: { name: "asc" } },
+    }, include: { user: true, school: true }, orderBy: { user: { name: "asc" } },
   });
 }
 

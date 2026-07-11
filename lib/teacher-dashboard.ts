@@ -8,7 +8,7 @@ export async function requireTeacher() {
   const user = await requireUser(["TEACHER"]);
   const teacher = await prisma.teacher.findUnique({
     where: { userId: user.id },
-    include: { user: true },
+    include: { user: true, school: true },
   });
 
   if (!teacher) notFound();

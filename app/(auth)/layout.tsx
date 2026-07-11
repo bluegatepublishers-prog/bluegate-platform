@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { LoginHero } from "@/components/auth";
+import AuthLoginHero from "@/components/auth/AuthLoginHero";
 
 interface AuthLayoutProps {
   children: ReactNode;
@@ -12,7 +12,7 @@ export default function AuthLayout({
     <main className="min-h-screen bg-slate-50">
       <div className="grid min-h-screen lg:grid-cols-2">
         {/* Left Panel */}
-        <LoginHero />
+        <AuthLoginHero />
 
         {/* Right Panel */}
         <div className="flex items-center justify-center bg-white">

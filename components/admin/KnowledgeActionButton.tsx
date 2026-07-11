@@ -1,0 +1,3 @@
+"use client";
+import { useTransition } from "react";
+export default function KnowledgeActionButton({action,label,confirmMessage,className="text-red-600"}:{action:()=>Promise<void>;label:string;confirmMessage?:string;className?:string}){const[pending,startTransition]=useTransition();return <button type="button" disabled={pending} onClick={()=>{if(confirmMessage&&!confirm(confirmMessage))return;startTransition(async()=>{try{await action()}catch(error){alert(error instanceof Error?error.message:"Action failed.")}})}} className={`font-semibold disabled:opacity-50 ${className}`}>{pending?"Working…":label}</button>}

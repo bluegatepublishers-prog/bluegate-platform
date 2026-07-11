@@ -35,23 +35,51 @@ model Teacher {
   school          School?          @relation(fields: [schoolId], references: [id], onDelete: SetNull)
   aiGenerations   AiGeneration[]
   promptTemplates PromptTemplate[]
+  aiPlan          TeacherAiPlan    @default(STANDARD)
+  aiDailyLimit    Int              @default(0)
+  aiPlanExpiresAt DateTime?
+  aiUsage         AiUsage[]
 
   @@index([schoolId])
 }
 
 model AiGeneration {
-  id        String   @id @default(cuid())
-  teacherId String
-  tool      String
-  title     String
-  prompt    String
-  output    String?
-  status    String   @default("DRAFT")
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  teacher   Teacher  @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  id             String    @id @default(cuid())
+  teacherId      String
+  tool           String
+  title          String
+  prompt         String
+  output         String?
+  status         String    @default("DRAFT")
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  teacher        Teacher   @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  providerCalled Boolean   @default(false)
+  quotaConsumed  Boolean   @default(false)
+  completedAt    DateTime?
+  failureReason  String?
+  usage          AiUsage?
 
   @@index([teacherId, createdAt])
+}
+
+model AiUsage {
+  id           String        @id @default(cuid())
+  teacherId    String
+  generationId String?       @unique
+  tool         String
+  status       AiUsageStatus @default(RESERVED)
+  reservedAt   DateTime      @default(now())
+  expiresAt    DateTime
+  consumedAt   DateTime?
+  releasedAt   DateTime?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  teacher      Teacher       @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  generation   AiGeneration? @relation(fields: [generationId], references: [id], onDelete: SetNull)
+
+  @@index([teacherId, status, reservedAt])
+  @@index([teacherId, consumedAt])
 }
 
 model PromptTemplate {
@@ -137,19 +165,19 @@ model BookSeries {
 }
 
 model Book {
-  id               String      @id @default(cuid())
+  id               String         @id @default(cuid())
   title            String
   author           String?
   subtitle         String?
-  slug             String      @unique
+  slug             String         @unique
   isbn             String?
   description      String?
   coverImage       String?
   samplePdf        String?
-  featured         Boolean     @default(false)
-  published        Boolean     @default(false)
-  createdAt        DateTime    @default(now())
-  updatedAt        DateTime    @updatedAt
+  featured         Boolean        @default(false)
+  published        Boolean        @default(false)
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
   classId          String
   subjectId        String
   seriesId         String?
@@ -158,22 +186,107 @@ model Book {
   board            String?
   dimensions       String?
   edition          String?
-  features         String[]    @default([])
-  galleryImages    String[]    @default([])
+  features         String[]       @default([])
+  galleryImages    String[]       @default([])
   language         String?
-  learningOutcomes String[]    @default([])
+  learningOutcomes String[]       @default([])
   pages            Int?
-  price            Decimal?    @db.Decimal(10, 2)
+  price            Decimal?       @db.Decimal(10, 2)
   publicationYear  String?
   publisher        String?
-  tableOfContents  String[]    @default([])
+  tableOfContents  String[]       @default([])
   weight           String?
   seoTitle         String?
   seoDescription   String?
-  keywords         String[]    @default([])
-  class            Class       @relation(fields: [classId], references: [id])
-  series           BookSeries? @relation(fields: [seriesId], references: [id])
-  subject          Subject     @relation(fields: [subjectId], references: [id])
+  keywords         String[]       @default([])
+  class            Class          @relation(fields: [classId], references: [id])
+  series           BookSeries?    @relation(fields: [seriesId], references: [id])
+  subject          Subject        @relation(fields: [subjectId], references: [id])
+  chapters         BookChapter[]
+  questions        BookQuestion[]
+}
+
+model BookChapter {
+  id               String                   @id @default(cuid())
+  bookId           String
+  chapterNumber    Int
+  title            String
+  slug             String
+  startPage        Int?
+  endPage          Int?
+  extractedText    String?
+  reviewedText     String?
+  summary          String?
+  keywords         String[]                 @default([])
+  approved         Boolean                  @default(false)
+  sortOrder        Int                      @default(0)
+  createdAt        DateTime                 @default(now())
+  updatedAt        DateTime                 @updatedAt
+  book             Book                     @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  questions        BookQuestion[]
+  learningOutcomes ChapterLearningOutcome[]
+  activities       ChapterActivity[]
+
+  @@unique([bookId, chapterNumber])
+  @@unique([bookId, slug])
+  @@index([bookId, sortOrder])
+}
+
+model BookQuestion {
+  id            String      @id @default(cuid())
+  bookId        String
+  chapterId     String
+  questionType  String
+  questionText  String
+  options       Json?
+  correctAnswer String?
+  explanation   String?
+  marks         Int         @default(1)
+  difficulty    String      @default("MEDIUM")
+  bloomLevel    String?
+  competency    String?
+  approved      Boolean     @default(false)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  book          Book        @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  chapter       BookChapter @relation(fields: [chapterId], references: [id], onDelete: Restrict)
+
+  @@index([bookId, chapterId])
+  @@index([questionType, difficulty, approved])
+}
+
+model ChapterLearningOutcome {
+  id         String      @id @default(cuid())
+  chapterId  String
+  outcome    String
+  bloomLevel String?
+  competency String?
+  sortOrder  Int         @default(0)
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+  chapter    BookChapter @relation(fields: [chapterId], references: [id], onDelete: Restrict)
+
+  @@index([chapterId, sortOrder])
+}
+
+model ChapterActivity {
+  id               String      @id @default(cuid())
+  chapterId        String
+  title            String
+  objective        String
+  materials        String?
+  durationMinutes  Int?
+  groupType        String?
+  instructions     String
+  expectedLearning String?
+  assessment       String?
+  safetyNotes      String?
+  approved         Boolean     @default(false)
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+  chapter          BookChapter @relation(fields: [chapterId], references: [id], onDelete: Restrict)
+
+  @@index([chapterId, approved])
 }
 
 model Resource {
@@ -215,6 +328,17 @@ enum UserRole {
   ADMIN
   TEACHER
   SCHOOL
+}
+
+enum TeacherAiPlan {
+  STANDARD
+  PREMIUM
+}
+
+enum AiUsageStatus {
+  RESERVED
+  CONSUMED
+  RELEASED
 }
 
 enum ResourceType {

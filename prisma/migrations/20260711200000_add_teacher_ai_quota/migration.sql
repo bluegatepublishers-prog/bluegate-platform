@@ -1,0 +1,7 @@
+CREATE TYPE "TeacherAiPlan" AS ENUM ('STANDARD','PREMIUM');
+CREATE TYPE "AiUsageStatus" AS ENUM ('RESERVED','CONSUMED','RELEASED');
+ALTER TABLE "Teacher" ADD COLUMN "aiPlan" "TeacherAiPlan" NOT NULL DEFAULT 'STANDARD', ADD COLUMN "aiDailyLimit" INTEGER NOT NULL DEFAULT 0, ADD COLUMN "aiPlanExpiresAt" TIMESTAMP(3);
+ALTER TABLE "AiGeneration" ADD COLUMN "providerCalled" BOOLEAN NOT NULL DEFAULT false, ADD COLUMN "quotaConsumed" BOOLEAN NOT NULL DEFAULT false, ADD COLUMN "completedAt" TIMESTAMP(3), ADD COLUMN "failureReason" TEXT;
+CREATE TABLE "AiUsage" ("id" TEXT NOT NULL,"teacherId" TEXT NOT NULL,"generationId" TEXT,"tool" TEXT NOT NULL,"status" "AiUsageStatus" NOT NULL DEFAULT 'RESERVED',"reservedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,"expiresAt" TIMESTAMP(3) NOT NULL,"consumedAt" TIMESTAMP(3),"releasedAt" TIMESTAMP(3),"createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,"updatedAt" TIMESTAMP(3) NOT NULL,CONSTRAINT "AiUsage_pkey" PRIMARY KEY ("id"));
+CREATE UNIQUE INDEX "AiUsage_generationId_key" ON "AiUsage"("generationId");CREATE INDEX "AiUsage_teacherId_status_reservedAt_idx" ON "AiUsage"("teacherId","status","reservedAt");CREATE INDEX "AiUsage_teacherId_consumedAt_idx" ON "AiUsage"("teacherId","consumedAt");
+ALTER TABLE "AiUsage" ADD CONSTRAINT "AiUsage_teacherId_fkey" FOREIGN KEY ("teacherId") REFERENCES "Teacher"("id") ON DELETE CASCADE ON UPDATE CASCADE;ALTER TABLE "AiUsage" ADD CONSTRAINT "AiUsage_generationId_fkey" FOREIGN KEY ("generationId") REFERENCES "AiGeneration"("id") ON DELETE SET NULL ON UPDATE CASCADE;

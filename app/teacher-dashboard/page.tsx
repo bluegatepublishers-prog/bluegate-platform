@@ -17,7 +17,7 @@ export default async function TeacherDashboardPage() {
       <section className="rounded-3xl bg-gradient-to-br from-blue-700 to-slate-900 p-7 text-white shadow-xl sm:p-10">
         <p className="font-semibold text-blue-100">Welcome back</p>
         <h1 className="mt-3 text-3xl font-bold sm:text-4xl">{teacher.user.name}</h1>
-        <p className="mt-4 flex items-center gap-2 text-blue-100"><School className="h-5 w-5" />{teacher.schoolName}</p>
+        <p className="mt-4 flex items-center gap-2 text-blue-100"><School className="h-5 w-5" />{teacher.school?.schoolName ?? teacher.schoolName}</p>
         <div className="mt-7 flex flex-wrap gap-3">
           <Link href="/teacher-dashboard/resources" className="rounded-xl bg-white px-5 py-3 font-semibold text-blue-700">Browse resources</Link>
           <Link href="/teacher-dashboard/downloads" className="rounded-xl border border-white/30 px-5 py-3 font-semibold">My downloads</Link>

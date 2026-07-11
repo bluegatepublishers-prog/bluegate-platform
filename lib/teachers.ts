@@ -1,10 +1,11 @@
-import { Prisma } from "@prisma/client";
+import { Prisma, TeacherAiPlan } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
 
 export type TeacherWithUser = Prisma.TeacherGetPayload<{
   include: {
     user: true;
+    school: true;
   };
 }>;
 
@@ -12,6 +13,7 @@ export type TeacherListFilter = {
   query?: string;
   status?: "verified" | "pending";
   subject?: string;
+  aiPlan?: TeacherAiPlan;
 };
 
 export async function getTeacherSubjects() {
@@ -43,6 +45,7 @@ export async function getTeachers(filters: TeacherListFilter = {}) {
   if (filters.subject) {
     where.subject = filters.subject;
   }
+  if (filters.aiPlan) where.aiPlan = filters.aiPlan;
 
   if (filters.query) {
     const query = filters.query.trim();
@@ -76,6 +79,16 @@ export async function getTeachers(filters: TeacherListFilter = {}) {
           },
         },
         {
+          school: {
+            is: {
+              schoolName: {
+                contains: query,
+                mode: "insensitive",
+              },
+            },
+          },
+        },
+        {
           subject: {
             contains: query,
             mode: "insensitive",
@@ -89,6 +102,7 @@ export async function getTeachers(filters: TeacherListFilter = {}) {
     where,
     include: {
       user: true,
+      school: true,
     },
     orderBy: {
       schoolName: "asc",
@@ -105,6 +119,7 @@ export async function getTeacherById(id: string) {
     },
     include: {
       user: true,
+      school: true,
     },
   });
 }
