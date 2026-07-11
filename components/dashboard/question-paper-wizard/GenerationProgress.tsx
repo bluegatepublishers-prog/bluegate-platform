@@ -1,3 +1,3 @@
 import { CheckCircle2, LoaderCircle } from "lucide-react";
-const stages=["Preparing Knowledge...","Building Prompt...","Generating...","Validating...","Saving Draft...","Completed"];
+const stages=["Preparing Knowledge...","Collecting Approved Content...","Building Question Paper...","Validating...","Saving Draft...","Done"];
 export default function GenerationProgress({ progress }: {progress:number}) { return <div className="space-y-3">{stages.map((label,index)=><div key={label} className={`flex items-center gap-3 rounded-xl p-4 ${index<=progress?"bg-blue-50 text-blue-800":"bg-slate-50 text-slate-400"}`}>{index<progress||progress===stages.length-1?<CheckCircle2 className="h-5 w-5"/>:index===progress?<LoaderCircle className="h-5 w-5 animate-spin"/>:<span className="h-5 w-5 rounded-full border-2"/>}<span className="font-semibold">{label}</span></div>)}</div>; }
