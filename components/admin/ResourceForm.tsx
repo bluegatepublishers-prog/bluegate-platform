@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { UploadCloud } from "lucide-react";
 import Image from "next/image";
 import type { Resource, ResourceType } from "@prisma/client";
+import { upload as uploadBlob } from "@vercel/blob/client";
+import { clientUploadPath, validateDirectUpload } from "@/lib/storage/upload-policy";
 
 const ACCEPTED_FILES = ".pdf,.ppt,.pptx,.doc,.docx,.zip,.mp4,.webm,.mov";
 
@@ -26,22 +28,7 @@ export default function ResourceForm({ resource }: { resource?: Resource }) {
     published: resource?.published ?? true,
   });
 
-  function upload(file: File, scope: "resource" | "resource-thumbnail") {
-    setError(""); setUploadMessage(""); setProgress(1);
-    const data = new FormData(); data.append("file", file); data.append("scope", scope);
-    const xhr = new XMLHttpRequest(); xhr.open("POST", "/api/upload");
-    xhr.upload.onprogress = (event) => event.lengthComputable && setProgress(Math.round((event.loaded / event.total) * 100));
-    xhr.onload = () => {
-      let result:{url?:string;message?:string}={};try{result=JSON.parse(xhr.responseText||"{}")}catch{}
-      if (xhr.status < 200 || xhr.status >= 300 || !result.url) { setError(result.message ?? "The file could not be uploaded. Please try again."); setProgress(0); return; }
-      const uploadedUrl=result.url;
-      if (scope === "resource") setForm((value) => ({ ...value, fileUrl: uploadedUrl, type: inferType(file.name) }));
-      else setForm((value) => ({ ...value, thumbnail: uploadedUrl }));
-      setProgress(100); setUploadMessage("Upload complete.");
-    };
-    xhr.onerror = () => { setError("The file could not be uploaded. Please try again."); setProgress(0); };
-    xhr.send(data);
-  }
+  async function upload(file: File, scope: "resource-file" | "resource-thumbnail") { setError("");setUploadMessage("");setProgress(0);const validation=validateDirectUpload(file,scope);if(!validation.ok){setError(validation.message);return}try{const blob=await uploadBlob(clientUploadPath(scope,file.name),file,{access:"public",handleUploadUrl:"/api/upload",clientPayload:JSON.stringify({scope,originalName:file.name}),multipart:file.size>5*1024*1024,onUploadProgress:event=>setProgress(Math.max(1,Math.round(event.percentage)))});if(scope==="resource-file")setForm(value=>({...value,fileUrl:blob.url,type:inferType(file.name)}));else setForm(value=>({...value,thumbnail:blob.url}));setUploadMessage("Upload complete.");setProgress(100)}catch{setError("The file could not be uploaded. Please try again.");setProgress(0)}}
 
   async function submit(event: React.FormEvent) {
     event.preventDefault(); setSaving(true); setError("");
@@ -54,9 +41,9 @@ export default function ResourceForm({ resource }: { resource?: Resource }) {
   }
 
   return <form onSubmit={submit} className="space-y-7 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-    <div onDragOver={(e) => { e.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={(e) => { e.preventDefault(); setDragging(false); const file=e.dataTransfer.files[0]; if(file) upload(file,"resource"); }} className={`rounded-2xl border-2 border-dashed p-8 text-center ${dragging ? "border-blue-500 bg-blue-50" : "border-slate-300"}`}>
+    <div onDragOver={(e) => { e.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={(e) => { e.preventDefault(); setDragging(false); const file=e.dataTransfer.files[0]; if(file) upload(file,"resource-file"); }} className={`rounded-2xl border-2 border-dashed p-8 text-center ${dragging ? "border-blue-500 bg-blue-50" : "border-slate-300"}`}>
       <UploadCloud className="mx-auto h-10 w-10 text-blue-600" /><h2 className="mt-3 font-bold">Drop a resource file here</h2><p className="mt-1 text-sm text-slate-500">PDF, PPTX, DOCX, ZIP or MP4 · maximum 100 MB</p>
-      <input ref={fileInput} type="file" accept={ACCEPTED_FILES} className="hidden" onChange={(e) => e.target.files?.[0] && upload(e.target.files[0], "resource")} />
+      <input ref={fileInput} type="file" accept={ACCEPTED_FILES} className="hidden" onChange={(e) => e.target.files?.[0] && upload(e.target.files[0], "resource-file")} />
       <button type="button" onClick={() => fileInput.current?.click()} className="mt-4 rounded-xl bg-blue-600 px-5 py-2.5 font-semibold text-white">Choose file</button>
       {form.fileUrl ? <p className="mt-3 break-all text-sm text-green-700">Uploaded: {form.fileUrl}</p> : null}
       {progress > 0 && progress < 100 ? <div className="mx-auto mt-4 max-w-md"><div className="h-2 overflow-hidden rounded-full bg-slate-200"><div className="h-full bg-blue-600" style={{ width: `${progress}%` }} /></div><p className="mt-1 text-sm">{progress}%</p></div> : null}

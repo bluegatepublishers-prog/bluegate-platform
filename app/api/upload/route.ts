@@ -1,7 +1,18 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
+import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
 import { getApiUser } from "@/lib/authz";
-import { StorageValidationError, uploadFile, validateUpload, type UploadScope } from "@/lib/storage";
+import { clientUploadPath, isUploadScope, uploadRules } from "@/lib/storage/upload-policy";
 
-export const runtime="nodejs";
-export async function POST(request:NextRequest){const user=await getApiUser(["ADMIN"]);if(!user)return failure("FORBIDDEN","You are not allowed to upload files.",403);try{const formData=await request.formData(),value=formData.get("file"),scope=formData.get("scope");if(!(value instanceof File))return failure("FILE_REQUIRED","Choose a file to upload.",400);const validation=validateUpload(value,scope);if(!validation.ok)return failure(validation.code,validation.message,400);const stored=await uploadFile(value,scope as UploadScope);return NextResponse.json({ok:true,url:stored.url,pathname:stored.pathname,message:"Upload complete."})}catch(error){if(error instanceof StorageValidationError)return failure(error.code,error.message,400);console.error("Upload failed",{stage:"storage",userId:user.id,code:"UPLOAD_FAILED"});return failure("UPLOAD_FAILED","The file could not be uploaded. Please try again.",500)}}
-function failure(code:string,message:string,status:number){return NextResponse.json({ok:false,code,message},{status})}
+export async function POST(request:Request){
+  try{
+    const body=await request.json() as HandleUploadBody;
+    const result=await handleUpload({request,body,onBeforeGenerateToken:async(pathname,clientPayload)=>{
+      if(!(await getApiUser(["ADMIN"])))throw new Error("Upload is not allowed.");
+      const payload=parsePayload(clientPayload);if(!payload||!isUploadScope(payload.scope))throw new Error("Upload category is invalid.");
+      const expectedPath=clientUploadPath(payload.scope,payload.originalName);if(pathname!==expectedPath)throw new Error("Upload pathname is invalid.");
+      const rule=uploadRules[payload.scope];return{allowedContentTypes:rule.contentTypes,maximumSizeInBytes:rule.maxSize,addRandomSuffix:true,allowOverwrite:false,validUntil:Date.now()+5*60*1000,tokenPayload:JSON.stringify({scope:payload.scope})};
+    },onUploadCompleted:async()=>{/* The existing create/update routes persist the returned permanent URL. */}});
+    return NextResponse.json(result);
+  }catch{console.warn("Blob upload token exchange failed",{code:"UPLOAD_TOKEN_FAILED"});return NextResponse.json({ok:false,code:"UPLOAD_FAILED",message:"The file could not be uploaded. Please try again."},{status:400})}
+}
+function parsePayload(value:string|null):{scope:unknown;originalName:string}|null{if(!value)return null;try{const parsed:unknown=JSON.parse(value);if(typeof parsed!=="object"||parsed===null)return null;const record=parsed as Record<string,unknown>;return typeof record.originalName==="string"&&record.originalName.length<=255?{scope:record.scope,originalName:record.originalName}:null}catch{return null}}
