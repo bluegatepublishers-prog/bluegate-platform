@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
+import { issueSignedToken } from "@vercel/blob";
+import { handleUploadPresigned, type HandleUploadPresignedBody } from "@vercel/blob/client";
 import { getApiUser } from "@/lib/authz";
 import { isUploadScope, isValidUploadPath, uploadRules } from "@/lib/storage/upload-policy";
 
@@ -8,14 +9,16 @@ class UploadPolicyError extends Error{constructor(readonly code:UploadPolicyErro
 
 export async function POST(request:Request){
   try{
-    const body=await request.json() as HandleUploadBody;
-    const result=await handleUpload({request,body,onBeforeGenerateToken:async(pathname,clientPayload)=>{
+    const body=await request.json() as HandleUploadPresignedBody;
+    const result=await handleUploadPresigned({request,body,getSignedToken:async(pathname,clientPayload)=>{
       if(!(await getApiUser(["ADMIN"])))throw new UploadPolicyError("UNAUTHORIZED");
       const payload=parsePayload(clientPayload);if(!payload)throw new UploadPolicyError("INVALID_PAYLOAD");
       if(!isUploadScope(payload.scope))throw new UploadPolicyError("INVALID_SCOPE");
       if(!isValidUploadPath(payload.scope,payload.originalName,pathname))throw new UploadPolicyError("INVALID_PATHNAME");
-      const rule=uploadRules[payload.scope];return{allowedContentTypes:rule.contentTypes,maximumSizeInBytes:rule.maxSize,addRandomSuffix:true,allowOverwrite:false,validUntil:Date.now()+5*60*1000,tokenPayload:JSON.stringify({scope:payload.scope})};
-    },onUploadCompleted:async()=>{/* The existing create/update routes persist the returned permanent URL. */}});
+      const rule=uploadRules[payload.scope],validUntil=Date.now()+5*60*1000;
+      const token=await issueSignedToken({pathname,operations:["put"],allowedContentTypes:rule.contentTypes,maximumSizeInBytes:rule.maxSize,validUntil});
+      return{token,urlOptions:{allowedContentTypes:rule.contentTypes,maximumSizeInBytes:rule.maxSize,addRandomSuffix:true,allowOverwrite:false,validUntil}};
+    }});
     return NextResponse.json(result);
   }catch(error){const code=error instanceof UploadPolicyError?error.code:error instanceof Error?error.name:"TOKEN_GENERATION_FAILED";console.warn("Blob upload token exchange failed",{code});return NextResponse.json({ok:false,code:"UPLOAD_FAILED",message:"The file could not be uploaded. Please try again."},{status:400})}
 }

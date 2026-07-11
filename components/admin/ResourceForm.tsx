@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { UploadCloud } from "lucide-react";
 import Image from "next/image";
 import type { Resource, ResourceType } from "@prisma/client";
-import { upload as uploadBlob } from "@vercel/blob/client";
+import { uploadPresigned } from "@vercel/blob/client";
 import { clientUploadPath, validateDirectUpload } from "@/lib/storage/upload-policy";
 
 const ACCEPTED_FILES = ".pdf,.ppt,.pptx,.doc,.docx,.zip,.mp4,.webm,.mov";
@@ -28,7 +28,7 @@ export default function ResourceForm({ resource }: { resource?: Resource }) {
     published: resource?.published ?? true,
   });
 
-  async function upload(file: File, scope: "resource-file" | "resource-thumbnail") { setError("");setUploadMessage("");setProgress(0);const validation=validateDirectUpload(file,scope);if(!validation.ok){setError(validation.message);return}try{const blob=await uploadBlob(clientUploadPath(scope,file.name),file,{access:"public",handleUploadUrl:"/api/upload",clientPayload:JSON.stringify({scope,originalName:file.name}),multipart:file.size>5*1024*1024,onUploadProgress:event=>setProgress(Math.max(1,Math.round(event.percentage)))});if(scope==="resource-file")setForm(value=>({...value,fileUrl:blob.url,type:inferType(file.name)}));else setForm(value=>({...value,thumbnail:blob.url}));setUploadMessage("Upload complete.");setProgress(100)}catch{setError("The file could not be uploaded. Please try again.");setProgress(0)}}
+  async function upload(file: File, scope: "resource-file" | "resource-thumbnail") { setError("");setUploadMessage("");setProgress(0);const validation=validateDirectUpload(file,scope);if(!validation.ok){setError(validation.message);return}try{const blob=await uploadPresigned(clientUploadPath(scope,file.name),file,{access:"public",handleUploadUrl:"/api/upload",clientPayload:JSON.stringify({scope,originalName:file.name}),multipart:file.size>5*1024*1024,onUploadProgress:event=>setProgress(Math.max(1,Math.round(event.percentage)))});if(scope==="resource-file")setForm(value=>({...value,fileUrl:blob.url,type:inferType(file.name)}));else setForm(value=>({...value,thumbnail:blob.url}));setUploadMessage("Upload complete.");setProgress(100)}catch{setError("The file could not be uploaded. Please try again.");setProgress(0)}}
 
   async function submit(event: React.FormEvent) {
     event.preventDefault(); setSaving(true); setError("");

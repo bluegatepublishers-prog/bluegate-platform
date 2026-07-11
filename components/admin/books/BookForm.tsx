@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Image from "next/image";
 import { FileText, ImageIcon, Plus, RefreshCw, Save, Trash2, Upload } from "lucide-react";
-import { upload } from "@vercel/blob/client";
+import { uploadPresigned } from "@vercel/blob/client";
 import { clientUploadPath, validateDirectUpload } from "@/lib/storage/upload-policy";
 import type { BookFormData } from "@/types/book-form";
 import type { BookFormChangeHandler, SelectOption } from "@/types/admin-book";
@@ -14,7 +14,7 @@ const input="w-full rounded-xl border px-4 py-3 outline-none focus:border-blue-5
 
 export default function BookForm({title,form,classes,subjects,series,loading,onChange,onSubmit}:BookFormProps){
   const[uploadingCover,setUploadingCover]=useState(false),[uploadingPdf,setUploadingPdf]=useState(false),[coverProgress,setCoverProgress]=useState(0),[pdfProgress,setPdfProgress]=useState(0),[uploadMessage,setUploadMessage]=useState(""),[uploadError,setUploadError]=useState("");
-  async function uploadFile(file:File,field:"coverImage"|"samplePdf"){const scope=field==="coverImage"?"book-cover" as const:"book-sample" as const,validation=validateDirectUpload(file,scope);setUploadMessage("");setUploadError("");if(!validation.ok){setUploadError(validation.message);return}field==="coverImage"?(setUploadingCover(true),setCoverProgress(0)):(setUploadingPdf(true),setPdfProgress(0));try{const blob=await upload(clientUploadPath(scope,file.name),file,{access:"public",handleUploadUrl:"/api/upload",clientPayload:JSON.stringify({scope,originalName:file.name}),multipart:file.size>5*1024*1024,onUploadProgress:event=>field==="coverImage"?setCoverProgress(Math.round(event.percentage)):setPdfProgress(Math.round(event.percentage))});onChange(field,blob.url);setUploadMessage("Upload complete.")}catch{setUploadError("The file could not be uploaded. Please try again.")}finally{field==="coverImage"?(setUploadingCover(false),setCoverProgress(0)):(setUploadingPdf(false),setPdfProgress(0))}}
+  async function uploadFile(file:File,field:"coverImage"|"samplePdf"){const scope=field==="coverImage"?"book-cover" as const:"book-sample" as const,validation=validateDirectUpload(file,scope);setUploadMessage("");setUploadError("");if(!validation.ok){setUploadError(validation.message);return}field==="coverImage"?(setUploadingCover(true),setCoverProgress(0)):(setUploadingPdf(true),setPdfProgress(0));try{const blob=await uploadPresigned(clientUploadPath(scope,file.name),file,{access:"public",handleUploadUrl:"/api/upload",clientPayload:JSON.stringify({scope,originalName:file.name}),multipart:file.size>5*1024*1024,onUploadProgress:event=>field==="coverImage"?setCoverProgress(Math.round(event.percentage)):setPdfProgress(Math.round(event.percentage))});onChange(field,blob.url);setUploadMessage("Upload complete.")}catch{setUploadError("The file could not be uploaded. Please try again.")}finally{field==="coverImage"?(setUploadingCover(false),setCoverProgress(0)):(setUploadingPdf(false),setPdfProgress(0))}}
   function addItem(field:ListField){onChange(field,[...form[field],""])} function updateItem(field:ListField,index:number,value:string){const items=[...form[field]];items[index]=value;onChange(field,items)} function removeItem(field:ListField,index:number){onChange(field,form[field].filter((_,i)=>i!==index))}
   const slug=form.title.toLowerCase().trim().replace(/[^a-z0-9\s-]/g,"").replace(/\s+/g,"-").replace(/-+/g,"-");
   return <form onSubmit={onSubmit} className="space-y-8">
