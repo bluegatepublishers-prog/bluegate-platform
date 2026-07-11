@@ -6,7 +6,7 @@ import { UploadCloud } from "lucide-react";
 import Image from "next/image";
 import type { Resource, ResourceType } from "@prisma/client";
 
-const ACCEPTED_FILES = ".pdf,.pptx,.docx,.zip,.mp4";
+const ACCEPTED_FILES = ".pdf,.ppt,.pptx,.doc,.docx,.zip,.mp4,.webm,.mov";
 
 type FormState = Pick<Resource, "title" | "description" | "subject" | "classLevel" | "type" | "fileUrl" | "thumbnail" | "featured" | "published">;
 
@@ -17,6 +17,7 @@ export default function ResourceForm({ resource }: { resource?: Resource }) {
   const [dragging, setDragging] = useState(false);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState("");
+  const [uploadMessage, setUploadMessage] = useState("");
   const [form, setForm] = useState<FormState>({
     title: resource?.title ?? "", description: resource?.description ?? "",
     subject: resource?.subject ?? "", classLevel: resource?.classLevel ?? "",
@@ -26,18 +27,19 @@ export default function ResourceForm({ resource }: { resource?: Resource }) {
   });
 
   function upload(file: File, scope: "resource" | "resource-thumbnail") {
-    setError(""); setProgress(1);
+    setError(""); setUploadMessage(""); setProgress(1);
     const data = new FormData(); data.append("file", file); data.append("scope", scope);
     const xhr = new XMLHttpRequest(); xhr.open("POST", "/api/upload");
     xhr.upload.onprogress = (event) => event.lengthComputable && setProgress(Math.round((event.loaded / event.total) * 100));
     xhr.onload = () => {
-      const result = JSON.parse(xhr.responseText || "{}");
-      if (xhr.status < 200 || xhr.status >= 300) { setError(result.message ?? "Upload failed."); setProgress(0); return; }
-      if (scope === "resource") setForm((value) => ({ ...value, fileUrl: result.url, type: inferType(file.name) }));
-      else setForm((value) => ({ ...value, thumbnail: result.url }));
-      setProgress(100);
+      let result:{url?:string;message?:string}={};try{result=JSON.parse(xhr.responseText||"{}")}catch{}
+      if (xhr.status < 200 || xhr.status >= 300 || !result.url) { setError(result.message ?? "The file could not be uploaded. Please try again."); setProgress(0); return; }
+      const uploadedUrl=result.url;
+      if (scope === "resource") setForm((value) => ({ ...value, fileUrl: uploadedUrl, type: inferType(file.name) }));
+      else setForm((value) => ({ ...value, thumbnail: uploadedUrl }));
+      setProgress(100); setUploadMessage("Upload complete.");
     };
-    xhr.onerror = () => { setError("Upload failed."); setProgress(0); };
+    xhr.onerror = () => { setError("The file could not be uploaded. Please try again."); setProgress(0); };
     xhr.send(data);
   }
 
@@ -58,6 +60,8 @@ export default function ResourceForm({ resource }: { resource?: Resource }) {
       <button type="button" onClick={() => fileInput.current?.click()} className="mt-4 rounded-xl bg-blue-600 px-5 py-2.5 font-semibold text-white">Choose file</button>
       {form.fileUrl ? <p className="mt-3 break-all text-sm text-green-700">Uploaded: {form.fileUrl}</p> : null}
       {progress > 0 && progress < 100 ? <div className="mx-auto mt-4 max-w-md"><div className="h-2 overflow-hidden rounded-full bg-slate-200"><div className="h-full bg-blue-600" style={{ width: `${progress}%` }} /></div><p className="mt-1 text-sm">{progress}%</p></div> : null}
+      {progress > 0 && progress < 100 ? <p className="mt-2 text-sm font-semibold text-blue-700">Uploading…</p> : null}
+      {uploadMessage ? <p role="status" className="mt-3 text-sm font-semibold text-emerald-700">{uploadMessage}</p> : null}
     </div>
     <div className="grid gap-5 sm:grid-cols-2">
       <Field label="Title" value={form.title} onChange={(title) => setForm({ ...form, title })} required />
@@ -74,6 +78,6 @@ export default function ResourceForm({ resource }: { resource?: Resource }) {
   </form>;
 }
 
-function inferType(name: string): ResourceType { const ext=name.toLowerCase().split(".").pop(); if(ext==="pptx")return "PPT"; if(ext==="docx")return "DOC"; if(ext==="mp4")return "VIDEO"; if(ext==="zip")return "ZIP"; return "PDF"; }
+function inferType(name: string): ResourceType { const ext=name.toLowerCase().split(".").pop(); if(ext==="ppt"||ext==="pptx")return "PPT"; if(ext==="doc"||ext==="docx")return "DOC"; if(ext==="mp4"||ext==="webm"||ext==="mov")return "VIDEO"; if(ext==="zip")return "ZIP"; return "PDF"; }
 function Field({label,value,onChange,required}:{label:string;value:string;onChange:(value:string)=>void;required?:boolean}) { return <label className="text-sm font-semibold text-slate-700">{label}<input required={required} value={value} onChange={(e)=>onChange(e.target.value)} className="mt-2 w-full rounded-xl border px-4 py-3" /></label>; }
 function Check({label,checked,onChange}:{label:string;checked:boolean;onChange:(value:boolean)=>void}) { return <label className="flex items-center gap-3 font-semibold"><input type="checkbox" checked={checked} onChange={(e)=>onChange(e.target.checked)} />{label}</label>; }

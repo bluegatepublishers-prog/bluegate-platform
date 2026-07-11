@@ -136,7 +136,7 @@ export async function PUT(
       return NextResponse.json({ message: "A different book already uses this ISBN." }, { status: 409 });
     }
 
-    const previous = await prisma.book.findUnique({ where: { id }, select: { slug: true, coverImage: true, samplePdf: true, galleryImages: true } });
+    const previous = await prisma.book.findUnique({ where: { id }, select: { slug: true, coverImage: true, samplePdf: true, galleryImages: true, subtitle: true, description: true, edition: true, publisher: true, language: true, board: true, binding: true, dimensions: true } });
     if (!previous) return NextResponse.json({ message: "Book not found." }, { status: 404 });
     const existingBook = previous;
 
@@ -146,6 +146,17 @@ export async function PUT(
       },
       data: {
         ...toBookPersistenceData(form),
+        // These fields are intentionally hidden from the simplified form.
+        // Preserve existing values instead of interpreting omission as deletion.
+        subtitle: existingBook.subtitle,
+        description: existingBook.description,
+        galleryImages: existingBook.galleryImages,
+        edition: existingBook.edition,
+        publisher: existingBook.publisher,
+        language: existingBook.language,
+        board: existingBook.board,
+        binding: existingBook.binding,
+        dimensions: existingBook.dimensions,
         slug,
       },
       include: {
@@ -155,20 +166,18 @@ export async function PUT(
       },
     });
 
-    return NextResponse.json({
-      ...updatedBook,
-      ...parseBookFormData(updatedBook),
-    });
-
     await removeManagedBookFiles([
       existingBook.coverImage !== updatedBook.coverImage ? existingBook.coverImage : null,
       existingBook.samplePdf !== updatedBook.samplePdf ? existingBook.samplePdf : null,
-      ...existingBook.galleryImages.filter((file) => !updatedBook.galleryImages.includes(file)),
     ]);
     revalidatePath("/admin/books");
     revalidatePath("/books");
     revalidatePath(`/books/${existingBook.slug}`);
     revalidatePath(`/books/${updatedBook.slug}`);
+    return NextResponse.json({
+      ...updatedBook,
+      ...parseBookFormData(updatedBook),
+    });
   } catch (error) {
     console.error(error);
 
