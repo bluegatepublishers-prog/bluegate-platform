@@ -1,0 +1,4 @@
+export type WizardChapter = { id: string; chapterNumber: number; title: string; aiReady: boolean; learningOutcomesCount: number; questionBankCount: number };
+export type WizardBook = { id: string; title: string; classId: string; subjectId: string; className: string; subjectName: string; series: string | null; publisher: string | null; coverImage: string | null; summary: string | null; chapters: WizardChapter[] };
+export type WizardOptions = { classes: { id: string; name: string }[]; subjects: { id: string; name: string }[]; books: WizardBook[]; entitlement: { plan: string; remaining: number; limit: number; canGenerate: boolean } };
+export type PaperSettingsValue = { title: string; totalMarks: number; duration: number; difficulty: "Easy" | "Medium" | "Hard"; autoDistribution: boolean; questionTypes: string[]; questionCounts: Record<string, number> };

@@ -1,0 +1,2 @@
+import { CheckCircle2, AlertCircle } from "lucide-react";
+export default function AIReadyBadge({ ready }: { ready: boolean }) { return <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold ${ready ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-800"}`}>{ready ? <CheckCircle2 className="h-3.5 w-3.5"/> : <AlertCircle className="h-3.5 w-3.5"/>}{ready ? "AI Ready" : "Not AI Ready"}</span>; }
