@@ -136,7 +136,7 @@ export async function PUT(
       return NextResponse.json({ message: "A different book already uses this ISBN." }, { status: 409 });
     }
 
-    const previous = await prisma.book.findUnique({ where: { id }, select: { slug: true, coverImage: true, samplePdf: true, galleryImages: true, subtitle: true, description: true, edition: true, publisher: true, language: true, board: true, binding: true, dimensions: true } });
+    const previous = await prisma.book.findUnique({ where: { id }, select: { slug: true, coverImage: true, samplePdf: true, publicPreviewPdf: true, fullBookPdf: true, galleryImages: true, subtitle: true, description: true, edition: true, publisher: true, language: true, board: true, binding: true, dimensions: true } });
     if (!previous) return NextResponse.json({ message: "Book not found." }, { status: 404 });
     const existingBook = previous;
 
@@ -169,6 +169,8 @@ export async function PUT(
     await removeManagedBookFiles([
       existingBook.coverImage !== updatedBook.coverImage ? existingBook.coverImage : null,
       existingBook.samplePdf !== updatedBook.samplePdf ? existingBook.samplePdf : null,
+      existingBook.publicPreviewPdf !== updatedBook.publicPreviewPdf ? existingBook.publicPreviewPdf : null,
+      existingBook.fullBookPdf !== updatedBook.fullBookPdf ? existingBook.fullBookPdf : null,
     ]);
     revalidatePath("/admin/books");
     revalidatePath("/books");
@@ -204,14 +206,14 @@ export async function DELETE(
     if (!(await getApiUser(["ADMIN"]))) return NextResponse.json({ message: "Forbidden" }, { status: 403 });
     const { id } = await params;
 
-    const book = await prisma.book.findUnique({ where: { id }, select: { slug: true, coverImage: true, samplePdf: true, galleryImages: true } });
+    const book = await prisma.book.findUnique({ where: { id }, select: { slug: true, coverImage: true, samplePdf: true, publicPreviewPdf: true, fullBookPdf: true, galleryImages: true } });
     if (!book) return NextResponse.json({ message: "Book not found." }, { status: 404 });
     await prisma.book.delete({
       where: {
         id,
       },
     });
-    await removeManagedBookFiles([book.coverImage, book.samplePdf, ...book.galleryImages]);
+    await removeManagedBookFiles([book.coverImage, book.samplePdf, book.publicPreviewPdf, book.fullBookPdf, ...book.galleryImages]);
     revalidatePath("/admin/books");
     revalidatePath("/books");
     revalidatePath(`/books/${book.slug}`);

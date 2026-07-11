@@ -22,7 +22,7 @@ export interface Book {
 
   cover: string;
 
-  pdf: string;
+  publicPreviewPdf: string;
 
   description: string;
 

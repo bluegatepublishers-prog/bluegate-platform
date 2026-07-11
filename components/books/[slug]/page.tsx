@@ -14,7 +14,7 @@ const demoBook: Book = {
   isbn: "9780000000000",
   pages: 120,
   cover: "/books/sample-book.jpg",
-  pdf: "/sample.pdf",
+  publicPreviewPdf: "/sample.pdf",
   description:
     "This is a temporary placeholder book used until the dynamic Prisma-powered Book Details page is completed.",
   featured: true,

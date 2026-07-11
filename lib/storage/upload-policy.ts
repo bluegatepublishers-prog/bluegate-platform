@@ -5,6 +5,8 @@ export const uploadRules:Record<UploadScope,{extensions:string[];contentTypes:st
   "book-cover":{extensions:[".jpg",".jpeg",".png",".webp"],contentTypes:["image/jpeg","image/png","image/webp"],maxSize:5*MB,prefix:"books/covers"},
   "book-gallery":{extensions:[".jpg",".jpeg",".png",".webp"],contentTypes:["image/jpeg","image/png","image/webp"],maxSize:5*MB,prefix:"books/gallery"},
   "book-sample":{extensions:[".pdf"],contentTypes:["application/pdf"],maxSize:50*MB,prefix:"books/samples"},
+  "book-public-preview":{extensions:[".pdf"],contentTypes:["application/pdf"],maxSize:50*MB,prefix:"books/public-previews"},
+  "book-full":{extensions:[".pdf"],contentTypes:["application/pdf"],maxSize:100*MB,prefix:"books/full-books"},
   "resource-thumbnail":{extensions:[".jpg",".jpeg",".png",".webp"],contentTypes:["image/jpeg","image/png","image/webp"],maxSize:5*MB,prefix:"resources/thumbnails"},
   "resource-file":{extensions:[".pdf",".ppt",".pptx",".doc",".docx",".zip",".mp4",".webm",".mov"],contentTypes:["application/pdf","application/vnd.ms-powerpoint","application/vnd.openxmlformats-officedocument.presentationml.presentation","application/msword","application/vnd.openxmlformats-officedocument.wordprocessingml.document","application/zip","application/x-zip-compressed","video/mp4","video/webm","video/quicktime"],maxSize:100*MB,prefix:"resources/files"},
 };

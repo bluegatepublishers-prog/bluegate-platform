@@ -4,14 +4,14 @@ import { X, BookOpen } from "lucide-react";
 
 interface SamplePdfModalProps {
   open: boolean;
-  pdf?: string;
+  publicPreviewPdf?: string;
   title: string;
   onClose: () => void;
 }
 
 export default function SamplePdfModal({
   open,
-  pdf,
+  publicPreviewPdf,
   title,
   onClose,
 }: SamplePdfModalProps) {
@@ -37,7 +37,7 @@ export default function SamplePdfModal({
             <div>
 
               <h2 className="text-2xl font-bold text-white">
-                Sample Book Preview
+                Preview Selected Pages
               </h2>
 
               <p className="text-blue-100">
@@ -61,10 +61,10 @@ export default function SamplePdfModal({
 
         <div className="flex-1 bg-slate-100">
 
-          {pdf ? (
+          {publicPreviewPdf ? (
 
             <iframe
-              src={`${pdf}#toolbar=1&navpanes=0&scrollbar=1`}
+              src={`${publicPreviewPdf}#toolbar=0&navpanes=0&scrollbar=1`}
               title={title}
               className="h-full w-full border-0"
             />
@@ -81,11 +81,11 @@ export default function SamplePdfModal({
                 />
 
                 <h3 className="mt-6 text-3xl font-bold text-slate-800">
-                  Sample PDF Not Available
+                  Preview Coming Soon
                 </h3>
 
                 <p className="mt-3 text-slate-500">
-                  This title currently has no sample PDF uploaded.
+                  Preview a selection of pages from this book.
                 </p>
 
               </div>

@@ -229,6 +229,36 @@ async function main() {
     },
   });
 
+  await prisma.academicYear.updateMany({
+    where: { schoolId: school.id, current: true, name: { not: "2026-27" } },
+    data: { current: false },
+  });
+
+  const academicYear = await prisma.academicYear.upsert({
+    where: { schoolId_name: { schoolId: school.id, name: "2026-27" } },
+    update: { active: true, current: true },
+    create: {
+      schoolId: school.id,
+      name: "2026-27",
+      startDate: new Date("2026-04-01T00:00:00.000Z"),
+      endDate: new Date("2027-03-31T00:00:00.000Z"),
+      active: true,
+      current: true,
+    },
+  });
+
+  const sampleClass = await prisma.schoolClass.upsert({
+    where: { academicYearId_code: { academicYearId: academicYear.id, code: "CLASS_6" } },
+    update: {},
+    create: { schoolId: school.id, academicYearId: academicYear.id, name: "Class 6", code: "CLASS_6", sortOrder: 6 },
+  });
+
+  await prisma.classSection.upsert({
+    where: { schoolClassId_code: { schoolClassId: sampleClass.id, code: "A" } },
+    update: {},
+    create: { schoolClassId: sampleClass.id, name: "A", code: "A", room: "Room 6A", capacity: 40 },
+  });
+
   console.log("✅ Database Seed Completed");
 }
 

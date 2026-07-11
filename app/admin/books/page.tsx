@@ -32,11 +32,11 @@ export default async function BooksPage({ searchParams }: { searchParams: Promis
 
   try {
     const [books, total, allCount, publishedCount, featuredCount, classes, subjects, series] = await Promise.all([
-      prisma.book.findMany({ where, include: { class: true, subject: true, series: true }, orderBy: { updatedAt: "desc" }, skip: (page - 1) * PAGE_SIZE, take: PAGE_SIZE }),
+      prisma.book.findMany({ where, select: { id:true,title:true,slug:true,subtitle:true,author:true,isbn:true,edition:true,price:true,coverImage:true,featured:true,published:true,publicPreviewPdf:true,samplePdf:true,fullBookPdf:true,createdAt:true,updatedAt:true,class:{select:{name:true}},subject:{select:{name:true}},series:{select:{name:true}} }, orderBy: { updatedAt: "desc" }, skip: (page - 1) * PAGE_SIZE, take: PAGE_SIZE }),
       prisma.book.count({ where }), prisma.book.count(), prisma.book.count({ where: { published: true } }), prisma.book.count({ where: { featured: true } }),
       prisma.class.findMany({ orderBy: { name: "asc" } }), prisma.subject.findMany({ orderBy: { name: "asc" } }), prisma.bookSeries.findMany({ orderBy: { name: "asc" } }),
     ]);
-    const items: BookTableItem[] = books.map((book) => ({ id: book.id, title: book.title, slug: book.slug, subtitle: book.subtitle, author: book.author, isbn: book.isbn, edition: book.edition, price: book.price?.toString() ?? null, coverImage: book.coverImage, featured: book.featured, published: book.published, class: { name: book.class.name }, subject: { name: book.subject.name }, series: book.series ? { name: book.series.name } : null, createdAt: book.createdAt.toISOString(), updatedAt: book.updatedAt.toISOString() }));
+    const items: BookTableItem[] = books.map((book) => ({ id: book.id, title: book.title, slug: book.slug, subtitle: book.subtitle, author: book.author, isbn: book.isbn, edition: book.edition, price: book.price?.toString() ?? null, coverImage: book.coverImage, featured: book.featured, published: book.published, publicPreviewAvailable:Boolean(book.publicPreviewPdf||book.samplePdf), fullBookAvailable:Boolean(book.fullBookPdf), class: { name: book.class.name }, subject: { name: book.subject.name }, series: book.series ? { name: book.series.name } : null, createdAt: book.createdAt.toISOString(), updatedAt: book.updatedAt.toISOString() }));
     const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
     const pageHref = (next: number) => { const query = new URLSearchParams(); Object.entries(params).forEach(([k, v]) => { if (typeof v === "string" && k !== "page" && v) query.set(k, v); }); query.set("page", String(next)); return `/admin/books?${query}`; };
     return <div className="space-y-7">

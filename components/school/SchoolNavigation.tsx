@@ -1,11 +1,14 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BookOpen, ClipboardCheck, LayoutDashboard, School, User, Users } from "lucide-react";
+import { BookOpen, CalendarDays, ClipboardCheck, GraduationCap, LayoutDashboard, School, User, UserRoundCheck, Users } from "lucide-react";
 
 const items=[
   {label:"Dashboard",href:"/school-dashboard",icon:LayoutDashboard},
-  {label:"Teachers",href:"/school-dashboard/teachers",icon:Users},
+  {label:"Academic Years",href:"/school-dashboard/academic-years",icon:CalendarDays},
+  {label:"Classes & Sections",href:"/school-dashboard/classes",icon:School},
+  {label:"Students",href:"/school-dashboard/students",icon:GraduationCap},
+  {label:"Teacher Assignments",href:"/school-dashboard/teacher-assignments",icon:UserRoundCheck},
   {label:"Resources",href:"/school-dashboard/resources",icon:BookOpen},
   {label:"Inspection Requests",href:"/school-dashboard/inspection-requests",icon:ClipboardCheck},
   {label:"Profile",href:"/school-dashboard/profile",icon:User},

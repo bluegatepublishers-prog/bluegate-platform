@@ -20,10 +20,11 @@ export default async function BooksPage({
     where: {
       published: true,
     },
-    include: {
-      class: true,
-      subject: true,
-      series: true,
+    select: {
+      id:true,slug:true,title:true,subtitle:true,description:true,coverImage:true,publicPreviewPdf:true,samplePdf:true,featured:true,isbn:true,
+      class:{select:{name:true}},
+      subject:{select:{name:true}},
+      series:{select:{name:true}},
     },
     orderBy: {
       title: "asc",
@@ -42,7 +43,7 @@ export default async function BooksPage({
     isbn: book.isbn ?? "",
     pages: 0,
     cover: book.coverImage || "/images/book-placeholder.jpg",
-    pdf: book.samplePdf || "",
+    publicPreviewPdf: book.publicPreviewPdf || book.samplePdf || "",
     description: book.description ?? "",
     featured: book.featured,
   }));

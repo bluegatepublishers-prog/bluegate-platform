@@ -35,6 +35,8 @@ export interface BookFormData {
 
   coverImage: string;
   samplePdf: string;
+  publicPreviewPdf: string;
+  fullBookPdf: string;
   galleryImages: string[];
 
   // ===========================

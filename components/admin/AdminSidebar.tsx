@@ -10,6 +10,7 @@ import {
   GraduationCap,
   LayoutDashboard,
   Mail,
+  Bot,
   School,
   Users,
   X,
@@ -28,6 +29,7 @@ const navigation = [
     icon: ClipboardCheck,
   },
   { name: "Contact Messages", href: "/admin/contact-messages", icon: Mail },
+  { name: "AI Diagnostic", href: "/admin/ai", icon: Bot },
 ];
 
 interface AdminSidebarProps {

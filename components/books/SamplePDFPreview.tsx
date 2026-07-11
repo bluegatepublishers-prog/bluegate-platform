@@ -17,7 +17,7 @@ export default function SamplePDFPreview({
         {/* Heading */}
         <div className="mb-10 text-center">
           <span className="rounded-full bg-blue-100 px-4 py-2 text-sm font-semibold text-blue-700">
-            Sample Book Preview
+            Preview Selected Pages
           </span>
 
           <h2 className="mt-5 text-4xl font-bold text-slate-900">
@@ -50,9 +50,9 @@ export default function SamplePDFPreview({
               </div>
             </div>
 
-            {book.pdf && (
+            {book.publicPreviewPdf && (
               <Link
-                href={book.pdf}
+                href={book.publicPreviewPdf}
                 target="_blank"
                 className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-3 font-semibold text-white hover:bg-blue-700"
               >
@@ -62,9 +62,9 @@ export default function SamplePDFPreview({
             )}
           </div>
 
-          {book.pdf ? (
+          {book.publicPreviewPdf ? (
             <iframe
-              src={`${book.pdf}#toolbar=1&navpanes=0&scrollbar=1`}
+              src={`${book.publicPreviewPdf}#toolbar=0&navpanes=0&scrollbar=1`}
               title={book.title}
               className="h-[850px] w-full"
             />
@@ -76,13 +76,11 @@ export default function SamplePDFPreview({
               />
 
               <h3 className="text-3xl font-bold text-slate-800">
-                Sample PDF Not Available
+                Preview Coming Soon
               </h3>
 
               <p className="mt-4 max-w-xl text-slate-500">
-                The sample PDF for this book has not been
-                uploaded yet. Please request an inspection
-                copy or contact Bluegate Publishers.
+                Preview a selection of pages from this book when it becomes available.
               </p>
             </div>
           )}

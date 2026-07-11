@@ -18,7 +18,7 @@ export default async function FeaturedBooks() {
   where: { published: true, featured: true },
   select: {
     id: true, slug: true, title: true, subtitle: true, description: true,
-    coverImage: true, samplePdf: true,
+    coverImage: true, publicPreviewPdf: true, samplePdf: true,
     class: { select: { name: true } },
     subject: { select: { name: true } },
     series: { select: { name: true } },
@@ -281,13 +281,13 @@ export default async function FeaturedBooks() {
                     View Book
                   </Link>
 
-                  {book.samplePdf ? (
+                  {(book.publicPreviewPdf || book.samplePdf) ? (
                     <Link
                       href={`/books/${book.slug}`}
                       className="flex items-center justify-center gap-2 rounded-xl border border-blue-600 px-4 py-3 text-sm font-semibold text-blue-700 transition hover:bg-blue-50"
                     >
                       <FileText size={16} />
-                      Sample PDF
+                      Preview Selected Pages
                     </Link>
                   ) : (
                     <Link

@@ -23,6 +23,8 @@ export function createEmptyBookFormData(): BookFormData {
     dimensions: "",
     coverImage: "",
     samplePdf: "",
+    publicPreviewPdf: "",
+    fullBookPdf: "",
     galleryImages: [],
     features: [],
     learningOutcomes: [],
@@ -83,6 +85,8 @@ export function parseBookFormData(value: unknown): BookFormData {
     dimensions: text(input.dimensions),
     coverImage: text(input.coverImage),
     samplePdf: text(input.samplePdf),
+    publicPreviewPdf: text(input.publicPreviewPdf) || text(input.samplePdf),
+    fullBookPdf: text(input.fullBookPdf),
     galleryImages: textList(input.galleryImages),
     features: textList(input.features),
     learningOutcomes: textList(input.learningOutcomes),
@@ -120,6 +124,8 @@ export function toBookPersistenceData(data: BookFormData) {
     dimensions: data.dimensions || null,
     coverImage: data.coverImage || null,
     samplePdf: data.samplePdf || null,
+    publicPreviewPdf: data.publicPreviewPdf || null,
+    fullBookPdf: data.fullBookPdf || null,
     galleryImages: data.galleryImages,
     features: data.features,
     learningOutcomes: data.learningOutcomes,
@@ -130,4 +136,20 @@ export function toBookPersistenceData(data: BookFormData) {
     featured: data.featured,
     published: data.published,
   };
+}
+
+export function toVisibleBookFormPayload(data: BookFormData) {
+  const {
+    subtitle: _subtitle,
+    description: _description,
+    galleryImages: _galleryImages,
+    edition: _edition,
+    publisher: _publisher,
+    language: _language,
+    board: _board,
+    binding: _binding,
+    dimensions: _dimensions,
+    ...visible
+  } = data;
+  return visible;
 }

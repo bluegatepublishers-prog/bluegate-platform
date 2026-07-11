@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import BookForm from "@/components/admin/books/BookForm";
 import type { BookFormData } from "@/types/book-form";
-import { createEmptyBookFormData } from "@/lib/book-form-data";
+import { createEmptyBookFormData, toVisibleBookFormPayload } from "@/lib/book-form-data";
 import type {
   BookFormChangeHandler,
   SelectOption,
@@ -60,7 +60,7 @@ export default function NewBookPage() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(form),
+        body: JSON.stringify(toVisibleBookFormPayload(form)),
       });
 
       const data = await res.json();

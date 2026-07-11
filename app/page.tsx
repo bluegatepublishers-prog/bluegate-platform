@@ -8,6 +8,8 @@ import BrowseBySubject from "@/components/home/BrowseBySubject";
 import TeacherHub from "@/components/home/TeacherHub";
 import ContactCTA from "@/components/home/ContactCTA";
 
+export const dynamic = "force-dynamic";
+
 export default function Home() {
   return (
     <main className="overflow-hidden">

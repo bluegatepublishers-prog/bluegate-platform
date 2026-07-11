@@ -3,10 +3,10 @@ import "server-only";
 import type { AiProvider, ProviderRequest, ProviderResponse } from "../types";
 
 const RESPONSES_URL = "https://api.openai.com/v1/responses";
-const DEFAULT_MODEL = "gpt-5.4-mini";
-const DEFAULT_TIMEOUT_MS = 60_000;
+export const DEFAULT_OPENAI_MODEL = "gpt-5.4-mini";
+export const DEFAULT_OPENAI_TIMEOUT_MS = 60_000;
 
-type OpenAiProviderConfig = {
+export type OpenAiProviderConfig = {
   apiKey?: string;
   model?: string;
   timeoutMs?: number;
@@ -34,7 +34,7 @@ export class OpenAiProvider implements AiProvider {
 
   constructor(config: OpenAiProviderConfig = {}) {
     this.apiKey = config.apiKey?.trim() || process.env.OPENAI_API_KEY?.trim() || "";
-    this.model = config.model?.trim() || process.env.OPENAI_MODEL?.trim() || DEFAULT_MODEL;
+    this.model = config.model?.trim() || process.env.OPENAI_MODEL?.trim() || DEFAULT_OPENAI_MODEL;
     this.timeoutMs = validTimeout(config.timeoutMs ?? parseTimeout(process.env.OPENAI_TIMEOUT_MS));
     this.endpoint = config.endpoint?.trim() || RESPONSES_URL;
   }
@@ -141,7 +141,7 @@ function safeApiMessage(payload: OpenAiResponse, status: number) {
 
 function parseTimeout(value: string | undefined) {
   const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : DEFAULT_TIMEOUT_MS;
+  return Number.isFinite(parsed) ? parsed : DEFAULT_OPENAI_TIMEOUT_MS;
 }
 
 function validTimeout(value: number) {

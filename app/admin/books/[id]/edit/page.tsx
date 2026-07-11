@@ -7,6 +7,7 @@ import type { BookFormData } from "@/types/book-form";
 import {
   createEmptyBookFormData,
   parseBookFormData,
+  toVisibleBookFormPayload,
 } from "@/lib/book-form-data";
 import type {
   BookFormChangeHandler,
@@ -74,7 +75,7 @@ export default function EditBookPage({
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(form),
+        body: JSON.stringify(toVisibleBookFormPayload(form)),
       });
 
       const data = await res.json();

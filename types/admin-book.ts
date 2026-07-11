@@ -33,6 +33,8 @@ export interface BookTableItem {
   coverImage: string | null;
   featured: boolean;
   published: boolean;
+  publicPreviewAvailable: boolean;
+  fullBookAvailable: boolean;
   class: NamedEntity;
   subject: NamedEntity;
   series: NamedEntity | null;

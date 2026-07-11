@@ -128,13 +128,15 @@ export default function BookDetailsHero({ book }: Props) {
 
               {/* Buttons */}
 
-              <div className="mt-8 flex flex-wrap gap-4">
+              <p className="mt-8 text-sm text-slate-500">Preview a selection of pages from this book.</p>
+              <div className="mt-3 flex flex-wrap gap-4">
                 <button
-                  onClick={() => setShowPdf(true)}
-                  className="flex h-12 items-center gap-2 rounded-xl bg-[#0B5ED7] px-6 font-semibold text-white transition hover:bg-[#083A75]"
+                  onClick={() => book.publicPreviewPdf && setShowPdf(true)}
+                  disabled={!book.publicPreviewPdf}
+                  className="flex h-12 items-center gap-2 rounded-xl bg-[#0B5ED7] px-6 font-semibold text-white transition hover:bg-[#083A75] disabled:cursor-not-allowed disabled:bg-slate-300"
                 >
                   <Eye size={18} />
-                  View Sample
+                  {book.publicPreviewPdf ? "Preview Selected Pages" : "Preview Coming Soon"}
                 </button>
 
                 <button
@@ -152,7 +154,7 @@ export default function BookDetailsHero({ book }: Props) {
 
       <SamplePdfModal
         open={showPdf}
-        pdf={book.pdf}
+        publicPreviewPdf={book.publicPreviewPdf}
         title={book.title}
         onClose={() => setShowPdf(false)}
       />
