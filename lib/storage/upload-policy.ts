@@ -10,6 +10,8 @@ export const uploadRules:Record<UploadScope,{extensions:string[];contentTypes:st
 };
 export function isUploadScope(value:unknown):value is UploadScope{return typeof value==="string"&&value in uploadRules}
 export function extensionOf(name:string){const index=name.lastIndexOf(".");return index>=0?name.slice(index).toLowerCase():""}
-export function safeUploadName(name:string){const extension=extensionOf(name),base=name.slice(0,name.length-extension.length).normalize("NFKD").replace(/[^a-zA-Z0-9_-]+/g,"-").replace(/^-+|-+$/g,"").slice(0,60)||"file";return `${base}${extension}`}
-export function clientUploadPath(scope:UploadScope,name:string){return `${uploadRules[scope].prefix}/${safeUploadName(name)}`}
+export function uploadPrefixForScope(scope:UploadScope){return uploadRules[scope].prefix}
+export function sanitizeUploadFilename(name:string){const extension=extensionOf(name),base=name.slice(0,name.length-extension.length).normalize("NFKD").replace(/[^a-zA-Z0-9_-]+/g,"-").replace(/^-+|-+$/g,"").slice(0,60)||"file";return `${base}${extension}`}
+export function clientUploadPath(scope:UploadScope,name:string){return `${uploadPrefixForScope(scope)}/${sanitizeUploadFilename(name)}`}
+export function isValidUploadPath(scope:UploadScope,name:string,pathname:string){return pathname===clientUploadPath(scope,name)&&!pathname.includes("..")&&!pathname.includes("\\")}
 export function validateDirectUpload(file:File,scope:unknown):UploadValidation{if(!isUploadScope(scope))return{ok:false,code:"INVALID_SCOPE",message:"The upload type is not supported."};if(!file.size)return{ok:false,code:"EMPTY_FILE",message:"Choose a non-empty file."};const rule=uploadRules[scope],extension=extensionOf(file.name);if(!rule.extensions.includes(extension)||!rule.contentTypes.includes(file.type.toLowerCase()))return{ok:false,code:"INVALID_FILE_TYPE",message:`This file type is not allowed. Accepted: ${rule.extensions.join(", ")}.`};if(file.size>rule.maxSize)return{ok:false,code:"FILE_TOO_LARGE",message:`The file must be smaller than ${Math.round(rule.maxSize/MB)} MB.`};return{ok:true,extension,contentType:file.type,maxSize:rule.maxSize,objectPrefix:rule.prefix}}
