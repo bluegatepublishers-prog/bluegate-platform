@@ -1,0 +1,8 @@
+ALTER TABLE "School"
+ADD COLUMN "principalName" TEXT,
+ADD COLUMN "address" TEXT,
+ADD COLUMN "pincode" TEXT,
+ADD COLUMN "logoUrl" TEXT;
+
+ALTER TABLE "Teacher"
+ADD COLUMN "active" BOOLEAN NOT NULL DEFAULT true;

@@ -56,9 +56,9 @@ export async function getTeacherAssignments() {
   const school = await requireSchool();
   const [assignments, teachers, years] = await Promise.all([
     prisma.teacherAssignment.findMany({ where: { schoolId: school.id, active: true }, include: { teacher: { include: { user: true } }, academicYear: true, schoolClass: true, section: true, subject: true }, orderBy: [{ academicYear: { startDate: "desc" } }, { schoolClass: { sortOrder: "asc" } }] }),
-    prisma.teacher.findMany({ where: { schoolId: school.id }, include: { user: true }, orderBy: { user: { name: "asc" } } }),
+    prisma.teacher.findMany({ where: { schoolId: school.id,active:true }, include: { user: true,assignments:{where:{active:true},include:{schoolClass:true,section:true,subject:true}} }, orderBy: { user: { name: "asc" } } }),
     prisma.academicYear.findMany({
-      where: { schoolId: school.id, active: true },
+      where: { schoolId: school.id, active: true, current: true },
       include: { classes: { where: { active: true }, include: { sections: { where: { active: true }, include: { subjects: { where: { active: true }, include: { subject: true } } } } } } },
       orderBy: [{ current: "desc" }, { startDate: "desc" }],
     }),

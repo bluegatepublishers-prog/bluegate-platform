@@ -154,7 +154,13 @@ export async function saveTeacherAssignment(form: FormData) {
     prisma.classSection.findFirst({ where: { id: sectionId, schoolClass: { schoolId: school.id } }, include: { schoolClass: true } }),
     subjectId ? prisma.sectionSubject.findFirst({ where: { sectionId, subjectId, active: true } }) : null,
   ]);
-  if (!teacher || !section || !Object.values(TeacherAssignmentType).includes(type) || (type === TeacherAssignmentType.SUBJECT_TEACHER && !sectionSubject) || (type === TeacherAssignmentType.CLASS_TEACHER && subjectId)) return;
+  if (!section || !Object.values(TeacherAssignmentType).includes(type) || (type === TeacherAssignmentType.SUBJECT_TEACHER && !sectionSubject) || (type === TeacherAssignmentType.CLASS_TEACHER && subjectId)) return;
+  if (!teacherId) {
+    await prisma.teacherAssignment.updateMany({ where: { schoolId: school.id, sectionId, type, subjectId, active: true }, data: { active: false } });
+    revalidatePath("/school-dashboard/teacher-assignments");
+    return;
+  }
+  if (!teacher || !teacher.active) return;
   await prisma.$transaction(async (tx) => {
     await tx.teacherAssignment.updateMany({ where: { schoolId: school.id, sectionId, type, subjectId, active: true }, data: { active: false } });
     await tx.teacherAssignment.create({ data: { teacherId, schoolId: school.id, academicYearId: section.schoolClass.academicYearId, schoolClassId: section.schoolClassId, sectionId, subjectId, type } });

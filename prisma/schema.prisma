@@ -30,6 +30,7 @@ model Teacher {
   subject         String
   classes         String
   verified        Boolean             @default(false)
+  active          Boolean             @default(true)
   bookmarks       Bookmark[]
   downloads       Download[]
   user            User                @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -104,6 +105,10 @@ model School {
   schoolName         String
   city               String
   state              String
+  principalName      String?
+  address            String?
+  pincode            String?
+  logoUrl            String?
   user               User                @relation(fields: [userId], references: [id], onDelete: Cascade)
   inspectionRequests InspectionRequest[]
   teachers           Teacher[]

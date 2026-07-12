@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { issueSignedToken } from "@vercel/blob";
 import { handleUploadPresigned, type HandleUploadPresignedBody } from "@vercel/blob/client";
 import { getApiUser } from "@/lib/authz";
-import { isUploadScope, isValidUploadPath, uploadRules } from "@/lib/storage/upload-policy";
+import { prisma } from "@/lib/prisma";
+import { isUploadScope, isValidUploadPath, schoolLogoUploadPath, uploadRules } from "@/lib/storage/upload-policy";
 
 type UploadPolicyErrorCode="UNAUTHORIZED"|"INVALID_PAYLOAD"|"INVALID_SCOPE"|"INVALID_PATHNAME"|"TOKEN_GENERATION_FAILED";
 class UploadPolicyError extends Error{constructor(readonly code:UploadPolicyErrorCode){super(code);this.name="UploadPolicyError"}}
@@ -11,10 +12,13 @@ export async function POST(request:Request){
   try{
     const body=await request.json() as HandleUploadPresignedBody;
     const result=await handleUploadPresigned({request,body,getSignedToken:async(pathname,clientPayload)=>{
-      if(!(await getApiUser(["ADMIN"])))throw new UploadPolicyError("UNAUTHORIZED");
       const payload=parsePayload(clientPayload);if(!payload)throw new UploadPolicyError("INVALID_PAYLOAD");
       if(!isUploadScope(payload.scope))throw new UploadPolicyError("INVALID_SCOPE");
-      if(!isValidUploadPath(payload.scope,payload.originalName,pathname))throw new UploadPolicyError("INVALID_PATHNAME");
+      const user=await getApiUser(payload.scope==="school-logo"?["SCHOOL"]:["ADMIN"]);if(!user)throw new UploadPolicyError("UNAUTHORIZED");
+      if(payload.scope==="school-logo"){
+        const school=await prisma.school.findUnique({where:{userId:user.id},select:{id:true}});
+        if(!school||pathname!==schoolLogoUploadPath(school.id,payload.originalName))throw new UploadPolicyError("INVALID_PATHNAME");
+      }else if(!isValidUploadPath(payload.scope,payload.originalName,pathname))throw new UploadPolicyError("INVALID_PATHNAME");
       const rule=uploadRules[payload.scope],validUntil=Date.now()+5*60*1000;
       const token=await issueSignedToken({pathname,operations:["put"],allowedContentTypes:rule.contentTypes,maximumSizeInBytes:rule.maxSize,validUntil});
       return{token,urlOptions:{allowedContentTypes:rule.contentTypes,maximumSizeInBytes:rule.maxSize,addRandomSuffix:true,allowOverwrite:false,validUntil}};

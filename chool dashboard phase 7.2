@@ -1,0 +1,16 @@
+warning: in the working copy of 'app/admin/resources/page.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'app/api/upload/route.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'app/school-dashboard/academic-actions.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'app/school-dashboard/layout.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'app/school-dashboard/page.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'app/school-dashboard/profile/page.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'app/school-dashboard/teacher-assignments/page.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'app/school-dashboard/teachers/page.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'components/school/SchoolNavigation.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/academic.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/authz.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/school-dashboard.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/storage/types.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/storage/upload-policy.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/storage/vercel-blob.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'prisma/schema.prisma', LF will be replaced by CRLF the next time Git touches it

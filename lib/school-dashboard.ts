@@ -12,12 +12,18 @@ export async function requireSchool() {
 
 export async function getSchoolDashboard() {
   const school = await requireSchool();
-  const [teachers, resources, requests] = await prisma.$transaction([
-    prisma.teacher.count({ where: { schoolId: school.id } }),
-    prisma.resource.count({ where: { published: true } }),
-    prisma.inspectionRequest.count({ where: { schoolId: school.id } }),
+  const currentYear=await prisma.academicYear.findFirst({where:{schoolId:school.id,current:true},select:{id:true,name:true}});
+  const scope=currentYear?{schoolId:school.id,academicYearId:currentYear.id,active:true}:{schoolId:school.id,academicYearId:"",active:true};
+  const [teachers,students,classes,sections,classTeachers,sectionSubjects,subjectTeachers] = await prisma.$transaction([
+    prisma.teacher.count({ where: { schoolId: school.id,active:true } }),
+    prisma.student.count({where:{schoolId:school.id,active:true}}),
+    prisma.schoolClass.count({where:{schoolId:school.id,academicYearId:currentYear?.id??"",active:true}}),
+    prisma.classSection.count({where:{schoolClass:{schoolId:school.id,academicYearId:currentYear?.id??"",active:true},active:true}}),
+    prisma.teacherAssignment.count({where:{...scope,type:"CLASS_TEACHER"}}),
+    prisma.sectionSubject.count({where:{active:true,section:{active:true,schoolClass:{schoolId:school.id,academicYearId:currentYear?.id??"",active:true}}}}),
+    prisma.teacherAssignment.count({where:{...scope,type:"SUBJECT_TEACHER"}}),
   ]);
-  return { school, stats: { teachers, resources, requests } };
+  return { school,currentYear,stats:{teachers,students,classes,sections,pendingClassTeachers:Math.max(0,sections-classTeachers),pendingSubjectTeachers:Math.max(0,sectionSubjects-subjectTeachers)} };
 }
 
 export async function getSchoolTeachers(query?: string) {
@@ -31,7 +37,7 @@ export async function getSchoolTeachers(query?: string) {
         { subject: { contains: query, mode: "insensitive" } },
         { classes: { contains: query, mode: "insensitive" } },
       ] : undefined,
-    }, include: { user: true, school: true }, orderBy: { user: { name: "asc" } },
+    }, include: { user: true, assignments:{where:{active:true},include:{schoolClass:true,section:true,subject:true},orderBy:{createdAt:"asc"}} }, orderBy: { user: { name: "asc" } },
   });
 }
 

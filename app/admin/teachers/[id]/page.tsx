@@ -3,8 +3,6 @@ import Link from "next/link";
 import { requireUser } from "@/lib/authz";
 import { getTeacherById } from "@/lib/teachers";
 import TeacherActions from "@/components/admin/teachers/TeacherActions";
-import TeacherAiPlanForm from "@/components/admin/teachers/TeacherAiPlanForm";
-import { getDailyAiUsage } from "@/lib/ai/quota";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -16,9 +14,8 @@ export const metadata = {
 export default async function TeacherDetailsPage({
   params,
 }: {
-  params: Promise<{ id: string }>;
+  params: { id: string };
 }) {
-  const { id } = await params;
   if (!process.env.DATABASE_URL) {
     return (
       <div className="space-y-8 p-8">
@@ -39,7 +36,7 @@ export default async function TeacherDetailsPage({
   let errorMessage: string | null = null;
 
   try {
-    teacher = await getTeacherById(id);
+    teacher = await getTeacherById(params.id);
   } catch (error) {
     console.error("Admin teacher detail error:", error);
     errorMessage =
@@ -142,10 +139,7 @@ export default async function TeacherDetailsPage({
 
             <div>
               <p className="text-sm uppercase tracking-wide text-slate-500">School</p>
-              <p className="mt-2 text-base font-semibold text-slate-900">{teacher.school?.schoolName ?? teacher.schoolName}</p>
-              <p className={`mt-1 text-xs font-semibold ${teacher.school ? "text-green-700" : "text-slate-500"}`}>
-                {teacher.school ? "Linked to School record" : "Not linked"}
-              </p>
+              <p className="mt-2 text-base font-semibold text-slate-900">{teacher.schoolName}</p>
             </div>
 
             <div>
@@ -183,16 +177,6 @@ export default async function TeacherDetailsPage({
           </div>
         </div>
       </div>
-
-      <div className="grid gap-6 lg:grid-cols-2">
-        <div className="rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
-          <h2 className="text-xl font-semibold">AI entitlement</h2>
-          <div className="mt-5"><TeacherAiPlanForm teacherId={teacher.id} plan={teacher.aiPlan} expiresAt={teacher.aiPlanExpiresAt ? teacher.aiPlanExpiresAt.toISOString().slice(0,10) : ""}/></div>
-        </div>
-        <AiUsageCard teacherId={teacher.id} limit={teacher.aiPlan === "PREMIUM" ? (teacher.aiDailyLimit || 5) : 0}/>
-      </div>
     </div>
   );
 }
-
-async function AiUsageCard({teacherId,limit}:{teacherId:string;limit:number}){const usage=await getDailyAiUsage(teacherId);return <div className="rounded-2xl border border-slate-200 bg-white p-8 shadow-sm"><h2 className="text-xl font-semibold">Today&apos;s AI usage</h2><p className="mt-6 text-4xl font-bold text-blue-700">{usage.consumed} <span className="text-xl text-slate-400">of {limit}</span></p><p className="mt-3 text-sm text-slate-500">Successful generations only · resets at midnight IST</p></div>}

@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { getSession, signIn } from "next-auth/react";
+import { signIn } from "next-auth/react";
 import {
   Eye,
   EyeOff,
@@ -14,21 +14,15 @@ import {
 import { useRouter } from "next/navigation";
 
 interface LoginFormProps {
-  callbackUrl?: string;
+  redirectPath?: string;
   title?: string;
   description?: string;
-  emailPlaceholder?: string;
-  showDemo?: boolean;
-  showPublicLink?: boolean;
 }
 
 export default function LoginForm({
-  callbackUrl,
+  redirectPath = "/teacher-dashboard",
   title = "Teacher Login",
   description = "Sign in to access your Teacher Dashboard.",
-  emailPlaceholder = "teacher@school.com",
-  showDemo = true,
-  showPublicLink = false,
 }: LoginFormProps) {
   const router = useRouter();
 
@@ -63,19 +57,7 @@ export default function LoginForm({
         return;
       }
 
-      const session = await getSession();
-
-      if (!session?.user) {
-        setError("Sign-in succeeded, but the session could not be loaded. Please try again.");
-        return;
-      }
-
-      const destination = getPostLoginDestination(
-        session.user.role,
-        callbackUrl
-      );
-
-      router.replace(destination);
+      router.push(redirectPath);
       router.refresh();
     });
   }
@@ -116,7 +98,7 @@ export default function LoginForm({
                 onChange={(e) =>
                   setEmail(e.target.value)
                 }
-                placeholder={emailPlaceholder}
+                placeholder="teacher@school.com"
                 className="w-full rounded-2xl border border-slate-300 py-4 pl-12 pr-4 outline-none focus:border-blue-600"
               />
             </div>
@@ -203,9 +185,9 @@ export default function LoginForm({
           </button>
         </form>
 
-        {(showDemo || showPublicLink) && <div className="my-8 border-t" />}
+        <div className="my-8 border-t" />
 
-        {showDemo && <div className="rounded-2xl bg-slate-50 p-6">
+        <div className="rounded-2xl bg-slate-50 p-6">
           <h3 className="font-bold">
             Demo Login
           </h3>
@@ -221,44 +203,8 @@ export default function LoginForm({
             <br />
             <strong>123456</strong>
           </p>
-        </div>}
-
-        {showPublicLink && <Link href="/" className="block text-center font-semibold text-blue-700 hover:text-blue-800">← Back to Bluegate Publishers</Link>}
+        </div>
       </div>
     </div>
   );
-}
-
-function getPostLoginDestination(role: string | undefined, callbackUrl?: string) {
-  const safeCallback = getSafeCallback(role, callbackUrl);
-  if (safeCallback) return safeCallback;
-
-  switch (role) {
-    case "ADMIN":
-      return "/admin";
-    case "TEACHER":
-      return "/teacher-dashboard";
-    case "SCHOOL":
-      return "/school-dashboard";
-    default:
-      return "/";
-  }
-}
-
-function getSafeCallback(role: string | undefined, callbackUrl?: string) {
-  if (!callbackUrl || !callbackUrl.startsWith("/") || callbackUrl.startsWith("//")) {
-    return null;
-  }
-
-  const path = callbackUrl.split(/[?#]/, 1)[0];
-  const allowed =
-    role === "ADMIN"
-      ? path === "/admin" || path.startsWith("/admin/")
-      : role === "TEACHER"
-        ? path === "/teacher-dashboard" || path.startsWith("/teacher-dashboard/")
-        : role === "SCHOOL"
-          ? path === "/school-dashboard" || path.startsWith("/school-dashboard/")
-          : false;
-
-  return allowed ? callbackUrl : null;
 }
