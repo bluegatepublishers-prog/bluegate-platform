@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { signIn } from "next-auth/react";
+import { getSession, signIn } from "next-auth/react";
 import {
   Eye,
   EyeOff,
@@ -15,14 +15,22 @@ import { useRouter } from "next/navigation";
 
 interface LoginFormProps {
   redirectPath?: string;
+  callbackUrl?: string;
   title?: string;
   description?: string;
+  emailPlaceholder?: string;
+  showDemo?: boolean;
+  showPublicLink?: boolean;
 }
 
 export default function LoginForm({
   redirectPath = "/teacher-dashboard",
+  callbackUrl,
   title = "Teacher Login",
   description = "Sign in to access your Teacher Dashboard.",
+  emailPlaceholder = "teacher@school.com",
+  showDemo = true,
+  showPublicLink = false,
 }: LoginFormProps) {
   const router = useRouter();
 
@@ -57,7 +65,14 @@ export default function LoginForm({
         return;
       }
 
-      router.push(redirectPath);
+      const session = await getSession();
+      const destination = getLoginDestination(
+        session?.user?.role,
+        callbackUrl,
+        redirectPath
+      );
+
+      router.push(destination);
       router.refresh();
     });
   }
@@ -98,7 +113,7 @@ export default function LoginForm({
                 onChange={(e) =>
                   setEmail(e.target.value)
                 }
-                placeholder="teacher@school.com"
+                placeholder={emailPlaceholder}
                 className="w-full rounded-2xl border border-slate-300 py-4 pl-12 pr-4 outline-none focus:border-blue-600"
               />
             </div>
@@ -185,7 +200,7 @@ export default function LoginForm({
           </button>
         </form>
 
-        <div className="my-8 border-t" />
+        {showDemo && <><div className="my-8 border-t" />
 
         <div className="rounded-2xl bg-slate-50 p-6">
           <h3 className="font-bold">
@@ -203,8 +218,62 @@ export default function LoginForm({
             <br />
             <strong>123456</strong>
           </p>
-        </div>
+        </div></>}
+
+        {showPublicLink && <div className="mt-6 text-center"><Link href="/" className="text-sm font-semibold text-blue-600">Back to public website</Link></div>}
       </div>
     </div>
   );
+}
+
+function getLoginDestination(
+  role: string | undefined,
+  callbackUrl: string | undefined,
+  redirectPath: string
+) {
+  const roleDestination = getRoleDestination(role);
+  if (!roleDestination) return "/";
+
+  if (isAllowedRoleCallback(callbackUrl, role)) return callbackUrl;
+  if (isAllowedRoleCallback(redirectPath, role)) return redirectPath;
+  return roleDestination;
+}
+
+function getRoleDestination(role: string | undefined) {
+  if (role === "ADMIN") return "/admin";
+  if (role === "TEACHER") return "/teacher-dashboard";
+  if (role === "SCHOOL") return "/school-dashboard";
+  return undefined;
+}
+
+function isAllowedRoleCallback(
+  value: string | undefined,
+  role: string | undefined
+): value is string {
+  if (!isSafeInternalPath(value)) return false;
+
+  if (role === "ADMIN") return matchesRoute(value, "/admin");
+  if (role === "TEACHER") return matchesRoute(value, "/teacher-dashboard");
+  if (role === "SCHOOL") return matchesRoute(value, "/school-dashboard");
+  return false;
+}
+
+function isSafeInternalPath(value: string | undefined): value is string {
+  if (!value || !value.startsWith("/") || value.startsWith("//")) return false;
+  if (value.includes("\\") || /[\u0000-\u001F\u007F]/.test(value)) return false;
+
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(value);
+  } catch {
+    return false;
+  }
+
+  if (!decoded.startsWith("/") || decoded.startsWith("//")) return false;
+  return !decoded.includes("://") && !/^[^?#]*\b[a-z][a-z\d+.-]*:/i.test(decoded);
+}
+
+function matchesRoute(value: string, route: string) {
+  const pathname = value.split(/[?#]/, 1)[0];
+  return pathname === route || pathname.startsWith(`${route}/`);
 }
