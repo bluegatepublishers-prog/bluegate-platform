@@ -6,9 +6,12 @@ export default auth((request) => {
 
   const pathname = request.nextUrl.pathname;
   if (pathname === "/admin/login") return NextResponse.next();
+  if (pathname === "/super-admin/login") return NextResponse.next();
 
   const loginPath = pathname.startsWith("/admin")
     ? "/admin/login"
+    : pathname.startsWith("/super-admin")
+      ? "/super-admin/login"
     : pathname.startsWith("/school-dashboard")
       ? "/school-login"
       : "/teacher-login";
@@ -24,5 +27,6 @@ export const config = {
     "/admin/:path*",
     "/teacher-dashboard/:path*",
     "/school-dashboard/:path*",
+    "/super-admin/:path*",
   ],
 };

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getApiUser } from "@/lib/authz";
+import { canAccessFullBook } from "@/lib/book-adoptions";
 
 const ALLOWED_ROLES = ["ADMIN", "TEACHER", "SCHOOL", "STUDENT"];
 
@@ -13,9 +14,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ boo
   if (!book) return NextResponse.json({ message: "Book not found." }, { status: 404 });
   if (user.role !== "ADMIN" && !book.published) return NextResponse.json({ message: "Access denied." }, { status: 403 });
 
-  // Entitlements intentionally stay centralized here. A later book-adoption model can
-  // verify TeacherAssignment -> SectionSubject -> assigned book, StudentEnrollment ->
-  // SectionSubject -> assigned book, or a school's licence before this redirect.
+  if (!(await canAccessFullBook(user, bookId))) return NextResponse.json({ message: "Access denied." }, { status: 403 });
   if (!book.fullBookPdf) return NextResponse.json({ message: "Full book not available." }, { status: 404 });
   const response = NextResponse.redirect(book.fullBookPdf, { status: 307 });
   response.headers.set("Cache-Control", "private, no-store");

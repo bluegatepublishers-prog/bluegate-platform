@@ -1,0 +1,9 @@
+"use server";
+import { BookAdoptionStatus } from "@prisma/client";
+import { revalidatePath } from "next/cache";
+import { prisma } from "@/lib/prisma";
+import { requireUser } from "@/lib/authz";
+import { validateAdoptionScope } from "@/lib/book-adoptions";
+const note=(form:FormData,key:string)=>String(form.get(key)??"").trim().slice(0,2000)||null;
+export async function reviewAdoption(id:string,decision:"APPROVED"|"REJECTED",form:FormData){const user=await requireUser(["ADMIN"]);const request=await prisma.schoolBookAdoption.findUnique({where:{id}});if(!request||request.status!==BookAdoptionStatus.PENDING)return;const scope=await validateAdoptionScope(request.schoolId,request.academicYearId,request.sectionSubjectId,request.bookId);if(!scope)return;await prisma.$transaction(async tx=>{if(decision==="APPROVED"){const conflict=await tx.schoolBookAdoption.findFirst({where:{id:{not:id},schoolId:request.schoolId,academicYearId:request.academicYearId,sectionSubjectId:request.sectionSubjectId,status:BookAdoptionStatus.APPROVED,active:true}});if(conflict)return;}const now=new Date();await tx.schoolBookAdoption.updateMany({where:{id,status:BookAdoptionStatus.PENDING},data:{status:decision,active:true,reviewedById:user.id,reviewedAt:now,reviewNote:note(form,"reviewNote"),approvedAt:decision==="APPROVED"?now:null}})});revalidatePath(`/admin/book-adoptions/${id}`);revalidatePath("/admin/book-adoptions");}
+export async function revokeAdoption(id:string,form:FormData){const user=await requireUser(["ADMIN"]);const now=new Date();await prisma.schoolBookAdoption.updateMany({where:{id,status:BookAdoptionStatus.APPROVED},data:{status:BookAdoptionStatus.REVOKED,active:false,reviewedById:user.id,reviewedAt:now,revokedAt:now,revokedReason:note(form,"reviewNote")}});revalidatePath(`/admin/book-adoptions/${id}`);revalidatePath("/admin/book-adoptions");}

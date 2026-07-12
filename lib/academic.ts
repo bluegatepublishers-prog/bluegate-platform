@@ -17,12 +17,24 @@ export async function getAcademicClassList(academicYearId?: string) {
 
 export async function getAcademicClass(id: string) {
   const school = await requireSchool();
-  const [schoolClass, subjects] = await Promise.all([
-    prisma.schoolClass.findFirst({ where: { id, schoolId: school.id }, include: { academicYear: true, sections: { include: { subjects: { include: { subject: true }, orderBy: { sortOrder: "asc" } }, _count: { select: { enrollments: true } } }, orderBy: { name: "asc" } } } }),
+  const [schoolClass, subjects, books, resources] = await Promise.all([
+    prisma.schoolClass.findFirst({ where: { id, schoolId: school.id }, include: { academicYear: true, sections: { include: { subjects: { include: { subject: true, book: { include: { class: true, subject: true, series: true } }, resources: true }, orderBy: { sortOrder: "asc" } }, teacherAssignments: { where: { active: true, type: "SUBJECT_TEACHER" }, include: { teacher: { include: { user: true } } } }, _count: { select: { enrollments: true } } }, orderBy: { name: "asc" } } } }),
     prisma.subject.findMany({ where: { active: true }, orderBy: [{ sortOrder: "asc" }, { name: "asc" }] }),
+    prisma.book.findMany({ where: { published: true }, include: { class: true, subject: true, series: true }, orderBy: { title: "asc" } }),
+    prisma.resource.findMany({ where: { published: true }, orderBy: [{ type: "asc" }, { title: "asc" }] }),
   ]);
   if (!schoolClass) notFound();
-  return { schoolClass, subjects };
+  const classKey = normalizeAcademicName(schoolClass.name);
+  return {
+    schoolClass,
+    subjects,
+    books: books.filter((book) => normalizeAcademicName(book.class.name) === classKey),
+    resources: resources.filter((resource) => normalizeAcademicName(resource.classLevel) === classKey),
+  };
+}
+
+export function normalizeAcademicName(value: string) {
+  return value.trim().toLowerCase().replace(/\b(class|grade|standard|std)\b/g, "").replace(/[^a-z0-9]+/g, "");
 }
 
 export async function getStudents(query?: string) {

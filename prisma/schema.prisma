@@ -8,17 +8,79 @@ datasource db {
 }
 
 model User {
-  id        String   @id @default(cuid())
-  name      String
-  email     String   @unique
-  password  String
-  phone     String?
-  role      UserRole
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  school    School?
-  teacher   Teacher?
-  student   Student?
+  id                     String               @id @default(cuid())
+  name                   String
+  email                  String               @unique
+  password               String
+  phone                  String?
+  role                   UserRole
+  publisherId            String?
+  createdAt              DateTime             @default(now())
+  updatedAt              DateTime             @updatedAt
+  school                 School?
+  teacher                Teacher?
+  student                Student?
+  requestedBookAdoptions SchoolBookAdoption[] @relation("BookAdoptionRequester")
+  reviewedBookAdoptions  SchoolBookAdoption[] @relation("BookAdoptionReviewer")
+  publisher              Publisher?           @relation(fields: [publisherId], references: [id], onDelete: SetNull)
+
+  @@index([publisherId, role])
+}
+
+model Publisher {
+  id                 String               @id @default(cuid())
+  name               String
+  shortName          String?
+  slug               String               @unique
+  active             Boolean              @default(true)
+  logoUrl            String?
+  faviconUrl         String?
+  primaryColor       String?
+  secondaryColor     String?
+  accentColor        String?
+  supportEmail       String?
+  supportPhone       String?
+  websiteUrl         String?
+  portalTitle        String?
+  aiName             String?
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+  users              User[]
+  schools            School[]
+  books              Book[]
+  resources          Resource[]
+  series             BookSeries[]
+  inspectionRequests InspectionRequest[]
+  bookAdoptions      SchoolBookAdoption[]
+  features           PublisherFeature[]
+}
+
+model FeatureDefinition {
+  id          String             @id @default(cuid())
+  key         PlatformFeatureKey @unique
+  name        String
+  description String?
+  category    String?
+  implemented Boolean            @default(false)
+  active      Boolean            @default(true)
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  publishers  PublisherFeature[]
+}
+
+model PublisherFeature {
+  id          String            @id @default(cuid())
+  publisherId String
+  featureId   String
+  enabled     Boolean           @default(false)
+  config      Json?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  publisher   Publisher         @relation(fields: [publisherId], references: [id], onDelete: Cascade)
+  feature     FeatureDefinition @relation(fields: [featureId], references: [id], onDelete: Cascade)
+
+  @@unique([publisherId, featureId])
+  @@index([publisherId, enabled])
 }
 
 model Teacher {
@@ -100,8 +162,9 @@ model PromptTemplate {
 }
 
 model School {
-  id                 String              @id @default(cuid())
-  userId             String              @unique
+  id                 String               @id @default(cuid())
+  userId             String               @unique
+  publisherId        String?
   schoolName         String
   city               String
   state              String
@@ -109,7 +172,7 @@ model School {
   address            String?
   pincode            String?
   logoUrl            String?
-  user               User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user               User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
   inspectionRequests InspectionRequest[]
   teachers           Teacher[]
   academicYears      AcademicYear[]
@@ -117,6 +180,10 @@ model School {
   students           Student[]
   studentEnrollments StudentEnrollment[]
   teacherAssignments TeacherAssignment[]
+  bookAdoptions      SchoolBookAdoption[]
+  publisher          Publisher?           @relation(fields: [publisherId], references: [id], onDelete: Restrict)
+
+  @@index([publisherId])
 }
 
 model InspectionRequest {
@@ -138,9 +205,13 @@ model InspectionRequest {
   status      InspectionStatus @default(NEW)
   notes       String?
   schoolId    String?
+  publisherId String?
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
   school      School?          @relation(fields: [schoolId], references: [id], onDelete: SetNull)
+  publisher   Publisher?       @relation(fields: [publisherId], references: [id], onDelete: SetNull)
+
+  @@index([publisherId, createdAt])
 }
 
 model Class {
@@ -155,58 +226,61 @@ model Class {
 }
 
 model AcademicYear {
-  id                 String              @id @default(cuid())
+  id                 String               @id @default(cuid())
   schoolId           String
   name               String
   startDate          DateTime
   endDate            DateTime
-  active             Boolean             @default(true)
-  current            Boolean             @default(false)
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @updatedAt
-  school             School              @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  active             Boolean              @default(true)
+  current            Boolean              @default(false)
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+  school             School               @relation(fields: [schoolId], references: [id], onDelete: Cascade)
   classes            SchoolClass[]
   enrollments        StudentEnrollment[]
   teacherAssignments TeacherAssignment[]
+  bookAdoptions      SchoolBookAdoption[]
 
   @@unique([schoolId, name])
   @@index([schoolId, current, active])
 }
 
 model SchoolClass {
-  id                 String              @id @default(cuid())
+  id                 String               @id @default(cuid())
   schoolId           String
   academicYearId     String
   name               String
   code               String
-  sortOrder          Int                 @default(0)
-  active             Boolean             @default(true)
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @updatedAt
-  school             School              @relation(fields: [schoolId], references: [id], onDelete: Cascade)
-  academicYear       AcademicYear        @relation(fields: [academicYearId], references: [id], onDelete: Cascade)
+  sortOrder          Int                  @default(0)
+  active             Boolean              @default(true)
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+  school             School               @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  academicYear       AcademicYear         @relation(fields: [academicYearId], references: [id], onDelete: Cascade)
   sections           ClassSection[]
   enrollments        StudentEnrollment[]
   teacherAssignments TeacherAssignment[]
+  bookAdoptions      SchoolBookAdoption[]
 
   @@unique([academicYearId, code])
   @@index([schoolId, academicYearId, active])
 }
 
 model ClassSection {
-  id                 String              @id @default(cuid())
+  id                 String               @id @default(cuid())
   schoolClassId      String
   name               String
   code               String
   capacity           Int?
   room               String?
-  active             Boolean             @default(true)
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @updatedAt
-  schoolClass        SchoolClass         @relation(fields: [schoolClassId], references: [id], onDelete: Cascade)
+  active             Boolean              @default(true)
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+  schoolClass        SchoolClass          @relation(fields: [schoolClassId], references: [id], onDelete: Cascade)
   subjects           SectionSubject[]
   enrollments        StudentEnrollment[]
   teacherAssignments TeacherAssignment[]
+  bookAdoptions      SchoolBookAdoption[]
 
   @@unique([schoolClassId, code])
   @@index([schoolClassId, active])
@@ -257,18 +331,23 @@ model StudentEnrollment {
 }
 
 model SectionSubject {
-  id        String       @id @default(cuid())
-  sectionId String
-  subjectId String
-  active    Boolean      @default(true)
-  sortOrder Int          @default(0)
-  createdAt DateTime     @default(now())
-  updatedAt DateTime     @updatedAt
-  section   ClassSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
-  subject   Subject      @relation(fields: [subjectId], references: [id], onDelete: Restrict)
+  id            String               @id @default(cuid())
+  sectionId     String
+  subjectId     String
+  bookId        String?
+  active        Boolean              @default(true)
+  sortOrder     Int                  @default(0)
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+  section       ClassSection         @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  subject       Subject              @relation(fields: [subjectId], references: [id], onDelete: Restrict)
+  book          Book?                @relation(fields: [bookId], references: [id], onDelete: SetNull)
+  resources     Resource[]
+  bookAdoptions SchoolBookAdoption[]
 
   @@unique([sectionId, subjectId])
   @@index([sectionId, active, sortOrder])
+  @@index([bookId])
 }
 
 model TeacherAssignment {
@@ -308,32 +387,37 @@ model Subject {
 }
 
 model BookSeries {
-  id          String   @id @default(cuid())
+  id          String     @id @default(cuid())
   name        String
-  code        String   @unique
+  code        String     @unique
+  publisherId String?
   description String?
-  active      Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  active      Boolean    @default(true)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
   books       Book[]
+  publisher   Publisher? @relation(fields: [publisherId], references: [id], onDelete: Restrict)
+
+  @@index([publisherId])
 }
 
 model Book {
-  id               String         @id @default(cuid())
+  id               String               @id @default(cuid())
   title            String
+  publisherId      String?
   author           String?
   subtitle         String?
-  slug             String         @unique
+  slug             String               @unique
   isbn             String?
   description      String?
   coverImage       String?
   samplePdf        String?
   publicPreviewPdf String?
   fullBookPdf      String?
-  featured         Boolean        @default(false)
-  published        Boolean        @default(false)
-  createdAt        DateTime       @default(now())
-  updatedAt        DateTime       @updatedAt
+  featured         Boolean              @default(false)
+  published        Boolean              @default(false)
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
   classId          String
   subjectId        String
   seriesId         String?
@@ -342,24 +426,68 @@ model Book {
   board            String?
   dimensions       String?
   edition          String?
-  features         String[]       @default([])
-  galleryImages    String[]       @default([])
+  features         String[]             @default([])
+  galleryImages    String[]             @default([])
   language         String?
-  learningOutcomes String[]       @default([])
+  learningOutcomes String[]             @default([])
   pages            Int?
-  price            Decimal?       @db.Decimal(10, 2)
+  price            Decimal?             @db.Decimal(10, 2)
   publicationYear  String?
   publisher        String?
-  tableOfContents  String[]       @default([])
+  tableOfContents  String[]             @default([])
   weight           String?
   seoTitle         String?
   seoDescription   String?
-  keywords         String[]       @default([])
-  class            Class          @relation(fields: [classId], references: [id])
-  series           BookSeries?    @relation(fields: [seriesId], references: [id])
-  subject          Subject        @relation(fields: [subjectId], references: [id])
+  keywords         String[]             @default([])
+  class            Class                @relation(fields: [classId], references: [id])
+  series           BookSeries?          @relation(fields: [seriesId], references: [id])
+  subject          Subject              @relation(fields: [subjectId], references: [id])
   chapters         BookChapter[]
   questions        BookQuestion[]
+  sectionSubjects  SectionSubject[]
+  schoolAdoptions  SchoolBookAdoption[]
+  publisherTenant  Publisher?           @relation(fields: [publisherId], references: [id], onDelete: Restrict)
+
+  @@index([publisherId, published])
+}
+
+model SchoolBookAdoption {
+  id               String             @id @default(cuid())
+  schoolId         String
+  publisherId      String?
+  academicYearId   String
+  schoolClassId    String
+  sectionId        String
+  sectionSubjectId String
+  bookId           String
+  status           BookAdoptionStatus @default(PENDING)
+  requestNote      String?
+  requestedById    String?
+  requestedAt      DateTime           @default(now())
+  reviewedById     String?
+  reviewedAt       DateTime?
+  reviewNote       String?
+  approvedAt       DateTime?
+  revokedAt        DateTime?
+  revokedReason    String?
+  active           Boolean            @default(true)
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  school           School             @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  academicYear     AcademicYear       @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
+  schoolClass      SchoolClass        @relation(fields: [schoolClassId], references: [id], onDelete: Restrict)
+  section          ClassSection       @relation(fields: [sectionId], references: [id], onDelete: Restrict)
+  sectionSubject   SectionSubject     @relation(fields: [sectionSubjectId], references: [id], onDelete: Restrict)
+  book             Book               @relation(fields: [bookId], references: [id], onDelete: Restrict)
+  requestedBy      User?              @relation("BookAdoptionRequester", fields: [requestedById], references: [id], onDelete: SetNull)
+  reviewedBy       User?              @relation("BookAdoptionReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  publisher        Publisher?         @relation(fields: [publisherId], references: [id], onDelete: Restrict)
+
+  @@index([schoolId, academicYearId, sectionSubjectId, bookId])
+  @@index([schoolId, academicYearId, status])
+  @@index([bookId, status])
+  @@index([sectionSubjectId, status, active])
+  @@index([publisherId, status, requestedAt])
 }
 
 model BookChapter {
@@ -446,20 +574,25 @@ model ChapterActivity {
 }
 
 model Resource {
-  id          String       @id @default(cuid())
-  title       String
-  description String
-  subject     String
-  classLevel  String
-  type        ResourceType
-  fileUrl     String
-  thumbnail   String?
-  featured    Boolean      @default(false)
-  published   Boolean      @default(true)
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
-  bookmarks   Bookmark[]
-  downloads   Download[]
+  id              String           @id @default(cuid())
+  title           String
+  publisherId     String?
+  description     String
+  subject         String
+  classLevel      String
+  type            ResourceType
+  fileUrl         String
+  thumbnail       String?
+  featured        Boolean          @default(false)
+  published       Boolean          @default(true)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  bookmarks       Bookmark[]
+  downloads       Download[]
+  sectionSubjects SectionSubject[]
+  publisher       Publisher?       @relation(fields: [publisherId], references: [id], onDelete: Restrict)
+
+  @@index([publisherId, published])
 }
 
 model Download {
@@ -481,10 +614,31 @@ model Bookmark {
 }
 
 enum UserRole {
+  SUPER_ADMIN
   ADMIN
   TEACHER
   SCHOOL
   STUDENT
+}
+
+enum PlatformFeatureKey {
+  AI_STUDIO
+  BOOK_APPROVALS
+  RESOURCES
+  HOMEWORK
+  ASSIGNMENTS
+  ASSESSMENTS
+  ATTENDANCE
+  TIMETABLE
+  CALENDAR
+  REPORTS
+  GAP_ANALYSIS
+  REMEDIALS
+  TUTOR_PLATFORM
+  PARENT_PORTAL
+  STUDENT_AI
+  DISCUSSIONS
+  NOTIFICATIONS
 }
 
 enum EnrollmentStatus {
@@ -525,4 +679,12 @@ enum InspectionStatus {
   APPROVED
   DISPATCHED
   CLOSED
+}
+
+enum BookAdoptionStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  REVOKED
+  EXPIRED
 }

@@ -1,9 +1,12 @@
-import { PrismaClient, TeacherAiPlan, UserRole } from "@prisma/client";
+import { PlatformFeatureKey, PrismaClient, TeacherAiPlan, UserRole } from "@prisma/client";
 import bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
 
 async function main() {
+  const publisher = await prisma.publisher.upsert({ where: { slug: "bluegate" }, update: { name: "Bluegate Publishers", active: true }, create: { id: "publisher_bluegate", name: "Bluegate Publishers", shortName: "Bluegate", slug: "bluegate", portalTitle: "Bluegate Platform", aiName: "Bluegate AI" } });
+  const implemented=new Set<PlatformFeatureKey>([PlatformFeatureKey.AI_STUDIO,PlatformFeatureKey.BOOK_APPROVALS,PlatformFeatureKey.RESOURCES,PlatformFeatureKey.NOTIFICATIONS]);
+  for(const key of Object.values(PlatformFeatureKey)){const feature=await prisma.featureDefinition.upsert({where:{key},update:{implemented:implemented.has(key),active:true},create:{id:`feature_${key.toLowerCase()}`,key,name:key.split("_").map(x=>x[0]+x.slice(1).toLowerCase()).join(" "),implemented:implemented.has(key),active:true}});await prisma.publisherFeature.upsert({where:{publisherId_featureId:{publisherId:publisher.id,featureId:feature.id}},update:{enabled:implemented.has(key)},create:{publisherId:publisher.id,featureId:feature.id,enabled:implemented.has(key)}})}
   console.log("🌱 Seeding Bluegate Database...");
 
   // ----------------------------
@@ -16,12 +19,13 @@ async function main() {
     where: {
       email: "admin@bluegatepublishers.com",
     },
-    update: {},
+    update: { publisherId: publisher.id },
     create: {
       name: "Bluegate Admin",
       email: "admin@bluegatepublishers.com",
       password,
       role: UserRole.ADMIN,
+      publisherId: publisher.id,
     },
   });
 
@@ -208,11 +212,13 @@ async function main() {
       userId: schoolUser.id,
     },
     update: {
+      publisherId: publisher.id,
       schoolName: "Bluegate Demonstration School",
       city: "New Delhi",
       state: "Delhi",
     },
     create: {
+      publisherId: publisher.id,
       userId: schoolUser.id,
       schoolName: "Bluegate Demonstration School",
       city: "New Delhi",

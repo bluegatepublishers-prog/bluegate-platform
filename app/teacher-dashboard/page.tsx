@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Bell, Bookmark, Download, FolderOpen, School } from "lucide-react";
+import { Bell, BookOpen, Bookmark, Download, FolderOpen, School } from "lucide-react";
 
 import ResourceActions from "@/components/dashboard/ResourceActions";
 import { getTeacherDashboard } from "@/lib/teacher-dashboard";
@@ -10,7 +10,7 @@ export const revalidate = 0;
 export const metadata = { title: "Teacher Dashboard | Bluegate Publishers" };
 
 export default async function TeacherDashboardPage() {
-  const { teacher, stats, latestResources, recentDownloads } = await getTeacherDashboard();
+  const { teacher, stats, latestResources, recentDownloads, assignedClasses } = await getTeacherDashboard();
 
   return (
     <div className="space-y-8 p-4 sm:p-6 lg:p-8">
@@ -29,6 +29,15 @@ export default async function TeacherDashboardPage() {
         <Stat icon={Bookmark} label="Bookmarks" value={stats.bookmarks} />
         <Stat icon={FolderOpen} label="Available resources" value={stats.resources} />
       </div>
+
+      <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+        <div><h2 className="text-2xl font-bold text-slate-900">My Assigned Classes</h2><p className="mt-2 text-slate-600">Books and resources selected by your school for each class and subject.</p></div>
+        {assignedClasses.length ? <div className="mt-7 grid gap-5 xl:grid-cols-2">{assignedClasses.map((assignment) => <article key={assignment.id} className="rounded-2xl border border-slate-200 p-5">
+          <div className="flex flex-wrap justify-between gap-3"><div><p className="text-sm font-semibold text-blue-700">{assignment.academicYear.name}</p><h3 className="mt-1 text-xl font-bold">{assignment.schoolClass.name} · Section {assignment.section.name}</h3><p className="mt-1 text-slate-600">{assignment.subject?.name}</p></div><School className="h-7 w-7 text-blue-600"/></div>
+          <div className="mt-5 rounded-xl bg-slate-50 p-4"><p className="flex items-center gap-2 font-bold"><BookOpen className="h-5 w-5 text-blue-600"/>Approved Book</p>{assignment.content?.book ? <div className="mt-3"><p className="font-semibold">{assignment.content.book.title}</p><p className="text-sm text-slate-500">{assignment.content.book.series?.name ?? "Bluegate Publishers"} · Approved for {assignment.academicYear.name}</p><a href={`/api/books/${assignment.content.book.id}/full-pdf`} target="_blank" rel="noreferrer" className="mt-3 inline-flex font-semibold text-blue-700">Open full book</a></div> : <p className="mt-3 text-sm text-amber-700">Waiting for school book approval</p>}</div>
+          <div className="mt-4"><p className="flex items-center gap-2 font-bold"><FolderOpen className="h-5 w-5 text-blue-600"/>Assigned Resources</p>{assignment.content?.resources.length ? <div className="mt-3 space-y-2">{assignment.content.resources.map((resource) => <div key={resource.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-3"><div><p className="font-semibold">{resource.title}</p><p className="text-xs text-slate-500">{resource.type}</p></div><ResourceActions resourceId={resource.id}/></div>)}</div> : <p className="mt-3 text-sm text-slate-500">No Resources</p>}</div>
+        </article>)}</div> : <Empty text="No class or subject assignments are available yet."/>}
+      </section>
 
       <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
         <div className="flex items-center justify-between gap-4">

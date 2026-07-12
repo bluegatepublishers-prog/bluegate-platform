@@ -17,7 +17,7 @@ export async function requireTeacher() {
 
 export async function getTeacherDashboard() {
   const teacher = await requireTeacher();
-  const [downloads, bookmarks, resources, latestResources, recentDownloads] =
+  const [downloads, bookmarks, resources, latestResources, recentDownloads, teachingAssignments] =
     await prisma.$transaction([
       prisma.download.count({ where: { teacherId: teacher.id } }),
       prisma.bookmark.count({ where: { teacherId: teacher.id } }),
@@ -29,9 +29,23 @@ export async function getTeacherDashboard() {
         orderBy: { downloadedAt: "desc" },
         take: 5,
       }),
+      prisma.teacherAssignment.findMany({
+        where: { teacherId: teacher.id, active: true, type: "SUBJECT_TEACHER", schoolClass: { active: true }, section: { active: true } },
+        include: { academicYear: true, schoolClass: true, section: true, subject: true },
+        orderBy: [{ academicYear: { startDate: "desc" } }, { schoolClass: { sortOrder: "asc" } }, { section: { name: "asc" } }],
+      }),
     ]);
 
-  return { teacher, stats: { downloads, bookmarks, resources }, latestResources, recentDownloads };
+  const sectionSubjects = teachingAssignments.length ? await prisma.sectionSubject.findMany({
+    where: { active: true, sectionId: { in: [...new Set(teachingAssignments.map((assignment) => assignment.sectionId))] } },
+    include: { bookAdoptions: { where: { status: "APPROVED", active: true }, include: { book: { include: { series: true } } } }, resources: { where: { published: true }, orderBy: { title: "asc" } } },
+  }) : [];
+  const assignedClasses = teachingAssignments.map((assignment) => ({
+    ...assignment,
+    content: (() => { const item=sectionSubjects.find((candidate) => candidate.sectionId === assignment.sectionId && candidate.subjectId === assignment.subjectId); if(!item)return null; const adoption=item.bookAdoptions.find(candidate=>candidate.academicYearId===assignment.academicYearId); return adoption?{...item,book:adoption.book}:null; })(),
+  }));
+
+  return { teacher, stats: { downloads, bookmarks, resources }, latestResources, recentDownloads, assignedClasses };
 }
 
 export async function getResources(filters: {

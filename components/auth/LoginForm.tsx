@@ -240,6 +240,7 @@ function getLoginDestination(
 }
 
 function getRoleDestination(role: string | undefined) {
+  if (role === "SUPER_ADMIN") return "/super-admin";
   if (role === "ADMIN") return "/admin";
   if (role === "TEACHER") return "/teacher-dashboard";
   if (role === "SCHOOL") return "/school-dashboard";
@@ -251,6 +252,8 @@ function isAllowedRoleCallback(
   role: string | undefined
 ): value is string {
   if (!isSafeInternalPath(value)) return false;
+
+  if (role === "SUPER_ADMIN") return matchesRoute(value, "/super-admin");
 
   if (role === "ADMIN") return matchesRoute(value, "/admin");
   if (role === "TEACHER") return matchesRoute(value, "/teacher-dashboard");

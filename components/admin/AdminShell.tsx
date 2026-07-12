@@ -8,9 +8,11 @@ import AdminSidebar from "@/components/admin/AdminSidebar";
 export default function AdminShell({
   children,
   userLabel,
+  branding,features,
 }: {
   children: ReactNode;
   userLabel: string;
+  branding:{shortName:string;portalTitle:string;primaryColor:string};features:Record<string,boolean>;
 }) {
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -32,7 +34,7 @@ export default function AdminShell({
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 lg:flex">
-      <AdminSidebar />
+      <AdminSidebar branding={branding} features={features}/>
 
       {mobileOpen ? (
         <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true" aria-label="Admin navigation">
@@ -43,7 +45,7 @@ export default function AdminShell({
             aria-label="Close admin navigation"
           />
           <div className="relative h-full w-fit">
-            <AdminSidebar mobile onClose={() => setMobileOpen(false)} />
+            <AdminSidebar branding={branding} features={features} mobile onClose={() => setMobileOpen(false)} />
           </div>
         </div>
       ) : null}

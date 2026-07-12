@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { requireTeacher } from "@/lib/teacher-dashboard";
 import { prepareQuestionPaperDraft } from "@/lib/ai/orchestrator";
 import { executeAiGeneration } from "@/lib/ai";
+import { canTeacherAccessBook } from "@/lib/book-adoptions";
 
 const templatesPath = "/teacher-dashboard/ai/templates";
 const clean = (formData: FormData, key: string) => String(formData.get(key) ?? "").trim();
@@ -75,6 +76,7 @@ export async function generateQuestionPaper(input: GenerateQuestionPaperInput) {
   if (!input || typeof input.generationId !== "string" || !/^[a-zA-Z0-9_-]{16,64}$/.test(input.generationId) || typeof input.bookId !== "string" || !input.bookId || !["whole", "selected"].includes(input.coverage) || !Array.isArray(input.chapterIds) || !input.chapterIds.length || input.chapterIds.some(id => typeof id !== "string" || !id) || new Set(input.chapterIds).size !== input.chapterIds.length || !allowedExamTypes.has(input.examType) || !allowedPatterns.has(input.pattern) || typeof input.title !== "string" || !input.title.trim() || input.title.length > 160 || !Number.isInteger(input.totalMarks) || input.totalMarks < 1 || input.totalMarks > 500 || !Number.isInteger(input.duration) || input.duration < 10 || input.duration > 360 || !["Easy", "Balanced", "Advanced"].includes(input.difficulty) || typeof input.autoDistribution !== "boolean" || !Array.isArray(input.questionTypes) || !input.questionTypes.length || new Set(input.questionTypes).size !== input.questionTypes.length || input.questionTypes.some(type => !allowedQuestionTypes.has(type)) || !input.advanced || [input.advanced.bloomDistribution,input.advanced.internalChoices,input.advanced.caseBasedQuestions,input.advanced.creativeQuestions,input.advanced.applicationQuestions].some(value => typeof value !== "boolean") || !Number.isInteger(input.advanced.competencyPercent) || input.advanced.competencyPercent < 0 || input.advanced.competencyPercent > 100) return { ok: false as const, message: "Please complete all question paper settings." };
   const uniqueChapterIds = [...new Set(input.chapterIds)];
   try {
+    if (!(await canTeacherAccessBook(teacher.id,input.bookId))) return { ok: false as const, message: "This book is not approved for one of your current teaching assignments." };
     const book = await prisma.book.findFirst({ where: { id: input.bookId, published: true }, select: { id: true, title: true, classId: true, subjectId: true, class: { select: { name: true } }, subject: { select: { name: true } }, chapters: { select: { id: true, title: true, chapterNumber: true, approved: true, reviewedText: true, _count: { select: { learningOutcomes: true } } } } } });
     if (!book) return { ok: false as const, message: "The selected book or chapters are no longer available." };
     const readyChapters = book.chapters.filter(chapter => chapter.approved && Boolean(chapter.reviewedText?.trim()) && chapter._count.learningOutcomes > 0);

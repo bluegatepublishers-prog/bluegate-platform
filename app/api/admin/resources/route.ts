@@ -2,19 +2,20 @@ import { NextResponse } from "next/server";
 import { ResourceType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getApiUser } from "@/lib/authz";
+import { resolvePublisherForUser } from "@/lib/publisher-context";
 
 export async function GET() {
-  if (!(await getApiUser(["ADMIN"]))) {
+  const user=await getApiUser(["ADMIN"]);const publisher=user?.id?await resolvePublisherForUser(user.id):null;if(!publisher){
     return NextResponse.json({ message: "Forbidden" }, { status: 403 });
   }
 
   return NextResponse.json(
-    await prisma.resource.findMany({ orderBy: { createdAt: "desc" } })
+    await prisma.resource.findMany({ where:{publisherId:publisher.id},orderBy: { createdAt: "desc" } })
   );
 }
 
 export async function POST(request: Request) {
-  if (!(await getApiUser(["ADMIN"]))) {
+  const user=await getApiUser(["ADMIN"]);const publisher=user?.id?await resolvePublisherForUser(user.id):null;if(!publisher){
     return NextResponse.json({ message: "Forbidden" }, { status: 403 });
   }
 
@@ -32,6 +33,7 @@ export async function POST(request: Request) {
 
   const resource = await prisma.resource.create({
     data: {
+      publisherId:publisher.id,
       title: body.title.trim(),
       description: body.description?.trim() || "",
       subject: body.subject?.trim() || "General",

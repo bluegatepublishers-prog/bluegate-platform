@@ -1,11 +1,14 @@
 import type { ReactNode } from "react";
 
 import AdminShell from "@/components/admin/AdminShell";
-import { requireUser } from "@/lib/authz";
+import { requirePublisherAdmin } from "@/lib/publisher-context";
+import { getPublisherBranding } from "@/lib/publisher-context";
+import { getPublisherFeatures } from "@/lib/publisher-features";
 
 export default async function AdminLayout({ children }: { children: ReactNode }) {
-  const user = await requireUser(["ADMIN"]);
+  const { user, publisher } = await requirePublisherAdmin();
+  const [branding,features]=await Promise.all([getPublisherBranding(publisher.id),getPublisherFeatures(publisher.id)]);
   const userLabel = user.name?.trim() || user.email || "Administrator";
 
-  return <AdminShell userLabel={userLabel}>{children}</AdminShell>;
+  return <AdminShell userLabel={userLabel} branding={branding} features={features}>{children}</AdminShell>;
 }

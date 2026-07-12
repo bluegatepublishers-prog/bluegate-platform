@@ -103,6 +103,35 @@ export async function setSectionSubjectOrder(schoolClassId: string, form: FormDa
   revalidatePath(`/school-dashboard/classes/${schoolClassId}`);
 }
 
+export async function saveSectionSubjectContent(schoolClassId: string, form: FormData) {
+  const school = await requireSchool();
+  const sectionSubjectId = text(form, "sectionSubjectId");
+  const bookId = text(form, "bookId") || null;
+  const resourceIds = [...new Set(form.getAll("resourceIds").filter((value): value is string => typeof value === "string" && Boolean(value)))];
+  const link = await prisma.sectionSubject.findFirst({
+    where: { id: sectionSubjectId, active: true, section: { schoolClass: { id: schoolClassId, schoolId: school.id } } },
+    include: { subject: true, section: { include: { schoolClass: true } } },
+  });
+  if (!link) return;
+  const classKey = normalizeAcademicName(link.section.schoolClass.name);
+  const [book, resources] = await Promise.all([
+    bookId ? prisma.book.findFirst({ where: { id: bookId, published: true, subjectId: link.subjectId }, include: { class: true } }) : null,
+    prisma.resource.findMany({ where: { id: { in: resourceIds }, published: true } }),
+  ]);
+  if (bookId && (!book || normalizeAcademicName(book.class.name) !== classKey)) return;
+  if (resources.length !== resourceIds.length || resources.some((resource) => normalizeAcademicName(resource.classLevel) !== classKey || normalizeAcademicName(resource.subject) !== normalizeAcademicName(link.subject.name))) return;
+  await prisma.sectionSubject.update({
+    where: { id: link.id },
+    data: { bookId, resources: { set: resources.map((resource) => ({ id: resource.id })) } },
+  });
+  revalidatePath(`/school-dashboard/classes/${schoolClassId}`);
+  revalidatePath("/teacher-dashboard");
+}
+
+function normalizeAcademicName(value: string) {
+  return value.trim().toLowerCase().replace(/\b(class|grade|standard|std)\b/g, "").replace(/[^a-z0-9]+/g, "");
+}
+
 export async function createStudent(form: FormData) {
   const school = await requireSchool();
   const name = text(form, "name", 100);

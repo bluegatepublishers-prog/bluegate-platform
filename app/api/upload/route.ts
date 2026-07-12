@@ -3,7 +3,8 @@ import { issueSignedToken } from "@vercel/blob";
 import { handleUploadPresigned, type HandleUploadPresignedBody } from "@vercel/blob/client";
 import { getApiUser } from "@/lib/authz";
 import { prisma } from "@/lib/prisma";
-import { isUploadScope, isValidUploadPath, schoolLogoUploadPath, uploadRules } from "@/lib/storage/upload-policy";
+import { isUploadScope, isValidUploadPath, publisherUploadPath, schoolLogoUploadPath, uploadRules } from "@/lib/storage/upload-policy";
+import{resolvePublisherForUser}from"@/lib/publisher-context";
 
 type UploadPolicyErrorCode="UNAUTHORIZED"|"INVALID_PAYLOAD"|"INVALID_SCOPE"|"INVALID_PATHNAME"|"TOKEN_GENERATION_FAILED";
 class UploadPolicyError extends Error{constructor(readonly code:UploadPolicyErrorCode){super(code);this.name="UploadPolicyError"}}
@@ -18,7 +19,7 @@ export async function POST(request:Request){
       if(payload.scope==="school-logo"){
         const school=await prisma.school.findUnique({where:{userId:user.id},select:{id:true}});
         if(!school||pathname!==schoolLogoUploadPath(school.id,payload.originalName))throw new UploadPolicyError("INVALID_PATHNAME");
-      }else if(!isValidUploadPath(payload.scope,payload.originalName,pathname))throw new UploadPolicyError("INVALID_PATHNAME");
+      }else if(payload.scope==="publisher-logo"||payload.scope==="publisher-favicon"){const publisher=await resolvePublisherForUser(user.id!);if(!publisher||pathname!==publisherUploadPath(publisher.id,payload.scope,payload.originalName))throw new UploadPolicyError("INVALID_PATHNAME");}else if(!isValidUploadPath(payload.scope,payload.originalName,pathname))throw new UploadPolicyError("INVALID_PATHNAME");
       const rule=uploadRules[payload.scope],validUntil=Date.now()+5*60*1000;
       const token=await issueSignedToken({pathname,operations:["put"],allowedContentTypes:rule.contentTypes,maximumSizeInBytes:rule.maxSize,validUntil});
       return{token,urlOptions:{allowedContentTypes:rule.contentTypes,maximumSizeInBytes:rule.maxSize,addRandomSuffix:true,allowOverwrite:false,validUntil}};

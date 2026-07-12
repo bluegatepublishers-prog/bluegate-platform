@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getApiUser } from "@/lib/authz";
+import { resolvePublisherForUser } from "@/lib/publisher-context";
 import { revalidatePath } from "next/cache";
 import {
   parseBookFormData,
@@ -18,8 +19,9 @@ function generateSlug(title: string) {
 
 export async function GET() {
   try {
-    if (!(await getApiUser(["ADMIN"]))) return NextResponse.json({ message: "Forbidden" }, { status: 403 });
+    const user=await getApiUser(["ADMIN"]);const publisher=user?.id?await resolvePublisherForUser(user.id):null;if(!publisher)return NextResponse.json({message:"Forbidden"},{status:403});
     const books = await prisma.book.findMany({
+      where: { publisherId: publisher.id },
       include: {
         class: true,
         subject: true,
@@ -48,7 +50,7 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
-    if (!(await getApiUser(["ADMIN"]))) return NextResponse.json({ message: "Forbidden" }, { status: 403 });
+    const user=await getApiUser(["ADMIN"]);const publisher=user?.id?await resolvePublisherForUser(user.id):null;if(!publisher)return NextResponse.json({message:"Forbidden"},{status:403});
     const form = parseBookFormData(await request.json());
 
     if (!form.title) {
@@ -88,6 +90,7 @@ export async function POST(request: NextRequest) {
       data: {
         ...toBookPersistenceData(form),
         slug,
+        publisherId: publisher.id,
       },
       include: {
         class: true,

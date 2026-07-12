@@ -65,7 +65,7 @@ const navigation = [
   },
 ];
 
-export default function Sidebar({ teacherName, schoolName }: { teacherName: string; schoolName: string }) {
+export default function Sidebar({ teacherName, schoolName,branding,features }: { teacherName: string; schoolName: string;branding:{shortName:string;portalTitle:string;primaryColor:string};features:Record<string,boolean> }) {
   const pathname = usePathname();
 
   return (
@@ -79,7 +79,7 @@ export default function Sidebar({ teacherName, schoolName }: { teacherName: stri
 
           <div>
             <h2 className="text-lg font-bold text-slate-900">
-              Bluegate
+              {branding.shortName}
             </h2>
 
             <p className="text-sm text-slate-500">
@@ -123,7 +123,7 @@ export default function Sidebar({ teacherName, schoolName }: { teacherName: stri
       {/* Navigation */}
       <nav className="flex-1 p-6">
         <ul className="space-y-2">
-          {navigation.map((item) => {
+          {navigation.filter(item=>item.href!=="/teacher-dashboard/ai"||features.AI_STUDIO).filter(item=>!["/teacher-dashboard/resources","/teacher-dashboard/downloads","/teacher-dashboard/bookmarks"].includes(item.href)||features.RESOURCES).filter(item=>item.href!=="/teacher-dashboard/notifications"||features.NOTIFICATIONS).map((item) => {
             const Icon = item.icon;
             const active = item.href === "/teacher-dashboard" ? pathname === item.href : pathname.startsWith(item.href);
 
@@ -164,7 +164,7 @@ export default function Sidebar({ teacherName, schoolName }: { teacherName: stri
         <LogoutButton className="w-full" />
 
         <p className="mt-6 text-center text-xs text-slate-400">
-          Bluegate Publishers
+          {branding.portalTitle}
           <br />
           Teacher Portal v1.0
         </p>

@@ -1,0 +1,2 @@
+"use server";import{revalidatePath}from"next/cache";import{prisma}from"@/lib/prisma";import{requirePublisherAdmin}from"@/lib/publisher-context";import{brandingData}from"@/lib/publisher-branding-validation";
+export async function updateOwnBranding(f:FormData){const{publisher}=await requirePublisherAdmin();await prisma.publisher.update({where:{id:publisher.id},data:brandingData(f)});revalidatePath("/admin","layout");revalidatePath("/admin/publisher-settings")}
