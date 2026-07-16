@@ -1,9 +1,17 @@
 "use server";
 
-import { EnrollmentStatus, TeacherAssignmentType } from "@prisma/client";
+import { EnrollmentStatus, PlatformFeatureKey, TeacherAssignmentType } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireSchool } from "@/lib/school-dashboard";
+import { isPublisherFeatureEnabled } from "@/lib/publisher-features";
+import {
+  buildAssignableBookWhere,
+  buildAssignableResourcesWhere,
+  buildSectionSubjectContentScopeWhere,
+  buildSectionSubjectContentUpdate,
+  isSectionSubjectContentSelectionValid,
+} from "@/lib/section-subject-content-policy";
 
 const text = (form: FormData, key: string, max = 120) => String(form.get(key) ?? "").trim().slice(0, max);
 const checked = (form: FormData, key: string) => form.get(key) === "on" || form.get(key) === "true";
@@ -105,31 +113,35 @@ export async function setSectionSubjectOrder(schoolClassId: string, form: FormDa
 
 export async function saveSectionSubjectContent(schoolClassId: string, form: FormData) {
   const school = await requireSchool();
+  if(!school.publisherId||!await isPublisherFeatureEnabled(school.publisherId,PlatformFeatureKey.RESOURCES))return;
   const sectionSubjectId = text(form, "sectionSubjectId");
   const bookId = text(form, "bookId") || null;
   const resourceIds = [...new Set(form.getAll("resourceIds").filter((value): value is string => typeof value === "string" && Boolean(value)))];
   const link = await prisma.sectionSubject.findFirst({
-    where: { id: sectionSubjectId, active: true, section: { schoolClass: { id: schoolClassId, schoolId: school.id } } },
+    where: buildSectionSubjectContentScopeWhere(school.id, schoolClassId, sectionSubjectId),
     include: { subject: true, section: { include: { schoolClass: true } } },
   });
   if (!link) return;
-  const classKey = normalizeAcademicName(link.section.schoolClass.name);
   const [book, resources] = await Promise.all([
-    bookId ? prisma.book.findFirst({ where: { id: bookId, published: true, subjectId: link.subjectId }, include: { class: true } }) : null,
-    prisma.resource.findMany({ where: { id: { in: resourceIds }, published: true } }),
+    bookId ? prisma.book.findFirst({ where: buildAssignableBookWhere(school.publisherId, bookId, link.subjectId), include: { class: true } }) : null,
+    prisma.resource.findMany({ where: buildAssignableResourcesWhere(school.publisherId, resourceIds) }),
   ]);
-  if (bookId && (!book || normalizeAcademicName(book.class.name) !== classKey)) return;
-  if (resources.length !== resourceIds.length || resources.some((resource) => normalizeAcademicName(resource.classLevel) !== classKey || normalizeAcademicName(resource.subject) !== normalizeAcademicName(link.subject.name))) return;
+  if (!isSectionSubjectContentSelectionValid({
+    publisherId: school.publisherId,
+    className: link.section.schoolClass.name,
+    subjectId: link.subjectId,
+    subjectName: link.subject.name,
+    requestedBookId: bookId,
+    requestedResourceIds: resourceIds,
+    book,
+    resources,
+  })) return;
   await prisma.sectionSubject.update({
     where: { id: link.id },
-    data: { bookId, resources: { set: resources.map((resource) => ({ id: resource.id })) } },
+    data: buildSectionSubjectContentUpdate(bookId, resources.map((resource) => resource.id)),
   });
   revalidatePath(`/school-dashboard/classes/${schoolClassId}`);
   revalidatePath("/teacher-dashboard");
-}
-
-function normalizeAcademicName(value: string) {
-  return value.trim().toLowerCase().replace(/\b(class|grade|standard|std)\b/g, "").replace(/[^a-z0-9]+/g, "");
 }
 
 export async function createStudent(form: FormData) {

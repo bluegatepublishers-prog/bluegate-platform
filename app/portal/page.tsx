@@ -1,0 +1,13 @@
+import Link from "next/link";
+import { Building2, GraduationCap, School, UserRoundCheck, UsersRound } from "lucide-react";
+
+const cards = [
+  { title: "School", description: "Manage your school, teachers, students and academic setup.", icon: School, login: "/school-login", create: "/school-signup", createLabel: "Create Account" },
+  { title: "Teacher", description: "Access assigned classes, resources and teaching tools.", icon: UserRoundCheck, login: "/teacher-login", create: "/teacher-signup", createLabel: "Create Account" },
+  { title: "Student", description: "Open your school-provided learning account.", icon: GraduationCap, login: "/student-login", create: "/student-activate", createLabel: "Activate Account" },
+  { title: "Mentor", description: "Support only the students assigned to your mentoring plan.", icon: UsersRound, login: "/mentor-login", create: null, createLabel: null },
+  { title: "Parent / Guardian", description: "View released learning progress for children your school has approved.", icon: UsersRound, login: "/parent-login", create: "/parent-activate", createLabel: "Activate Invitation" },
+  { title: "Publisher Admin", description: "Manage publisher content, schools and platform services.", icon: Building2, login: "/admin/login", create: null, createLabel: null },
+] as const;
+
+export default function PortalPage() { return <main className="min-h-screen bg-slate-50 px-4 py-12 sm:px-6 lg:px-8"><div className="mx-auto max-w-6xl"><header className="text-center"><p className="font-bold uppercase tracking-[0.24em] text-blue-700">Bluegate Platform OS</p><h1 className="mt-3 text-4xl font-bold text-slate-950 sm:text-5xl">Choose your portal</h1><p className="mx-auto mt-4 max-w-2xl text-lg text-slate-600">Sign in to your workspace or request the account type available to your role.</p></header><section className="mt-10 grid gap-6 sm:grid-cols-2 xl:grid-cols-3">{cards.map(({title,description,icon:Icon,login,create,createLabel})=><article key={title} className="flex min-h-80 flex-col rounded-3xl border bg-white p-7 shadow-sm"><span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-50 text-blue-700"><Icon className="h-7 w-7"/></span><h2 className="mt-6 text-2xl font-bold">{title}</h2><p className="mt-3 flex-1 text-slate-600">{description}</p><div className="mt-7 space-y-3"><Link className="block rounded-xl bg-blue-700 px-5 py-3 text-center font-bold text-white" href={login}>Login</Link>{create&&createLabel?<Link className="block rounded-xl border border-blue-200 px-5 py-3 text-center font-bold text-blue-700" href={create}>{createLabel}</Link>:<p className="px-2 text-center text-xs text-slate-500">Accounts are issued privately by the publisher.</p>}</div></article>)}</section></div></main> }

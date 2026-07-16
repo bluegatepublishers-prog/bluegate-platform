@@ -1,0 +1,4 @@
+import { unstable_rethrow } from "next/navigation";
+import { NextResponse } from "next/server";
+import { practiceErrorResponse, startStudentPractice } from "@/lib/student-practice";
+export async function POST(request: Request) { try { const body = await request.json() as { bookId?: unknown; chapterId?: unknown; requestedCount?: unknown }; if (typeof body.bookId !== "string" || typeof body.chapterId !== "string") throw new Error("invalid"); const result = await startStudentPractice({ bookId: body.bookId, chapterId: body.chapterId, requestedCount: body.requestedCount }); return NextResponse.json({ ok: true, ...result }); } catch (error) { unstable_rethrow(error); const safe = practiceErrorResponse(error); return NextResponse.json({ ok: false, message: safe.message }, { status: safe.status }); } }

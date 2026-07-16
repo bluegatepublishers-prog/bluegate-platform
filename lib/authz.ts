@@ -10,10 +10,21 @@ export async function requireUser(roles?: string[]) {
       redirect("/admin/login");
     }
 
+    if (roles?.includes("STUDENT")) {
+      redirect("/student-login");
+    }
+
     redirect("/teacher-login");
   }
 
-  if (roles && (!user.role || !roles.includes(user.role))) redirect("/");
+  if (roles && (!user.role || !roles.includes(user.role))) {
+    if (user.role === "STUDENT") redirect("/student-dashboard");
+    if (user.role === "TEACHER") redirect("/teacher-dashboard");
+    if (user.role === "SCHOOL") redirect("/school-dashboard");
+    if (user.role === "ADMIN") redirect("/admin");
+    if (user.role === "SUPER_ADMIN") redirect("/super-admin");
+    redirect("/");
+  }
 
   return user;
 }

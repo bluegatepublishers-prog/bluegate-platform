@@ -5,11 +5,11 @@
 | Field | Value |
 |---|---|
 | Document | Bluegate Platform OS Architecture Specification |
-| Version | 1.0 |
+| Version | 1.1 |
 | Status | Approved Architecture Baseline |
 | Platform | Bluegate Platform OS |
 | Initial tenant | Bluegate Publishers |
-| Date | 12 July 2026 |
+| Date | 13 July 2026 |
 | Purpose | Govern product, data, security, API, migration, UI, and deployment decisions |
 | Audience | Business owners, product, engineering, operations, and implementation agents |
 
@@ -43,8 +43,8 @@ Evidence reviewed includes the Prisma schema and migrations; `auth.ts`, `auth.co
 | AI Studio | Partially implemented | Teacher question-paper preparation/generation/history and admin provider test; other engines are future. |
 | OpenAI provider | Complete | Server-only provider plus readiness/error handling; fake provider also exists. |
 | Storage | Partially implemented | Local and Vercel Blob adapters, authenticated direct uploads, managed paths/type/size policy and cleanup; tenant prefixes/private objects absent. |
-| Student foundation | Foundation only | `Student`, optional `userId`, and annual `StudentEnrollment` exist. |
-| Student Dashboard | Not started | No route tree or learning UI. |
+| Student foundation | Implemented | Student authentication, current enrollment resolution, annual academic context, computed book entitlement, and premium access grants exist. |
+| Student Dashboard | Partially implemented | My Subjects, My Books, student-facing learning resources, protected reading, reading progress/bookmarks, Revision Hub, and premium Practice Engine exist; Student Learning Assistant and later assessment/analytics phases remain planned. |
 | Subscription system | Not started | Teacher AI plan/quota is a narrow entitlement, not a subscription engine. |
 | Tutor / Parent | Not started | No roles, models, routes, or relationships. |
 | Multi-publisher tenancy | Not started | No `Publisher`, membership, branding, feature, or tenant key models. Bluegate-specific fields remain. |
@@ -171,7 +171,43 @@ Student explanations are encouraging; teachers/tutors receive deeper analytics. 
 
 ## 31. AI architecture
 
-Current provider-neutral flow is Knowledge Collector → Prompt Builder → Preparation Validator → Quota Reservation → Fake/OpenAI provider → Response Validator → Persistence → Quota Consumption. Calls are server-only; secrets never reach clients. Only reviewed/approved book knowledge is eligible. Failures release reservations; provider success alone does not consume quota—validated persisted output does. Future student AI additionally requires publisher feature, subscription, enrollment, adoption/entitlement, audience, safety, and per-user quotas. Future providers implement the same contract.
+Current provider-neutral flow is Knowledge Collector → Prompt Builder → Preparation Validator → Quota Reservation → Fake/OpenAI provider → Response Validator → Persistence → Quota Consumption. Calls are server-only; secrets never reach clients. Only reviewed/approved book knowledge is eligible. Failures release reservations; provider success alone does not consume quota—validated persisted output does. Future providers implement the same contract.
+
+### Bluegate Student Learning Assistant
+
+Bluegate Student AI is a guided learning assistant, not a general chatbot. It offers a fixed learning-tool interface rather than an unrestricted blank conversation. Every request is grounded through this server-authorized chain:
+
+```text
+Publisher
+→ School
+→ Student
+→ Academic Year
+→ Entitled Approved Book
+→ Approved Chapter
+→ Approved Structured Knowledge
+→ AI
+```
+
+The assistant may use only the exact approved chapter knowledge collected for the authenticated student's current, entitled context. It never combines books or unrelated chapters, crosses publishers, searches the internet, or supplements missing material with generic model knowledge. If the approved context cannot support a request, it refuses with a simple chapter-scoped message rather than improvising.
+
+Approved initial modes are:
+
+- Explain Concept
+- Simplify Topic
+- Real Life Example
+- Revision
+- Vocabulary
+- Ask Me Questions
+- Doubt Solver
+- Explain in Hindi
+
+Only Doubt Solver accepts bounded free text. Other modes use structured inputs derived from the selected chapter. Language is an extensible mode parameter so additional publisher-approved languages can be introduced without changing the authorization or grounding model.
+
+Conversation memory is scoped to publisher, school, student, academic year, book, and chapter. Changing the chapter starts a new conversation. There is no global student AI memory and no cross-book or cross-year continuation. Persisted history contains only the student question or selected mode, validated answer, timestamp, and authorized ownership/context references; hidden prompts, system instructions, provider payloads, model names, API details, grounding internals, source locations, and storage URLs are not stored in student-visible history.
+
+Student AI enforces the same identity, enrollment, adoption, book entitlement, publisher feature, and premium checks on every request and history read. `SCHOOL_BASIC` is locked. `SCHOOL_PREMIUM`, `INDIVIDUAL_PREMIUM`, and `INDIVIDUAL_PREMIUM_MENTOR` may use it only while the publisher Student AI feature is enabled. Teacher AI generation quota and Student AI learning quota are independent systems. Student quotas are publisher-controlled daily and/or monthly learning limits and never consume or reveal Teacher AI quota.
+
+Safety policy rejects politics, religion, coding help, medical or other unrelated advice, internet search, other publishers, other books, and attempts to reveal system prompts, providers, models, APIs, internal IDs, grounding implementation, knowledge-source metadata, or storage URLs. Responses remain age- and class-appropriate, use short clear explanations, and prefer examples already supported by approved content. Voice AI, Image AI, Homework AI, and Whiteboard AI may later implement the same scoped grounding, entitlement, quota, validation, and persistence contracts; their mention is compatibility guidance, not implementation approval.
 
 ## 32. Storage architecture
 
@@ -230,7 +266,7 @@ Platform owns global feature definitions, platform plans/settings. Publisher own
 
 ## 45. Development roadmap
 
-The approved sequence is 8.0 tenancy → 8.1 branding/features → 8.2 staff permissions → 8.3 audience → 8.4 entitlement/subscription foundation → 9.0 student identity/login → 9.1 learning library → 9.2 subscriptions → 9.3 assignments → 9.4 quizzes → 9.5 assessments → 9.6 reports → 9.7 gaps → 9.8 remedials → 9.9 tutors → 10.0 parents. Each phase depends on all relevant isolation and audit controls; details are in `IMPLEMENTATION_ROADMAP.md`.
+The approved sequence is 8.0 tenancy → 8.1 branding/features → 8.2 staff permissions → 8.3 audience → 8.4 entitlement foundation → 9.0 Student Identity → 9.1 My Subjects → 9.2 My Books and Secure Reader → 9.3 Student Learning Resources → 9.4 Revision Hub → 9.5 Practice Engine → 9.6 Bluegate Student Learning Assistant → 9.7 Assessments → 9.8 Reports and Progress Analytics → 9.9 Gap Analysis → 9.10 Remedial Learning → 9.11 Mentor Platform → 9.12 Parent Dashboard. Each phase depends on all relevant isolation and audit controls; details are in `IMPLEMENTATION_ROADMAP.md`.
 
 ## 46. Non-goals
 

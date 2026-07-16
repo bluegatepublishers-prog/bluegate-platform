@@ -1,0 +1,8 @@
+import Link from "next/link";
+import { EmptyAnalytics, MetricGrid, ProgressBars, ReportHero, displayPercent } from "@/components/analytics/AnalyticsVisuals";
+import { getTeacherAnalyticsReport } from "@/lib/analytics-reports";
+export const dynamic="force-dynamic"; export const revalidate=0;
+export default async function TeacherReportsPage(){
+  const {rows,gapEnabled,gapProjection}=await getTeacherAnalyticsReport(); const all=rows.find(row=>row.scopeKey==="ALL")??rows[0];
+  return <main className="space-y-7 p-4 sm:p-6 lg:p-8"><ReportHero eyebrow="Assigned learners only" title="Class learning analytics" description="Aggregated factual metrics for active teacher assignments. Individual student history is not exposed here."/>{gapEnabled?<Link href="/teacher-dashboard/gaps" className="inline-flex rounded-xl bg-indigo-700 px-5 py-3 font-bold text-white">{gapProjection.studentsWithOpenGaps} assigned students · {gapProjection.openGapCount} open gaps</Link>:null}{all?<><MetricGrid metrics={[{label:"Assigned students",value:all.studentCount},{label:"Participating",value:all.participatingStudents},{label:"Reading average",value:displayPercent(all.averageReading)},{label:"Revision average",value:displayPercent(all.averageRevision)},{label:"Practice average",value:displayPercent(all.averagePractice)},{label:"Assessment average",value:displayPercent(all.averageAssessment)},{label:"AI sessions",value:all.aiSessions},{label:"AI requests",value:all.aiRequests}]}/><ProgressBars title="Subject performance" rows={rows.filter(row=>row.subject).map(row=>({label:row.subject!.name,value:row.averageAssessment??row.averagePractice??row.averageReading??0,detail:`${row.participatingStudents}/${row.studentCount} participating`}))}/></>:<EmptyAnalytics/>}</main>;
+}

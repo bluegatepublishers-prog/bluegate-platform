@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { requireSchool } from "@/lib/school-dashboard";
+import { getSchoolResourceScope } from "@/lib/resource-audience";
 
 export async function getAcademicYears() {
   const school = await requireSchool();
@@ -17,11 +18,12 @@ export async function getAcademicClassList(academicYearId?: string) {
 
 export async function getAcademicClass(id: string) {
   const school = await requireSchool();
+  const resourceScope=await getSchoolResourceScope(school.userId);if(!resourceScope)notFound();
   const [schoolClass, subjects, books, resources] = await Promise.all([
     prisma.schoolClass.findFirst({ where: { id, schoolId: school.id }, include: { academicYear: true, sections: { include: { subjects: { include: { subject: true, book: { include: { class: true, subject: true, series: true } }, resources: true }, orderBy: { sortOrder: "asc" } }, teacherAssignments: { where: { active: true, type: "SUBJECT_TEACHER" }, include: { teacher: { include: { user: true } } } }, _count: { select: { enrollments: true } } }, orderBy: { name: "asc" } } } }),
     prisma.subject.findMany({ where: { active: true }, orderBy: [{ sortOrder: "asc" }, { name: "asc" }] }),
-    prisma.book.findMany({ where: { published: true }, include: { class: true, subject: true, series: true }, orderBy: { title: "asc" } }),
-    prisma.resource.findMany({ where: { published: true }, orderBy: [{ type: "asc" }, { title: "asc" }] }),
+    prisma.book.findMany({ where: { publisherId:school.publisherId,published: true }, include: { class: true, subject: true, series: true }, orderBy: { title: "asc" } }),
+    prisma.resource.findMany({ where:{publisherId:resourceScope.school.publisherId,published:true}, orderBy: [{ type: "asc" }, { title: "asc" }] }),
   ]);
   if (!schoolClass) notFound();
   const classKey = normalizeAcademicName(schoolClass.name);

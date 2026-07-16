@@ -3,6 +3,10 @@ import Credentials from "next-auth/providers/credentials";
 
 import { prisma } from "@/lib/prisma";
 import { verifyPassword } from "@/lib/password";
+import { loadStudentIdentity } from "@/lib/student-identity";
+import { studentSessionClaims } from "@/lib/student-identity-service";
+import { isPublisherFeatureEnabled } from "@/lib/publisher-features";
+import { PlatformFeatureKey } from "@prisma/client";
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   trustHost: true,
@@ -27,18 +31,14 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       },
 
       async authorize(credentials) {
-        const email = credentials?.email as string;
+        const email = String(credentials?.email ?? "").trim().toLowerCase();
         const password = credentials?.password as string;
 
         if (!email || !password) {
           return null;
         }
 
-        const user = await prisma.user.findUnique({
-          where: {
-            email,
-          },
-        });
+        const user = await prisma.user.findUnique({ where: { email }, include: { school: { select: { status: true, publisher: { select: { active: true } } } }, teacher: { select: { active: true, status: true, school: { select: { status: true, publisher: { select: { active: true } } } } } }, mentor: { select: { active: true, publisherId: true, publisher: { select: { active: true } } } }, parent: { select: { active: true } }, publisher: { select: { active: true } } } });
 
         if (!user) {
           return null;
@@ -53,11 +53,26 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           return null;
         }
 
+        if (user.role === "SCHOOL" && (user.school?.status !== "APPROVED" || !user.school.publisher?.active)) return null;
+        if (user.role === "TEACHER" && (!user.teacher?.active || user.teacher.status !== "APPROVED" || user.teacher.school?.status !== "APPROVED" || !user.teacher.school.publisher?.active)) return null;
+        if (user.role === "ADMIN" && !user.publisher?.active) return null;
+        if (user.role === "MENTOR" && (!user.mentor?.active || !user.mentor.publisher.active || user.publisherId !== user.mentor.publisherId || !(await isPublisherFeatureEnabled(user.mentor.publisherId, PlatformFeatureKey.TUTOR_PLATFORM)))) return null;
+        if (user.role === "PARENT" && !user.parent?.active) return null;
+
+        const claims = user.role === "STUDENT"
+          ? studentSessionClaims(
+              await loadStudentIdentity(user.id, user.role, user.publisherId),
+            )
+          : null;
+
+        if (user.role === "STUDENT" && !claims) return null;
+
         return {
           id: user.id,
           name: user.name,
           email: user.email,
           role: user.role,
+          ...claims,
         };
       },
     }),
@@ -70,7 +85,12 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   callbacks: {
     async jwt({ token, user }) {
       if (user) {
-        token.role = (user as any).role;
+        token.role = user.role;
+        token.studentId = user.studentId;
+        token.publisherId = user.publisherId;
+        token.schoolId = user.schoolId;
+        token.academicYearId = user.academicYearId;
+        token.academicYear = user.academicYear;
       }
 
       return token;
@@ -78,8 +98,16 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
     async session({ session, token }) {
       if (session.user) {
-        (session.user as any).id = token.sub;
-        (session.user as any).role = token.role;
+        if (token.sub) {
+          session.user.id = token.sub;
+          session.user.userId = token.sub;
+        }
+        session.user.role = token.role;
+        session.user.studentId = token.studentId;
+        session.user.publisherId = token.publisherId;
+        session.user.schoolId = token.schoolId;
+        session.user.academicYearId = token.academicYearId;
+        session.user.academicYear = token.academicYear;
       }
 
       return session;

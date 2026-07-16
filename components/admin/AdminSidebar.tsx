@@ -16,15 +16,21 @@ import {
   Users,
   X,
   Settings,
+  ChartNoAxesCombined,
+  ScanSearch,
 } from "lucide-react";
 
 const navigation = [
   { name: "Dashboard", href: "/admin", icon: LayoutDashboard },
+  { name: "Reports", href: "/admin/reports", icon: ChartNoAxesCombined },
+  { name: "Learning Gaps", href: "/admin/gaps", icon: ScanSearch },
+  { name: "Remedial Learning", href: "/admin/remedials", icon: ChartNoAxesCombined },
   { name: "Books", href: "/admin/books", icon: BookOpen },
   { name: "Book Approvals", href: "/admin/book-adoptions", icon: BookOpenCheck },
   { name: "Resources", href: "/admin/resources", icon: FolderOpen },
   { name: "Teachers", href: "/admin/teachers", icon: Users },
   { name: "Schools", href: "/admin/schools", icon: School },
+  { name: "School Requests", href: "/admin/school-requests", icon: School },
   { name: "Master Data", href: "/admin/master", icon: Database },
   {
     name: "Inspection Requests",
@@ -83,7 +89,7 @@ export default function AdminSidebar({
 
       <nav className="flex-1 overflow-y-auto p-4">
         <ul className="space-y-1">
-          {navigation.filter(item=>item.href!=="/admin/ai"||features.AI_STUDIO).filter(item=>item.href!=="/admin/book-adoptions"||features.BOOK_APPROVALS).filter(item=>item.href!=="/admin/resources"||features.RESOURCES).map((item) => {
+          {navigation.filter(item=>item.href!=="/admin/ai"||features.AI_STUDIO).filter(item=>item.href!=="/admin/reports"||features.REPORTS).filter(item=>item.href!=="/admin/gaps"||features.GAP_ANALYSIS).filter(item=>item.href!=="/admin/remedials"||features.REMEDIALS).filter(item=>item.href!=="/admin/book-adoptions"||features.BOOK_APPROVALS).filter(item=>item.href!=="/admin/resources"||features.RESOURCES).map((item) => {
             const Icon = item.icon;
             const active =
               item.href === "/admin"

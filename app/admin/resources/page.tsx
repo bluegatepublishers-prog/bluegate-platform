@@ -1,13 +1,16 @@
 import Link from "next/link";
-import type { Resource } from "@prisma/client";
+import { ResourceAudience, ResourceType, type Resource } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/authz";
+import { requirePublisherAdmin } from "@/lib/publisher-context";
+import { RESOURCE_AUDIENCE_OPTIONS, getResourceAudienceBadgeClass, getResourceAudienceLabel, validateResourceAudience } from "@/lib/resource-audience-ui";
+import { buildAdminResourceWhere } from "@/lib/resource-access-policy";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-export default async function AdminResourcesPage() {
+export default async function AdminResourcesPage({searchParams}:{searchParams:Promise<{query?:string;type?:string;audience?:string}>}) {
   /*
    * Check the environment variable before running authentication
    * or any Prisma query. This prevents a database-related build crash.
@@ -33,12 +36,17 @@ export default async function AdminResourcesPage() {
   }
 
   await requireUser(["ADMIN"]);
+  const {publisher}=await requirePublisherAdmin();
+  const params=await searchParams;const query=params.query?.trim()||undefined;
+  const type=Object.values(ResourceType).includes(params.type as ResourceType)?params.type as ResourceType:undefined;
+  const audience=validateResourceAudience(params.audience);
 
   let resources: Resource[] = [];
   let errorMessage: string | null = null;
 
   try {
     resources = await prisma.resource.findMany({
+      where:buildAdminResourceWhere(publisher.id,{query,type,audience:audience??undefined}),
       orderBy: {
         createdAt: "desc",
       },
@@ -83,6 +91,13 @@ export default async function AdminResourcesPage() {
         </Link>
       </div>
 
+      <form className="grid gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:grid-cols-2 lg:grid-cols-4">
+        <label className="text-sm font-semibold text-slate-700 lg:col-span-2">Search resources<input name="query" defaultValue={query} placeholder="Title, subject, or class" className="mt-2 w-full rounded-xl border px-4 py-3 font-normal"/></label>
+        <label className="text-sm font-semibold text-slate-700">Resource type<select name="type" defaultValue={type??""} className="mt-2 w-full rounded-xl border px-4 py-3 font-normal"><option value="">All types</option>{Object.values(ResourceType).map((value)=><option key={value} value={value}>{value}</option>)}</select></label>
+        <label className="text-sm font-semibold text-slate-700">Audience<select name="audience" defaultValue={audience??""} className="mt-2 w-full rounded-xl border px-4 py-3 font-normal"><option value="">All audiences</option>{RESOURCE_AUDIENCE_OPTIONS.map((option)=><option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+        <div className="flex flex-wrap gap-3 sm:col-span-2 lg:col-span-4"><button className="rounded-xl bg-slate-900 px-5 py-3 font-semibold text-white">Apply filters</button>{query||type||audience?<Link href="/admin/resources" className="inline-flex items-center rounded-xl border px-5 py-3 font-semibold">Clear filters</Link>:null}</div>
+      </form>
+
       {/* Resources table */}
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="overflow-x-auto">
@@ -93,6 +108,7 @@ export default async function AdminResourcesPage() {
                 <th className="p-4">Class</th>
                 <th className="p-4">Subject</th>
                 <th className="p-4">Type</th>
+                <th className="p-4">Audience</th>
                 <th className="p-4">Status</th>
               </tr>
             </thead>
@@ -100,9 +116,9 @@ export default async function AdminResourcesPage() {
             <tbody>
               {resources.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="p-10 text-center">
+                  <td colSpan={6} className="p-10 text-center">
                     <p className="font-semibold text-slate-700">
-                      No resources found
+                      {audience===ResourceAudience.STUDENT?"No student-facing resources have been added yet.":audience===ResourceAudience.TEACHER_ONLY?"No teacher-only resources have been added yet.":query||type||audience?"No resources match the selected filters.":"No resources found"}
                     </p>
 
                     <p className="mt-1 text-sm text-slate-500">
@@ -129,6 +145,8 @@ export default async function AdminResourcesPage() {
                     </td>
 
                     <td className="p-4 text-slate-700">{resource.type}</td>
+
+                    <td className="p-4"><span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${getResourceAudienceBadgeClass(resource.audience)}`}>{getResourceAudienceLabel(resource.audience)}</span></td>
 
                     <td className="p-4">
                       <span

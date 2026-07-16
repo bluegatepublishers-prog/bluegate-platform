@@ -2,10 +2,11 @@ import { notFound } from "next/navigation";
 import type { Prisma, ResourceType } from "@prisma/client";
 import { requireUser } from "@/lib/authz";
 import { prisma } from "@/lib/prisma";
+import { getSchoolResourceScope } from "@/lib/resource-audience";
 
 export async function requireSchool() {
   const user = await requireUser(["SCHOOL"]);
-  const school = await prisma.school.findUnique({ where: { userId: user.id }, include: { user: true } });
+  const school = await prisma.school.findFirst({ where: { userId: user.id, status: "APPROVED", publisher: { active: true } }, include: { user: true } });
   if (!school) notFound();
   return school;
 }
@@ -42,9 +43,9 @@ export async function getSchoolTeachers(query?: string) {
 }
 
 export async function getSchoolResources(filters: { query?: string; classLevel?: string; subject?: string; type?: ResourceType }) {
-  await requireSchool();
+  const school=await requireSchool();const scope=await getSchoolResourceScope(school.userId);if(!scope)notFound();
   const where: Prisma.ResourceWhereInput = {
-    published: true, classLevel: filters.classLevel || undefined, subject: filters.subject || undefined, type: filters.type,
+    ...scope.where, classLevel: filters.classLevel || undefined, subject: filters.subject || undefined, type: filters.type,
     OR: filters.query ? [
       { title: { contains: filters.query, mode: "insensitive" } },
       { description: { contains: filters.query, mode: "insensitive" } },
@@ -53,8 +54,8 @@ export async function getSchoolResources(filters: { query?: string; classLevel?:
   };
   const [resources, classes, subjects] = await prisma.$transaction([
     prisma.resource.findMany({ where, orderBy: { createdAt: "desc" } }),
-    prisma.resource.findMany({ where: { published: true }, distinct: ["classLevel"], select: { classLevel: true }, orderBy: { classLevel: "asc" } }),
-    prisma.resource.findMany({ where: { published: true }, distinct: ["subject"], select: { subject: true }, orderBy: { subject: "asc" } }),
+    prisma.resource.findMany({ where:scope.where, distinct: ["classLevel"], select: { classLevel: true }, orderBy: { classLevel: "asc" } }),
+    prisma.resource.findMany({ where:scope.where, distinct: ["subject"], select: { subject: true }, orderBy: { subject: "asc" } }),
   ]);
   return { resources, classes, subjects };
 }

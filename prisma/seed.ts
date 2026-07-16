@@ -5,8 +5,42 @@ const prisma = new PrismaClient();
 
 async function main() {
   const publisher = await prisma.publisher.upsert({ where: { slug: "bluegate" }, update: { name: "Bluegate Publishers", active: true }, create: { id: "publisher_bluegate", name: "Bluegate Publishers", shortName: "Bluegate", slug: "bluegate", portalTitle: "Bluegate Platform", aiName: "Bluegate AI" } });
-  const implemented=new Set<PlatformFeatureKey>([PlatformFeatureKey.AI_STUDIO,PlatformFeatureKey.BOOK_APPROVALS,PlatformFeatureKey.RESOURCES,PlatformFeatureKey.NOTIFICATIONS]);
-  for(const key of Object.values(PlatformFeatureKey)){const feature=await prisma.featureDefinition.upsert({where:{key},update:{implemented:implemented.has(key),active:true},create:{id:`feature_${key.toLowerCase()}`,key,name:key.split("_").map(x=>x[0]+x.slice(1).toLowerCase()).join(" "),implemented:implemented.has(key),active:true}});await prisma.publisherFeature.upsert({where:{publisherId_featureId:{publisherId:publisher.id,featureId:feature.id}},update:{enabled:implemented.has(key)},create:{publisherId:publisher.id,featureId:feature.id,enabled:implemented.has(key)}})}
+  const implemented = new Set<PlatformFeatureKey>([
+    PlatformFeatureKey.AI_STUDIO,
+    PlatformFeatureKey.BOOK_APPROVALS,
+    PlatformFeatureKey.RESOURCES,
+    PlatformFeatureKey.ASSESSMENTS,
+    PlatformFeatureKey.INTERACTIVE_QUIZZES,
+    PlatformFeatureKey.STUDENT_AI,
+    PlatformFeatureKey.REPORTS,
+    PlatformFeatureKey.TUTOR_PLATFORM,
+    PlatformFeatureKey.PARENT_PORTAL,
+    PlatformFeatureKey.NOTIFICATIONS,
+  ]);
+  const enabledForBluegate = new Set<PlatformFeatureKey>([
+    PlatformFeatureKey.AI_STUDIO,
+    PlatformFeatureKey.BOOK_APPROVALS,
+    PlatformFeatureKey.RESOURCES,
+    PlatformFeatureKey.NOTIFICATIONS,
+  ]);
+  for (const key of Object.values(PlatformFeatureKey)) {
+    const feature = await prisma.featureDefinition.upsert({
+      where: { key },
+      update: { implemented: implemented.has(key), active: true },
+      create: {
+        id: `feature_${key.toLowerCase()}`,
+        key,
+        name: key.split("_").map((part) => part[0] + part.slice(1).toLowerCase()).join(" "),
+        implemented: implemented.has(key),
+        active: true,
+      },
+    });
+    await prisma.publisherFeature.upsert({
+      where: { publisherId_featureId: { publisherId: publisher.id, featureId: feature.id } },
+      update: { enabled: enabledForBluegate.has(key) },
+      create: { publisherId: publisher.id, featureId: feature.id, enabled: enabledForBluegate.has(key) },
+    });
+  }
   console.log("🌱 Seeding Bluegate Database...");
 
   // ----------------------------

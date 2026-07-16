@@ -3,11 +3,13 @@ import type { Prisma, ResourceType } from "@prisma/client";
 
 import { requireUser } from "@/lib/authz";
 import { prisma } from "@/lib/prisma";
+import { getTeacherResourceScope } from "@/lib/resource-audience";
+import { requireTeacherResourceEntitlementAccess } from "@/lib/entitlements/resource";
 
 export async function requireTeacher() {
   const user = await requireUser(["TEACHER"]);
-  const teacher = await prisma.teacher.findUnique({
-    where: { userId: user.id },
+  const teacher = await prisma.teacher.findFirst({
+    where: { userId: user.id, active: true, status: "APPROVED", school: { status: "APPROVED", publisher: { active: true } } },
     include: { user: true, school: true },
   });
 
@@ -17,14 +19,15 @@ export async function requireTeacher() {
 
 export async function getTeacherDashboard() {
   const teacher = await requireTeacher();
+  const resourceScope=await getTeacherResourceScope(teacher.userId); if(!resourceScope)notFound();
   const [downloads, bookmarks, resources, latestResources, recentDownloads, teachingAssignments] =
     await prisma.$transaction([
       prisma.download.count({ where: { teacherId: teacher.id } }),
       prisma.bookmark.count({ where: { teacherId: teacher.id } }),
-      prisma.resource.count({ where: { published: true } }),
-      prisma.resource.findMany({ where: { published: true }, orderBy: { createdAt: "desc" }, take: 4 }),
+      prisma.resource.count({ where: resourceScope.where }),
+      prisma.resource.findMany({ where: resourceScope.where, orderBy: { createdAt: "desc" }, take: 4 }),
       prisma.download.findMany({
-        where: { teacherId: teacher.id, resource: { published: true } },
+        where: { teacherId: teacher.id, resource: resourceScope.where },
         include: { resource: true },
         orderBy: { downloadedAt: "desc" },
         take: 5,
@@ -38,7 +41,7 @@ export async function getTeacherDashboard() {
 
   const sectionSubjects = teachingAssignments.length ? await prisma.sectionSubject.findMany({
     where: { active: true, sectionId: { in: [...new Set(teachingAssignments.map((assignment) => assignment.sectionId))] } },
-    include: { bookAdoptions: { where: { status: "APPROVED", active: true }, include: { book: { include: { series: true } } } }, resources: { where: { published: true }, orderBy: { title: "asc" } } },
+    include: { bookAdoptions: { where: { status: "APPROVED", active: true, publisherId: teacher.school?.publisherId }, include: { book: { include: { series: true } } } }, resources: { where: { publisherId: teacher.school?.publisherId, published: true }, orderBy: { title: "asc" } } },
   }) : [];
   const assignedClasses = teachingAssignments.map((assignment) => ({
     ...assignment,
@@ -55,8 +58,9 @@ export async function getResources(filters: {
   type?: ResourceType;
 }) {
   const teacher = await requireTeacher();
+  const resourceScope=await getTeacherResourceScope(teacher.userId);if(!resourceScope)notFound();
   const where: Prisma.ResourceWhereInput = {
-    published: true,
+    ...resourceScope.where,
     classLevel: filters.classLevel || undefined,
     subject: filters.subject || undefined,
     type: filters.type,
@@ -71,8 +75,8 @@ export async function getResources(filters: {
 
   const [resources, classes, subjects, bookmarks] = await prisma.$transaction([
     prisma.resource.findMany({ where, orderBy: { createdAt: "desc" } }),
-    prisma.resource.findMany({ distinct: ["classLevel"], select: { classLevel: true }, orderBy: { classLevel: "asc" } }),
-    prisma.resource.findMany({ distinct: ["subject"], select: { subject: true }, orderBy: { subject: "asc" } }),
+    prisma.resource.findMany({ where:resourceScope.where,distinct: ["classLevel"], select: { classLevel: true }, orderBy: { classLevel: "asc" } }),
+    prisma.resource.findMany({ where:resourceScope.where,distinct: ["subject"], select: { subject: true }, orderBy: { subject: "asc" } }),
     prisma.bookmark.findMany({ where: { teacherId: teacher.id }, select: { resourceId: true } }),
   ]);
 
@@ -81,10 +85,11 @@ export async function getResources(filters: {
 
 export async function getDownloads(query?: string) {
   const teacher = await requireTeacher();
+  const resourceScope=await getTeacherResourceScope(teacher.userId);if(!resourceScope)notFound();
   return prisma.download.findMany({
     where: {
       teacherId: teacher.id,
-      resource: { published: true, ...(query ? { OR: [
+      resource: { ...resourceScope.where, ...(query ? { OR: [
             { title: { contains: query, mode: "insensitive" } },
             { subject: { contains: query, mode: "insensitive" } },
             { classLevel: { contains: query, mode: "insensitive" } },
@@ -97,10 +102,11 @@ export async function getDownloads(query?: string) {
 
 export async function getBookmarks(query?: string) {
   const teacher = await requireTeacher();
+  const resourceScope=await getTeacherResourceScope(teacher.userId);if(!resourceScope)notFound();
   return prisma.bookmark.findMany({
     where: {
       teacherId: teacher.id,
-      resource: { published: true, ...(query ? { OR: [
+      resource: { ...resourceScope.where, ...(query ? { OR: [
             { title: { contains: query, mode: "insensitive" } },
             { subject: { contains: query, mode: "insensitive" } },
             { classLevel: { contains: query, mode: "insensitive" } },
@@ -113,12 +119,12 @@ export async function getBookmarks(query?: string) {
 
 export async function getResourceDetails(id: string) {
   const teacher = await requireTeacher();
-  const resource = await prisma.resource.findFirst({ where: { id, published: true } });
-  if (!resource) notFound();
+  const access=await requireTeacherResourceEntitlementAccess(teacher.userId,id);if(!access)notFound();const resource=access.resource;
+  const resourceScope=await getTeacherResourceScope(teacher.userId);if(!resourceScope)notFound();
   const [bookmark, related] = await Promise.all([
     prisma.bookmark.findFirst({ where: { teacherId: teacher.id, resourceId: id } }),
     prisma.resource.findMany({
-      where: { published: true, id: { not: id }, OR: [{ subject: resource.subject }, { classLevel: resource.classLevel }] },
+      where: { ...resourceScope.where, id: { not: id }, OR: [{ subject: resource.subject }, { classLevel: resource.classLevel }] },
       orderBy: { createdAt: "desc" }, take: 4,
     }),
   ]);

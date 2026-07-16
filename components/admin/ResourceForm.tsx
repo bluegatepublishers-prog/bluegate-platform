@@ -4,13 +4,14 @@ import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { UploadCloud } from "lucide-react";
 import Image from "next/image";
-import type { Resource, ResourceType } from "@prisma/client";
+import { ResourceAudience, type Resource, type ResourceType } from "@prisma/client";
 import { uploadPresigned } from "@vercel/blob/client";
 import { clientUploadPath, validateDirectUpload } from "@/lib/storage/upload-policy";
+import { RESOURCE_AUDIENCE_OPTIONS } from "@/lib/resource-audience-ui";
 
 const ACCEPTED_FILES = ".pdf,.ppt,.pptx,.doc,.docx,.zip,.mp4,.webm,.mov";
 
-type FormState = Pick<Resource, "title" | "description" | "subject" | "classLevel" | "type" | "fileUrl" | "thumbnail" | "featured" | "published">;
+type FormState = Pick<Resource, "title" | "description" | "subject" | "classLevel" | "type" | "audience" | "fileUrl" | "thumbnail" | "featured" | "published">;
 
 export default function ResourceForm({ resource }: { resource?: Resource }) {
   const router = useRouter();
@@ -23,7 +24,7 @@ export default function ResourceForm({ resource }: { resource?: Resource }) {
   const [form, setForm] = useState<FormState>({
     title: resource?.title ?? "", description: resource?.description ?? "",
     subject: resource?.subject ?? "", classLevel: resource?.classLevel ?? "",
-    type: resource?.type ?? "PDF", fileUrl: resource?.fileUrl ?? "",
+    type: resource?.type ?? "PDF", audience: resource?.audience ?? ResourceAudience.TEACHER_ONLY, fileUrl: resource?.fileUrl ?? "",
     thumbnail: resource?.thumbnail ?? null, featured: resource?.featured ?? false,
     published: resource?.published ?? true,
   });
@@ -56,6 +57,7 @@ export default function ResourceForm({ resource }: { resource?: Resource }) {
       <Field label="Class" value={form.classLevel} onChange={(classLevel) => setForm({ ...form, classLevel })} required />
       <label className="text-sm font-semibold text-slate-700">Type<select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value as ResourceType })} className="mt-2 w-full rounded-xl border px-4 py-3">{["PDF","PPT","DOC","ZIP","VIDEO"].map((type)=><option key={type}>{type}</option>)}</select></label>
     </div>
+    <fieldset className="rounded-2xl border border-slate-200 p-5"><legend className="px-2 font-bold">Audience</legend><p className="mb-4 text-sm text-slate-600">Required. File type does not determine who may use this resource.</p><div className="space-y-3">{RESOURCE_AUDIENCE_OPTIONS.map(({value,label,description})=><label key={value} className="flex gap-3 rounded-xl border p-4"><input required type="radio" name="audience" value={value} checked={form.audience===value} onChange={()=>setForm({...form,audience:value})}/><span><strong>{label}</strong><span className="mt-1 block text-sm font-normal text-slate-500">{description}</span></span></label>)}</div></fieldset>
     <label className="block text-sm font-semibold text-slate-700">Description<textarea rows={5} value={form.description} onChange={(e)=>setForm({...form,description:e.target.value})} className="mt-2 w-full rounded-xl border px-4 py-3" /></label>
     <label className="block text-sm font-semibold text-slate-700">Thumbnail<input type="file" accept="image/jpeg,image/png,image/webp" onChange={(e)=>e.target.files?.[0]&&upload(e.target.files[0],"resource-thumbnail")} className="mt-2 block w-full rounded-xl border p-3" /></label>
     {form.thumbnail ? <Image src={form.thumbnail} alt="Resource thumbnail preview" width={192} height={128} className="h-32 w-48 rounded-xl border object-cover" /> : null}

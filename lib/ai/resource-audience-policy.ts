@@ -1,0 +1,7 @@
+import { ResourceAudience } from "@prisma/client";import type{Prisma}from"@prisma/client";import type{AiAudienceContext}from"./types";import{canStudentUseResource,canTeacherUseResource}from"@/lib/resource-audience-ui";
+const TEACHER_AUDIENCES=Object.freeze([ResourceAudience.TEACHER_ONLY,ResourceAudience.STUDENT,ResourceAudience.BOTH]as const),STUDENT_AUDIENCES=Object.freeze([ResourceAudience.STUDENT,ResourceAudience.BOTH]as const);
+export function getAllowedResourceAudiencesForAiContext(context:AiAudienceContext):readonly ResourceAudience[]{return context==="TEACHER"?TEACHER_AUDIENCES:STUDENT_AUDIENCES}
+export function getAiVisibleResourceWhere(context:AiAudienceContext):Prisma.ResourceWhereInput{return{audience:{in:[...getAllowedResourceAudiencesForAiContext(context)]}}}
+export function isResourceAllowedForAiAudience(context:AiAudienceContext,audience:ResourceAudience){return context==="TEACHER"?canTeacherUseResource(audience):canStudentUseResource(audience)}
+export function filterResourcesForAiAudience<T extends{audience:ResourceAudience}>(context:AiAudienceContext,resources:readonly T[]):T[]{return resources.filter(resource=>isResourceAllowedForAiAudience(context,resource.audience))}
+export function assertResourceAllowedForAiAudience(context:AiAudienceContext,audience:ResourceAudience){if(!isResourceAllowedForAiAudience(context,audience))throw new Error(context==="TEACHER"?"This resource is not available for this generation.":"This learning material is not available for your account.")}

@@ -1,6 +1,5 @@
-import { BookAdoptionStatus, EnrollmentStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { resolvePublisherForUser } from "@/lib/publisher-context";
+import { getBookEntitlementForAuthenticatedUser } from "@/lib/entitlements/book";
 
 export const adoptionInclude = { school: true, academicYear: true, schoolClass: true, section: true, sectionSubject: { include: { subject: true } }, book: { include: { class: true, subject: true, series: true } }, requestedBy: true, reviewedBy: true } as const;
 
@@ -15,12 +14,7 @@ export async function validateAdoptionScope(schoolId: string, academicYearId: st
 }
 
 export async function canAccessFullBook(user: { id?: string; role?: string }, bookId: string) {
-  if (!user.id) return false;
-  if (user.role === "ADMIN") {const publisher=await resolvePublisherForUser(user.id);return Boolean(publisher&&await prisma.book.findFirst({where:{id:bookId,publisherId:publisher.id},select:{id:true}}));}
-  if (user.role === "SCHOOL") return Boolean(await prisma.schoolBookAdoption.findFirst({ where: { bookId, status: BookAdoptionStatus.APPROVED, active: true, academicYear: { current: true, active: true }, school: { userId: user.id } }, select: { id: true } }));
-  if (user.role === "TEACHER") { const teacher=await prisma.teacher.findUnique({where:{userId:user.id},select:{id:true}}); return teacher?canTeacherAccessBook(teacher.id,bookId):false; }
-  if (user.role === "STUDENT") return Boolean(await prisma.schoolBookAdoption.findFirst({ where: { bookId, status: BookAdoptionStatus.APPROVED, active: true, academicYear: { current: true, active: true }, section: { enrollments: { some: { status: EnrollmentStatus.ACTIVE, student: { userId: user.id, active: true } } } } }, select: { id: true } }));
-  return false;
+  return (await getBookEntitlementForAuthenticatedUser(user, { bookId })).allowed;
 }
 
-export async function canTeacherAccessBook(teacherId:string,bookId:string){const assignments=await prisma.teacherAssignment.findMany({where:{teacherId,active:true,academicYear:{current:true,active:true}},select:{academicYearId:true,sectionId:true,subjectId:true,type:true}});const scopes=assignments.map(a=>({academicYearId:a.academicYearId,sectionId:a.sectionId,...(a.type==="SUBJECT_TEACHER"?{sectionSubject:{subjectId:a.subjectId??""}}:{})}));if(!scopes.length)return false;return Boolean(await prisma.schoolBookAdoption.findFirst({where:{bookId,status:BookAdoptionStatus.APPROVED,active:true,OR:scopes},select:{id:true}}));}
+export async function canTeacherAccessBook(teacherId:string,bookId:string){const teacher=await prisma.teacher.findUnique({where:{id:teacherId},select:{userId:true}});return Boolean(teacher&&(await getBookEntitlementForAuthenticatedUser({id:teacher.userId,role:"TEACHER"},{bookId})).allowed);}

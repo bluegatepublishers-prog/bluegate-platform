@@ -11,11 +11,14 @@ export default function PublicChrome({ children }: { children: ReactNode }) {
     "/teacher-dashboard",
     "/school-dashboard",
     "/student-dashboard",
+    "/mentor-dashboard",
+    "/parent-dashboard",
   ];
   const hiddenLoginRoutes = [
     "/teacher-login",
     "/school-login",
     "/student-login",
+    "/parent-login",
   ];
 
   const isPortalRoute = hiddenPrefixes.some(

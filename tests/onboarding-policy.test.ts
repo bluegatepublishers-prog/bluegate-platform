@@ -1,0 +1,6 @@
+import assert from "node:assert/strict";import test from "node:test";
+import { cleanText, normalizeActivationCode, normalizeAdmissionNumber, normalizeEmail, sameCalendarDate, validatePassword } from "../lib/onboarding-policy";
+test("school and teacher signup fields normalize deterministically",()=>{assert.equal(cleanText("  Bluegate   School  ",80),"Bluegate School");assert.equal(normalizeEmail(" ADMIN@EXAMPLE.COM "),"admin@example.com");});
+test("password confirmation rejects short, unmatched, and weak values",()=>{assert.match(validatePassword("short","short")!,/10/);assert.match(validatePassword("longpassword1","longpassword2")!,/match/);assert.match(validatePassword("longpassword","longpassword")!,/number/);assert.equal(validatePassword("longpassword1","longpassword1"),null);});
+test("student activation code and admission number are normalized safely",()=>{assert.equal(normalizeActivationCode("ab12-cd34-ef56"),"AB12CD34EF56");assert.equal(normalizeAdmissionNumber(" bg- 42 "),"BG- 42");});
+test("student date-of-birth comparison uses an exact calendar date",()=>{const date=new Date("2014-06-21T00:00:00.000Z");assert.equal(sameCalendarDate(date,"2014-06-21"),true);assert.equal(sameCalendarDate(date,"2014-06-22"),false);assert.equal(sameCalendarDate(date,"21-06-2014"),false);});

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { getApiUser } from "@/lib/authz";
+import { authorizeAndRecordResourceDownload } from "@/lib/resource-mutations";
 
 export async function POST(
   _request: Request,
@@ -10,18 +10,9 @@ export async function POST(
   if (!user) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
 
   const { id } = await params;
-  const teacher = await prisma.teacher.findUnique({ where: { userId: user.id } });
-  const resource = await prisma.resource.findFirst({
-    where: { id, published: true },
-  });
-
-  if (!teacher || !resource) {
+  const result = await authorizeAndRecordResourceDownload(user.id!, id);
+  if (!result) {
     return NextResponse.json({ message: "Resource not found." }, { status: 404 });
   }
-
-  await prisma.download.create({
-    data: { teacherId: teacher.id, resourceId: resource.id },
-  });
-
-  return NextResponse.json({ url: resource.fileUrl });
+  return NextResponse.json(result);
 }

@@ -8,51 +8,98 @@ datasource db {
 }
 
 model User {
-  id                     String               @id @default(cuid())
-  name                   String
-  email                  String               @unique
-  password               String
-  phone                  String?
-  role                   UserRole
-  publisherId            String?
-  createdAt              DateTime             @default(now())
-  updatedAt              DateTime             @updatedAt
-  school                 School?
-  teacher                Teacher?
-  student                Student?
-  requestedBookAdoptions SchoolBookAdoption[] @relation("BookAdoptionRequester")
-  reviewedBookAdoptions  SchoolBookAdoption[] @relation("BookAdoptionReviewer")
-  publisher              Publisher?           @relation(fields: [publisherId], references: [id], onDelete: SetNull)
+  id                          String                      @id @default(cuid())
+  name                        String
+  email                       String                      @unique
+  password                    String
+  phone                       String?
+  role                        UserRole
+  publisherId                 String?
+  createdAt                   DateTime                    @default(now())
+  updatedAt                   DateTime                    @updatedAt
+  school                      School?
+  teacher                     Teacher?
+  student                     Student?
+  requestedBookAdoptions      SchoolBookAdoption[]        @relation("BookAdoptionRequester")
+  reviewedBookAdoptions       SchoolBookAdoption[]        @relation("BookAdoptionReviewer")
+  grantedStudentAccess        StudentAccessGrant[]        @relation("StudentAccessGrantGranter")
+  createdAssessments          Assessment[]                @relation("AssessmentCreator")
+  reviewedAssessmentResponses AssessmentResponse[]        @relation("AssessmentResponseReviewer")
+  publisher                   Publisher?                  @relation(fields: [publisherId], references: [id], onDelete: SetNull)
+  gapReviews                  StudentLearningGapReview[]  @relation("GapReviewActor")
+  lastReviewedGaps            StudentLearningGap[]        @relation("GapLastReviewer")
+  reviewedRemedialPlans       RemedialPlan[]              @relation("RemedialPlanReviewer")
+  remedialStepEvents          RemedialStepEvent[]
+  remedialReviews             RemedialPlanReview[]        @relation("RemedialReviewActor")
+  schoolOnboardingReviews     SchoolOnboardingReview[]    @relation("SchoolOnboardingReviewer")
+  teacherRequestReviews       TeacherSchoolRequest[]      @relation("TeacherRequestReviewer")
+  activationCodesCreated      StudentActivationCode[]     @relation("ActivationCodeCreator")
+  activationCodesUsed         StudentActivationCode[]     @relation("ActivationCodeUser")
+  mentor                      Mentor?
+  parent                      Parent?
+  mentorAssignmentsCreated    MentorStudentAssignment[]   @relation("MentorAssignmentCreator")
+  mentorAssignmentsRevoked    MentorStudentAssignment[]   @relation("MentorAssignmentRevoker")
+  mentorSessionsCreated       MentorSession[]             @relation("MentorSessionCreator")
+  mentorActivities            MentorActivity[]            @relation("MentorActivityActor")
+  parentInvitationsCreated    ParentInvitation[]          @relation("ParentInvitationCreator")
+  parentInvitationsUsed       ParentInvitation[]          @relation("ParentInvitationUser")
+  parentRelationshipsApproved ParentStudentRelationship[] @relation("ParentRelationshipApprover")
+  parentRelationshipsRevoked  ParentStudentRelationship[] @relation("ParentRelationshipRevoker")
 
   @@index([publisherId, role])
 }
 
 model Publisher {
-  id                 String               @id @default(cuid())
-  name               String
-  shortName          String?
-  slug               String               @unique
-  active             Boolean              @default(true)
-  logoUrl            String?
-  faviconUrl         String?
-  primaryColor       String?
-  secondaryColor     String?
-  accentColor        String?
-  supportEmail       String?
-  supportPhone       String?
-  websiteUrl         String?
-  portalTitle        String?
-  aiName             String?
-  createdAt          DateTime             @default(now())
-  updatedAt          DateTime             @updatedAt
-  users              User[]
-  schools            School[]
-  books              Book[]
-  resources          Resource[]
-  series             BookSeries[]
-  inspectionRequests InspectionRequest[]
-  bookAdoptions      SchoolBookAdoption[]
-  features           PublisherFeature[]
+  id                      String                    @id @default(cuid())
+  name                    String
+  shortName               String?
+  slug                    String                    @unique
+  active                  Boolean                   @default(true)
+  logoUrl                 String?
+  faviconUrl              String?
+  primaryColor            String?
+  secondaryColor          String?
+  accentColor             String?
+  supportEmail            String?
+  supportPhone            String?
+  websiteUrl              String?
+  portalTitle             String?
+  aiName                  String?
+  createdAt               DateTime                  @default(now())
+  updatedAt               DateTime                  @updatedAt
+  users                   User[]
+  schools                 School[]
+  books                   Book[]
+  resources               Resource[]
+  series                  BookSeries[]
+  inspectionRequests      InspectionRequest[]
+  bookAdoptions           SchoolBookAdoption[]
+  studentAccessGrants     StudentAccessGrant[]
+  studentBookProgress     StudentBookProgress[]
+  studentBookBookmarks    StudentBookBookmark[]
+  studentAiConversations  StudentAiConversation[]
+  assessments             Assessment[]
+  assessmentAttempts      AssessmentAttempt[]
+  analytics               StudentAnalytics[]
+  subjectAnalytics        StudentSubjectAnalytics[]
+  chapterAnalytics        StudentChapterAnalytics[]
+  skillAnalytics          StudentSkillAnalytics[]
+  learningTimeline        LearningTimeline[]
+  publisherAnalytics      PublisherAnalytics[]
+  features                PublisherFeature[]
+  teacherAnalytics        TeacherAnalytics[]
+  schoolAnalytics         SchoolAnalytics[]
+  gapAnalysisRuns         GapAnalysisRun[]
+  learningGaps            StudentLearningGap[]
+  remedialPlans           RemedialPlan[]
+  schoolOnboardingReviews SchoolOnboardingReview[]
+  teacherSchoolRequests   TeacherSchoolRequest[]
+  mentors                 Mentor[]
+  mentorAssignments       MentorStudentAssignment[]
+  mentorSessions          MentorSession[]
+  mentorNotes             MentorNote[]
+  mentorActivities        MentorActivity[]
+  parentInvitations       ParentInvitation[]
 }
 
 model FeatureDefinition {
@@ -84,28 +131,34 @@ model PublisherFeature {
 }
 
 model Teacher {
-  id              String              @id @default(cuid())
-  userId          String              @unique
+  id              String                     @id @default(cuid())
+  userId          String                     @unique
   schoolName      String
   schoolId        String?
   designation     String
   subject         String
   classes         String
-  verified        Boolean             @default(false)
-  active          Boolean             @default(true)
+  verified        Boolean                    @default(false)
+  active          Boolean                    @default(true)
+  status          TeacherOnboardingStatus    @default(APPROVED)
   bookmarks       Bookmark[]
   downloads       Download[]
-  user            User                @relation(fields: [userId], references: [id], onDelete: Cascade)
-  school          School?             @relation(fields: [schoolId], references: [id], onDelete: SetNull)
+  user            User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  school          School?                    @relation(fields: [schoolId], references: [id], onDelete: SetNull)
   aiGenerations   AiGeneration[]
   promptTemplates PromptTemplate[]
-  aiPlan          TeacherAiPlan       @default(STANDARD)
-  aiDailyLimit    Int                 @default(0)
+  aiPlan          TeacherAiPlan              @default(STANDARD)
+  aiDailyLimit    Int                        @default(0)
   aiPlanExpiresAt DateTime?
   aiUsage         AiUsage[]
   assignments     TeacherAssignment[]
+  analytics       TeacherAnalytics[]
+  gapReviews      StudentLearningGapReview[]
+  remedialReviews RemedialPlanReview[]
+  schoolRequests  TeacherSchoolRequest[]
 
   @@index([schoolId])
+  @@index([schoolId, status, active])
 }
 
 model AiGeneration {
@@ -162,28 +215,90 @@ model PromptTemplate {
 }
 
 model School {
-  id                 String               @id @default(cuid())
-  userId             String               @unique
-  publisherId        String?
-  schoolName         String
-  city               String
-  state              String
-  principalName      String?
-  address            String?
-  pincode            String?
-  logoUrl            String?
-  user               User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
-  inspectionRequests InspectionRequest[]
-  teachers           Teacher[]
-  academicYears      AcademicYear[]
-  schoolClasses      SchoolClass[]
-  students           Student[]
-  studentEnrollments StudentEnrollment[]
-  teacherAssignments TeacherAssignment[]
-  bookAdoptions      SchoolBookAdoption[]
-  publisher          Publisher?           @relation(fields: [publisherId], references: [id], onDelete: Restrict)
+  id                      String                    @id @default(cuid())
+  userId                  String                    @unique
+  publisherId             String?
+  schoolName              String
+  city                    String
+  state                   String
+  principalName           String?
+  address                 String?
+  pincode                 String?
+  logoUrl                 String?
+  status                  SchoolOnboardingStatus    @default(APPROVED)
+  user                    User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  inspectionRequests      InspectionRequest[]
+  teachers                Teacher[]
+  academicYears           AcademicYear[]
+  schoolClasses           SchoolClass[]
+  students                Student[]
+  studentEnrollments      StudentEnrollment[]
+  teacherAssignments      TeacherAssignment[]
+  bookAdoptions           SchoolBookAdoption[]
+  studentAiConversations  StudentAiConversation[]
+  assessments             Assessment[]
+  assessmentAttempts      AssessmentAttempt[]
+  analytics               SchoolAnalytics[]
+  learningTimeline        LearningTimeline[]
+  publisher               Publisher?                @relation(fields: [publisherId], references: [id], onDelete: Restrict)
+  studentAnalytics        StudentAnalytics[]
+  studentSubjectAnalytics StudentSubjectAnalytics[]
+  studentChapterAnalytics StudentChapterAnalytics[]
+  studentSkillAnalytics   StudentSkillAnalytics[]
+  teacherAnalytics        TeacherAnalytics[]
+  gapAnalysisRuns         GapAnalysisRun[]
+  learningGaps            StudentLearningGap[]
+  remedialPlans           RemedialPlan[]
+  onboardingReviews       SchoolOnboardingReview[]
+  teacherRequests         TeacherSchoolRequest[]
+  studentActivationCodes  StudentActivationCode[]
+  mentorAssignments       MentorStudentAssignment[]
+  mentorSessions          MentorSession[]
+  mentorNotes             MentorNote[]
+  mentorActivities        MentorActivity[]
+  parentInvitations       ParentInvitation[]
 
+  @@index([publisherId, status])
   @@index([publisherId])
+}
+
+model SchoolOnboardingReview {
+  id             String                 @id @default(cuid())
+  schoolId       String
+  publisherId    String
+  reviewerUserId String
+  fromStatus     SchoolOnboardingStatus
+  toStatus       SchoolOnboardingStatus
+  reason         String?
+  createdAt      DateTime               @default(now())
+  school         School                 @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  publisher      Publisher              @relation(fields: [publisherId], references: [id], onDelete: Restrict)
+  reviewer       User                   @relation("SchoolOnboardingReviewer", fields: [reviewerUserId], references: [id], onDelete: Restrict)
+
+  @@index([publisherId, createdAt])
+  @@index([schoolId, createdAt])
+}
+
+model TeacherSchoolRequest {
+  id           String                  @id @default(cuid())
+  teacherId    String
+  schoolId     String
+  publisherId  String
+  status       TeacherOnboardingStatus @default(PENDING)
+  activeKey    String?                 @unique
+  reviewedById String?
+  reviewedAt   DateTime?
+  reason       String?
+  createdAt    DateTime                @default(now())
+  updatedAt    DateTime                @updatedAt
+  teacher      Teacher                 @relation(fields: [teacherId], references: [id], onDelete: Restrict)
+  school       School                  @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  publisher    Publisher               @relation(fields: [publisherId], references: [id], onDelete: Restrict)
+  reviewedBy   User?                   @relation("TeacherRequestReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@index([schoolId, status, createdAt])
+  @@index([publisherId, status, createdAt])
+  @@index([teacherId, createdAt])
 }
 
 model InspectionRequest {
@@ -226,20 +341,43 @@ model Class {
 }
 
 model AcademicYear {
-  id                 String               @id @default(cuid())
-  schoolId           String
-  name               String
-  startDate          DateTime
-  endDate            DateTime
-  active             Boolean              @default(true)
-  current            Boolean              @default(false)
-  createdAt          DateTime             @default(now())
-  updatedAt          DateTime             @updatedAt
-  school             School               @relation(fields: [schoolId], references: [id], onDelete: Cascade)
-  classes            SchoolClass[]
-  enrollments        StudentEnrollment[]
-  teacherAssignments TeacherAssignment[]
-  bookAdoptions      SchoolBookAdoption[]
+  id                      String                    @id @default(cuid())
+  schoolId                String
+  name                    String
+  startDate               DateTime
+  endDate                 DateTime
+  active                  Boolean                   @default(true)
+  current                 Boolean                   @default(false)
+  createdAt               DateTime                  @default(now())
+  updatedAt               DateTime                  @updatedAt
+  school                  School                    @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  classes                 SchoolClass[]
+  enrollments             StudentEnrollment[]
+  teacherAssignments      TeacherAssignment[]
+  bookAdoptions           SchoolBookAdoption[]
+  studentAccessGrants     StudentAccessGrant[]
+  studentBookProgresses   StudentBookProgress[]
+  studentBookBookmarks    StudentBookBookmark[]
+  studentRevisionProgress StudentRevisionProgress[]
+  studentPracticeAttempts StudentPracticeAttempt[]
+  studentAiConversations  StudentAiConversation[]
+  studentAiUsage          StudentAiUsage[]
+  assessments             Assessment[]
+  assessmentAttempts      AssessmentAttempt[]
+  studentAnalytics        StudentAnalytics[]
+  studentSubjectAnalytics StudentSubjectAnalytics[]
+  studentChapterAnalytics StudentChapterAnalytics[]
+  studentSkillAnalytics   StudentSkillAnalytics[]
+  teacherAnalytics        TeacherAnalytics[]
+  schoolAnalytics         SchoolAnalytics[]
+  learningTimeline        LearningTimeline[]
+  gapAnalysisRuns         GapAnalysisRun[]
+  learningGaps            StudentLearningGap[]
+  remedialPlans           RemedialPlan[]
+  mentorAssignments       MentorStudentAssignment[]
+  mentorSessions          MentorSession[]
+  mentorNotes             MentorNote[]
+  mentorActivities        MentorActivity[]
 
   @@unique([schoolId, name])
   @@index([schoolId, current, active])
@@ -261,6 +399,7 @@ model SchoolClass {
   enrollments        StudentEnrollment[]
   teacherAssignments TeacherAssignment[]
   bookAdoptions      SchoolBookAdoption[]
+  assessments        Assessment[]
 
   @@unique([academicYearId, code])
   @@index([schoolId, academicYearId, active])
@@ -281,29 +420,296 @@ model ClassSection {
   enrollments        StudentEnrollment[]
   teacherAssignments TeacherAssignment[]
   bookAdoptions      SchoolBookAdoption[]
+  assessments        Assessment[]
 
   @@unique([schoolClassId, code])
   @@index([schoolClassId, active])
 }
 
 model Student {
-  id              String              @id @default(cuid())
-  userId          String?             @unique
-  schoolId        String
-  admissionNumber String
-  name            String
-  email           String?
-  dateOfBirth     DateTime?
-  gender          String?
-  active          Boolean             @default(true)
-  createdAt       DateTime            @default(now())
-  updatedAt       DateTime            @updatedAt
-  user            User?               @relation(fields: [userId], references: [id], onDelete: SetNull)
-  school          School              @relation(fields: [schoolId], references: [id], onDelete: Cascade)
-  enrollments     StudentEnrollment[]
+  id                  String                      @id @default(cuid())
+  userId              String?                     @unique
+  schoolId            String
+  admissionNumber     String
+  name                String
+  email               String?
+  dateOfBirth         DateTime?
+  gender              String?
+  active              Boolean                     @default(true)
+  createdAt           DateTime                    @default(now())
+  updatedAt           DateTime                    @updatedAt
+  user                User?                       @relation(fields: [userId], references: [id], onDelete: SetNull)
+  school              School                      @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  enrollments         StudentEnrollment[]
+  accessGrants        StudentAccessGrant[]
+  bookProgress        StudentBookProgress[]
+  bookBookmarks       StudentBookBookmark[]
+  revisionProgress    StudentRevisionProgress[]
+  practiceAttempts    StudentPracticeAttempt[]
+  aiConversations     StudentAiConversation[]
+  aiUsage             StudentAiUsage[]
+  assessmentAttempts  AssessmentAttempt[]
+  analytics           StudentAnalytics[]
+  subjectAnalytics    StudentSubjectAnalytics[]
+  chapterAnalytics    StudentChapterAnalytics[]
+  skillAnalytics      StudentSkillAnalytics[]
+  learningTimeline    LearningTimeline[]
+  gapAnalysisRuns     GapAnalysisRun[]
+  learningGaps        StudentLearningGap[]
+  remedialPlans       RemedialPlan[]
+  activationCodes     StudentActivationCode[]
+  mentorAssignments   MentorStudentAssignment[]
+  mentorSessions      MentorSession[]
+  mentorNotes         MentorNote[]
+  mentorActivities    MentorActivity[]
+  parentRelationships ParentStudentRelationship[]
+  parentInvitations   ParentInvitation[]
 
   @@unique([schoolId, admissionNumber])
   @@index([schoolId, active, name])
+}
+
+model StudentActivationCode {
+  id           String    @id @default(cuid())
+  studentId    String
+  schoolId     String
+  codeHash     String    @unique
+  expiresAt    DateTime
+  usedAt       DateTime?
+  createdById  String
+  usedByUserId String?
+  revokedAt    DateTime?
+  createdAt    DateTime  @default(now())
+  student      Student   @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  school       School    @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  createdBy    User      @relation("ActivationCodeCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  usedBy       User?     @relation("ActivationCodeUser", fields: [usedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([studentId, usedAt, expiresAt])
+  @@index([schoolId, createdAt])
+}
+
+model Parent {
+  id            String                      @id @default(cuid())
+  userId        String                      @unique
+  active        Boolean                     @default(true)
+  phone         String?
+  createdAt     DateTime                    @default(now())
+  updatedAt     DateTime                    @updatedAt
+  user          User                        @relation(fields: [userId], references: [id], onDelete: Restrict)
+  relationships ParentStudentRelationship[]
+
+  @@index([active, createdAt])
+}
+
+model ParentStudentRelationship {
+  id                    String                   @id @default(cuid())
+  parentId              String
+  studentId             String
+  relationshipType      ParentRelationshipType
+  status                ParentRelationshipStatus @default(PENDING)
+  activeKey             String?                  @unique
+  primaryContact        Boolean                  @default(false)
+  canViewLearning       Boolean                  @default(false)
+  canManageSubscription Boolean                  @default(false)
+  requestedAt           DateTime                 @default(now())
+  approvedAt            DateTime?
+  approvedById          String?
+  rejectedAt            DateTime?
+  revokedAt             DateTime?
+  revokedById           String?
+  decisionReason        String?
+  createdAt             DateTime                 @default(now())
+  updatedAt             DateTime                 @updatedAt
+  parent                Parent                   @relation(fields: [parentId], references: [id], onDelete: Restrict)
+  student               Student                  @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  approvedBy            User?                    @relation("ParentRelationshipApprover", fields: [approvedById], references: [id], onDelete: Restrict)
+  revokedBy             User?                    @relation("ParentRelationshipRevoker", fields: [revokedById], references: [id], onDelete: Restrict)
+  invitation            ParentInvitation?
+
+  @@index([parentId, status, requestedAt])
+  @@index([studentId, status, requestedAt])
+}
+
+model ParentInvitation {
+  id               String                     @id @default(cuid())
+  studentId        String
+  schoolId         String
+  publisherId      String
+  relationshipType ParentRelationshipType
+  primaryContact   Boolean                    @default(false)
+  targetEmail      String
+  targetPhone      String?
+  tokenHash        String                     @unique
+  expiresAt        DateTime
+  usedAt           DateTime?
+  revokedAt        DateTime?
+  createdById      String
+  usedByUserId     String?
+  relationshipId   String?                    @unique
+  createdAt        DateTime                   @default(now())
+  student          Student                    @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  school           School                     @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  publisher        Publisher                  @relation(fields: [publisherId], references: [id], onDelete: Restrict)
+  createdBy        User                       @relation("ParentInvitationCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  usedBy           User?                      @relation("ParentInvitationUser", fields: [usedByUserId], references: [id], onDelete: Restrict)
+  relationship     ParentStudentRelationship? @relation(fields: [relationshipId], references: [id], onDelete: Restrict)
+
+  @@index([studentId, usedAt, revokedAt, expiresAt])
+  @@index([schoolId, createdAt])
+  @@index([publisherId, targetEmail, createdAt])
+}
+
+model Mentor {
+  id           String                    @id @default(cuid())
+  userId       String                    @unique
+  publisherId  String
+  type         MentorType
+  active       Boolean                   @default(true)
+  specialty    String?
+  bio          String?
+  createdAt    DateTime                  @default(now())
+  updatedAt    DateTime                  @updatedAt
+  user         User                      @relation(fields: [userId], references: [id], onDelete: Restrict)
+  publisher    Publisher                 @relation(fields: [publisherId], references: [id], onDelete: Restrict)
+  assignments  MentorStudentAssignment[]
+  sessions     MentorSession[]
+  notes        MentorNote[]
+  activities   MentorActivity[]
+  availability MentorAvailability[]
+
+  @@index([publisherId, active, type])
+}
+
+model MentorStudentAssignment {
+  id               String                 @id @default(cuid())
+  mentorId         String
+  studentId        String
+  publisherId      String
+  schoolId         String
+  academicYearId   String
+  source           MentorAssignmentSource
+  role             MentorAssignmentRole   @default(PRIMARY)
+  status           MentorAssignmentStatus @default(ACTIVE)
+  activeKey        String?                @unique
+  activePrimaryKey String?                @unique
+  startsAt         DateTime               @default(now())
+  endsAt           DateTime?
+  assignedById     String
+  revokedById      String?
+  revokedAt        DateTime?
+  reason           String?
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+  mentor           Mentor                 @relation(fields: [mentorId], references: [id], onDelete: Restrict)
+  student          Student                @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  publisher        Publisher              @relation(fields: [publisherId], references: [id], onDelete: Restrict)
+  school           School                 @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  academicYear     AcademicYear           @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
+  assignedBy       User                   @relation("MentorAssignmentCreator", fields: [assignedById], references: [id], onDelete: Restrict)
+  revokedBy        User?                  @relation("MentorAssignmentRevoker", fields: [revokedById], references: [id], onDelete: SetNull)
+  sessions         MentorSession[]
+  notes            MentorNote[]
+  activities       MentorActivity[]
+
+  @@index([mentorId, status, startsAt])
+  @@index([studentId, academicYearId, status])
+  @@index([publisherId, schoolId, academicYearId, status])
+}
+
+model MentorSession {
+  id              String                  @id @default(cuid())
+  assignmentId    String
+  mentorId        String
+  studentId       String
+  publisherId     String
+  schoolId        String
+  academicYearId  String
+  status          MentorSessionStatus     @default(SCHEDULED)
+  scheduledAt     DateTime
+  durationMinutes Int?
+  topic           String?
+  completedAt     DateTime?
+  cancelledAt     DateTime?
+  createdById     String
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+  assignment      MentorStudentAssignment @relation(fields: [assignmentId], references: [id], onDelete: Restrict)
+  mentor          Mentor                  @relation(fields: [mentorId], references: [id], onDelete: Restrict)
+  student         Student                 @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  publisher       Publisher               @relation(fields: [publisherId], references: [id], onDelete: Restrict)
+  school          School                  @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  academicYear    AcademicYear            @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
+  createdBy       User                    @relation("MentorSessionCreator", fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([mentorId, status, scheduledAt])
+  @@index([studentId, academicYearId, scheduledAt])
+  @@index([publisherId, schoolId, scheduledAt])
+}
+
+model MentorNote {
+  id             String                  @id @default(cuid())
+  assignmentId   String
+  mentorId       String
+  studentId      String
+  publisherId    String
+  schoolId       String
+  academicYearId String
+  type           MentorNoteType
+  body           String
+  createdAt      DateTime                @default(now())
+  assignment     MentorStudentAssignment @relation(fields: [assignmentId], references: [id], onDelete: Restrict)
+  mentor         Mentor                  @relation(fields: [mentorId], references: [id], onDelete: Restrict)
+  student        Student                 @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  publisher      Publisher               @relation(fields: [publisherId], references: [id], onDelete: Restrict)
+  school         School                  @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  academicYear   AcademicYear            @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
+
+  @@index([mentorId, studentId, createdAt])
+  @@index([studentId, academicYearId, createdAt])
+  @@index([publisherId, schoolId, createdAt])
+}
+
+model MentorActivity {
+  id             String                  @id @default(cuid())
+  assignmentId   String
+  mentorId       String
+  studentId      String
+  publisherId    String
+  schoolId       String
+  academicYearId String
+  actorUserId    String
+  type           MentorActivityType
+  targetType     String?
+  targetId       String?
+  createdAt      DateTime                @default(now())
+  assignment     MentorStudentAssignment @relation(fields: [assignmentId], references: [id], onDelete: Restrict)
+  mentor         Mentor                  @relation(fields: [mentorId], references: [id], onDelete: Restrict)
+  student        Student                 @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  publisher      Publisher               @relation(fields: [publisherId], references: [id], onDelete: Restrict)
+  school         School                  @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  academicYear   AcademicYear            @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
+  actor          User                    @relation("MentorActivityActor", fields: [actorUserId], references: [id], onDelete: Restrict)
+
+  @@index([mentorId, createdAt])
+  @@index([studentId, academicYearId, createdAt])
+  @@index([publisherId, schoolId, type, createdAt])
+}
+
+model MentorAvailability {
+  id            String    @id @default(cuid())
+  mentorId      String
+  dayOfWeek     Int
+  startMinutes  Int
+  endMinutes    Int
+  active        Boolean   @default(true)
+  effectiveFrom DateTime?
+  effectiveTo   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  mentor        Mentor    @relation(fields: [mentorId], references: [id], onDelete: Restrict)
+
+  @@index([mentorId, active, dayOfWeek])
 }
 
 model StudentEnrollment {
@@ -330,6 +736,29 @@ model StudentEnrollment {
   @@index([schoolId, academicYearId, schoolClassId, sectionId, status])
 }
 
+model StudentAccessGrant {
+  id             String                   @id @default(cuid())
+  studentId      String
+  academicYearId String
+  plan           StudentAccessPlan
+  source         StudentAccessGrantSource
+  active         Boolean                  @default(true)
+  startsAt       DateTime                 @default(now())
+  endsAt         DateTime?
+  grantedById    String?
+  createdAt      DateTime                 @default(now())
+  updatedAt      DateTime                 @updatedAt
+  student        Student                  @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  academicYear   AcademicYear             @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
+  grantedBy      User?                    @relation("StudentAccessGrantGranter", fields: [grantedById], references: [id], onDelete: SetNull)
+  publisher      Publisher?               @relation(fields: [publisherId], references: [id])
+  publisherId    String?
+
+  @@index([studentId, academicYearId, active, startsAt, endsAt])
+  @@index([academicYearId, plan, active])
+  @@index([grantedById])
+}
+
 model SectionSubject {
   id            String               @id @default(cuid())
   sectionId     String
@@ -344,6 +773,7 @@ model SectionSubject {
   book          Book?                @relation(fields: [bookId], references: [id], onDelete: SetNull)
   resources     Resource[]
   bookAdoptions SchoolBookAdoption[]
+  assessments   Assessment[]
 
   @@unique([sectionId, subjectId])
   @@index([sectionId, active, sortOrder])
@@ -374,16 +804,21 @@ model TeacherAssignment {
 }
 
 model Subject {
-  id                 String              @id @default(cuid())
+  id                 String                    @id @default(cuid())
   name               String
-  code               String              @unique
-  sortOrder          Int                 @default(0)
-  active             Boolean             @default(true)
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @updatedAt
+  code               String                    @unique
+  sortOrder          Int                       @default(0)
+  active             Boolean                   @default(true)
+  createdAt          DateTime                  @default(now())
+  updatedAt          DateTime                  @updatedAt
   books              Book[]
   sectionSubjects    SectionSubject[]
   teacherAssignments TeacherAssignment[]
+  studentAnalytics   StudentSubjectAnalytics[]
+  teacherAnalytics   TeacherAnalytics[]
+  learningTimeline   LearningTimeline[]
+  skillAnalytics     StudentSkillAnalytics[]
+  learningGaps       StudentLearningGap[]
 }
 
 model BookSeries {
@@ -402,53 +837,124 @@ model BookSeries {
 }
 
 model Book {
-  id               String               @id @default(cuid())
-  title            String
-  publisherId      String?
-  author           String?
-  subtitle         String?
-  slug             String               @unique
-  isbn             String?
-  description      String?
-  coverImage       String?
-  samplePdf        String?
-  publicPreviewPdf String?
-  fullBookPdf      String?
-  featured         Boolean              @default(false)
-  published        Boolean              @default(false)
-  createdAt        DateTime             @default(now())
-  updatedAt        DateTime             @updatedAt
-  classId          String
-  subjectId        String
-  seriesId         String?
-  aboutBook        String?
-  binding          String?
-  board            String?
-  dimensions       String?
-  edition          String?
-  features         String[]             @default([])
-  galleryImages    String[]             @default([])
-  language         String?
-  learningOutcomes String[]             @default([])
-  pages            Int?
-  price            Decimal?             @db.Decimal(10, 2)
-  publicationYear  String?
-  publisher        String?
-  tableOfContents  String[]             @default([])
-  weight           String?
-  seoTitle         String?
-  seoDescription   String?
-  keywords         String[]             @default([])
-  class            Class                @relation(fields: [classId], references: [id])
-  series           BookSeries?          @relation(fields: [seriesId], references: [id])
-  subject          Subject              @relation(fields: [subjectId], references: [id])
-  chapters         BookChapter[]
-  questions        BookQuestion[]
-  sectionSubjects  SectionSubject[]
-  schoolAdoptions  SchoolBookAdoption[]
-  publisherTenant  Publisher?           @relation(fields: [publisherId], references: [id], onDelete: Restrict)
+  id                      String                    @id @default(cuid())
+  title                   String
+  publisherId             String?
+  author                  String?
+  subtitle                String?
+  slug                    String                    @unique
+  isbn                    String?
+  description             String?
+  coverImage              String?
+  samplePdf               String?
+  publicPreviewPdf        String?
+  fullBookPdf             String?
+  featured                Boolean                   @default(false)
+  published               Boolean                   @default(false)
+  createdAt               DateTime                  @default(now())
+  updatedAt               DateTime                  @updatedAt
+  classId                 String
+  subjectId               String
+  seriesId                String?
+  aboutBook               String?
+  binding                 String?
+  board                   String?
+  dimensions              String?
+  edition                 String?
+  features                String[]                  @default([])
+  galleryImages           String[]                  @default([])
+  language                String?
+  learningOutcomes        String[]                  @default([])
+  pages                   Int?
+  price                   Decimal?                  @db.Decimal(10, 2)
+  publicationYear         String?
+  publisher               String?
+  tableOfContents         String[]                  @default([])
+  weight                  String?
+  seoTitle                String?
+  seoDescription          String?
+  keywords                String[]                  @default([])
+  class                   Class                     @relation(fields: [classId], references: [id])
+  series                  BookSeries?               @relation(fields: [seriesId], references: [id])
+  subject                 Subject                   @relation(fields: [subjectId], references: [id])
+  chapters                BookChapter[]
+  questions               BookQuestion[]
+  sectionSubjects         SectionSubject[]
+  schoolAdoptions         SchoolBookAdoption[]
+  studentProgress         StudentBookProgress[]
+  studentBookmarks        StudentBookBookmark[]
+  publisherTenant         Publisher?                @relation(fields: [publisherId], references: [id], onDelete: Restrict)
+  studentPracticeAttempts StudentPracticeAttempt[]
+  studentAiConversations  StudentAiConversation[]
+  assessments             Assessment[]
+  assessmentQuestions     AssessmentQuestion[]
+  studentChapterAnalytics StudentChapterAnalytics[]
+  learningTimeline        LearningTimeline[]
+  learningGaps            StudentLearningGap[]
+  remedialRecommendations RemedialRecommendation[]
 
   @@index([publisherId, published])
+}
+
+model StudentBookProgress {
+  id             String       @id @default(cuid())
+  studentId      String
+  bookId         String
+  academicYearId String
+  lastPage       Int          @default(1)
+  totalPages     Int?
+  startedAt      DateTime     @default(now())
+  lastReadAt     DateTime     @default(now())
+  completedAt    DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  student        Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  book           Book         @relation(fields: [bookId], references: [id], onDelete: Restrict)
+  academicYear   AcademicYear @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
+  publisher      Publisher?   @relation(fields: [publisherId], references: [id])
+  publisherId    String?
+
+  @@unique([studentId, bookId, academicYearId])
+  @@index([studentId, academicYearId, lastReadAt])
+  @@index([bookId, academicYearId])
+}
+
+model StudentBookBookmark {
+  id             String       @id @default(cuid())
+  studentId      String
+  bookId         String
+  academicYearId String
+  pageNumber     Int
+  label          String?
+  createdAt      DateTime     @default(now())
+  student        Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  book           Book         @relation(fields: [bookId], references: [id], onDelete: Restrict)
+  academicYear   AcademicYear @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
+  publisher      Publisher?   @relation(fields: [publisherId], references: [id])
+  publisherId    String?
+
+  @@unique([studentId, bookId, academicYearId, pageNumber])
+  @@index([studentId, academicYearId, bookId])
+}
+
+model StudentRevisionProgress {
+  id                String       @id @default(cuid())
+  studentId         String
+  chapterId         String
+  academicYearId    String
+  summaryRead       Boolean      @default(false)
+  keywordsRead      Boolean      @default(false)
+  mindMapRead       Boolean      @default(false)
+  revisionCompleted Boolean      @default(false)
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+  student           Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  chapter           BookChapter  @relation(fields: [chapterId], references: [id], onDelete: Restrict)
+  academicYear      AcademicYear @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
+
+  @@unique([studentId, chapterId, academicYearId])
+  @@index([studentId, academicYearId, revisionCompleted, updatedAt])
+  @@index([chapterId, academicYearId])
 }
 
 model SchoolBookAdoption {
@@ -491,25 +997,34 @@ model SchoolBookAdoption {
 }
 
 model BookChapter {
-  id               String                   @id @default(cuid())
-  bookId           String
-  chapterNumber    Int
-  title            String
-  slug             String
-  startPage        Int?
-  endPage          Int?
-  extractedText    String?
-  reviewedText     String?
-  summary          String?
-  keywords         String[]                 @default([])
-  approved         Boolean                  @default(false)
-  sortOrder        Int                      @default(0)
-  createdAt        DateTime                 @default(now())
-  updatedAt        DateTime                 @updatedAt
-  book             Book                     @relation(fields: [bookId], references: [id], onDelete: Cascade)
-  questions        BookQuestion[]
-  learningOutcomes ChapterLearningOutcome[]
-  activities       ChapterActivity[]
+  id                      String                    @id @default(cuid())
+  bookId                  String
+  chapterNumber           Int
+  title                   String
+  slug                    String
+  startPage               Int?
+  endPage                 Int?
+  extractedText           String?
+  reviewedText            String?
+  summary                 String?
+  keywords                String[]                  @default([])
+  approved                Boolean                   @default(false)
+  sortOrder               Int                       @default(0)
+  createdAt               DateTime                  @default(now())
+  updatedAt               DateTime                  @updatedAt
+  book                    Book                      @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  questions               BookQuestion[]
+  learningOutcomes        ChapterLearningOutcome[]
+  activities              ChapterActivity[]
+  studentRevisionProgress StudentRevisionProgress[]
+  studentPracticeAttempts StudentPracticeAttempt[]
+  studentAiConversations  StudentAiConversation[]
+  assessments             Assessment[]
+  assessmentQuestions     AssessmentQuestion[]
+  studentAnalytics        StudentChapterAnalytics[]
+  learningTimeline        LearningTimeline[]
+  learningGaps            StudentLearningGap[]
+  remedialRecommendations RemedialRecommendation[]
 
   @@unique([bookId, chapterNumber])
   @@unique([bookId, slug])
@@ -517,26 +1032,296 @@ model BookChapter {
 }
 
 model BookQuestion {
-  id            String      @id @default(cuid())
-  bookId        String
-  chapterId     String
-  questionType  String
-  questionText  String
-  options       Json?
-  correctAnswer String?
-  explanation   String?
-  marks         Int         @default(1)
-  difficulty    String      @default("MEDIUM")
-  bloomLevel    String?
-  competency    String?
-  approved      Boolean     @default(false)
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
-  book          Book        @relation(fields: [bookId], references: [id], onDelete: Cascade)
-  chapter       BookChapter @relation(fields: [chapterId], references: [id], onDelete: Restrict)
+  id                  String                    @id @default(cuid())
+  bookId              String
+  chapterId           String
+  questionType        String
+  questionText        String
+  options             Json?
+  correctAnswer       String?
+  explanation         String?
+  marks               Int                       @default(1)
+  difficulty          String                    @default("MEDIUM")
+  bloomLevel          String?
+  competency          String?
+  approved            Boolean                   @default(false)
+  createdAt           DateTime                  @default(now())
+  updatedAt           DateTime                  @updatedAt
+  book                Book                      @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  chapter             BookChapter               @relation(fields: [chapterId], references: [id], onDelete: Restrict)
+  practiceResponses   StudentPracticeResponse[]
+  assessmentQuestions AssessmentQuestion[]
 
   @@index([bookId, chapterId])
   @@index([questionType, difficulty, approved])
+}
+
+model StudentPracticeAttempt {
+  id             String                    @id @default(cuid())
+  studentId      String
+  bookId         String
+  chapterId      String
+  academicYearId String
+  status         PracticeAttemptStatus     @default(IN_PROGRESS)
+  totalQuestions Int
+  attemptedCount Int                       @default(0)
+  correctCount   Int                       @default(0)
+  totalMarks     Int                       @default(0)
+  marksAwarded   Int                       @default(0)
+  scorePercent   Float?
+  startedAt      DateTime                  @default(now())
+  submittedAt    DateTime?
+  createdAt      DateTime                  @default(now())
+  updatedAt      DateTime                  @updatedAt
+  student        Student                   @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  book           Book                      @relation(fields: [bookId], references: [id], onDelete: Restrict)
+  chapter        BookChapter               @relation(fields: [chapterId], references: [id], onDelete: Restrict)
+  academicYear   AcademicYear              @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
+  responses      StudentPracticeResponse[]
+
+  @@index([studentId, academicYearId, chapterId, createdAt])
+  @@index([studentId, status, updatedAt])
+  @@index([bookId, chapterId, status])
+}
+
+model StudentPracticeResponse {
+  id           String                 @id @default(cuid())
+  attemptId    String
+  questionId   String
+  answer       Json?
+  correct      Boolean?
+  marksAwarded Int?
+  answeredAt   DateTime?
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
+  attempt      StudentPracticeAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  question     BookQuestion           @relation(fields: [questionId], references: [id], onDelete: Restrict)
+
+  @@unique([attemptId, questionId])
+  @@index([questionId])
+  @@index([attemptId, answeredAt])
+}
+
+model Assessment {
+  id                      String                   @id @default(cuid())
+  publisherId             String
+  schoolId                String
+  academicYearId          String
+  sectionId               String
+  sectionSubjectId        String
+  bookId                  String
+  chapterId               String?
+  createdById             String?
+  type                    AssessmentType
+  title                   String
+  instructions            String?
+  status                  AssessmentStatus         @default(DRAFT)
+  opensAt                 DateTime?
+  dueAt                   DateTime?
+  durationMinutes         Int?
+  publishedAt             DateTime?
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt
+  publisher               Publisher                @relation(fields: [publisherId], references: [id], onDelete: Restrict)
+  school                  School                   @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  academicYear            AcademicYear             @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
+  section                 ClassSection             @relation(fields: [sectionId], references: [id], onDelete: Restrict)
+  sectionSubject          SectionSubject           @relation(fields: [sectionSubjectId], references: [id], onDelete: Restrict)
+  book                    Book                     @relation(fields: [bookId], references: [id], onDelete: Restrict)
+  chapter                 BookChapter?             @relation(fields: [chapterId], references: [id], onDelete: Restrict)
+  createdBy               User?                    @relation("AssessmentCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  settings                AssessmentSettings?
+  questions               AssessmentQuestion[]
+  attempts                AssessmentAttempt[]
+  remedialRecommendations RemedialRecommendation[]
+  schoolClass             SchoolClass?             @relation(fields: [schoolClassId], references: [id])
+  schoolClassId           String?
+
+  @@index([publisherId, schoolId, academicYearId, status])
+  @@index([schoolId, academicYearId, sectionId, sectionSubjectId, status])
+  @@index([bookId, chapterId, status])
+  @@index([opensAt, dueAt])
+}
+
+model AssessmentSettings {
+  id                 String                  @id @default(cuid())
+  assessmentId       String                  @unique
+  showScore          Boolean                 @default(true)
+  showCorrectAnswers Boolean                 @default(false)
+  showExplanations   Boolean                 @default(false)
+  showSolutions      Boolean                 @default(false)
+  resultRelease      AssessmentResultRelease @default(IMMEDIATE)
+  maxAttempts        Int                     @default(1)
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
+  assessment         Assessment              @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+}
+
+model AssessmentQuestion {
+  id              String               @id @default(cuid())
+  assessmentId    String
+  questionId      String
+  bookId          String
+  chapterId       String
+  sequence        Int
+  questionType    String
+  questionText    String
+  options         Json?
+  correctAnswer   String?
+  explanation     String?
+  marks           Int
+  competency      String?
+  learningOutcome String?
+  createdAt       DateTime             @default(now())
+  assessment      Assessment           @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  question        BookQuestion         @relation(fields: [questionId], references: [id], onDelete: Restrict)
+  book            Book                 @relation(fields: [bookId], references: [id], onDelete: Restrict)
+  chapter         BookChapter          @relation(fields: [chapterId], references: [id], onDelete: Restrict)
+  responses       AssessmentResponse[]
+
+  @@unique([assessmentId, questionId])
+  @@unique([assessmentId, sequence])
+  @@index([bookId, chapterId])
+  @@index([questionId])
+  @@index([competency, learningOutcome])
+}
+
+model AssessmentAttempt {
+  id             String                  @id @default(cuid())
+  assessmentId   String
+  publisherId    String
+  schoolId       String
+  studentId      String
+  academicYearId String
+  status         AssessmentAttemptStatus @default(IN_PROGRESS)
+  startedAt      DateTime                @default(now())
+  expiresAt      DateTime?
+  submittedAt    DateTime?
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+  assessment     Assessment              @relation(fields: [assessmentId], references: [id], onDelete: Restrict)
+  publisher      Publisher               @relation(fields: [publisherId], references: [id], onDelete: Restrict)
+  school         School                  @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  student        Student                 @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  academicYear   AcademicYear            @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
+  responses      AssessmentResponse[]
+  result         AssessmentResult?
+
+  @@index([studentId, academicYearId, createdAt])
+  @@index([studentId, assessmentId, status])
+  @@index([publisherId, schoolId, academicYearId, status])
+  @@index([assessmentId, submittedAt])
+}
+
+model AssessmentResponse {
+  id                   String                 @id @default(cuid())
+  attemptId            String
+  assessmentQuestionId String
+  answer               Json?
+  autoGraded           Boolean                @default(false)
+  correct              Boolean?
+  marksAwarded         Float?
+  reviewStatus         AssessmentReviewStatus @default(NOT_REQUIRED)
+  feedback             String?
+  answeredAt           DateTime?
+  reviewedById         String?
+  reviewedAt           DateTime?
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
+  attempt              AssessmentAttempt      @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  assessmentQuestion   AssessmentQuestion     @relation(fields: [assessmentQuestionId], references: [id], onDelete: Restrict)
+  reviewedBy           User?                  @relation("AssessmentResponseReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@unique([attemptId, assessmentQuestionId])
+  @@index([attemptId, answeredAt])
+  @@index([reviewStatus, reviewedAt])
+}
+
+model AssessmentResult {
+  id                String            @id @default(cuid())
+  attemptId         String            @unique
+  totalMarks        Int
+  awardedMarks      Float
+  percentage        Float?
+  correctCount      Int
+  wrongCount        Int
+  skippedCount      Int
+  subjectivePending Int
+  timeTakenSeconds  Int
+  provisional       Boolean           @default(false)
+  publishedAt       DateTime?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  attempt           AssessmentAttempt @relation(fields: [attemptId], references: [id], onDelete: Restrict)
+
+  @@index([publishedAt, provisional])
+}
+
+model StudentAiConversation {
+  id             String             @id @default(cuid())
+  publisherId    String
+  schoolId       String
+  studentId      String
+  academicYearId String
+  bookId         String
+  chapterId      String
+  active         Boolean            @default(true)
+  startedAt      DateTime           @default(now())
+  lastMessageAt  DateTime?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  publisher      Publisher          @relation(fields: [publisherId], references: [id], onDelete: Restrict)
+  school         School             @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  student        Student            @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  academicYear   AcademicYear       @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
+  book           Book               @relation(fields: [bookId], references: [id], onDelete: Restrict)
+  chapter        BookChapter        @relation(fields: [chapterId], references: [id], onDelete: Restrict)
+  messages       StudentAiMessage[]
+  usage          StudentAiUsage[]
+
+  @@unique([studentId, academicYearId, bookId, chapterId])
+  @@index([publisherId, schoolId, academicYearId, updatedAt])
+  @@index([studentId, academicYearId, active, lastMessageAt])
+  @@index([bookId, chapterId])
+}
+
+model StudentAiMessage {
+  id             String                  @id @default(cuid())
+  conversationId String
+  requestId      String
+  intent         StudentAiIntent
+  question       String
+  answer         String
+  refused        Boolean                 @default(false)
+  refusalReason  StudentAiRefusalReason?
+  createdAt      DateTime                @default(now())
+  conversation   StudentAiConversation   @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, requestId])
+  @@index([conversationId, createdAt])
+}
+
+model StudentAiUsage {
+  id             String                @id @default(cuid())
+  studentId      String
+  academicYearId String
+  conversationId String
+  requestId      String                @unique
+  intent         StudentAiIntent
+  status         AiUsageStatus         @default(RESERVED)
+  reservedAt     DateTime              @default(now())
+  expiresAt      DateTime
+  consumedAt     DateTime?
+  releasedAt     DateTime?
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+  student        Student               @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  academicYear   AcademicYear          @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
+  conversation   StudentAiConversation @relation(fields: [conversationId], references: [id], onDelete: Restrict)
+
+  @@index([studentId, academicYearId, status, reservedAt])
+  @@index([studentId, academicYearId, consumedAt])
+  @@index([conversationId, createdAt])
 }
 
 model ChapterLearningOutcome {
@@ -574,25 +1359,28 @@ model ChapterActivity {
 }
 
 model Resource {
-  id              String           @id @default(cuid())
-  title           String
-  publisherId     String?
-  description     String
-  subject         String
-  classLevel      String
-  type            ResourceType
-  fileUrl         String
-  thumbnail       String?
-  featured        Boolean          @default(false)
-  published       Boolean          @default(true)
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
-  bookmarks       Bookmark[]
-  downloads       Download[]
-  sectionSubjects SectionSubject[]
-  publisher       Publisher?       @relation(fields: [publisherId], references: [id], onDelete: Restrict)
+  id                      String                   @id @default(cuid())
+  title                   String
+  publisherId             String?
+  description             String
+  subject                 String
+  classLevel              String
+  type                    ResourceType
+  audience                ResourceAudience         @default(TEACHER_ONLY)
+  fileUrl                 String
+  thumbnail               String?
+  featured                Boolean                  @default(false)
+  published               Boolean                  @default(true)
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt
+  bookmarks               Bookmark[]
+  downloads               Download[]
+  sectionSubjects         SectionSubject[]
+  publisher               Publisher?               @relation(fields: [publisherId], references: [id], onDelete: Restrict)
+  remedialRecommendations RemedialRecommendation[]
 
   @@index([publisherId, published])
+  @@index([publisherId, audience, published])
 }
 
 model Download {
@@ -613,12 +1401,682 @@ model Bookmark {
   teacher    Teacher  @relation(fields: [teacherId], references: [id], onDelete: Cascade)
 }
 
+model StudentAnalytics {
+  id                   String       @id @default(cuid())
+  publisherId          String
+  schoolId             String
+  studentId            String
+  academicYearId       String
+  booksStarted         Int          @default(0)
+  booksCompleted       Int          @default(0)
+  pagesRead            Int          @default(0)
+  readingPercent       Float        @default(0)
+  revisionsStarted     Int          @default(0)
+  revisionsCompleted   Int          @default(0)
+  revisionPercent      Float        @default(0)
+  practicesStarted     Int          @default(0)
+  practicesCompleted   Int          @default(0)
+  practicePercent      Float        @default(0)
+  averagePractice      Float?
+  assessmentsStarted   Int          @default(0)
+  assessmentsCompleted Int          @default(0)
+  assessmentPercent    Float        @default(0)
+  averageAssessment    Float?
+  aiSessions           Int          @default(0)
+  aiRequests           Int          @default(0)
+  timeStudiedSeconds   Int          @default(0)
+  currentStreak        Int          @default(0)
+  longestStreak        Int          @default(0)
+  lastActivityAt       DateTime?
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+  publisher            Publisher    @relation(fields: [publisherId], references: [id], onDelete: Restrict)
+  school               School       @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  student              Student      @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  academicYear         AcademicYear @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
+
+  @@unique([studentId, academicYearId])
+  @@index([publisherId, academicYearId])
+  @@index([schoolId, academicYearId])
+}
+
+model StudentSubjectAnalytics {
+  id                   String       @id @default(cuid())
+  publisherId          String
+  schoolId             String
+  studentId            String
+  academicYearId       String
+  subjectId            String
+  booksStarted         Int          @default(0)
+  booksCompleted       Int          @default(0)
+  readingPercent       Float        @default(0)
+  revisionsCompleted   Int          @default(0)
+  revisionPercent      Float        @default(0)
+  practicesCompleted   Int          @default(0)
+  averagePractice      Float?
+  assessmentsCompleted Int          @default(0)
+  averageAssessment    Float?
+  aiRequests           Int          @default(0)
+  completionPercent    Float        @default(0)
+  lastActivityAt       DateTime?
+  lastScoredAt         DateTime?
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+  publisher            Publisher    @relation(fields: [publisherId], references: [id], onDelete: Restrict)
+  school               School       @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  student              Student      @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  academicYear         AcademicYear @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
+  subject              Subject      @relation(fields: [subjectId], references: [id], onDelete: Restrict)
+
+  @@unique([studentId, academicYearId, subjectId])
+  @@index([schoolId, academicYearId, subjectId])
+  @@index([publisherId, academicYearId, subjectId])
+}
+
+model StudentChapterAnalytics {
+  id                   String       @id @default(cuid())
+  publisherId          String
+  schoolId             String
+  studentId            String
+  academicYearId       String
+  bookId               String
+  chapterId            String
+  revisionPercent      Float        @default(0)
+  practicesCompleted   Int          @default(0)
+  averagePractice      Float?
+  assessmentsCompleted Int          @default(0)
+  averageAssessment    Float?
+  aiRequests           Int          @default(0)
+  completionPercent    Float        @default(0)
+  lastActivityAt       DateTime?
+  lastScoredAt         DateTime?
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+  publisher            Publisher    @relation(fields: [publisherId], references: [id], onDelete: Restrict)
+  school               School       @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  student              Student      @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  academicYear         AcademicYear @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
+  book                 Book         @relation(fields: [bookId], references: [id], onDelete: Restrict)
+  chapter              BookChapter  @relation(fields: [chapterId], references: [id], onDelete: Restrict)
+
+  @@unique([studentId, academicYearId, chapterId])
+  @@index([schoolId, academicYearId, chapterId])
+  @@index([publisherId, academicYearId, bookId])
+}
+
+model StudentSkillAnalytics {
+  id             String                  @id @default(cuid())
+  publisherId    String
+  schoolId       String
+  studentId      String
+  academicYearId String
+  dimension      AnalyticsSkillDimension
+  skillKey       String
+  skillLabel     String?
+  subjectId      String?
+  attempts       Int                     @default(0)
+  totalMarks     Float                   @default(0)
+  awardedMarks   Float                   @default(0)
+  averagePercent Float?
+  lastAssessedAt DateTime?
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+  publisher      Publisher               @relation(fields: [publisherId], references: [id], onDelete: Restrict)
+  school         School                  @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  student        Student                 @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  academicYear   AcademicYear            @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
+  subject        Subject?                @relation(fields: [subjectId], references: [id], onDelete: Restrict)
+
+  @@unique([studentId, academicYearId, dimension, skillKey])
+  @@index([schoolId, academicYearId, dimension, averagePercent])
+  @@index([publisherId, academicYearId, dimension])
+  @@index([subjectId, dimension, averagePercent])
+}
+
+model TeacherAnalytics {
+  id                    String       @id @default(cuid())
+  publisherId           String
+  schoolId              String
+  teacherId             String
+  academicYearId        String
+  subjectId             String?
+  scopeKey              String
+  studentCount          Int          @default(0)
+  participatingStudents Int          @default(0)
+  averageReading        Float?
+  averageRevision       Float?
+  averagePractice       Float?
+  averageAssessment     Float?
+  aiSessions            Int          @default(0)
+  aiRequests            Int          @default(0)
+  chapterPerformance    Json?
+  skillPerformance      Json?
+  lastActivityAt        DateTime?
+  createdAt             DateTime     @default(now())
+  updatedAt             DateTime     @updatedAt
+  publisher             Publisher    @relation(fields: [publisherId], references: [id], onDelete: Restrict)
+  school                School       @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  teacher               Teacher      @relation(fields: [teacherId], references: [id], onDelete: Restrict)
+  academicYear          AcademicYear @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
+  subject               Subject?     @relation(fields: [subjectId], references: [id], onDelete: Restrict)
+
+  @@unique([teacherId, academicYearId, scopeKey])
+  @@index([schoolId, academicYearId])
+  @@index([publisherId, academicYearId])
+}
+
+model SchoolAnalytics {
+  id                    String       @id @default(cuid())
+  publisherId           String
+  schoolId              String
+  academicYearId        String
+  totalStudents         Int          @default(0)
+  activeStudents        Int          @default(0)
+  participatingStudents Int          @default(0)
+  totalTeachers         Int          @default(0)
+  averageReading        Float?
+  averageRevision       Float?
+  averagePractice       Float?
+  averageAssessment     Float?
+  aiSessions            Int          @default(0)
+  aiRequests            Int          @default(0)
+  subjectPerformance    Json?
+  bookPerformance       Json?
+  chapterPerformance    Json?
+  assessmentPerformance Json?
+  skillPerformance      Json?
+  lastActivityAt        DateTime?
+  createdAt             DateTime     @default(now())
+  updatedAt             DateTime     @updatedAt
+  publisher             Publisher    @relation(fields: [publisherId], references: [id], onDelete: Restrict)
+  school                School       @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  academicYear          AcademicYear @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
+
+  @@unique([schoolId, academicYearId])
+  @@index([publisherId, academicYearId])
+}
+
+model PublisherAnalytics {
+  id                    String    @id @default(cuid())
+  publisherId           String
+  scopeKey              String    @default("ALL")
+  totalSchools          Int       @default(0)
+  activeSchools         Int       @default(0)
+  totalStudents         Int       @default(0)
+  activeStudents        Int       @default(0)
+  participatingStudents Int       @default(0)
+  totalTeachers         Int       @default(0)
+  averageReading        Float?
+  averageRevision       Float?
+  averagePractice       Float?
+  averageAssessment     Float?
+  aiSessions            Int       @default(0)
+  aiRequests            Int       @default(0)
+  subjectPerformance    Json?
+  bookPerformance       Json?
+  chapterPerformance    Json?
+  assessmentPerformance Json?
+  skillPerformance      Json?
+  aiModeUsage           Json?
+  lastActivityAt        DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  publisher             Publisher @relation(fields: [publisherId], references: [id], onDelete: Restrict)
+
+  @@unique([publisherId, scopeKey])
+}
+
+model LearningTimeline {
+  id              String               @id @default(cuid())
+  eventKey        String               @unique
+  publisherId     String
+  schoolId        String
+  studentId       String
+  academicYearId  String
+  subjectId       String?
+  bookId          String?
+  chapterId       String?
+  activityType    LearningActivityType
+  title           String
+  sourceType      String
+  sourceId        String
+  completed       Boolean              @default(false)
+  provisional     Boolean              @default(false)
+  scorePercent    Float?
+  progressValue   Float?
+  totalValue      Float?
+  durationSeconds Int?
+  aiIntent        StudentAiIntent?
+  occurredAt      DateTime
+  createdAt       DateTime             @default(now())
+  publisher       Publisher            @relation(fields: [publisherId], references: [id], onDelete: Restrict)
+  school          School               @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  student         Student              @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  academicYear    AcademicYear         @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
+  subject         Subject?             @relation(fields: [subjectId], references: [id], onDelete: Restrict)
+  book            Book?                @relation(fields: [bookId], references: [id], onDelete: Restrict)
+  chapter         BookChapter?         @relation(fields: [chapterId], references: [id], onDelete: Restrict)
+
+  @@index([studentId, academicYearId, occurredAt])
+  @@index([schoolId, academicYearId, occurredAt])
+  @@index([publisherId, occurredAt])
+  @@index([subjectId, activityType])
+  @@index([bookId, chapterId, activityType])
+}
+
+model GapAnalysisRun {
+  id                      String                       @id @default(cuid())
+  runKey                  String                       @unique
+  publisherId             String
+  schoolId                String
+  studentId               String
+  academicYearId          String
+  policyVersion           String
+  scope                   String                       @default("STUDENT_YEAR")
+  status                  GapAnalysisRunStatus         @default(COMPLETED)
+  detectedCount           Int                          @default(0)
+  resolvedCount           Int                          @default(0)
+  sufficientEvidenceCount Int                          @default(0)
+  startedAt               DateTime                     @default(now())
+  completedAt             DateTime?
+  createdAt               DateTime                     @default(now())
+  publisher               Publisher                    @relation(fields: [publisherId], references: [id], onDelete: Restrict)
+  school                  School                       @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  student                 Student                      @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  academicYear            AcademicYear                 @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
+  latestGaps              StudentLearningGap[]
+  evidence                StudentLearningGapEvidence[]
+
+  @@index([publisherId, academicYearId, createdAt])
+  @@index([schoolId, academicYearId, createdAt])
+  @@index([studentId, academicYearId, createdAt])
+}
+
+model StudentLearningGap {
+  id                 String                       @id @default(cuid())
+  publisherId        String
+  schoolId           String
+  studentId          String
+  academicYearId     String
+  subjectId          String?
+  bookId             String?
+  chapterId          String?
+  skillKey           String?
+  skillLabel         String?
+  dimension          GapDimension
+  severity           GapSeverity
+  status             GapStatus                    @default(OPEN)
+  source             GapDetectionSource           @default(SYSTEM_RULE)
+  policyVersion      String
+  score              Float?
+  evidenceCount      Int
+  baselineSampleSize Int                          @default(0)
+  detectionKey       String
+  activeKey          String?                      @unique
+  latestRunId        String
+  firstDetectedAt    DateTime                     @default(now())
+  lastDetectedAt     DateTime                     @default(now())
+  acknowledgedAt     DateTime?
+  resolvedAt         DateTime?
+  dismissedAt        DateTime?
+  lastReviewedById   String?
+  createdAt          DateTime                     @default(now())
+  updatedAt          DateTime                     @updatedAt
+  publisher          Publisher                    @relation(fields: [publisherId], references: [id], onDelete: Restrict)
+  school             School                       @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  student            Student                      @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  academicYear       AcademicYear                 @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
+  subject            Subject?                     @relation(fields: [subjectId], references: [id], onDelete: Restrict)
+  book               Book?                        @relation(fields: [bookId], references: [id], onDelete: Restrict)
+  chapter            BookChapter?                 @relation(fields: [chapterId], references: [id], onDelete: Restrict)
+  latestRun          GapAnalysisRun               @relation(fields: [latestRunId], references: [id], onDelete: Restrict)
+  lastReviewedBy     User?                        @relation("GapLastReviewer", fields: [lastReviewedById], references: [id], onDelete: SetNull)
+  evidence           StudentLearningGapEvidence[]
+  reviews            StudentLearningGapReview[]
+  remedialPlans      RemedialPlan[]
+
+  @@index([studentId, academicYearId, status])
+  @@index([schoolId, academicYearId, status])
+  @@index([publisherId, status])
+  @@index([subjectId, status])
+  @@index([chapterId, status])
+  @@index([dimension, skillKey, status])
+  @@index([detectionKey, createdAt])
+}
+
+model StudentLearningGapEvidence {
+  id                  String             @id @default(cuid())
+  gapId               String
+  runId               String
+  evidenceType        GapEvidenceType
+  metricKey           String
+  metricValue         Float
+  thresholdValue      Float?
+  sampleSize          Int?
+  observedAt          DateTime
+  sourceAnalyticsType String
+  sourceAnalyticsId   String
+  createdAt           DateTime           @default(now())
+  gap                 StudentLearningGap @relation(fields: [gapId], references: [id], onDelete: Restrict)
+  run                 GapAnalysisRun     @relation(fields: [runId], references: [id], onDelete: Restrict)
+
+  @@unique([gapId, runId, metricKey, sourceAnalyticsId])
+  @@index([gapId, observedAt])
+  @@index([runId])
+}
+
+model StudentLearningGapReview {
+  id          String             @id @default(cuid())
+  gapId       String
+  actorUserId String
+  teacherId   String
+  action      GapReviewAction
+  reason      String?
+  createdAt   DateTime           @default(now())
+  gap         StudentLearningGap @relation(fields: [gapId], references: [id], onDelete: Restrict)
+  actor       User               @relation("GapReviewActor", fields: [actorUserId], references: [id], onDelete: Restrict)
+  teacher     Teacher            @relation(fields: [teacherId], references: [id], onDelete: Restrict)
+
+  @@index([gapId, createdAt])
+  @@index([teacherId, createdAt])
+}
+
+model RemedialPlan {
+  id                        String                   @id @default(cuid())
+  publisherId               String
+  schoolId                  String
+  studentId                 String
+  academicYearId            String
+  gapId                     String
+  policyVersion             String
+  recommendationFingerprint String
+  generationKey             String                   @unique
+  activeKey                 String?                  @unique
+  status                    RemedialPlanStatus       @default(DRAFT)
+  priority                  Int
+  dueAt                     DateTime
+  reviewedAt                DateTime?
+  reviewedById              String?
+  activatedAt               DateTime?
+  completedAt               DateTime?
+  closedAt                  DateTime?
+  supersededAt              DateTime?
+  createdAt                 DateTime                 @default(now())
+  updatedAt                 DateTime                 @updatedAt
+  publisher                 Publisher                @relation(fields: [publisherId], references: [id], onDelete: Restrict)
+  school                    School                   @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  student                   Student                  @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  academicYear              AcademicYear             @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
+  gap                       StudentLearningGap       @relation(fields: [gapId], references: [id], onDelete: Restrict)
+  reviewedBy                User?                    @relation("RemedialPlanReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  recommendations           RemedialRecommendation[]
+  steps                     RemedialStep[]
+  reviews                   RemedialPlanReview[]
+
+  @@index([studentId, academicYearId, status])
+  @@index([schoolId, academicYearId, status, dueAt])
+  @@index([publisherId, status, createdAt])
+  @@index([gapId, createdAt])
+}
+
+model RemedialRecommendation {
+  id            String                     @id @default(cuid())
+  planId        String
+  sequence      Int
+  type          RemedialRecommendationType
+  labelSnapshot String
+  required      Boolean                    @default(true)
+  bookId        String?
+  chapterId     String?
+  resourceId    String?
+  assessmentId  String?
+  pageStart     Int?
+  pageEnd       Int?
+  createdAt     DateTime                   @default(now())
+  plan          RemedialPlan               @relation(fields: [planId], references: [id], onDelete: Restrict)
+  book          Book?                      @relation(fields: [bookId], references: [id], onDelete: Restrict)
+  chapter       BookChapter?               @relation(fields: [chapterId], references: [id], onDelete: Restrict)
+  resource      Resource?                  @relation(fields: [resourceId], references: [id], onDelete: Restrict)
+  assessment    Assessment?                @relation(fields: [assessmentId], references: [id], onDelete: Restrict)
+  step          RemedialStep?
+
+  @@unique([planId, sequence])
+  @@index([type, bookId, chapterId])
+  @@index([resourceId])
+  @@index([assessmentId])
+}
+
+model RemedialStep {
+  id               String                 @id @default(cuid())
+  planId           String
+  recommendationId String                 @unique
+  sequence         Int
+  status           RemedialStepStatus     @default(PENDING)
+  startedAt        DateTime?
+  completedAt      DateTime?
+  skippedAt        DateTime?
+  teacherClosedAt  DateTime?
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+  plan             RemedialPlan           @relation(fields: [planId], references: [id], onDelete: Restrict)
+  recommendation   RemedialRecommendation @relation(fields: [recommendationId], references: [id], onDelete: Restrict)
+  events           RemedialStepEvent[]
+
+  @@unique([planId, sequence])
+  @@index([planId, status])
+}
+
+model RemedialStepEvent {
+  id          String              @id @default(cuid())
+  stepId      String
+  actorUserId String?
+  fromStatus  RemedialStepStatus?
+  toStatus    RemedialStepStatus
+  sourceType  String
+  sourceId    String?
+  createdAt   DateTime            @default(now())
+  step        RemedialStep        @relation(fields: [stepId], references: [id], onDelete: Restrict)
+  actor       User?               @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([stepId, createdAt])
+  @@index([actorUserId, createdAt])
+}
+
+model RemedialPlanReview {
+  id          String               @id @default(cuid())
+  planId      String
+  actorUserId String
+  teacherId   String
+  action      RemedialReviewAction
+  reason      String?
+  createdAt   DateTime             @default(now())
+  plan        RemedialPlan         @relation(fields: [planId], references: [id], onDelete: Restrict)
+  actor       User                 @relation("RemedialReviewActor", fields: [actorUserId], references: [id], onDelete: Restrict)
+  teacher     Teacher              @relation(fields: [teacherId], references: [id], onDelete: Restrict)
+
+  @@index([planId, createdAt])
+  @@index([teacherId, createdAt])
+}
+
 enum UserRole {
   SUPER_ADMIN
   ADMIN
   TEACHER
   SCHOOL
   STUDENT
+  MENTOR
+  PARENT
+}
+
+enum ParentRelationshipType {
+  MOTHER
+  FATHER
+  GUARDIAN
+  OTHER
+}
+
+enum ParentRelationshipStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  REVOKED
+}
+
+enum MentorType {
+  BLUEGATE_MENTOR
+  PRIVATE_MENTOR
+  SCHOOL_MENTOR
+}
+
+enum MentorAssignmentSource {
+  PUBLISHER
+  SCHOOL
+  INDIVIDUAL_PREMIUM
+  FUTURE_PARENT_REQUEST
+}
+
+enum MentorAssignmentRole {
+  PRIMARY
+  SUPPORTING
+}
+
+enum MentorAssignmentStatus {
+  ACTIVE
+  ENDED
+  REVOKED
+}
+
+enum MentorSessionStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+}
+
+enum MentorNoteType {
+  OBSERVATION
+  ENCOURAGEMENT
+  ACTION_PLAN
+  PARENT_NOTE
+  PRIVATE_NOTE
+}
+
+enum MentorActivityType {
+  NOTE_CREATED
+  REMEDIAL_REVIEWED
+  REMEDIAL_COMPLETION_RECOMMENDED
+  STUDENT_AI_LAUNCHED
+  SESSION_STATUS_CHANGED
+}
+
+enum SchoolOnboardingStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SUSPENDED
+}
+
+enum TeacherOnboardingStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SUSPENDED
+}
+
+enum LearningActivityType {
+  READING
+  REVISION
+  PRACTICE
+  ASSESSMENT
+  STUDENT_AI
+}
+
+enum GapDimension {
+  SUBJECT
+  BOOK
+  CHAPTER
+  LEARNING_OUTCOME
+  COMPETENCY
+}
+
+enum GapSeverity {
+  LOW
+  MODERATE
+  HIGH
+  CRITICAL
+}
+
+enum GapStatus {
+  OPEN
+  ACKNOWLEDGED
+  RESOLVED
+  DISMISSED
+}
+
+enum GapEvidenceType {
+  PRACTICE
+  ASSESSMENT
+  READING
+  REVISION
+  AI_SUPPORT
+  MIXED
+}
+
+enum GapDetectionSource {
+  SYSTEM_RULE
+  TEACHER_CONFIRMED
+  TUTOR_CONFIRMED
+  FUTURE_MANUAL
+}
+
+enum GapAnalysisRunStatus {
+  COMPLETED
+}
+
+enum GapReviewAction {
+  ACKNOWLEDGE
+  DISMISS
+  RESOLVE
+}
+
+enum RemedialPlanStatus {
+  DRAFT
+  ACTIVE
+  COMPLETED
+  CLOSED
+  SUPERSEDED
+}
+
+enum RemedialStepStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  SKIPPED
+  TEACHER_CLOSED
+}
+
+enum RemedialRecommendationType {
+  BOOK_CHAPTER
+  SPECIFIC_PAGES
+  REVISION_HUB
+  WORKSHEET
+  VIDEO
+  PPT
+  INTERACTIVE_PRACTICE
+  ASSESSMENT_RETRY
+  STUDENT_AI
+  FUTURE_MENTOR
+}
+
+enum RemedialReviewAction {
+  REVIEW
+  CLOSE
+  RECOMPUTE
+  CLOSE_STEP
+}
+
+enum AnalyticsSkillDimension {
+  COMPETENCY
+  LEARNING_OUTCOME
 }
 
 enum PlatformFeatureKey {
@@ -628,6 +2086,7 @@ enum PlatformFeatureKey {
   HOMEWORK
   ASSIGNMENTS
   ASSESSMENTS
+  INTERACTIVE_QUIZZES
   ATTENDANCE
   TIMETABLE
   CALENDAR
@@ -639,6 +2098,66 @@ enum PlatformFeatureKey {
   STUDENT_AI
   DISCUSSIONS
   NOTIFICATIONS
+}
+
+enum PracticeAttemptStatus {
+  IN_PROGRESS
+  SUBMITTED
+  ABANDONED
+}
+
+enum AssessmentType {
+  CHAPTER
+  UNIT
+  TERM
+  CUSTOM
+  SCHOOL
+  TEACHER
+  BOARD
+}
+
+enum AssessmentStatus {
+  DRAFT
+  PUBLISHED
+  CLOSED
+  ARCHIVED
+}
+
+enum AssessmentAttemptStatus {
+  IN_PROGRESS
+  SUBMITTED
+  PENDING_REVIEW
+  GRADED
+  ABANDONED
+}
+
+enum AssessmentReviewStatus {
+  NOT_REQUIRED
+  PENDING
+  REVIEWED
+}
+
+enum AssessmentResultRelease {
+  IMMEDIATE
+  AFTER_DUE_DATE
+  NEVER
+}
+
+enum StudentAiIntent {
+  EXPLAIN_CONCEPT
+  SIMPLIFY_TOPIC
+  REAL_LIFE_EXAMPLE
+  REVISION_SUMMARY
+  VOCABULARY_HELP
+  ASK_ME_QUESTIONS
+  DOUBT_SOLVER
+  EXPLAIN_IN_HINDI
+}
+
+enum StudentAiRefusalReason {
+  OUT_OF_SCOPE
+  UNSAFE
+  INSUFFICIENT_GROUNDING
 }
 
 enum EnrollmentStatus {
@@ -671,6 +2190,26 @@ enum ResourceType {
   DOC
   VIDEO
   ZIP
+}
+
+enum ResourceAudience {
+  TEACHER_ONLY
+  STUDENT
+  BOTH
+}
+
+enum StudentAccessPlan {
+  SCHOOL_BASIC
+  SCHOOL_PREMIUM
+  INDIVIDUAL_PREMIUM
+  INDIVIDUAL_PREMIUM_MENTOR
+}
+
+enum StudentAccessGrantSource {
+  SCHOOL
+  INDIVIDUAL
+  PUBLISHER_ADMIN
+  MANUAL_TEST
 }
 
 enum InspectionStatus {

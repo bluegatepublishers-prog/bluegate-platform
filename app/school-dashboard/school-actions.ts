@@ -67,7 +67,7 @@ export async function setSchoolTeacherActive(form: FormData) {
   const teacher = await prisma.teacher.findFirst({ where: { id: teacherId, schoolId: school.id }, select: { id: true } });
   if (!teacher) return;
   await prisma.$transaction(async (tx) => {
-    await tx.teacher.update({ where: { id: teacher.id }, data: { active } });
+    await tx.teacher.update({ where: { id: teacher.id }, data: { active, verified: active, status: active ? "APPROVED" : "SUSPENDED" } });
     if (!active) await tx.teacherAssignment.updateMany({ where: { teacherId: teacher.id, schoolId: school.id, active: true }, data: { active: false } });
   });
   revalidatePath("/school-dashboard/teachers");

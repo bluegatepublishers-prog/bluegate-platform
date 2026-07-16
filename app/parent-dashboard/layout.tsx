@@ -1,0 +1,3 @@
+import Link from "next/link";
+import { requireParent } from "@/lib/parent-dashboard";
+export default async function ParentLayout({children}:{children:React.ReactNode}){const parent=await requireParent();return <div className="min-h-screen bg-slate-50"><header className="border-b bg-white"><div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-4 py-4 sm:px-6"><Link className="text-xl font-bold text-blue-800" href="/parent-dashboard">Parent Dashboard</Link><span className="text-sm text-slate-600">Signed in as {parent.user.name}</span></div></header>{children}</div>}

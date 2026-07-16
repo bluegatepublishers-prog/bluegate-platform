@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { getApiUser } from "@/lib/authz";
+import {
+  authorizeAndCreateResourceBookmark,
+  authorizeAndRemoveResourceBookmark,
+} from "@/lib/resource-mutations";
 
 export async function POST(
   _request: Request,
@@ -10,23 +13,10 @@ export async function POST(
   if (!user) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
 
   const { id } = await params;
-  const teacher = await prisma.teacher.findUnique({ where: { userId: user.id } });
-  if (!teacher) return NextResponse.json({ message: "Teacher not found." }, { status: 404 });
-  const resource = await prisma.resource.findFirst({ where: { id, published: true } });
-  if (!resource) return NextResponse.json({ message: "Resource not found." }, { status: 404 });
-
-  const existingBookmark = await prisma.bookmark.findFirst({
-    where: { teacherId: teacher.id, resourceId: id },
-  });
-
-  if (existingBookmark) {
-    return NextResponse.json(existingBookmark);
+  const bookmark = await authorizeAndCreateResourceBookmark(user.id!, id);
+  if (!bookmark) {
+    return NextResponse.json({ message: "Resource not found." }, { status: 404 });
   }
-
-  const bookmark = await prisma.bookmark.create({
-    data: { teacherId: teacher.id, resourceId: id },
-  });
-
   return NextResponse.json(bookmark);
 }
 
@@ -38,9 +28,9 @@ export async function DELETE(
   if (!user) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
 
   const { id } = await params;
-  const teacher = await prisma.teacher.findUnique({ where: { userId: user.id } });
-  if (!teacher) return NextResponse.json({ message: "Teacher not found." }, { status: 404 });
-
-  await prisma.bookmark.deleteMany({ where: { teacherId: teacher.id, resourceId: id } });
-  return NextResponse.json({ success: true });
+  const result = await authorizeAndRemoveResourceBookmark(user.id!, id);
+  if (!result) {
+    return NextResponse.json({ message: "Resource not found." }, { status: 404 });
+  }
+  return NextResponse.json(result);
 }

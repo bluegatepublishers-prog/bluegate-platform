@@ -12,6 +12,7 @@ import {
   GraduationCap,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { getLoginDestination } from "@/lib/auth-policy";
 
 interface LoginFormProps {
   redirectPath?: string;
@@ -21,6 +22,7 @@ interface LoginFormProps {
   emailPlaceholder?: string;
   showDemo?: boolean;
   showPublicLink?: boolean;
+  initialError?: string;
 }
 
 export default function LoginForm({
@@ -31,6 +33,7 @@ export default function LoginForm({
   emailPlaceholder = "teacher@school.com",
   showDemo = true,
   showPublicLink = false,
+  initialError = "",
 }: LoginFormProps) {
   const router = useRouter();
 
@@ -44,7 +47,7 @@ export default function LoginForm({
 
   const [password, setPassword] = useState("");
 
-  const [error, setError] = useState("");
+  const [error, setError] = useState(initialError);
 
   async function handleSubmit(
     e: React.FormEvent<HTMLFormElement>
@@ -224,59 +227,4 @@ export default function LoginForm({
       </div>
     </div>
   );
-}
-
-function getLoginDestination(
-  role: string | undefined,
-  callbackUrl: string | undefined,
-  redirectPath: string
-) {
-  const roleDestination = getRoleDestination(role);
-  if (!roleDestination) return "/";
-
-  if (isAllowedRoleCallback(callbackUrl, role)) return callbackUrl;
-  if (isAllowedRoleCallback(redirectPath, role)) return redirectPath;
-  return roleDestination;
-}
-
-function getRoleDestination(role: string | undefined) {
-  if (role === "SUPER_ADMIN") return "/super-admin";
-  if (role === "ADMIN") return "/admin";
-  if (role === "TEACHER") return "/teacher-dashboard";
-  if (role === "SCHOOL") return "/school-dashboard";
-  return undefined;
-}
-
-function isAllowedRoleCallback(
-  value: string | undefined,
-  role: string | undefined
-): value is string {
-  if (!isSafeInternalPath(value)) return false;
-
-  if (role === "SUPER_ADMIN") return matchesRoute(value, "/super-admin");
-
-  if (role === "ADMIN") return matchesRoute(value, "/admin");
-  if (role === "TEACHER") return matchesRoute(value, "/teacher-dashboard");
-  if (role === "SCHOOL") return matchesRoute(value, "/school-dashboard");
-  return false;
-}
-
-function isSafeInternalPath(value: string | undefined): value is string {
-  if (!value || !value.startsWith("/") || value.startsWith("//")) return false;
-  if (value.includes("\\") || /[\u0000-\u001F\u007F]/.test(value)) return false;
-
-  let decoded: string;
-  try {
-    decoded = decodeURIComponent(value);
-  } catch {
-    return false;
-  }
-
-  if (!decoded.startsWith("/") || decoded.startsWith("//")) return false;
-  return !decoded.includes("://") && !/^[^?#]*\b[a-z][a-z\d+.-]*:/i.test(decoded);
-}
-
-function matchesRoute(value: string, route: string) {
-  const pathname = value.split(/[?#]/, 1)[0];
-  return pathname === route || pathname.startsWith(`${route}/`);
 }
