@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
-import { PlatformFeatureKey, ResourceType } from "@prisma/client";
+import { PlatformFeatureKey, ResourceType, SecurityAuditOutcome } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { authorizePublisherAdminApi, publisherAdminNotFound } from "@/lib/publisher-admin-authorization";
 import { removeManagedResourceFile } from "@/lib/resource-files";
 import { validateResourceAudience } from "@/lib/resource-audience";
 import { isPublisherFeatureEnabled } from "@/lib/publisher-features";
 import { isPublisherUploadUrl } from "@/lib/storage/upload-policy";
+import { publisherAdminAuditActor, recordTrustedDeniedAudit, writeSecurityAuditEvent } from "@/lib/security-audit";
 
 export async function PUT(
   request: Request,
@@ -24,28 +25,34 @@ export async function PUT(
     : ResourceType.PDF;
 
   const existing = await prisma.resource.findFirst({ where: { id, publisherId:actor.publisherId } });
-  if (!existing) return publisherAdminNotFound();
+  if (!existing) {
+    await recordTrustedDeniedAudit({ actor: publisherAdminAuditActor(actor), action: "publisher.resource.update", targetType: "Resource", reasonCode: "CROSS_TENANT_SCOPE", metadata: { scope: "publisher" } });
+    return publisherAdminNotFound();
+  }
   const nextFileUrl = body.fileUrl?.trim();
   const nextThumbnail = body.thumbnail?.trim() || null;
   if ((nextFileUrl !== existing.fileUrl && !isPublisherUploadUrl(nextFileUrl, actor.publisherId, ["resource-file"])) || (nextThumbnail !== existing.thumbnail && !isPublisherUploadUrl(nextThumbnail, actor.publisherId, ["resource-thumbnail"]))) return NextResponse.json({ message: "Upload files through this publisher workspace." }, { status: 400 });
 
-  const result = await prisma.resource.updateMany({
-      where: { id, publisherId: actor.publisherId },
-      data: {
-        title: body.title?.trim(),
-        description: body.description?.trim(),
-        subject: body.subject?.trim(),
-        classLevel: body.classLevel?.trim(),
-        type,
-        audience,
-        fileUrl: body.fileUrl?.trim(),
-        thumbnail: body.thumbnail?.trim() || null,
-        featured: Boolean(body.featured),
-        published: body.published !== false,
-      },
+  const resource = await prisma.$transaction(async (tx) => {
+    const result = await tx.resource.updateMany({
+        where: { id, publisherId: actor.publisherId },
+        data: {
+          title: body.title?.trim(), description: body.description?.trim(), subject: body.subject?.trim(),
+          classLevel: body.classLevel?.trim(), type, audience, fileUrl: body.fileUrl?.trim(),
+          thumbnail: body.thumbnail?.trim() || null, featured: Boolean(body.featured), published: body.published !== false,
+        },
+      });
+    if (result.count !== 1) return null;
+    const updated = await tx.resource.findFirst({ where: { id, publisherId: actor.publisherId } });
+    if (!updated) return null;
+    const fileCount = Number(existing.fileUrl !== updated.fileUrl) + Number(existing.thumbnail !== updated.thumbnail);
+    await writeSecurityAuditEvent(tx, {
+      actor: publisherAdminAuditActor(actor), action: "publisher.resource.update",
+      targetType: "Resource", targetId: id, outcome: SecurityAuditOutcome.SUCCESS,
+      metadata: { changedFields: ["resourceMetadata", ...(fileCount ? ["fileAttachments"] : []), "publicationState"], fileCount },
     });
-  if (result.count !== 1) return publisherAdminNotFound();
-  const resource = await prisma.resource.findFirst({ where: { id, publisherId: actor.publisherId } });
+    return updated;
+  });
   if (!resource) return publisherAdminNotFound();
 
   if (existing.fileUrl !== resource.fileUrl) await removeManagedResourceFile(existing.fileUrl);
@@ -62,10 +69,22 @@ export async function DELETE(
   if(!await isPublisherFeatureEnabled(actor.publisherId,PlatformFeatureKey.RESOURCES))return NextResponse.json({message:"Forbidden"},{status:403});
 
   const { id } = await params;
-  const resource = await prisma.resource.findFirst({ where: { id, publisherId:actor.publisherId } });
-  if (!resource) return publisherAdminNotFound();
-  const deleted = await prisma.resource.deleteMany({ where: { id, publisherId: actor.publisherId } });
-  if (deleted.count !== 1) return publisherAdminNotFound();
+  const resource = await prisma.$transaction(async (tx) => {
+    const owned = await tx.resource.findFirst({ where: { id, publisherId:actor.publisherId } });
+    if (!owned) return null;
+    const deleted = await tx.resource.deleteMany({ where: { id, publisherId: actor.publisherId } });
+    if (deleted.count !== 1) return null;
+    await writeSecurityAuditEvent(tx, {
+      actor: publisherAdminAuditActor(actor), action: "publisher.resource.delete",
+      targetType: "Resource", targetId: id, outcome: SecurityAuditOutcome.SUCCESS,
+      metadata: { fileOperation: "delete_requested", fileCount: owned.thumbnail ? 2 : 1 },
+    });
+    return owned;
+  });
+  if (!resource) {
+    await recordTrustedDeniedAudit({ actor: publisherAdminAuditActor(actor), action: "publisher.resource.delete", targetType: "Resource", reasonCode: "CROSS_TENANT_SCOPE", metadata: { scope: "publisher" } });
+    return publisherAdminNotFound();
+  }
   await Promise.all([removeManagedResourceFile(resource.fileUrl), removeManagedResourceFile(resource.thumbnail)]);
   return NextResponse.json({ success: true });
 }

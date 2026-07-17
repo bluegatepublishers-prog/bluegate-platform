@@ -133,6 +133,28 @@ model PublisherFeature {
   @@index([publisherId, enabled])
 }
 
+model SecurityAuditEvent {
+  id            String               @id @default(cuid())
+  createdAt     DateTime             @default(now())
+  actorUserId   String?
+  actorRole     UserRole?
+  publisherId   String?
+  action        String
+  targetType    String
+  targetId      String?
+  outcome       SecurityAuditOutcome
+  reasonCode    String?
+  correlationId String               @default(uuid())
+  metadata      Json?
+  schemaVersion Int                  @default(1)
+
+  @@index([createdAt])
+  @@index([action, createdAt])
+  @@index([publisherId, createdAt])
+  @@index([actorUserId, createdAt])
+  @@index([correlationId])
+}
+
 model Teacher {
   id              String                     @id @default(cuid())
   userId          String                     @unique
@@ -1970,6 +1992,12 @@ enum UserRole {
   STUDENT
   MENTOR
   PARENT
+}
+
+enum SecurityAuditOutcome {
+  SUCCESS
+  DENIED
+  FAILURE
 }
 
 enum EmailVerificationPurpose {

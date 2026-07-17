@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
-import { PlatformFeatureKey, ResourceType } from "@prisma/client";
+import { PlatformFeatureKey, ResourceType, SecurityAuditOutcome } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { authorizePublisherAdminApi } from "@/lib/publisher-admin-authorization";
 import { validateResourceAudience } from "@/lib/resource-audience";
 import { isPublisherFeatureEnabled } from "@/lib/publisher-features";
 import { isPublisherUploadUrl } from "@/lib/storage/upload-policy";
+import { publisherAdminAuditActor, writeSecurityAuditEvent } from "@/lib/security-audit";
 
 export async function GET() {
   const { actor, response } = await authorizePublisherAdminApi();
@@ -36,20 +37,28 @@ export async function POST(request: Request) {
     ? body.type
     : ResourceType.PDF;
 
-  const resource = await prisma.resource.create({
-    data: {
-      publisherId:actor.publisherId,
-      title: body.title.trim(),
-      description: body.description?.trim() || "",
-      subject: body.subject?.trim() || "General",
-      classLevel: body.classLevel?.trim() || "All Classes",
-      type,
-      audience,
-      fileUrl: body.fileUrl.trim(),
-      thumbnail: body.thumbnail?.trim() || null,
-      featured: Boolean(body.featured),
-      published: body.published !== false,
-    },
+  const resource = await prisma.$transaction(async (tx) => {
+    const created = await tx.resource.create({
+      data: {
+        publisherId:actor.publisherId,
+        title: body.title.trim(),
+        description: body.description?.trim() || "",
+        subject: body.subject?.trim() || "General",
+        classLevel: body.classLevel?.trim() || "All Classes",
+        type,
+        audience,
+        fileUrl: body.fileUrl.trim(),
+        thumbnail: body.thumbnail?.trim() || null,
+        featured: Boolean(body.featured),
+        published: body.published !== false,
+      },
+    });
+    await writeSecurityAuditEvent(tx, {
+      actor: publisherAdminAuditActor(actor), action: "publisher.resource.create",
+      targetType: "Resource", targetId: created.id, outcome: SecurityAuditOutcome.SUCCESS,
+      metadata: { fileCount: created.thumbnail ? 2 : 1 },
+    });
+    return created;
   });
 
   return NextResponse.json(resource, { status: 201 });

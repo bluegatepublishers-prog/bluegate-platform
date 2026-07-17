@@ -1,12 +1,13 @@
 import "server-only";
 
-import { SchoolOnboardingStatus, TeacherOnboardingStatus } from "@prisma/client";
+import { SchoolOnboardingStatus, SecurityAuditOutcome, TeacherOnboardingStatus, UserRole } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requirePublisherAdmin } from "@/lib/publisher-context";
 import { requireSchool } from "@/lib/school-dashboard";
 import { cleanText } from "./onboarding-policy";
 import { generateActivationCode, activationCodeHash, OnboardingError } from "./onboarding";
 import { sendOnboardingNoticeBestEffort } from "./onboarding-mail";
+import { accountAuditActor, publisherAdminAuditActor, writeSecurityAuditEvent } from "./security-audit";
 
 export async function getPublisherSchoolRequests() {
   const { publisher } = await requirePublisherAdmin();
@@ -14,7 +15,7 @@ export async function getPublisherSchoolRequests() {
 }
 
 export async function reviewSchoolRequest(input: { schoolId: string; status: string; reason?: unknown }) {
-  const { user, publisher } = await requirePublisherAdmin();
+  const { actor, user, publisher } = await requirePublisherAdmin();
   if (![SchoolOnboardingStatus.APPROVED, SchoolOnboardingStatus.REJECTED, SchoolOnboardingStatus.SUSPENDED].includes(input.status as never)) throw new OnboardingError("This review action is unavailable.");
   const status = input.status as SchoolOnboardingStatus, reason = cleanText(input.reason, 500) || null;
   if (status !== SchoolOnboardingStatus.APPROVED && (!reason || reason.length < 5)) throw new OnboardingError("Provide a short reason.");
@@ -25,6 +26,11 @@ export async function reviewSchoolRequest(input: { schoolId: string; status: str
     if (updated.count !== 1) throw new OnboardingError("This request changed before review.");
     await tx.schoolOnboardingReview.create({ data: { schoolId: school.id, publisherId: publisher.id, reviewerUserId: user.id!, fromStatus: school.status, toStatus: status, reason } });
     if (status === SchoolOnboardingStatus.SUSPENDED) await tx.teacher.updateMany({ where: { schoolId: school.id }, data: { active: false, status: TeacherOnboardingStatus.SUSPENDED } });
+    await writeSecurityAuditEvent(tx, {
+      actor: publisherAdminAuditActor(actor), action: "publisher.school.status.set",
+      targetType: "School", targetId: school.id, outcome: SecurityAuditOutcome.SUCCESS,
+      metadata: { fromStatus: school.status, toStatus: status },
+    });
     return school;
   });
   await sendOnboardingNoticeBestEffort({ to: result.user.email, subject: `School account ${status.toLowerCase()}`, text: status === SchoolOnboardingStatus.APPROVED ? "Your school account has been approved. You may now sign in." : `Your school account status is now ${status.toLowerCase()}.` });
@@ -47,6 +53,11 @@ export async function reviewTeacherRequest(input: { requestId: string; status: s
     await tx.teacherSchoolRequest.update({ where: { id: current.id }, data: { status, activeKey: approved ? `${current.teacherId}:${school.id}` : null, reviewedById: school.userId, reviewedAt: new Date(), reason } });
     await tx.teacher.update({ where: { id: current.teacherId }, data: { schoolId: approved ? school.id : current.teacher.schoolId, schoolName: school.schoolName, verified: approved, active: approved, status } });
     if (status === TeacherOnboardingStatus.SUSPENDED) await tx.teacherAssignment.updateMany({ where: { teacherId: current.teacherId, schoolId: school.id, active: true }, data: { active: false } });
+    await writeSecurityAuditEvent(tx, {
+      actor: accountAuditActor({ id: school.userId, role: UserRole.SCHOOL, publisherId: school.publisherId }),
+      action: "publisher.teacher.status.set", targetType: "Teacher", targetId: current.teacherId,
+      outcome: SecurityAuditOutcome.SUCCESS, metadata: { fromStatus: current.status, toStatus: status },
+    });
     return current;
   });
   await sendOnboardingNoticeBestEffort({ to: request.teacher.user.email, subject: `Teacher account ${status.toLowerCase()}`, text: status === TeacherOnboardingStatus.APPROVED ? "Your teacher association has been approved. You may now sign in." : `Your teacher account status is now ${status.toLowerCase()}.` });

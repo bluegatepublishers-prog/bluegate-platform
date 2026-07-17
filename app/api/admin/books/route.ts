@@ -1,11 +1,13 @@
 import { revalidatePath } from "next/cache";
 import { NextRequest, NextResponse } from "next/server";
 
+import { SecurityAuditOutcome } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { authorizePublisherAdminApi } from "@/lib/publisher-admin-authorization";
 import { validatePublisherAdminBookRelations } from "@/lib/publisher-admin-data";
 import { parseBookFormData, toBookPersistenceData } from "@/lib/book-form-data";
 import { isPublisherUploadUrl } from "@/lib/storage/upload-policy";
+import { publisherAdminAuditActor, recordTrustedFailureAudit, writeSecurityAuditEvent } from "@/lib/security-audit";
 
 function generateSlug(title: string) {
   return title.toLowerCase().trim().replace(/[^a-z0-9\s-]/g, "").replace(/\s+/g, "-").replace(/-+/g, "-");
@@ -57,14 +59,23 @@ export async function POST(request: NextRequest) {
       select: { id: true },
     })) return NextResponse.json({ message: "A book with this ISBN already exists." }, { status: 409 });
 
-    const book = await prisma.book.create({
-      data: { ...toBookPersistenceData(form), slug, publisherId: access.actor.publisherId },
-      include: { class: true, subject: true, series: true },
+    const book = await prisma.$transaction(async (tx) => {
+      const created = await tx.book.create({
+        data: { ...toBookPersistenceData(form), slug, publisherId: access.actor.publisherId },
+        include: { class: true, subject: true, series: true },
+      });
+      await writeSecurityAuditEvent(tx, {
+        actor: publisherAdminAuditActor(access.actor), action: "publisher.book.create",
+        targetType: "Book", targetId: created.id, outcome: SecurityAuditOutcome.SUCCESS,
+        metadata: { fileCount: [form.coverImage, form.samplePdf, form.publicPreviewPdf, form.fullBookPdf, ...form.galleryImages].filter(Boolean).length },
+      });
+      return created;
     });
     revalidatePath("/admin/books");
     revalidatePath("/books");
     return NextResponse.json({ ...book, ...parseBookFormData(book) }, { status: 201 });
   } catch {
+    await recordTrustedFailureAudit({ actor: publisherAdminAuditActor(access.actor), action: "publisher.book.create", targetType: "Book" });
     console.warn("Publisher Admin book creation failed.", { code: "BOOK_CREATE_FAILED" });
     return NextResponse.json({ message: "Unable to create book." }, { status: 500 });
   }

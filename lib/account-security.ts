@@ -4,11 +4,13 @@ import { randomUUID } from "node:crypto";
 import {
   EmailVerificationPurpose,
   Prisma,
+  SecurityAuditOutcome,
   SecurityThrottleKind,
   UserRole,
 } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
+import { accountAuditActor, writeSecurityAuditEvent } from "@/lib/security-audit";
 import { hashPassword } from "@/lib/password";
 import { normalizeEmail, validEmail, validatePassword } from "@/lib/onboarding-policy";
 import {
@@ -153,7 +155,7 @@ export async function verifyEmailCode(reference: string | undefined, code: unkno
     const challenge = await tx.emailVerificationChallenge.findUnique({
       where: { reference },
       include: {
-        user: { select: { id: true, role: true } },
+        user: { select: { id: true, role: true, publisherId: true } },
         studentActivationCode: {
           include: {
             student: { select: { id: true, userId: true, active: true, schoolId: true } },
@@ -208,6 +210,11 @@ export async function verifyEmailCode(reference: string | undefined, code: unkno
     await tx.emailVerificationChallenge.update({
       where: { id: challenge.id },
       data: { verifiedAt: now, consumedAt: now },
+    });
+    await writeSecurityAuditEvent(tx, {
+      actor: accountAuditActor(challenge.user), action: "account.email.verify",
+      targetType: "User", targetId: challenge.user.id, outcome: SecurityAuditOutcome.SUCCESS,
+      metadata: { purpose: challenge.purpose },
     });
     return {
       ok: true as const,
@@ -348,7 +355,10 @@ export async function verifyPasswordResetCode(reference: string | undefined, cod
   return prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`password-reset:${reference}`}))`;
     const now = new Date();
-    const challenge = await tx.passwordResetChallenge.findUnique({ where: { reference } });
+    const challenge = await tx.passwordResetChallenge.findUnique({
+      where: { reference },
+      include: { user: { select: { id: true, role: true, publisherId: true } } },
+    });
     if (!challenge || !challengeCanBeUsed({ ...challenge, now })) return { ok: false as const, message: "The reset code is incorrect or unavailable." };
     const actualHash = hashSecurityValue("password-reset", reference, code);
     if (!securelyMatchesHash(challenge.codeHash, actualHash)) {
@@ -376,12 +386,19 @@ export async function completePasswordReset(reference: string | undefined, compl
   return prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`password-reset:${reference}`}))`;
     const now = new Date();
-    const challenge = await tx.passwordResetChallenge.findUnique({ where: { reference } });
+    const challenge = await tx.passwordResetChallenge.findUnique({
+      where: { reference },
+      include: { user: { select: { id: true, role: true, publisherId: true } } },
+    });
     const actualTokenHash = hashSecurityValue("password-reset-completion", reference, completionToken);
     if (!challenge || challenge.consumedAt || challenge.revokedAt || !challenge.verifiedAt || !challenge.completionTokenHash || !challenge.completionExpiresAt || challenge.completionExpiresAt <= now || !securelyMatchesHash(challenge.completionTokenHash, actualTokenHash)) return { ok: false as const, message: "This password reset is unavailable. Request a new code." };
     await tx.user.update({ where: { id: challenge.userId }, data: { password: hashedPassword } });
     await tx.passwordResetChallenge.update({ where: { id: challenge.id }, data: { consumedAt: now, completionTokenHash: null, completionExpiresAt: null } });
     await tx.passwordResetChallenge.updateMany({ where: { userId: challenge.userId, id: { not: challenge.id }, consumedAt: null, revokedAt: null }, data: { revokedAt: now } });
+    await writeSecurityAuditEvent(tx, {
+      actor: accountAuditActor(challenge.user), action: "account.password_reset.complete",
+      targetType: "User", targetId: challenge.user.id, outcome: SecurityAuditOutcome.SUCCESS,
+    });
     return { ok: true as const, message: "Password changed successfully. Please sign in with your new password." };
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 }
