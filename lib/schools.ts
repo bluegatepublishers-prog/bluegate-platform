@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
+import { requireLivePublisherAdmin } from "@/lib/publisher-admin-authorization";
 
 export type SchoolWithUser = Prisma.SchoolGetPayload<{
   include: {
@@ -10,8 +11,10 @@ export type SchoolWithUser = Prisma.SchoolGetPayload<{
 
 export async function getSchoolCities() {
   if (!process.env.DATABASE_URL) return [];
+  const actor = await requireLivePublisherAdmin();
 
   const rows = await prisma.school.findMany({
+    where: { publisherId: actor.publisherId },
     select: {
       city: true,
     },
@@ -28,8 +31,9 @@ export async function getSchools(filters: {
   city?: string;
 } = {}) {
   if (!process.env.DATABASE_URL) return [];
+  const actor = await requireLivePublisherAdmin();
 
-  const where: Prisma.SchoolWhereInput = {};
+  const where: Prisma.SchoolWhereInput = { publisherId: actor.publisherId };
 
   if (filters.city) {
     where.city = filters.city;
@@ -105,11 +109,10 @@ export async function getSchools(filters: {
 
 export async function getSchoolById(id: string) {
   if (!process.env.DATABASE_URL) return null;
+  const actor = await requireLivePublisherAdmin();
 
-  return prisma.school.findUnique({
-    where: {
-      id,
-    },
+  return prisma.school.findFirst({
+    where: { id, publisherId: actor.publisherId },
     include: {
       user: true,
     },

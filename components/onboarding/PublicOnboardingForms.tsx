@@ -8,7 +8,7 @@ const input = "mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3
 const label = "text-sm font-semibold text-slate-700";
 const fields = (items: Array<{ name: string; title: string; type?: string; autoComplete?: string; required?: boolean }>) => items.map((item) => <label key={item.name} className={label}>{item.title}<input className={input} name={item.name} type={item.type ?? "text"} autoComplete={item.autoComplete} required={item.required ?? true}/></label>);
 
-function Status({ state }: { state: typeof INITIAL_ONBOARDING_STATE }) { return state.message ? <p role="status" aria-live="polite" className={`rounded-xl p-4 text-sm font-semibold ${state.ok ? "bg-green-50 text-green-800" : "bg-rose-50 text-rose-800"}`}>{state.message}</p> : null; }
+function Status({ state }: { state: typeof INITIAL_ONBOARDING_STATE }) { return state.message ? <div role="status" aria-live="polite" className={`rounded-xl p-4 text-sm font-semibold ${state.ok ? "bg-green-50 text-green-800" : "bg-rose-50 text-rose-800"}`}><p>{state.message}</p>{state.verificationReady?<a className="mt-3 inline-block underline" href="/verify-email">Open email verification</a>:null}</div> : null; }
 function Submit({ pending, children }: { pending: boolean; children: string }) { return <button disabled={pending} className="rounded-xl bg-blue-700 px-5 py-3 font-bold text-white disabled:cursor-wait disabled:opacity-60">{pending ? "Please wait…" : children}</button>; }
 
 export function SchoolSignupForm() {
@@ -23,7 +23,7 @@ export function TeacherSignupForm({ schools }: { schools: Array<{ id: string; sc
 
 export function StudentActivationForm() {
   const [state, action, pending] = useActionState(studentActivationAction, INITIAL_ONBOARDING_STATE);
-  return <form action={action} className="grid gap-5 md:grid-cols-2">{fields([{name:"activationCode",title:"Activation Code",autoComplete:"one-time-code"},{name:"admissionNumber",title:"Admission Number"}])}<label className={label}>Date of Birth (if recorded by your school)<input className={input} name="dateOfBirth" type="date"/></label>{fields([{name:"password",title:"Password",type:"password",autoComplete:"new-password"},{name:"confirmPassword",title:"Confirm Password",type:"password",autoComplete:"new-password"}])}<div className="md:col-span-2"><Status state={state}/></div><Submit pending={pending}>Activate student account</Submit></form>;
+  return <form action={action} className="grid gap-5 md:grid-cols-2">{fields([{name:"activationCode",title:"Activation Code",autoComplete:"one-time-code"},{name:"admissionNumber",title:"Admission Number"},{name:"email",title:"Email held by your school",type:"email",autoComplete:"email"}])}<label className={label}>Date of Birth (if recorded by your school)<input className={input} name="dateOfBirth" type="date"/></label>{fields([{name:"password",title:"Password",type:"password",autoComplete:"new-password"},{name:"confirmPassword",title:"Confirm Password",type:"password",autoComplete:"new-password"}])}<div className="md:col-span-2"><Status state={state}/></div><Submit pending={pending}>Continue student activation</Submit></form>;
 }
 
 export function ParentActivationForm() {

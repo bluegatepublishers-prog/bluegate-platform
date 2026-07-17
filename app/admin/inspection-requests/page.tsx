@@ -2,7 +2,7 @@ import Link from "next/link";
 import { ClipboardCheck, Search, X } from "lucide-react";
 
 import InspectionStatusBadge from "@/components/admin/InspectionStatusBadge";
-import { requireUser } from "@/lib/authz";
+import { requireLivePublisherAdmin } from "@/lib/publisher-admin-authorization";
 import {
   getInspectionRequests,
   type InspectionRequestRecord,
@@ -20,7 +20,7 @@ export default async function InspectionRequestsPage({
 }: {
   searchParams: Promise<{ query?: string }>;
 }) {
-  await requireUser(["ADMIN"]);
+  await requireLivePublisherAdmin();
 
   const { query } = await searchParams;
   const search = query?.trim() || "";

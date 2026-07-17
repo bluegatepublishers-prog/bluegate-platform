@@ -1,12 +1,9 @@
-import Link from "next/link";
 import {
   GraduationCap,
-  Plus,
-  Pencil,
 } from "lucide-react";
 
 import { getClasses } from "@/lib/master/classes";
-import DeleteClassButton from "@/components/admin/DeleteClassButton";
+import { requireLivePublisherAdmin } from "@/lib/publisher-admin-authorization";
 
 type ClassItem = Awaited<ReturnType<typeof getClasses>>[number];
 
@@ -15,6 +12,7 @@ export const metadata = {
 };
 
 export default async function ClassesPage() {
+  await requireLivePublisherAdmin();
   const classes = await getClasses();
 
   return (
@@ -26,17 +24,10 @@ export default async function ClassesPage() {
           </h1>
 
           <p className="mt-2 text-slate-600">
-            Manage academic classes.
+            Global academic class catalog (read-only).
           </p>
         </div>
 
-        <Link
-          href="/admin/master/classes/new"
-          className="inline-flex items-center rounded-xl bg-blue-600 px-5 py-3 font-semibold text-white hover:bg-blue-700"
-        >
-          <Plus className="mr-2 h-5 w-5" />
-          Add Class
-        </Link>
       </div>
 
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -47,14 +38,13 @@ export default async function ClassesPage() {
               <th className="px-6 py-4 text-left">Code</th>
               <th className="px-6 py-4 text-left">Order</th>
               <th className="px-6 py-4 text-left">Status</th>
-              <th className="px-6 py-4 text-right">Actions</th>
             </tr>
           </thead>
 
           <tbody>
             {classes.length === 0 ? (
               <tr>
-                <td colSpan={5} className="py-16 text-center">
+                <td colSpan={4} className="py-16 text-center">
                   <GraduationCap className="mx-auto mb-4 h-12 w-12 text-slate-300" />
 
                   <h3 className="text-xl font-semibold">
@@ -62,7 +52,7 @@ export default async function ClassesPage() {
                   </h3>
 
                   <p className="mt-2 text-slate-500">
-                    Create your first class.
+                    No global classes are available.
                   </p>
                 </td>
               </tr>
@@ -96,21 +86,6 @@ export default async function ClassesPage() {
                     )}
                   </td>
 
-                  <td className="px-6 py-5">
-                    <div className="flex justify-end gap-2">
-                      <Link
-                        href={`/admin/master/classes/${item.id}/edit`}
-                        className="rounded-lg border border-slate-300 p-2 hover:bg-slate-100"
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Link>
-
-                      <DeleteClassButton
-                        id={item.id}
-                        name={item.name}
-                      />
-                    </div>
-                  </td>
                 </tr>
               ))
             )}

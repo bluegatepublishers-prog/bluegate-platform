@@ -4,7 +4,8 @@ import { useState } from "react";
 import Image from "next/image";
 import { FileText, ImageIcon, Plus, RefreshCw, Save, Trash2, Upload } from "lucide-react";
 import { uploadPresigned } from "@vercel/blob/client";
-import { clientUploadPath, validateDirectUpload } from "@/lib/storage/upload-policy";
+import { publisherUploadPath, validateDirectUpload } from "@/lib/storage/upload-policy";
+import { usePublisherAdminId } from "@/components/admin/PublisherAdminContext";
 import type { BookFormData } from "@/types/book-form";
 import type { BookFormChangeHandler, SelectOption } from "@/types/admin-book";
 
@@ -13,8 +14,9 @@ type ListField="features"|"learningOutcomes"|"tableOfContents";
 const input="w-full rounded-xl border px-4 py-3 outline-none focus:border-blue-500";
 
 export default function BookForm({title,form,classes,subjects,series,loading,onChange,onSubmit}:BookFormProps){
+  const publisherId=usePublisherAdminId();
   const[uploading,setUploading]=useState<"coverImage"|"publicPreviewPdf"|"fullBookPdf"|null>(null),[progress,setProgress]=useState(0),[uploadMessage,setUploadMessage]=useState(""),[uploadError,setUploadError]=useState("");
-  async function uploadFile(file:File,field:"coverImage"|"publicPreviewPdf"|"fullBookPdf"){const scope=field==="coverImage"?"book-cover" as const:field==="publicPreviewPdf"?"book-public-preview" as const:"book-full" as const,validation=validateDirectUpload(file,scope);setUploadMessage("");setUploadError("");if(!validation.ok){setUploadError(validation.message);return}setUploading(field);setProgress(0);try{const blob=await uploadPresigned(clientUploadPath(scope,file.name),file,{access:"public",handleUploadUrl:"/api/upload",clientPayload:JSON.stringify({scope,originalName:file.name}),multipart:file.size>5*1024*1024,onUploadProgress:event=>setProgress(Math.round(event.percentage))});onChange(field,blob.url);setUploadMessage("Upload complete.")}catch{setUploadError("The file could not be uploaded. Please try again.")}finally{setUploading(null);setProgress(0)}}
+  async function uploadFile(file:File,field:"coverImage"|"publicPreviewPdf"|"fullBookPdf"){const scope=field==="coverImage"?"book-cover" as const:field==="publicPreviewPdf"?"book-public-preview" as const:"book-full" as const,validation=validateDirectUpload(file,scope);setUploadMessage("");setUploadError("");if(!validation.ok){setUploadError(validation.message);return}setUploading(field);setProgress(0);try{const blob=await uploadPresigned(publisherUploadPath(publisherId,scope,file.name),file,{access:"public",handleUploadUrl:"/api/upload",clientPayload:JSON.stringify({scope,originalName:file.name}),multipart:file.size>5*1024*1024,onUploadProgress:event=>setProgress(Math.round(event.percentage))});onChange(field,blob.url);setUploadMessage("Upload complete.")}catch{setUploadError("The file could not be uploaded. Please try again.")}finally{setUploading(null);setProgress(0)}}
   function addItem(field:ListField){onChange(field,[...form[field],""])} function updateItem(field:ListField,index:number,value:string){const items=[...form[field]];items[index]=value;onChange(field,items)} function removeItem(field:ListField,index:number){onChange(field,form[field].filter((_,i)=>i!==index))}
   const slug=form.title.toLowerCase().trim().replace(/[^a-z0-9\s-]/g,"").replace(/\s+/g,"-").replace(/-+/g,"-");
   return <form onSubmit={onSubmit} className="space-y-8">

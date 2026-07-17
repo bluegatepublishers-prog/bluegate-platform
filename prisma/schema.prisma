@@ -8,43 +8,46 @@ datasource db {
 }
 
 model User {
-  id                          String                      @id @default(cuid())
+  id                          String                       @id @default(cuid())
   name                        String
-  email                       String                      @unique
+  email                       String                       @unique
   password                    String
   phone                       String?
   role                        UserRole
   publisherId                 String?
-  createdAt                   DateTime                    @default(now())
-  updatedAt                   DateTime                    @updatedAt
+  emailVerifiedAt             DateTime?
+  createdAt                   DateTime                     @default(now())
+  updatedAt                   DateTime                     @updatedAt
   school                      School?
   teacher                     Teacher?
   student                     Student?
-  requestedBookAdoptions      SchoolBookAdoption[]        @relation("BookAdoptionRequester")
-  reviewedBookAdoptions       SchoolBookAdoption[]        @relation("BookAdoptionReviewer")
-  grantedStudentAccess        StudentAccessGrant[]        @relation("StudentAccessGrantGranter")
-  createdAssessments          Assessment[]                @relation("AssessmentCreator")
-  reviewedAssessmentResponses AssessmentResponse[]        @relation("AssessmentResponseReviewer")
-  publisher                   Publisher?                  @relation(fields: [publisherId], references: [id], onDelete: SetNull)
-  gapReviews                  StudentLearningGapReview[]  @relation("GapReviewActor")
-  lastReviewedGaps            StudentLearningGap[]        @relation("GapLastReviewer")
-  reviewedRemedialPlans       RemedialPlan[]              @relation("RemedialPlanReviewer")
+  requestedBookAdoptions      SchoolBookAdoption[]         @relation("BookAdoptionRequester")
+  reviewedBookAdoptions       SchoolBookAdoption[]         @relation("BookAdoptionReviewer")
+  grantedStudentAccess        StudentAccessGrant[]         @relation("StudentAccessGrantGranter")
+  createdAssessments          Assessment[]                 @relation("AssessmentCreator")
+  reviewedAssessmentResponses AssessmentResponse[]         @relation("AssessmentResponseReviewer")
+  publisher                   Publisher?                   @relation(fields: [publisherId], references: [id], onDelete: SetNull)
+  gapReviews                  StudentLearningGapReview[]   @relation("GapReviewActor")
+  lastReviewedGaps            StudentLearningGap[]         @relation("GapLastReviewer")
+  reviewedRemedialPlans       RemedialPlan[]               @relation("RemedialPlanReviewer")
   remedialStepEvents          RemedialStepEvent[]
-  remedialReviews             RemedialPlanReview[]        @relation("RemedialReviewActor")
-  schoolOnboardingReviews     SchoolOnboardingReview[]    @relation("SchoolOnboardingReviewer")
-  teacherRequestReviews       TeacherSchoolRequest[]      @relation("TeacherRequestReviewer")
-  activationCodesCreated      StudentActivationCode[]     @relation("ActivationCodeCreator")
-  activationCodesUsed         StudentActivationCode[]     @relation("ActivationCodeUser")
+  remedialReviews             RemedialPlanReview[]         @relation("RemedialReviewActor")
+  schoolOnboardingReviews     SchoolOnboardingReview[]     @relation("SchoolOnboardingReviewer")
+  teacherRequestReviews       TeacherSchoolRequest[]       @relation("TeacherRequestReviewer")
+  activationCodesCreated      StudentActivationCode[]      @relation("ActivationCodeCreator")
+  activationCodesUsed         StudentActivationCode[]      @relation("ActivationCodeUser")
   mentor                      Mentor?
   parent                      Parent?
-  mentorAssignmentsCreated    MentorStudentAssignment[]   @relation("MentorAssignmentCreator")
-  mentorAssignmentsRevoked    MentorStudentAssignment[]   @relation("MentorAssignmentRevoker")
-  mentorSessionsCreated       MentorSession[]             @relation("MentorSessionCreator")
-  mentorActivities            MentorActivity[]            @relation("MentorActivityActor")
-  parentInvitationsCreated    ParentInvitation[]          @relation("ParentInvitationCreator")
-  parentInvitationsUsed       ParentInvitation[]          @relation("ParentInvitationUser")
-  parentRelationshipsApproved ParentStudentRelationship[] @relation("ParentRelationshipApprover")
-  parentRelationshipsRevoked  ParentStudentRelationship[] @relation("ParentRelationshipRevoker")
+  mentorAssignmentsCreated    MentorStudentAssignment[]    @relation("MentorAssignmentCreator")
+  mentorAssignmentsRevoked    MentorStudentAssignment[]    @relation("MentorAssignmentRevoker")
+  mentorSessionsCreated       MentorSession[]              @relation("MentorSessionCreator")
+  mentorActivities            MentorActivity[]             @relation("MentorActivityActor")
+  parentInvitationsCreated    ParentInvitation[]           @relation("ParentInvitationCreator")
+  parentInvitationsUsed       ParentInvitation[]           @relation("ParentInvitationUser")
+  parentRelationshipsApproved ParentStudentRelationship[]  @relation("ParentRelationshipApprover")
+  parentRelationshipsRevoked  ParentStudentRelationship[]  @relation("ParentRelationshipRevoker")
+  emailVerificationChallenges EmailVerificationChallenge[]
+  passwordResetChallenges     PasswordResetChallenge[]
 
   @@index([publisherId, role])
 }
@@ -470,23 +473,84 @@ model Student {
 }
 
 model StudentActivationCode {
-  id           String    @id @default(cuid())
-  studentId    String
-  schoolId     String
-  codeHash     String    @unique
-  expiresAt    DateTime
-  usedAt       DateTime?
-  createdById  String
-  usedByUserId String?
-  revokedAt    DateTime?
-  createdAt    DateTime  @default(now())
-  student      Student   @relation(fields: [studentId], references: [id], onDelete: Restrict)
-  school       School    @relation(fields: [schoolId], references: [id], onDelete: Restrict)
-  createdBy    User      @relation("ActivationCodeCreator", fields: [createdById], references: [id], onDelete: Restrict)
-  usedBy       User?     @relation("ActivationCodeUser", fields: [usedByUserId], references: [id], onDelete: SetNull)
+  id                         String                      @id @default(cuid())
+  studentId                  String
+  schoolId                   String
+  codeHash                   String                      @unique
+  expiresAt                  DateTime
+  usedAt                     DateTime?
+  createdById                String
+  usedByUserId               String?
+  revokedAt                  DateTime?
+  createdAt                  DateTime                    @default(now())
+  student                    Student                     @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  school                     School                      @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  createdBy                  User                        @relation("ActivationCodeCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  usedBy                     User?                       @relation("ActivationCodeUser", fields: [usedByUserId], references: [id], onDelete: SetNull)
+  emailVerificationChallenge EmailVerificationChallenge?
 
   @@index([studentId, usedAt, expiresAt])
   @@index([schoolId, createdAt])
+}
+
+model EmailVerificationChallenge {
+  id                      String                   @id @default(cuid())
+  reference               String                   @unique @default(cuid())
+  userId                  String
+  purpose                 EmailVerificationPurpose
+  codeHash                String                   @unique
+  expiresAt               DateTime
+  verifiedAt              DateTime?
+  consumedAt              DateTime?
+  revokedAt               DateTime?
+  attemptCount            Int                      @default(0)
+  resendCount             Int                      @default(0)
+  lastSentAt              DateTime?
+  studentActivationCodeId String?                  @unique
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt
+  user                    User                     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  studentActivationCode   StudentActivationCode?   @relation(fields: [studentActivationCodeId], references: [id], onDelete: Restrict)
+
+  @@index([userId, purpose, consumedAt, revokedAt, expiresAt])
+  @@index([purpose, createdAt])
+}
+
+model PasswordResetChallenge {
+  id                  String    @id @default(cuid())
+  reference           String    @unique @default(cuid())
+  userId              String
+  codeHash            String    @unique
+  expiresAt           DateTime
+  verifiedAt          DateTime?
+  consumedAt          DateTime?
+  revokedAt           DateTime?
+  attemptCount        Int       @default(0)
+  resendCount         Int       @default(0)
+  lastSentAt          DateTime?
+  completionTokenHash String?   @unique
+  completionExpiresAt DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  user                User      @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([userId, consumedAt, revokedAt, expiresAt])
+  @@index([createdAt])
+}
+
+model SecurityRequestThrottle {
+  id              String               @id @default(cuid())
+  keyHash         String               @unique
+  kind            SecurityThrottleKind
+  requestCount    Int                  @default(0)
+  windowStartedAt DateTime
+  lastRequestAt   DateTime
+  blockedUntil    DateTime?
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+
+  @@index([kind, lastRequestAt])
+  @@index([blockedUntil])
 }
 
 model Parent {
@@ -1906,6 +1970,19 @@ enum UserRole {
   STUDENT
   MENTOR
   PARENT
+}
+
+enum EmailVerificationPurpose {
+  SCHOOL_SIGNUP
+  TEACHER_SIGNUP
+  STUDENT_ACTIVATION
+  PARENT_ACTIVATION
+  EMAIL_CHANGE_FUTURE
+}
+
+enum SecurityThrottleKind {
+  EMAIL_VERIFICATION
+  PASSWORD_RESET
 }
 
 enum ParentRelationshipType {

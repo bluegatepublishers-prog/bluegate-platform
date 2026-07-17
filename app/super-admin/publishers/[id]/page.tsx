@@ -1,8 +1,10 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
+import { requireSuperAdmin } from "@/lib/publisher-context";
 import { togglePublisherFeature, updatePublisher } from "../actions";
 const input="mt-1 w-full rounded-xl border px-3 py-2";
 export default async function Page({params}:{params:Promise<{id:string}>}){
+ await requireSuperAdmin();
  const{id}=await params;
  const[x,catalog]=await Promise.all([prisma.publisher.findUnique({where:{id},include:{features:true}}),prisma.featureDefinition.findMany({where:{active:true},orderBy:[{category:"asc"},{name:"asc"}]})]);
  if(!x)notFound();

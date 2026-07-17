@@ -1,59 +1,159 @@
 import Link from "next/link";
-import { Plus, Search } from "lucide-react";
+import { Plus } from "lucide-react";
 import { Prisma } from "@prisma/client";
+
 import { prisma } from "@/lib/prisma";
 import BookTable from "@/components/admin/books/BookTable";
 import type { BookTableItem } from "@/types/admin-book";
+import { requireLivePublisherAdmin } from "@/lib/publisher-admin-authorization";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-export const metadata = { title: "Books | Bluegate Admin" };
-const PAGE_SIZE = 15;
 
-export default async function BooksPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
-  const params = await searchParams;
-  const value = (key: string) => typeof params[key] === "string" ? params[key] : "";
-  const q = value("q").trim();
-  const classId = value("classId");
-  const subjectId = value("subjectId");
-  const seriesId = value("seriesId");
-  const status = value("status");
-  const featured = value("featured");
-  const page = Math.max(1, Number(value("page")) || 1);
+export const metadata = {
+  title: "Books | Bluegate Admin",
+};
 
-  if (!process.env.DATABASE_URL) return <State title="Database configuration required" message="DATABASE_URL is not configured." />;
-
-  const where: Prisma.BookWhereInput = {
-    ...(q ? { OR: ["title", "subtitle", "isbn", "author", "publisher"].map((field) => ({ [field]: { contains: q, mode: "insensitive" } })) } : {}),
-    ...(classId ? { classId } : {}), ...(subjectId ? { subjectId } : {}), ...(seriesId ? { seriesId } : {}),
-    ...(status === "published" ? { published: true } : status === "draft" ? { published: false } : {}),
-    ...(featured === "yes" ? { featured: true } : featured === "no" ? { featured: false } : {}),
+type BookWithRelations = Prisma.BookGetPayload<{
+  include: {
+    class: true;
+    subject: true;
+    series: true;
   };
+}>;
+
+export default async function BooksPage() {
+  const actor = await requireLivePublisherAdmin();
+  if (!process.env.DATABASE_URL) {
+    return (
+      <div className="space-y-8 p-8">
+        <div className="rounded-2xl border border-rose-200 bg-rose-50 p-8 text-slate-900">
+          <h1 className="text-3xl font-bold">Database configuration required</h1>
+          <p className="mt-4 text-slate-700">
+            The admin books page cannot load because the database is not configured.
+            Check the <code>DATABASE_URL</code> environment variable and try again.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  let books: BookWithRelations[] = [];
+  let errorMessage: string | null = null;
 
   try {
-    const [books, total, allCount, publishedCount, featuredCount, classes, subjects, series] = await Promise.all([
-      prisma.book.findMany({ where, select: { id:true,title:true,slug:true,subtitle:true,author:true,isbn:true,edition:true,price:true,coverImage:true,featured:true,published:true,publicPreviewPdf:true,samplePdf:true,fullBookPdf:true,createdAt:true,updatedAt:true,class:{select:{name:true}},subject:{select:{name:true}},series:{select:{name:true}} }, orderBy: { updatedAt: "desc" }, skip: (page - 1) * PAGE_SIZE, take: PAGE_SIZE }),
-      prisma.book.count({ where }), prisma.book.count(), prisma.book.count({ where: { published: true } }), prisma.book.count({ where: { featured: true } }),
-      prisma.class.findMany({ orderBy: { name: "asc" } }), prisma.subject.findMany({ orderBy: { name: "asc" } }), prisma.bookSeries.findMany({ orderBy: { name: "asc" } }),
-    ]);
-    const items: BookTableItem[] = books.map((book) => ({ id: book.id, title: book.title, slug: book.slug, subtitle: book.subtitle, author: book.author, isbn: book.isbn, edition: book.edition, price: book.price?.toString() ?? null, coverImage: book.coverImage, featured: book.featured, published: book.published, publicPreviewAvailable:Boolean(book.publicPreviewPdf||book.samplePdf), fullBookAvailable:Boolean(book.fullBookPdf), class: { name: book.class.name }, subject: { name: book.subject.name }, series: book.series ? { name: book.series.name } : null, createdAt: book.createdAt.toISOString(), updatedAt: book.updatedAt.toISOString() }));
-    const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
-    const pageHref = (next: number) => { const query = new URLSearchParams(); Object.entries(params).forEach(([k, v]) => { if (typeof v === "string" && k !== "page" && v) query.set(k, v); }); query.set("page", String(next)); return `/admin/books?${query}`; };
-    return <div className="space-y-7">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between"><div><h1 className="text-3xl font-bold text-slate-900">Book Management</h1><p className="mt-2 text-slate-600">Manage Bluegate’s publication catalogue and visibility.</p></div><Link href="/admin/books/new" className="inline-flex items-center justify-center rounded-xl bg-blue-600 px-5 py-3 font-semibold text-white hover:bg-blue-700"><Plus className="mr-2 h-5 w-5" />Add Book</Link></div>
-      <div className="grid gap-4 sm:grid-cols-3"><Stat label="Total books" value={allCount}/><Stat label="Published" value={publishedCount}/><Stat label="Featured" value={featuredCount}/></div>
-      <form className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:grid-cols-3 xl:grid-cols-7">
-        <label className="relative md:col-span-3 xl:col-span-2"><Search className="absolute left-3 top-3.5 h-4 w-4 text-slate-400"/><input name="q" defaultValue={q} placeholder="Title, ISBN, author, publisher" className="w-full rounded-lg border py-3 pl-10 pr-3"/></label>
-        <Filter name="classId" value={classId} label="All classes" options={classes}/><Filter name="subjectId" value={subjectId} label="All subjects" options={subjects}/><Filter name="seriesId" value={seriesId} label="All series" options={series}/>
-        <select name="status" defaultValue={status} className="rounded-lg border px-3 py-3"><option value="">All statuses</option><option value="published">Published</option><option value="draft">Draft</option></select>
-        <div className="flex gap-2"><button className="flex-1 rounded-lg bg-slate-900 px-4 py-3 font-semibold text-white">Filter</button><Link href="/admin/books" className="rounded-lg border px-4 py-3">Clear</Link></div>
-      </form>
-      <BookTable books={items} filtered={Boolean(q || classId || subjectId || seriesId || status || featured)} />
-      {total > 0 && <div className="flex items-center justify-between text-sm text-slate-600"><span>Page {page} of {pageCount} · {total} result{total === 1 ? "" : "s"}</span><div className="flex gap-2">{page > 1 && <Link className="rounded-lg border bg-white px-4 py-2" href={pageHref(page - 1)}>Previous</Link>}{page < pageCount && <Link className="rounded-lg border bg-white px-4 py-2" href={pageHref(page + 1)}>Next</Link>}</div></div>}
-    </div>;
-  } catch { return <State title="Unable to load books" message="The database is currently unavailable. Try again shortly." />; }
-}
+    books = await prisma.book.findMany({
+      where: { publisherId: actor.publisherId },
+      include: {
+        class: true,
+        subject: true,
+        series: true,
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+    });
+  } catch (error) {
+    errorMessage = "Database connection is unavailable. Check the DATABASE_URL environment variable.";
+  }
 
-function Filter({ name, value, label, options }: { name: string; value: string; label: string; options: Array<{ id: string; name: string }> }) { return <select name={name} defaultValue={value} className="rounded-lg border px-3 py-3"><option value="">{label}</option>{options.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>; }
-function Stat({ label, value }: { label: string; value: number }) { return <div className="rounded-2xl border bg-white p-5 shadow-sm"><p className="text-sm text-slate-500">{label}</p><p className="mt-1 text-3xl font-bold text-slate-900">{value}</p></div>; }
-function State({ title, message }: { title: string; message: string }) { return <div className="rounded-2xl border border-rose-200 bg-rose-50 p-8"><h1 className="text-2xl font-bold">{title}</h1><p className="mt-2 text-slate-700">{message}</p></div>; }
+  if (errorMessage) {
+    return (
+      <div className="space-y-8 p-8">
+        <div className="rounded-2xl border border-rose-200 bg-rose-50 p-8 text-slate-900">
+          <h1 className="text-3xl font-bold">Unable to load books</h1>
+          <p className="mt-4 text-slate-700">{errorMessage}</p>
+        </div>
+      </div>
+    );
+  }
+
+  const tableBooks: BookTableItem[] = books.map((book) => ({
+  id: book.id,
+
+  title: book.title,
+  slug: book.slug,
+  author: book.author,
+  isbn: book.isbn,
+  edition: book.edition,
+  price: book.price?.toString() ?? null,
+  subtitle: book.subtitle,
+
+  coverImage: book.coverImage,
+
+  featured: book.featured,
+  published: book.published,
+  publicPreviewAvailable: Boolean(book.publicPreviewPdf || book.samplePdf),
+  fullBookAvailable: Boolean(book.fullBookPdf),
+  createdAt: book.createdAt.toISOString(),
+  updatedAt: book.updatedAt.toISOString(),
+
+  class: {
+    name: book.class.name,
+  },
+
+  subject: {
+    name: book.subject.name,
+  },
+
+  series: book.series
+    ? {
+        name: book.series.name,
+      }
+    : null,
+}));
+
+  return (
+    <div className="space-y-8">
+      <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-slate-900">Books</h1>
+
+          <p className="mt-2 text-slate-600">
+            Manage all Bluegate Publisher books.
+          </p>
+        </div>
+
+        <Link
+          href="/admin/books/new"
+          className="inline-flex items-center rounded-xl bg-blue-600 px-6 py-3 font-semibold text-white transition hover:bg-blue-700"
+        >
+          <Plus className="mr-2 h-5 w-5" />
+          Add Book
+        </Link>
+      </div>
+
+      <div className="grid gap-6 md:grid-cols-4">
+        <div className="rounded-2xl border bg-white p-6 shadow-sm">
+          <p className="text-sm text-slate-500">Total Books</p>
+          <h2 className="mt-2 text-3xl font-bold text-slate-900">
+            {books.length}
+          </h2>
+        </div>
+
+        <div className="rounded-2xl border bg-white p-6 shadow-sm">
+          <p className="text-sm text-slate-500">Published</p>
+          <h2 className="mt-2 text-3xl font-bold text-green-700">
+            {books.filter((b) => b.published).length}
+          </h2>
+        </div>
+
+        <div className="rounded-2xl border bg-white p-6 shadow-sm">
+          <p className="text-sm text-slate-500">Draft</p>
+          <h2 className="mt-2 text-3xl font-bold text-amber-700">
+            {books.filter((b) => !b.published).length}
+          </h2>
+        </div>
+
+        <div className="rounded-2xl border bg-white p-6 shadow-sm">
+          <p className="text-sm text-slate-500">Featured</p>
+          <h2 className="mt-2 text-3xl font-bold text-blue-700">
+            {books.filter((b) => b.featured).length}
+          </h2>
+        </div>
+      </div>
+
+      <BookTable books={tableBooks} />
+    </div>
+  );
+}

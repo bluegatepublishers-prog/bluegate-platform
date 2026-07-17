@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { requireUser } from "@/lib/authz";
+import { requireLivePublisherAdmin } from "@/lib/publisher-admin-authorization";
 import { ArrowRight, MapPin, Mail, User, Smartphone } from "lucide-react";
 
 import { getSchoolById } from "@/lib/schools";
@@ -32,7 +32,7 @@ export default async function AdminSchoolDetailPage({ params }: SchoolDetailPage
     );
   }
 
-  await requireUser(["ADMIN"]);
+  await requireLivePublisherAdmin();
 
   let school = null;
   let errorMessage: string | null = null;

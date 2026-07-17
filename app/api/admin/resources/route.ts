@@ -1,27 +1,25 @@
 import { NextResponse } from "next/server";
 import { PlatformFeatureKey, ResourceType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { getApiUser } from "@/lib/authz";
-import { resolvePublisherForUser } from "@/lib/publisher-context";
+import { authorizePublisherAdminApi } from "@/lib/publisher-admin-authorization";
 import { validateResourceAudience } from "@/lib/resource-audience";
 import { isPublisherFeatureEnabled } from "@/lib/publisher-features";
+import { isPublisherUploadUrl } from "@/lib/storage/upload-policy";
 
 export async function GET() {
-  const user=await getApiUser(["ADMIN"]);const publisher=user?.id?await resolvePublisherForUser(user.id):null;if(!publisher){
-    return NextResponse.json({ message: "Forbidden" }, { status: 403 });
-  }
-  if(!await isPublisherFeatureEnabled(publisher.id,PlatformFeatureKey.RESOURCES))return NextResponse.json({message:"Forbidden"},{status:403});
+  const { actor, response } = await authorizePublisherAdminApi();
+  if (response) return response;
+  if(!await isPublisherFeatureEnabled(actor.publisherId,PlatformFeatureKey.RESOURCES))return NextResponse.json({message:"Forbidden"},{status:403});
 
   return NextResponse.json(
-    await prisma.resource.findMany({ where:{publisherId:publisher.id},orderBy: { createdAt: "desc" } })
+    await prisma.resource.findMany({ where:{publisherId:actor.publisherId},orderBy: { createdAt: "desc" } })
   );
 }
 
 export async function POST(request: Request) {
-  const user=await getApiUser(["ADMIN"]);const publisher=user?.id?await resolvePublisherForUser(user.id):null;if(!publisher){
-    return NextResponse.json({ message: "Forbidden" }, { status: 403 });
-  }
-  if(!await isPublisherFeatureEnabled(publisher.id,PlatformFeatureKey.RESOURCES))return NextResponse.json({message:"Forbidden"},{status:403});
+  const { actor, response } = await authorizePublisherAdminApi();
+  if (response) return response;
+  if(!await isPublisherFeatureEnabled(actor.publisherId,PlatformFeatureKey.RESOURCES))return NextResponse.json({message:"Forbidden"},{status:403});
 
   const body = await request.json();
   const audience = validateResourceAudience(body.audience);
@@ -32,6 +30,7 @@ export async function POST(request: Request) {
     );
   }
   if (!audience) return NextResponse.json({ message: "Select a valid audience." }, { status: 400 });
+  if (!isPublisherUploadUrl(body.fileUrl?.trim(), actor.publisherId, ["resource-file"]) || !isPublisherUploadUrl(body.thumbnail?.trim() || null, actor.publisherId, ["resource-thumbnail"])) return NextResponse.json({ message: "Upload files through this publisher workspace." }, { status: 400 });
 
   const type = Object.values(ResourceType).includes(body.type)
     ? body.type
@@ -39,7 +38,7 @@ export async function POST(request: Request) {
 
   const resource = await prisma.resource.create({
     data: {
-      publisherId:publisher.id,
+      publisherId:actor.publisherId,
       title: body.title.trim(),
       description: body.description?.trim() || "",
       subject: body.subject?.trim() || "General",

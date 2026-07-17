@@ -2,15 +2,14 @@ import { NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 
 import { prisma } from "@/lib/prisma";
-import { getApiUser } from "@/lib/authz";
+import { authorizePublisherAdminApi, publisherAdminNotFound } from "@/lib/publisher-admin-authorization";
 
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  if (!(await getApiUser(["ADMIN"]))) {
-    return NextResponse.json({ message: "Forbidden" }, { status: 403 });
-  }
+  const { actor, response } = await authorizePublisherAdminApi();
+  if (response) return response;
 
   if (!process.env.DATABASE_URL) {
     return NextResponse.json(
@@ -30,10 +29,15 @@ export async function PATCH(
   }
 
   try {
-    const teacher = await prisma.teacher.update({
-      where: { id },
+    const updated = await prisma.teacher.updateMany({
+      where: { id, school: { publisherId: actor.publisherId } },
       data: { verified: body.verified },
     });
+    if (updated.count !== 1) return publisherAdminNotFound();
+    const teacher = await prisma.teacher.findFirst({
+      where: { id, school: { publisherId: actor.publisherId } },
+    });
+    if (!teacher) return publisherAdminNotFound();
 
     revalidatePath("/admin/teachers");
     revalidatePath(`/admin/teachers/${id}`);

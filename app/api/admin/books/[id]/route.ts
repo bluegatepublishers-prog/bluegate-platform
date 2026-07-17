@@ -1,236 +1,156 @@
-import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { getApiUser } from "@/lib/authz";
-import { removeManagedBookFiles } from "@/lib/book-files";
+import { Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
+import { NextRequest, NextResponse } from "next/server";
+
+import { removeManagedBookFiles } from "@/lib/book-files";
+import { parseBookFormData, toBookPersistenceData } from "@/lib/book-form-data";
+import { prisma } from "@/lib/prisma";
 import {
-  parseBookFormData,
-  toBookPersistenceData,
-} from "@/lib/book-form-data";
+  authorizePublisherAdminApi,
+  publisherAdminNotFound,
+} from "@/lib/publisher-admin-authorization";
+import { validatePublisherAdminBookRelations } from "@/lib/publisher-admin-data";
+import { isPublisherUploadUrl } from "@/lib/storage/upload-policy";
 
 function generateSlug(title: string) {
-  return title
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9\s-]/g, "")
-    .replace(/\s+/g, "-")
-    .replace(/-+/g, "-");
+  return title.toLowerCase().trim().replace(/[^a-z0-9\s-]/g, "").replace(/\s+/g, "-").replace(/-+/g, "-");
 }
 
-// =======================
-// GET BOOK
-// =======================
-
 export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  _request: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
 ) {
+  const access = await authorizePublisherAdminApi();
+  if (access.response) return access.response;
+  const { id } = await params;
+
   try {
-    if (!(await getApiUser(["ADMIN"]))) return NextResponse.json({ message: "Forbidden" }, { status: 403 });
-    const { id } = await params;
-
-    const book = await prisma.book.findUnique({
-      where: {
-        id,
-      },
-      include: {
-        class: true,
-        subject: true,
-        series: true,
-      },
+    const book = await prisma.book.findFirst({
+      where: { id, publisherId: access.actor.publisherId },
+      include: { class: true, subject: true, series: true },
     });
-
-    if (!book) {
-      return NextResponse.json(
-        {
-          message: "Book not found.",
-        },
-        {
-          status: 404,
-        }
-      );
-    }
-
-    return NextResponse.json({
-      ...book,
-      ...parseBookFormData(book),
-    });
-  } catch (error) {
-    console.error(error);
-
-    return NextResponse.json(
-      {
-        message: "Unable to fetch book.",
-      },
-      {
-        status: 500,
-      }
-    );
+    if (!book) return publisherAdminNotFound();
+    return NextResponse.json({ ...book, ...parseBookFormData(book) });
+  } catch {
+    console.warn("Publisher Admin book read failed.", { code: "BOOK_READ_FAILED" });
+    return NextResponse.json({ message: "Unable to fetch book." }, { status: 500 });
   }
 }
 
-// =======================
-// UPDATE BOOK
-// =======================
-
 export async function PUT(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ id: string }> },
 ) {
+  const access = await authorizePublisherAdminApi();
+  if (access.response) return access.response;
+  const { id } = await params;
+
   try {
-    if (!(await getApiUser(["ADMIN"]))) return NextResponse.json({ message: "Forbidden" }, { status: 403 });
-    const { id } = await params;
-
     const form = parseBookFormData(await request.json());
-
-    if (!form.title) {
-      return NextResponse.json(
-        {
-          message: "Book title is required.",
-        },
-        {
-          status: 400,
-        }
-      );
-    }
-
-    if (!form.classId) {
-      return NextResponse.json(
-        {
-          message: "Please select a class.",
-        },
-        {
-          status: 400,
-        }
-      );
-    }
-
-    if (!form.subjectId) {
-      return NextResponse.json(
-        {
-          message: "Please select a subject.",
-        },
-        {
-          status: 400,
-        }
-      );
-    }
+    if (!form.title) return NextResponse.json({ message: "Book title is required." }, { status: 400 });
+    if (!form.classId) return NextResponse.json({ message: "Please select a class." }, { status: 400 });
+    if (!form.subjectId) return NextResponse.json({ message: "Please select a subject." }, { status: 400 });
+    const currentFiles = await prisma.book.findFirst({ where: { id, publisherId: access.actor.publisherId }, select: { coverImage: true, samplePdf: true, publicPreviewPdf: true, fullBookPdf: true } });
+    if (!currentFiles) return publisherAdminNotFound();
+    if ((form.coverImage !== currentFiles.coverImage && !isPublisherUploadUrl(form.coverImage, access.actor.publisherId, ["book-cover"])) || (form.samplePdf !== currentFiles.samplePdf && !isPublisherUploadUrl(form.samplePdf, access.actor.publisherId, ["book-sample"])) || (form.publicPreviewPdf !== currentFiles.publicPreviewPdf && !isPublisherUploadUrl(form.publicPreviewPdf, access.actor.publisherId, ["book-public-preview"])) || (form.fullBookPdf !== currentFiles.fullBookPdf && !isPublisherUploadUrl(form.fullBookPdf, access.actor.publisherId, ["book-full"]))) return NextResponse.json({ message: "Upload files through this publisher workspace." }, { status: 400 });
+    if (!await validatePublisherAdminBookRelations({
+      publisherId: access.actor.publisherId,
+      classId: form.classId,
+      subjectId: form.subjectId,
+      seriesId: form.seriesId || null,
+    })) return NextResponse.json({ message: "One or more selections are unavailable." }, { status: 400 });
 
     const baseSlug = generateSlug(form.title);
     let slug = baseSlug;
     let count = 1;
+    while (await prisma.book.findFirst({ where: { slug, NOT: { id } }, select: { id: true } })) slug = `${baseSlug}-${count++}`;
 
-    while (
-      await prisma.book.findFirst({
-        where: {
-          slug,
-          NOT: { id },
-        },
-        select: { id: true },
-      })
-    ) {
-      slug = `${baseSlug}-${count++}`;
-    }
-
-    if (form.isbn && await prisma.book.findFirst({ where: { isbn: { equals: form.isbn, mode: "insensitive" }, NOT: { id } }, select: { id: true } })) {
-      return NextResponse.json({ message: "A different book already uses this ISBN." }, { status: 409 });
-    }
-
-    const previous = await prisma.book.findUnique({ where: { id }, select: { slug: true, coverImage: true, samplePdf: true, publicPreviewPdf: true, fullBookPdf: true, galleryImages: true, subtitle: true, description: true, edition: true, publisher: true, language: true, board: true, binding: true, dimensions: true } });
-    if (!previous) return NextResponse.json({ message: "Book not found." }, { status: 404 });
-    const existingBook = previous;
-
-    const updatedBook = await prisma.book.update({
+    if (form.isbn && await prisma.book.findFirst({
       where: {
-        id,
+        publisherId: access.actor.publisherId,
+        isbn: { equals: form.isbn, mode: "insensitive" },
+        NOT: { id },
       },
-      data: {
-        ...toBookPersistenceData(form),
-        // These fields are intentionally hidden from the simplified form.
-        // Preserve existing values instead of interpreting omission as deletion.
-        subtitle: existingBook.subtitle,
-        description: existingBook.description,
-        galleryImages: existingBook.galleryImages,
-        edition: existingBook.edition,
-        publisher: existingBook.publisher,
-        language: existingBook.language,
-        board: existingBook.board,
-        binding: existingBook.binding,
-        dimensions: existingBook.dimensions,
-        slug,
-      },
-      include: {
-        class: true,
-        subject: true,
-        series: true,
-      },
-    });
+      select: { id: true },
+    })) return NextResponse.json({ message: "A different book already uses this ISBN." }, { status: 409 });
 
+    const result = await prisma.$transaction(async (tx) => {
+      const previous = await tx.book.findFirst({
+        where: { id, publisherId: access.actor.publisherId },
+        select: {
+          slug: true, coverImage: true, samplePdf: true, publicPreviewPdf: true,
+          fullBookPdf: true, galleryImages: true, subtitle: true, description: true,
+          edition: true, publisher: true, language: true, board: true, binding: true,
+          dimensions: true,
+        },
+      });
+      if (!previous) return null;
+      const updated = await tx.book.update({
+        where: { id },
+        data: {
+          ...toBookPersistenceData(form),
+          publisherId: access.actor.publisherId,
+          subtitle: previous.subtitle,
+          description: previous.description,
+          galleryImages: previous.galleryImages,
+          edition: previous.edition,
+          publisher: previous.publisher,
+          language: previous.language,
+          board: previous.board,
+          binding: previous.binding,
+          dimensions: previous.dimensions,
+          slug,
+        },
+        include: { class: true, subject: true, series: true },
+      });
+      return { previous, updated };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+
+    if (!result) return publisherAdminNotFound();
     await removeManagedBookFiles([
-      existingBook.coverImage !== updatedBook.coverImage ? existingBook.coverImage : null,
-      existingBook.samplePdf !== updatedBook.samplePdf ? existingBook.samplePdf : null,
-      existingBook.publicPreviewPdf !== updatedBook.publicPreviewPdf ? existingBook.publicPreviewPdf : null,
-      existingBook.fullBookPdf !== updatedBook.fullBookPdf ? existingBook.fullBookPdf : null,
+      result.previous.coverImage !== result.updated.coverImage ? result.previous.coverImage : null,
+      result.previous.samplePdf !== result.updated.samplePdf ? result.previous.samplePdf : null,
+      result.previous.publicPreviewPdf !== result.updated.publicPreviewPdf ? result.previous.publicPreviewPdf : null,
+      result.previous.fullBookPdf !== result.updated.fullBookPdf ? result.previous.fullBookPdf : null,
     ]);
     revalidatePath("/admin/books");
     revalidatePath("/books");
-    revalidatePath(`/books/${existingBook.slug}`);
-    revalidatePath(`/books/${updatedBook.slug}`);
-    return NextResponse.json({
-      ...updatedBook,
-      ...parseBookFormData(updatedBook),
-    });
-  } catch (error) {
-    console.error(error);
-
-    return NextResponse.json(
-      {
-        message: "Unable to update book.",
-      },
-      {
-        status: 500,
-      }
-    );
+    revalidatePath(`/books/${result.previous.slug}`);
+    revalidatePath(`/books/${result.updated.slug}`);
+    return NextResponse.json({ ...result.updated, ...parseBookFormData(result.updated) });
+  } catch {
+    console.warn("Publisher Admin book update failed.", { code: "BOOK_UPDATE_FAILED" });
+    return NextResponse.json({ message: "Unable to update book." }, { status: 500 });
   }
 }
 
-// =======================
-// DELETE BOOK
-// =======================
-
 export async function DELETE(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  _request: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
 ) {
-  try {
-    if (!(await getApiUser(["ADMIN"]))) return NextResponse.json({ message: "Forbidden" }, { status: 403 });
-    const { id } = await params;
+  const access = await authorizePublisherAdminApi();
+  if (access.response) return access.response;
+  const { id } = await params;
 
-    const book = await prisma.book.findUnique({ where: { id }, select: { slug: true, coverImage: true, samplePdf: true, publicPreviewPdf: true, fullBookPdf: true, galleryImages: true } });
-    if (!book) return NextResponse.json({ message: "Book not found." }, { status: 404 });
-    await prisma.book.delete({
-      where: {
-        id,
-      },
-    });
+  try {
+    const book = await prisma.$transaction(async (tx) => {
+      const owned = await tx.book.findFirst({
+        where: { id, publisherId: access.actor.publisherId },
+        select: { slug: true, coverImage: true, samplePdf: true, publicPreviewPdf: true, fullBookPdf: true, galleryImages: true },
+      });
+      if (!owned) return null;
+      await tx.book.delete({ where: { id } });
+      return owned;
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    if (!book) return publisherAdminNotFound();
+
     await removeManagedBookFiles([book.coverImage, book.samplePdf, book.publicPreviewPdf, book.fullBookPdf, ...book.galleryImages]);
     revalidatePath("/admin/books");
     revalidatePath("/books");
     revalidatePath(`/books/${book.slug}`);
-
-    return NextResponse.json({
-      success: true,
-    });
-  } catch (error) {
-    console.error(error);
-
-    return NextResponse.json(
-      {
-        message: "Unable to delete book.",
-      },
-      {
-        status: 500,
-      }
-    );
+    return NextResponse.json({ success: true });
+  } catch {
+    console.warn("Publisher Admin book deletion failed.", { code: "BOOK_DELETE_FAILED" });
+    return NextResponse.json({ message: "Unable to delete book." }, { status: 500 });
   }
 }

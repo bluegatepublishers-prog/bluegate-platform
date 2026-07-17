@@ -1,13 +1,13 @@
 "use server";
 
-import { requireUser } from "@/lib/authz";
+import { requireLivePublisherAdmin } from "@/lib/publisher-admin-authorization";
 import { OpenAiProvider, OpenAiProviderError } from "@/lib/ai/providers/openai";
 import { getOpenAiReadiness } from "@/lib/ai/providers/openai-readiness";
 
 export type ProviderTestResult = { ok: boolean; message: string; testedAt: string };
 
 export async function testOpenAiProvider(): Promise<ProviderTestResult> {
-  await requireUser(["ADMIN"]);
+  await requireLivePublisherAdmin();
   const testedAt = new Date().toISOString();
   const readiness = getOpenAiReadiness();
   if (!readiness.apiKeyConfigured) return { ok: false, message: "OpenAI API key is not configured.", testedAt };

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Users, Search, X } from "lucide-react";
 
-import { requireUser } from "@/lib/authz";
+import { requireLivePublisherAdmin } from "@/lib/publisher-admin-authorization";
 import { getTeacherSubjects, getTeachers, TeacherWithUser } from "@/lib/teachers";
 import TeacherActions from "@/components/admin/teachers/TeacherActions";
 
@@ -48,7 +48,7 @@ export default async function TeachersPage({
     );
   }
 
-  await requireUser(["ADMIN"]);
+  await requireLivePublisherAdmin();
 
   let teachers: TeacherWithUser[] = [];
   let subjects: string[] = [];

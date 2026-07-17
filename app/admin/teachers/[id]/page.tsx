@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-import { requireUser } from "@/lib/authz";
+import { requireLivePublisherAdmin } from "@/lib/publisher-admin-authorization";
 import { getTeacherById } from "@/lib/teachers";
 import TeacherActions from "@/components/admin/teachers/TeacherActions";
 
@@ -30,7 +30,7 @@ export default async function TeacherDetailsPage({
     );
   }
 
-  await requireUser(["ADMIN"]);
+  await requireLivePublisherAdmin();
 
   let teacher = null;
   let errorMessage: string | null = null;

@@ -36,21 +36,17 @@ test("invalid Admin audience is ignored safely while publisher scope remains", (
 
 test("Admin update and delete first look up the resource inside publisher scope", () => {
   const route = source("app/api/admin/resources/[id]/route.ts");
-  assert.equal(
-    route.match(/findFirst\(\{ where: \{ id, publisherId:publisher\.id \} \}\)/g)
-      ?.length,
-    2,
-  );
-  assert.ok(route.indexOf("findFirst") < route.indexOf("prisma.resource.update"));
-  assert.ok(route.lastIndexOf("findFirst") < route.indexOf("prisma.resource.delete"));
+  assert.equal(route.match(/findFirst\(\{ where: \{ id, publisherId:actor\.publisherId \} \}\)/g)?.length, 2);
+  assert.match(route, /updateMany\([\s\S]*publisherId: actor\.publisherId/);
+  assert.match(route, /deleteMany\(\{ where: \{ id, publisherId: actor\.publisherId \} \}\)/);
 });
 
-test("Admin direct edit uses centralized publisher-scoped entitlement", () => {
+test("Admin direct edit uses centralized live publisher ownership", () => {
   const page = source("app/admin/resources/[id]/edit/page.tsx");
-  assert.match(page, /resolveResourceEntitlementForAuthenticatedUser/);
+  assert.match(page, /requirePublisherAdminResourceOwnership/);
   assert.ok(
-    page.indexOf("resolveResourceEntitlementForAuthenticatedUser") <
-      page.indexOf("<ResourceForm resource={resolution.resource}"),
+    page.indexOf("requirePublisherAdminResourceOwnership(id)") <
+      page.indexOf("<ResourceForm resource={resource}"),
   );
 });
 

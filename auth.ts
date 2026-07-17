@@ -6,6 +6,7 @@ import { verifyPassword } from "@/lib/password";
 import { loadStudentIdentity } from "@/lib/student-identity";
 import { studentSessionClaims } from "@/lib/student-identity-service";
 import { isPublisherFeatureEnabled } from "@/lib/publisher-features";
+import { isCredentialRolePublisherInvariantValid } from "@/lib/role-publisher-policy";
 import { PlatformFeatureKey } from "@prisma/client";
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
@@ -38,7 +39,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           return null;
         }
 
-        const user = await prisma.user.findUnique({ where: { email }, include: { school: { select: { status: true, publisher: { select: { active: true } } } }, teacher: { select: { active: true, status: true, school: { select: { status: true, publisher: { select: { active: true } } } } } }, mentor: { select: { active: true, publisherId: true, publisher: { select: { active: true } } } }, parent: { select: { active: true } }, publisher: { select: { active: true } } } });
+        const user = await prisma.user.findUnique({ where: { email }, include: { school: { select: { status: true, publisherId: true, publisher: { select: { active: true } } } }, teacher: { select: { active: true, status: true, school: { select: { status: true, publisherId: true, publisher: { select: { active: true } } } } } }, student: { select: { school: { select: { publisherId: true } } } }, mentor: { select: { active: true, publisherId: true, publisher: { select: { active: true } } } }, parent: { select: { active: true } }, publisher: { select: { id: true, active: true } } } });
 
         if (!user) {
           return null;
@@ -50,6 +51,34 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         );
 
         if (!validPassword) {
+          return null;
+        }
+
+        const tenantOwnerPublisherId = user.role === "ADMIN"
+          ? user.publisherId
+          : user.role === "SCHOOL"
+            ? user.school?.publisherId ?? null
+            : user.role === "TEACHER"
+              ? user.teacher?.school?.publisherId ?? null
+              : user.role === "STUDENT"
+                ? user.student?.school.publisherId ?? null
+                : user.role === "MENTOR"
+                  ? user.mentor?.publisherId ?? null
+                  : null;
+
+        if (!isCredentialRolePublisherInvariantValid({
+          role: user.role,
+          publisherId: user.publisherId,
+          publisher: user.publisher,
+          tenantOwnerPublisherId,
+        })) {
+          return null;
+        }
+
+        if (
+          ["SCHOOL", "TEACHER", "STUDENT"].includes(user.role) &&
+          !user.emailVerifiedAt
+        ) {
           return null;
         }
 

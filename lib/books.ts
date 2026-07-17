@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { toBookPersistenceData } from "@/lib/book-form-data";
 import type { BookFormData } from "@/types/book-form";
+import { requireLivePublisherAdmin } from "@/lib/publisher-admin-authorization";
 
 function generateSlug(title: string): string {
   return title
@@ -12,7 +13,9 @@ function generateSlug(title: string): string {
 }
 
 export async function getBooks() {
+  const actor = await requireLivePublisherAdmin();
   return prisma.book.findMany({
+    where: { publisherId: actor.publisherId },
     include: {
       class: true,
       subject: true,
@@ -25,10 +28,9 @@ export async function getBooks() {
 }
 
 export async function getBook(id: string) {
-  return prisma.book.findUnique({
-    where: {
-      id,
-    },
+  const actor = await requireLivePublisherAdmin();
+  return prisma.book.findFirst({
+    where: { id, publisherId: actor.publisherId },
     include: {
       class: true,
       subject: true,
@@ -38,10 +40,12 @@ export async function getBook(id: string) {
 }
 
 export async function createBook(data: BookFormData) {
+  const actor = await requireLivePublisherAdmin();
   return prisma.book.create({
     data: {
       ...toBookPersistenceData(data),
       slug: generateSlug(data.title),
+      publisherId: actor.publisherId,
     },
   });
 }
@@ -50,21 +54,19 @@ export async function updateBook(
   id: string,
   data: BookFormData
 ) {
-  return prisma.book.update({
-    where: {
-      id,
-    },
+  const actor = await requireLivePublisherAdmin();
+  const updated = await prisma.book.updateMany({
+    where: { id, publisherId: actor.publisherId },
     data: {
       ...toBookPersistenceData(data),
       slug: generateSlug(data.title),
     },
   });
+  if (updated.count !== 1) return null;
+  return prisma.book.findFirst({ where: { id, publisherId: actor.publisherId } });
 }
 
 export async function deleteBook(id: string) {
-  return prisma.book.delete({
-    where: {
-      id,
-    },
-  });
+  const actor = await requireLivePublisherAdmin();
+  return prisma.book.deleteMany({ where: { id, publisherId: actor.publisherId } });
 }

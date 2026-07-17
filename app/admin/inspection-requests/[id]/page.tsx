@@ -3,7 +3,7 @@ import { ArrowLeft, BookOpen, Mail, MapPin, Phone, School, User } from "lucide-r
 import { notFound } from "next/navigation";
 
 import InspectionStatusBadge from "@/components/admin/InspectionStatusBadge";
-import { requireUser } from "@/lib/authz";
+import { requireLivePublisherAdmin } from "@/lib/publisher-admin-authorization";
 import { getInspectionRequestById } from "@/lib/inspection-requests";
 
 export const dynamic = "force-dynamic";
@@ -18,7 +18,7 @@ export default async function InspectionRequestDetailsPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  await requireUser(["ADMIN"]);
+  await requireLivePublisherAdmin();
   const { id } = await params;
 
   if (!process.env.DATABASE_URL) {

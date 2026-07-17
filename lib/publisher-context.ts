@@ -2,13 +2,15 @@ import "server-only";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/authz";
+import { requireLiveSuperAdmin } from "@/lib/platform-owner-authorization";
+import { requireLivePublisherAdmin } from "@/lib/publisher-admin-authorization";
 
 export const BLUEGATE_PUBLISHER_ID="publisher_bluegate";
 export const DEFAULT_BRANDING={name:"Bluegate Publishers",shortName:"Bluegate",logoUrl:null,faviconUrl:null,primaryColor:"#2563eb",secondaryColor:"#0f172a",accentColor:"#f59e0b",portalTitle:"Bluegate Platform",aiName:"Bluegate AI",supportEmail:null,supportPhone:null,websiteUrl:null} as const;
-export async function requireSuperAdmin(){return requireUser(["SUPER_ADMIN"])}
+export async function requireSuperAdmin(){return requireLiveSuperAdmin()}
 export async function resolvePublisherForUser(userId:string){const user=await prisma.user.findUnique({where:{id:userId},select:{role:true,publisherId:true,school:{select:{publisherId:true}},teacher:{select:{school:{select:{publisherId:true}}}},student:{select:{school:{select:{publisherId:true}}}}}});if(!user||user.role==="SUPER_ADMIN")return null;const id=user.role==="ADMIN"?user.publisherId:user.school?.publisherId??user.teacher?.school?.publisherId??user.student?.school?.publisherId??user.publisherId;if(!id)return null;return prisma.publisher.findFirst({where:{id,active:true},select:{id:true,name:true,shortName:true,slug:true,active:true,logoUrl:true,primaryColor:true,secondaryColor:true,accentColor:true,portalTitle:true,aiName:true,supportEmail:true,supportPhone:true}})}
 export async function requirePublisherContext(){const user=await requireUser(["ADMIN","SCHOOL","TEACHER","STUDENT"]);const publisher=await resolvePublisherForUser(user.id!);if(!publisher)redirect("/");return{user,publisher}}
-export async function requirePublisherAdmin(){const user=await requireUser(["ADMIN"]);const publisher=await resolvePublisherForUser(user.id!);if(!publisher)redirect("/admin/login");return{user,publisher}}
+export async function requirePublisherAdmin(){const actor=await requireLivePublisherAdmin();return{actor,user:{id:actor.userId,name:actor.name},publisher:{id:actor.publisherId,name:actor.publisherName}}}
 export async function getPublisherBranding(id:string){const value=await prisma.publisher.findUnique({where:{id},select:{name:true,shortName:true,logoUrl:true,faviconUrl:true,primaryColor:true,secondaryColor:true,accentColor:true,portalTitle:true,aiName:true,supportEmail:true,supportPhone:true,websiteUrl:true}});return normalizeBranding(value)}
 export async function getBrandingForAuthenticatedUser(){const{publisher}=await requirePublisherContext();return getPublisherBranding(publisher.id)}
 export function getBluegateFallbackBranding(){return{...DEFAULT_BRANDING}}

@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
+import { requireLivePublisherAdmin } from "@/lib/publisher-admin-authorization";
 
 export type TeacherWithUser = Prisma.TeacherGetPayload<{
   include: {
@@ -16,8 +17,10 @@ export type TeacherListFilter = {
 
 export async function getTeacherSubjects() {
   if (!process.env.DATABASE_URL) return [];
+  const actor = await requireLivePublisherAdmin();
 
   const rows = await prisma.teacher.findMany({
+    where: { school: { publisherId: actor.publisherId } },
     select: {
       subject: true,
     },
@@ -31,8 +34,11 @@ export async function getTeacherSubjects() {
 
 export async function getTeachers(filters: TeacherListFilter = {}) {
   if (!process.env.DATABASE_URL) return [];
+  const actor = await requireLivePublisherAdmin();
 
-  const where: Prisma.TeacherWhereInput = {};
+  const where: Prisma.TeacherWhereInput = {
+    school: { publisherId: actor.publisherId },
+  };
 
   if (filters.status === "verified") {
     where.verified = true;
@@ -98,11 +104,10 @@ export async function getTeachers(filters: TeacherListFilter = {}) {
 
 export async function getTeacherById(id: string) {
   if (!process.env.DATABASE_URL) return null;
+  const actor = await requireLivePublisherAdmin();
 
-  return prisma.teacher.findUnique({
-    where: {
-      id,
-    },
+  return prisma.teacher.findFirst({
+    where: { id, school: { publisherId: actor.publisherId } },
     include: {
       user: true,
     },
@@ -116,11 +121,10 @@ export async function updateTeacherVerification(
   if (!process.env.DATABASE_URL) {
     throw new Error("DATABASE_URL is not defined.");
   }
+  const actor = await requireLivePublisherAdmin();
 
-  return prisma.teacher.update({
-    where: {
-      id,
-    },
+  return prisma.teacher.updateMany({
+    where: { id, school: { publisherId: actor.publisherId } },
     data: {
       verified,
     },

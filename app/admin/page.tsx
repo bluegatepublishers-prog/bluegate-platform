@@ -1,4 +1,5 @@
-import { requireUser } from "@/lib/authz";
+import { requireLivePublisherAdmin } from "@/lib/publisher-admin-authorization";
+import { prisma } from "@/lib/prisma";
 import {
   Users,
   School,
@@ -12,29 +13,35 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 export default async function AdminDashboardPage() {
-  await requireUser(["ADMIN"]);
+  const actor = await requireLivePublisherAdmin();
+  const [teachers, schools, books, resources] = await Promise.all([
+    prisma.teacher.count({ where: { school: { publisherId: actor.publisherId } } }),
+    prisma.school.count({ where: { publisherId: actor.publisherId } }),
+    prisma.book.count({ where: { publisherId: actor.publisherId } }),
+    prisma.resource.count({ where: { publisherId: actor.publisherId } }),
+  ]);
   const stats = [
     {
       title: "Teachers",
-      value: 0,
+      value: teachers,
       icon: Users,
       color: "bg-blue-100 text-blue-700",
     },
     {
       title: "Schools",
-      value: 0,
+      value: schools,
       icon: School,
       color: "bg-green-100 text-green-700",
     },
     {
       title: "Books",
-      value: 0,
+      value: books,
       icon: BookOpen,
       color: "bg-purple-100 text-purple-700",
     },
     {
       title: "Resources",
-      value: 0,
+      value: resources,
       icon: FolderOpen,
       color: "bg-amber-100 text-amber-700",
     },

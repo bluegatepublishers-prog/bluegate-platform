@@ -1,4 +1,8 @@
-export type OnboardingState = { ok: boolean; message: string };
+export type OnboardingState = {
+  ok: boolean;
+  message: string;
+  verificationReady?: boolean;
+};
 
 export const INITIAL_ONBOARDING_STATE: OnboardingState = { ok: false, message: "" };
 

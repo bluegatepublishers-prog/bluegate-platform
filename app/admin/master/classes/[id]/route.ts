@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { authorizePublisherAdminApi } from "@/lib/publisher-admin-authorization";
 
 interface RouteParams {
   params: Promise<{
@@ -11,6 +12,8 @@ export async function GET(
   request: NextRequest,
   { params }: RouteParams
 ) {
+  const access = await authorizePublisherAdminApi();
+  if (access.response) return access.response;
   const { id } = await params;
 
   const item = await prisma.class.findUnique({
@@ -31,34 +34,18 @@ export async function PUT(
   request: NextRequest,
   { params }: RouteParams
 ) {
-  const { id } = await params;
-
-  const body = await request.json();
-
-  const updated = await prisma.class.update({
-    where: { id },
-    data: {
-      name: body.name,
-      code: body.code,
-      sortOrder: Number(body.sortOrder),
-      active: body.active,
-    },
-  });
-
-  return NextResponse.json(updated);
+  void request; void params;
+  const access = await authorizePublisherAdminApi();
+  if (access.response) return access.response;
+  return NextResponse.json({ message: "Global master data is read-only for Publisher Admin." }, { status: 403 });
 }
 
 export async function DELETE(
   request: NextRequest,
   { params }: RouteParams
 ) {
-  const { id } = await params;
-
-  await prisma.class.delete({
-    where: { id },
-  });
-
-  return NextResponse.json({
-    success: true,
-  });
+  void request; void params;
+  const access = await authorizePublisherAdminApi();
+  if (access.response) return access.response;
+  return NextResponse.json({ message: "Global master data is read-only for Publisher Admin." }, { status: 403 });
 }

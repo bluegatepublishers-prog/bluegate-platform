@@ -2,7 +2,6 @@ import Link from "next/link";
 import { ResourceAudience, ResourceType, type Resource } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
-import { requireUser } from "@/lib/authz";
 import { requirePublisherAdmin } from "@/lib/publisher-context";
 import { RESOURCE_AUDIENCE_OPTIONS, getResourceAudienceBadgeClass, getResourceAudienceLabel, validateResourceAudience } from "@/lib/resource-audience-ui";
 import { buildAdminResourceWhere } from "@/lib/resource-access-policy";
@@ -35,7 +34,6 @@ export default async function AdminResourcesPage({searchParams}:{searchParams:Pr
     );
   }
 
-  await requireUser(["ADMIN"]);
   const {publisher}=await requirePublisherAdmin();
   const params=await searchParams;const query=params.query?.trim()||undefined;
   const type=Object.values(ResourceType).includes(params.type as ResourceType)?params.type as ResourceType:undefined;

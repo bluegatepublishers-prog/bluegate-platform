@@ -1,4 +1,4 @@
-import { requireUser } from "@/lib/authz";
+import { requireLivePublisherAdmin } from "@/lib/publisher-admin-authorization";
 import { Search, MapPin, ChevronRight, Users } from "lucide-react";
 
 import { getSchoolCities, getSchools, SchoolWithUser } from "@/lib/schools";
@@ -34,7 +34,7 @@ export default async function AdminSchoolListPage({
     );
   }
 
-  await requireUser(["ADMIN"]);
+  await requireLivePublisherAdmin();
 
   let cities: string[] = [];
   let schools: SchoolWithUser[] = [];

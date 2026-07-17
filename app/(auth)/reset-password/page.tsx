@@ -4,7 +4,7 @@ import { ResetPasswordForm } from "@/components/auth";
 export const metadata: Metadata = {
   title: "Reset Password | Bluegate Publishers",
   description:
-    "Create a new password for your Bluegate Teacher account.",
+    "Verify a reset code and create a new Bluegate password.",
 };
 
 export default function ResetPasswordPage() {

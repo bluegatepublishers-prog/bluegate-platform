@@ -1,6 +1,8 @@
 import { prisma } from "@/lib/prisma";
+import { requireLivePublisherAdmin } from "@/lib/publisher-admin-authorization";
 
 export async function getClasses() {
+  await requireLivePublisherAdmin();
   return prisma.class.findMany({
     orderBy: {
       sortOrder: "asc",
@@ -9,6 +11,7 @@ export async function getClasses() {
 }
 
 export async function getClass(id: string) {
+  await requireLivePublisherAdmin();
   return prisma.class.findUnique({
     where: {
       id,
@@ -22,9 +25,8 @@ export async function createClass(data: {
   sortOrder: number;
   active: boolean;
 }) {
-  return prisma.class.create({
-    data,
-  });
+  void data;
+  throw new Error("Global master data changes require platform authorization.");
 }
 
 export async function updateClass(
@@ -36,18 +38,11 @@ export async function updateClass(
     active?: boolean;
   }
 ) {
-  return prisma.class.update({
-    where: {
-      id,
-    },
-    data,
-  });
+  void id; void data;
+  throw new Error("Global master data changes require platform authorization.");
 }
 
 export async function deleteClass(id: string) {
-  return prisma.class.delete({
-    where: {
-      id,
-    },
-  });
+  void id;
+  throw new Error("Global master data changes require platform authorization.");
 }

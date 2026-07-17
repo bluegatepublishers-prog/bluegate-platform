@@ -21,7 +21,8 @@ export async function reviewSchoolRequest(input: { schoolId: string; status: str
   const result = await prisma.$transaction(async (tx) => {
     const school = await tx.school.findFirst({ where: { id: input.schoolId, publisherId: publisher.id }, include: { user: { select: { email: true } } } });
     if (!school || school.status === status) throw new OnboardingError("This request changed before review.");
-    await tx.school.update({ where: { id: school.id }, data: { status } });
+    const updated = await tx.school.updateMany({ where: { id: school.id, publisherId: publisher.id }, data: { status } });
+    if (updated.count !== 1) throw new OnboardingError("This request changed before review.");
     await tx.schoolOnboardingReview.create({ data: { schoolId: school.id, publisherId: publisher.id, reviewerUserId: user.id!, fromStatus: school.status, toStatus: status, reason } });
     if (status === SchoolOnboardingStatus.SUSPENDED) await tx.teacher.updateMany({ where: { schoolId: school.id }, data: { active: false, status: TeacherOnboardingStatus.SUSPENDED } });
     return school;

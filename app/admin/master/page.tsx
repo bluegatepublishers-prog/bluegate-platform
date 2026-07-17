@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { requireLivePublisherAdmin } from "@/lib/publisher-admin-authorization";
 import {
   GraduationCap,
   BookOpen,
@@ -37,7 +38,8 @@ const modules = [
   },
 ];
 
-export default function MasterDataPage() {
+export default async function MasterDataPage() {
+  await requireLivePublisherAdmin();
   return (
     <div className="space-y-8">
       {/* Header */}
