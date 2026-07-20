@@ -11,7 +11,7 @@ export default function Hero() {
           </p>
 
           <h1 className="text-6xl font-extrabold leading-tight">
-            Shaping Tomorrow's Learners
+            Shaping Tomorrow&rsquo;s Learners
           </h1>
 
           <h2 className="mt-3 text-4xl font-semibold">

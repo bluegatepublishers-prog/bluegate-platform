@@ -12,6 +12,12 @@ import {
 
 import { TeacherResource } from "@/types/teacher";
 
+const FILE_ICONS = {
+  PPT: Presentation,
+  VIDEO: Video,
+  DEFAULT: FileText,
+} as const;
+
 interface ResourceCardProps {
   resource: TeacherResource;
 }
@@ -19,20 +25,8 @@ interface ResourceCardProps {
 export default function ResourceCard({
   resource,
 }: ResourceCardProps) {
-  const getFileIcon = () => {
-    switch (resource.fileType) {
-      case "PPT":
-        return Presentation;
-
-      case "VIDEO":
-        return Video;
-
-      default:
-        return FileText;
-    }
-  };
-
-  const FileIcon = getFileIcon();
+  const FileIcon =
+    FILE_ICONS[resource.fileType as keyof typeof FILE_ICONS] ?? FILE_ICONS.DEFAULT;
 
   return (
     <div className="group overflow-hidden rounded-3xl border border-slate-200 bg-white transition-all duration-300 hover:-translate-y-2 hover:border-blue-200 hover:shadow-xl">

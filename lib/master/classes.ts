@@ -1,3 +1,8 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
+
 import { prisma } from "@/lib/prisma";
 import { requireLivePublisherAdmin } from "@/lib/publisher-admin-authorization";
 
@@ -25,8 +30,20 @@ export async function createClass(data: {
   sortOrder: number;
   active: boolean;
 }) {
-  void data;
-  throw new Error("Global master data changes require platform authorization.");
+  await requireLivePublisherAdmin();
+
+  const existing = await prisma.class.findUnique({
+    where: { code: data.code },
+    select: { id: true },
+  });
+
+  if (existing) {
+    throw new Error("A class with this code already exists.");
+  }
+
+  await prisma.class.create({ data });
+  revalidatePath("/admin/master/classes");
+  redirect("/admin/master/classes");
 }
 
 export async function updateClass(
@@ -38,11 +55,34 @@ export async function updateClass(
     active?: boolean;
   }
 ) {
-  void id; void data;
-  throw new Error("Global master data changes require platform authorization.");
+  await requireLivePublisherAdmin();
+
+  const existing = await prisma.class.findUnique({
+    where: { code: data.code ?? "" },
+    select: { id: true },
+  });
+
+  if (existing && existing.id !== id) {
+    throw new Error("A class with this code already exists.");
+  }
+
+  await prisma.class.update({ where: { id }, data });
+  revalidatePath("/admin/master/classes");
+  redirect("/admin/master/classes");
 }
 
 export async function deleteClass(id: string) {
-  void id;
-  throw new Error("Global master data changes require platform authorization.");
+  await requireLivePublisherAdmin();
+
+  const dependencyCount = await prisma.book.count({ where: { classId: id } });
+
+  if (dependencyCount > 0) {
+    throw new Error(
+      `Cannot delete this class because ${dependencyCount} book${dependencyCount === 1 ? "" : "s"} reference it.`,
+    );
+  }
+
+  await prisma.class.delete({ where: { id } });
+  revalidatePath("/admin/master/classes");
+  redirect("/admin/master/classes");
 }

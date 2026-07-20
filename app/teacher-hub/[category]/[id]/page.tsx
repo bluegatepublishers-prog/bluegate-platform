@@ -11,13 +11,18 @@ import {
   Calendar,
   BookOpen,
   GraduationCap,
-  Share2,
 } from "lucide-react";
 
 import {
   featuredResources,
   resourceCategories,
 } from "@/data/teacherResources";
+
+const FILE_ICONS = {
+  PPT: Presentation,
+  VIDEO: Video,
+  DEFAULT: FileText,
+} as const;
 
 interface Props {
   params: {
@@ -68,20 +73,8 @@ export default function TeacherResourceDetails({
       item.id !== resource.id
   );
 
-  const getIcon = () => {
-    switch (resource.fileType) {
-      case "PPT":
-        return Presentation;
-
-      case "VIDEO":
-        return Video;
-
-      default:
-        return FileText;
-    }
-  };
-
-  const Icon = getIcon();
+  const Icon =
+    FILE_ICONS[resource.fileType as keyof typeof FILE_ICONS] ?? FILE_ICONS.DEFAULT;
 
   return (
     <main className="min-h-screen bg-slate-50">

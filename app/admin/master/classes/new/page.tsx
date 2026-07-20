@@ -1,7 +1,7 @@
-import { notFound } from "next/navigation";
 import { requireLivePublisherAdmin } from "@/lib/publisher-admin-authorization";
+import MasterEntityForm from "@/components/admin/MasterEntityForm";
 
 export default async function NewClassPage() {
   await requireLivePublisherAdmin();
-  notFound();
+  return <MasterEntityForm apiBase="/api/admin/master/classes" title="Class" mode="create" />;
 }

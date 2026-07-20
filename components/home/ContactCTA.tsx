@@ -16,7 +16,7 @@ export default function ContactCTA() {
             {/* Left Content */}
             <div>
               <span className="inline-flex rounded-full bg-white/15 px-4 py-2 text-sm font-semibold text-blue-100">
-                Let's Work Together
+                Let&rsquo;s Work Together
               </span>
 
               <h2 className="mt-6 text-4xl font-bold text-white md:text-5xl">

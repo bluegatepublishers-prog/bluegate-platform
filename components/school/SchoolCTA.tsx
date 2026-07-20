@@ -16,7 +16,7 @@ export default function SchoolCTA() {
           </span>
 
           <h2 className="mt-8 text-5xl font-bold">
-            Let's Build Better Learning Together
+            Let&rsquo;s Build Better Learning Together
           </h2>
 
           <p className="mx-auto mt-6 max-w-3xl text-xl leading-8 text-blue-100">

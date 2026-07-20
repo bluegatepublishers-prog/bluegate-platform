@@ -31,7 +31,7 @@ export default function OurStory() {
               Our journey began long before Bluegate was established. Since
               2014, our team has been actively involved in educational content
               development, curriculum planning, book design, and publishing for
-              some of India's leading educational organizations.
+              some of India&rsquo;s leading educational organizations.
             </p>
 
             <p className="mt-6 text-lg leading-8 text-gray-600">

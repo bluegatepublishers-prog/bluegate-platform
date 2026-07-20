@@ -1,5 +1,5 @@
 import { requireLivePublisherAdmin } from "@/lib/publisher-admin-authorization";
-import { Search, MapPin, ChevronRight, Users } from "lucide-react";
+import { Search, ChevronRight } from "lucide-react";
 
 import { getSchoolCities, getSchools, SchoolWithUser } from "@/lib/schools";
 

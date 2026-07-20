@@ -17,14 +17,18 @@ const demoBook: Book = {
   publicPreviewPdf: "/sample.pdf",
   description:
     "This is a temporary placeholder book used until the dynamic Prisma-powered Book Details page is completed.",
+  features: ["Activity-based learning"],
+  learningOutcomes: [],
+  tableOfContents: [],
   featured: true,
+  publisherId: undefined,
 };
 
 export default function BookDetailsPage() {
   return (
     <main className="min-h-screen bg-[#F8FBFF]">
       <BookDetailsHero book={demoBook} />
-      <BookFeatures />
+      <BookFeatures features={demoBook.features} />
     </main>
   );
 }

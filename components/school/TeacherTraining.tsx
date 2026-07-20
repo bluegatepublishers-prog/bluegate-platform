@@ -63,13 +63,8 @@ const programs = [
 export default function TeacherTraining() {
   return (
     <section className="bg-white py-24">
-
       <div className="mx-auto max-w-7xl px-6">
-
-        {/* Heading */}
-
         <div className="mx-auto max-w-3xl text-center">
-
           <span className="rounded-full bg-emerald-100 px-4 py-2 text-sm font-semibold text-emerald-700">
             Teacher Development
           </span>
@@ -79,17 +74,11 @@ export default function TeacherTraining() {
           </h2>
 
           <p className="mt-5 text-lg leading-8 text-slate-600">
-            We believe empowered teachers create better learning experiences.
-            Bluegate Publishers provides continuous academic support,
-            professional development and classroom-ready teaching resources.
+            We believe empowered teachers create better learning experiences. Bluegate Publishers provides continuous academic support, professional development and classroom-ready teaching resources.
           </p>
-
         </div>
 
-        {/* Cards */}
-
         <div className="mt-16 grid gap-8 md:grid-cols-2 xl:grid-cols-3">
-
           {programs.map((item, index) => {
             const Icon = item.icon;
 
@@ -98,14 +87,8 @@ export default function TeacherTraining() {
                 key={index}
                 className="group rounded-3xl border border-slate-200 bg-white p-8 shadow-sm transition duration-300 hover:-translate-y-2 hover:shadow-xl"
               >
-
-                <div
-                  className={`inline-flex rounded-2xl p-4 ${item.bg}`}
-                >
-                  <Icon
-                    className={item.color}
-                    size={34}
-                  />
+                <div className={`inline-flex rounded-2xl p-4 ${item.bg}`}>
+                  <Icon className={item.color} size={34} />
                 </div>
 
                 <h3 className="mt-6 text-2xl font-bold text-slate-900">
@@ -115,68 +98,11 @@ export default function TeacherTraining() {
                 <p className="mt-4 leading-7 text-slate-600">
                   {item.description}
                 </p>
-
               </div>
             );
           })}
-
         </div>
-
-        {/* Bottom Highlight */}
-
-        <div className="mt-20 rounded-3xl bg-gradient-to-r from-blue-600 to-sky-500 p-10 text-white shadow-xl">
-
-          <div className="grid items-center gap-10 lg:grid-cols-2">
-
-            <div>
-
-              <h3 className="text-3xl font-bold">
-                Continuous Academic Partnership
-              </h3>
-
-              <p className="mt-5 text-lg leading-8 text-blue-100">
-                Our relationship with schools continues after book adoption.
-                We work alongside teachers through orientation sessions,
-                classroom support and academic guidance to help achieve
-                successful learning outcomes.
-              </p>
-
-            </div>
-
-            <div className="grid grid-cols-2 gap-6">
-
-              <div className="rounded-2xl bg-white/10 p-6 backdrop-blur">
-
-                <h4 className="text-4xl font-bold">
-                  100+
-                </h4>
-
-                <p className="mt-2 text-blue-100">
-                  Teacher Resources
-                </p>
-
-              </div>
-
-              <div className="rounded-2xl bg-white/10 p-6 backdrop-blur">
-
-                <h4 className="text-4xl font-bold">
-                  K–12
-                </h4>
-
-                <p className="mt-2 text-blue-100">
-                  Classroom Support
-                </p>
-
-              </div>
-
-            </div>
-
-          </div>
-
-        </div>
-
       </div>
-
     </section>
   );
 }

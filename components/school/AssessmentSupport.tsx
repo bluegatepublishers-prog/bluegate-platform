@@ -81,7 +81,7 @@ export default function AssessmentSupport() {
           <p className="mt-5 text-lg leading-8 text-slate-600">
             Bluegate Publishers provides assessment resources that help
             teachers evaluate learning, identify gaps and support every
-            student's academic growth through continuous assessment.
+            student&rsquo;s academic growth through continuous assessment.
           </p>
 
         </div>

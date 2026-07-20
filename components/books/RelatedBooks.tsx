@@ -22,9 +22,9 @@ export default function RelatedBooks({
     .filter(
       (book) =>
         book.slug !== currentBook.slug &&
-        (book.subject === currentBook.subject ||
-          book.class === currentBook.class ||
-          book.series === currentBook.series)
+        book.subject === currentBook.subject &&
+        book.class === currentBook.class &&
+        book.publisherId === currentBook.publisherId
     )
     .slice(0, 4);
 

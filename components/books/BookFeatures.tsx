@@ -2,16 +2,11 @@
 
 import { Star } from "lucide-react";
 
-const features = [
-  "NEP 2020 Aligned Curriculum",
-  "Competency-Based Learning",
-  "Activity-Based Classroom Exercises",
-  "QR Code Digital Support",
-  "Assessment Worksheets",
-  "Teacher Resource Material",
-];
+interface BookFeaturesProps {
+  features: string[];
+}
 
-export default function BookFeatures() {
+export default function BookFeatures({ features }: BookFeaturesProps) {
   if (!features.length) return null;
 
   return (

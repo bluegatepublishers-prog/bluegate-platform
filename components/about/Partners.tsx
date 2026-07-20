@@ -127,7 +127,7 @@ export default function Partners() {
 
             <GraduationCap size={24} />
 
-            Let's Grow Together
+            Let&rsquo;s Grow Together
 
           </div>
 

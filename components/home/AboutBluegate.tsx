@@ -142,11 +142,11 @@ export default function AboutBluegate() {
               </p>
 
               <p className="mt-4 leading-7 text-slate-600 italic">
-                "Education is the most powerful investment in
+                &ldquo;Education is the most powerful investment in
                 the future. Every child deserves inspiring
                 books, every teacher deserves strong academic
                 support, and every school deserves a trusted
-                educational partner."
+                educational partner.&rdquo;
               </p>
 
             </div>

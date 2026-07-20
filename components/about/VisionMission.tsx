@@ -38,7 +38,7 @@ export default function VisionMission() {
             </h3>
 
             <p className="mt-6 text-lg leading-8 text-gray-700">
-              To become one of India's most trusted educational publishers by
+              To become one of India&rsquo;s most trusted educational publishers by
               providing innovative, inclusive and future-ready learning
               solutions that inspire curiosity, creativity, critical thinking,
               and lifelong learning among every student.

@@ -1,3 +1,150 @@
-import{requirePublisherAdminBookOwnership}from"@/lib/publisher-admin-data";
-import Link from"next/link";import{notFound}from"next/navigation";import{prisma}from"@/lib/prisma";import KnowledgeActionButton from"@/components/admin/KnowledgeActionButton";import{deleteChapter,moveChapter}from"../knowledge-actions";
-export const dynamic="force-dynamic";export const revalidate=0;export default async function Page({params}:{params:Promise<{id:string}>}){const{id}=await params;await requirePublisherAdminBookOwnership(id);if(!process.env.DATABASE_URL)return <Guard/>;const book=await prisma.book.findUnique({where:{id},select:{id:true}});if(!book)notFound();const chapters=await prisma.bookChapter.findMany({where:{bookId:id},include:{_count:{select:{questions:true,learningOutcomes:true,activities:true}}},orderBy:[{sortOrder:"asc"},{chapterNumber:"asc"}]});return <div className="space-y-6"><div className="flex items-center justify-between"><div><h2 className="text-2xl font-bold">Chapters</h2><p className="mt-1 text-slate-600">Approved source content for future grounded tools.</p></div><Link href={`/admin/books/${id}/chapters/new`} className="rounded-xl bg-blue-600 px-5 py-3 font-semibold text-white">Add chapter</Link></div>{chapters.length?<div className="overflow-x-auto rounded-3xl border bg-white"><table className="w-full min-w-[900px]"><thead className="bg-slate-50 text-left"><tr><th className="p-4">Order</th><th>Chapter</th><th>Pages</th><th>Status</th><th>Linked content</th><th>Actions</th></tr></thead><tbody>{chapters.map((c,i)=><tr key={c.id} className="border-t"><td className="p-4"><div className="flex gap-2"><KnowledgeActionButton action={moveChapter.bind(null,id,c.id,-1)} label="↑" className="text-slate-700"/><KnowledgeActionButton action={moveChapter.bind(null,id,c.id,1)} label="↓" className="text-slate-700"/></div></td><td><p className="font-bold">{c.chapterNumber}. {c.title}</p><p className="text-xs text-slate-500">{c.slug}</p></td><td>{c.startPage??"—"}–{c.endPage??"—"}</td><td>{c.approved?<span className="text-green-700">Approved</span>:<span className="text-amber-700">Pending</span>}</td><td>{c._count.questions} questions · {c._count.learningOutcomes} outcomes · {c._count.activities} activities</td><td><div className="flex gap-3"><Link href={`/admin/books/${id}/chapters/${c.id}/edit`} className="font-semibold text-blue-700">Edit</Link><KnowledgeActionButton action={deleteChapter.bind(null,id,c.id)} label="Delete" confirmMessage={`Delete chapter ${c.chapterNumber}?`}/></div></td></tr>)}</tbody></table></div>:<Empty text="No chapters added yet."/>}</div>};function Empty({text}:{text:string}){return <div className="rounded-3xl border bg-white p-14 text-center text-slate-500">{text}</div>}function Guard(){return <div className="rounded-2xl border border-rose-200 bg-rose-50 p-6">Database configuration required.</div>}
+import Link from "next/link";
+import { notFound } from "next/navigation";
+
+import KnowledgeActionButton from "@/components/admin/KnowledgeActionButton";
+import { prisma } from "@/lib/prisma";
+import { requirePublisherAdminBookOwnership } from "@/lib/publisher-admin-data";
+
+import { deleteChapter, moveChapter } from "../knowledge-actions";
+
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+export default async function Page({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+
+  await requirePublisherAdminBookOwnership(id);
+
+  if (!process.env.DATABASE_URL) {
+    return <Guard />;
+  }
+
+  const book = await prisma.book.findUnique({
+    where: { id },
+    select: { id: true },
+  });
+
+  if (!book) {
+    notFound();
+  }
+
+  const chapters = await prisma.bookChapter.findMany({
+    where: { bookId: id },
+    include: {
+      _count: {
+        select: {
+          questions: true,
+          learningOutcomes: true,
+          activities: true,
+        },
+      },
+    },
+    orderBy: [{ sortOrder: "asc" }, { chapterNumber: "asc" }],
+  });
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold">Chapters</h2>
+          <p className="mt-1 text-slate-600">Approved source content for future grounded tools.</p>
+        </div>
+
+        <Link
+          href={`/admin/books/${id}/chapters/new`}
+          className="rounded-xl bg-blue-600 px-5 py-3 font-semibold text-white"
+        >
+          Add chapter
+        </Link>
+      </div>
+
+      {chapters.length ? (
+        <div className="overflow-x-auto rounded-3xl border bg-white">
+          <table className="w-full min-w-[900px]">
+            <thead className="bg-slate-50 text-left">
+              <tr>
+                <th className="p-4">Order</th>
+                <th>Chapter</th>
+                <th>Pages</th>
+                <th>Status</th>
+                <th>Linked content</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {chapters.map((chapter) => (
+                <tr key={chapter.id} className="border-t">
+                  <td className="p-4">
+                    <div className="flex gap-2">
+                      <KnowledgeActionButton
+                        action={moveChapter.bind(null, id, chapter.id, -1)}
+                        label="↑"
+                        className="text-slate-700"
+                      />
+                      <KnowledgeActionButton
+                        action={moveChapter.bind(null, id, chapter.id, 1)}
+                        label="↓"
+                        className="text-slate-700"
+                      />
+                    </div>
+                  </td>
+
+                  <td>
+                    <p className="font-bold">
+                      {chapter.chapterNumber}. {chapter.title}
+                    </p>
+                    <p className="text-xs text-slate-500">{chapter.slug}</p>
+                  </td>
+
+                  <td>
+                    {chapter.startPage ?? "—"}–{chapter.endPage ?? "—"}
+                  </td>
+
+                  <td>
+                    {chapter.approved ? (
+                      <span className="text-green-700">Approved</span>
+                    ) : (
+                      <span className="text-amber-700">Pending</span>
+                    )}
+                  </td>
+
+                  <td>
+                    {chapter._count.questions} questions · {chapter._count.learningOutcomes} outcomes · {chapter._count.activities} activities
+                  </td>
+
+                  <td>
+                    <div className="flex gap-3">
+                      <Link
+                        href={`/admin/books/${id}/chapters/${chapter.id}/edit`}
+                        className="font-semibold text-blue-700"
+                      >
+                        Edit
+                      </Link>
+
+                      <KnowledgeActionButton
+                        action={deleteChapter.bind(null, id, chapter.id)}
+                        label="Delete"
+                        confirmMessage={`Delete chapter ${chapter.chapterNumber}?`}
+                      />
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <Empty text="No chapters added yet." />
+      )}
+    </div>
+  );
+}
+
+function Empty({ text }: { text: string }) {
+  return <div className="rounded-3xl border bg-white p-14 text-center text-slate-500">{text}</div>;
+}
+
+function Guard() {
+  return <div className="rounded-2xl border border-rose-200 bg-rose-50 p-6">Database configuration required.</div>;
+}

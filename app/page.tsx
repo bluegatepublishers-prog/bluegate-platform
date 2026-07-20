@@ -3,9 +3,6 @@ import WhyBluegate from "@/components/home/WhyBluegate";
 import WhySchoolsChooseBluegate from "@/components/home/WhySchoolsChooseBluegate";
 import EducationEcosystem from "@/components/home/EducationEcosystem";
 import FeaturedBooks from "@/components/home/FeaturedBooks";
-import BrowseByClass from "@/components/home/BrowseByClass";
-import BrowseBySubject from "@/components/home/BrowseBySubject";
-import TeacherHub from "@/components/home/TeacherHub";
 import ContactCTA from "@/components/home/ContactCTA";
 
 export const dynamic = "force-dynamic";
@@ -27,15 +24,6 @@ export default function Home() {
 
       {/* Featured Books */}
       <FeaturedBooks />
-
-      {/* Browse by Class */}
-      <BrowseByClass />
-
-      {/* Browse by Subject */}
-      <BrowseBySubject />
-
-      {/* Teacher Hub */}
-      <TeacherHub />
 
       {/* Contact CTA */}
       <ContactCTA />

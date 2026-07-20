@@ -151,5 +151,14 @@ export function toVisibleBookFormPayload(data: BookFormData) {
     dimensions: _dimensions,
     ...visible
   } = data;
+  void _subtitle;
+  void _description;
+  void _galleryImages;
+  void _edition;
+  void _publisher;
+  void _language;
+  void _board;
+  void _binding;
+  void _dimensions;
   return visible;
 }

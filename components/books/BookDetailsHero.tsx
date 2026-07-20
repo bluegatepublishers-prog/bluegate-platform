@@ -9,7 +9,6 @@ import {
   FileText,
   BookOpen,
   Hash,
-  GraduationCap,
   Library,
   ChevronRight,
 } from "lucide-react";
@@ -114,15 +113,15 @@ export default function BookDetailsHero({ book }: Props) {
                 />
 
                 <InfoCard
-                  icon={<GraduationCap size={20} className="text-green-600" />}
+                  icon={<Library size={20} className="text-green-600" />}
                   label="Board"
-                  value={book.board}
+                  value={book.board || "-"}
                 />
 
                 <InfoCard
-                  icon={<Library size={20} className="text-purple-600" />}
-                  label="Subject"
-                  value={book.subject}
+                  icon={<BookOpen size={20} className="text-purple-600" />}
+                  label="Weight"
+                  value={book.weight || "-"}
                 />
               </div>
 

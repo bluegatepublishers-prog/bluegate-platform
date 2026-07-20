@@ -79,7 +79,7 @@ export default async function TeacherDetailsPage({
         <div>
           <h1 className="text-3xl font-bold text-slate-900">Teacher Details</h1>
           <p className="mt-2 text-slate-600">
-            Review the teacher's profile and verification status.
+            Review the teacher&rsquo;s profile and verification status.
           </p>
         </div>
 

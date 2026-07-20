@@ -12,8 +12,8 @@ export default function AboutCTA() {
 
       <div className="mx-auto max-w-7xl px-6 text-center">
 
-        <span className="rounded-full bg-white/20 px-5 py-2 text-sm font-semibold tracking-wide">
-          LET'S BUILD THE FUTURE OF EDUCATION
+          <span className="rounded-full bg-white/20 px-5 py-2 text-sm font-semibold tracking-wide">
+          LET&rsquo;S BUILD THE FUTURE OF EDUCATION
         </span>
 
         <h2 className="mt-8 text-5xl font-bold leading-tight">

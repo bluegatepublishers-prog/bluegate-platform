@@ -3,6 +3,7 @@ import BookPageClient from "@/components/books/BookPageClient";
 
 import { prisma } from "@/lib/prisma";
 import { Book } from "@/types/book";
+import { mapBookToCatalogBook } from "@/lib/book-catalog";
 
 interface BooksPageProps {
   searchParams: Promise<{
@@ -21,7 +22,7 @@ export default async function BooksPage({
       published: true,
     },
     select: {
-      id:true,slug:true,title:true,subtitle:true,description:true,coverImage:true,publicPreviewPdf:true,samplePdf:true,featured:true,isbn:true,
+      id:true,slug:true,title:true,subtitle:true,description:true,coverImage:true,publicPreviewPdf:true,samplePdf:true,featured:true,isbn:true,pages:true,board:true,price:true,
       class:{select:{name:true}},
       subject:{select:{name:true}},
       series:{select:{name:true}},
@@ -31,22 +32,7 @@ export default async function BooksPage({
     },
   });
 
-  const books: Book[] = dbBooks.map((book) => ({
-    id: book.id,
-    slug: book.slug,
-    title: book.title,
-    subtitle: book.subtitle ?? "",
-    class: book.class.name,
-    board: "CBSE",
-    subject: book.subject.name,
-    series: book.series?.name ?? "",
-    isbn: book.isbn ?? "",
-    pages: 0,
-    cover: book.coverImage || "/images/book-placeholder.jpg",
-    publicPreviewPdf: book.publicPreviewPdf || book.samplePdf || "",
-    description: book.description ?? "",
-    featured: book.featured,
-  }));
+  const books: Book[] = dbBooks.map((book) => mapBookToCatalogBook(book));
 
   return (
     <main className="min-h-screen bg-slate-50">

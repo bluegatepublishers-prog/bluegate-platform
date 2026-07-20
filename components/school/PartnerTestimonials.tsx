@@ -1,12 +1,7 @@
 "use client";
 
-import {
-  Quote,
-  Star,
-  School,
-  Users,
-  Award,
-} from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Award, Quote, School, Star, Users } from "lucide-react";
 
 const testimonials = [
   {
@@ -33,33 +28,71 @@ const testimonials = [
 ];
 
 const stats = [
-  {
-    icon: School,
-    number: "100+",
-    label: "Schools Supported",
-  },
-  {
-    icon: Users,
-    number: "500+",
-    label: "Teachers Empowered",
-  },
-  {
-    icon: Award,
-    number: "50+",
-    label: "Educational Titles",
-  },
+  { icon: School, number: 100, suffix: "+", label: "Schools Supported" },
+  { icon: Users, number: 500, suffix: "+", label: "Teachers Empowered" },
+  { icon: Award, number: 50, suffix: "+", label: "Educational Titles" },
 ];
 
 export default function PartnerTestimonials() {
+  const sectionRef = useRef<HTMLElement | null>(null);
+  const reducedMotion =
+    typeof window === "undefined"
+      ? true
+      : window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  const [isVisible, setIsVisible] = useState(() => reducedMotion);
+  const [counts, setCounts] = useState(() =>
+    reducedMotion ? stats.map((item) => item.number) : [0, 0, 0],
+  );
+
+  useEffect(() => {
+    const section = sectionRef.current;
+    if (!section) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setIsVisible(true);
+          observer.disconnect();
+        }
+      },
+      { threshold: 0.35 },
+    );
+
+    observer.observe(section);
+
+    return () => observer.disconnect();
+  }, [reducedMotion]);
+
+  useEffect(() => {
+    if (!isVisible) return;
+
+    const targets = stats.map((item) => item.number);
+
+    if (reducedMotion) return;
+
+    const duration = 1200;
+    const startTime = performance.now();
+    let frameId = 0;
+
+    const step = (currentTime: number) => {
+      const progress = Math.min((currentTime - startTime) / duration, 1);
+      setCounts(targets.map((target) => Math.round(target * progress)));
+
+      if (progress < 1) {
+        frameId = window.requestAnimationFrame(step);
+      }
+    };
+
+    frameId = window.requestAnimationFrame(step);
+
+    return () => window.cancelAnimationFrame(frameId);
+  }, [isVisible, reducedMotion]);
+
   return (
-    <section className="bg-slate-50 py-24">
-
+    <section ref={sectionRef} className="bg-slate-50 py-24">
       <div className="mx-auto max-w-7xl px-6">
-
-        {/* Heading */}
-
         <div className="mx-auto max-w-3xl text-center">
-
           <span className="rounded-full bg-blue-100 px-4 py-2 text-sm font-semibold text-blue-700">
             Trusted by Schools
           </span>
@@ -69,106 +102,57 @@ export default function PartnerTestimonials() {
           </h2>
 
           <p className="mt-5 text-lg leading-8 text-slate-600">
-            We believe long-term partnerships are built on trust,
-            quality and continuous academic support.
+            We believe long-term partnerships are built on trust, quality and continuous academic support.
           </p>
-
         </div>
 
-        {/* Stats */}
-
         <div className="mt-16 grid gap-6 md:grid-cols-3">
-
-          {stats.map((item) => {
+          {stats.map((item, index) => {
             const Icon = item.icon;
 
             return (
-              <div
-                key={item.label}
-                className="rounded-3xl bg-white p-8 text-center shadow-sm"
-              >
-
+              <div key={item.label} className="rounded-3xl bg-white p-8 text-center shadow-sm">
                 <div className="mx-auto inline-flex rounded-2xl bg-blue-50 p-4">
-
-                  <Icon
-                    className="text-blue-600"
-                    size={34}
-                  />
-
+                  <Icon className="text-blue-600" size={34} />
                 </div>
 
                 <h3 className="mt-5 text-4xl font-bold text-slate-900">
-                  {item.number}
+                  {`${counts[index]}${item.suffix}`}
                 </h3>
 
-                <p className="mt-2 text-slate-600">
-                  {item.label}
-                </p>
-
+                <p className="mt-2 text-slate-600">{item.label}</p>
               </div>
             );
           })}
-
         </div>
 
-        {/* Testimonials */}
-
         <div className="mt-20 grid gap-8 lg:grid-cols-3">
-
           {testimonials.map((item) => (
-
             <div
               key={item.name}
               className="rounded-3xl bg-white p-8 shadow-sm transition hover:-translate-y-2 hover:shadow-xl"
             >
-
-              <Quote
-                className="text-blue-600"
-                size={34}
-              />
+              <Quote className="text-blue-600" size={34} />
 
               <div className="mt-5 flex">
-
                 {[1, 2, 3, 4, 5].map((star) => (
-
-                  <Star
-                    key={star}
-                    size={18}
-                    className="fill-yellow-400 text-yellow-400"
-                  />
-
+                  <Star key={star} size={18} className="fill-yellow-400 text-yellow-400" />
                 ))}
-
               </div>
 
               <p className="mt-6 leading-8 text-slate-600 italic">
-                "{item.quote}"
+                &ldquo;{item.quote}&rdquo;
               </p>
 
               <div className="mt-8 border-t pt-5">
-
-                <h4 className="text-xl font-bold text-slate-900">
-                  {item.name}
-                </h4>
-
-                <p className="text-slate-500">
-                  {item.role}
-                </p>
-
-                <p className="font-medium text-blue-600">
-                  {item.school}
-                </p>
-
+                <h4 className="text-xl font-bold text-slate-900">{item.name}</h4>
+                <p className="text-slate-500">{item.role}</p>
+                <p className="font-medium text-blue-600">{item.school}</p>
               </div>
-
             </div>
-
           ))}
-
         </div>
-
       </div>
-
     </section>
   );
 }

@@ -1,3 +1,5 @@
+import ContactForm from "@/components/contact/ContactForm";
+
 export default function ContactPage() {
   return (
     <main className="min-h-screen bg-[#F8FBFF]">
@@ -10,8 +12,11 @@ export default function ContactPage() {
           </h1>
 
           <p className="mt-6 max-w-3xl text-xl text-blue-100">
-            We'd love to hear from you. Contact us for school partnerships,
+            We&rsquo;d love to hear from you. Contact us for school partnerships,
             catalogues, publishing enquiries and educational solutions.
+          </p>
+          <p className="mt-4 text-sm text-blue-100/90">
+            Contact submissions are sent by email only and are not saved to an admin inbox.
           </p>
         </div>
       </section>
@@ -128,55 +133,11 @@ export default function ContactPage() {
               Send an Enquiry
             </h2>
 
-            <form className="space-y-5">
+            <p className="mb-6 text-sm leading-6 text-slate-600">
+              Messages are sent by email only. We do not store them in an admin inbox.
+            </p>
 
-              <input
-                type="text"
-                placeholder="Full Name"
-                className="w-full rounded-xl border border-gray-300 p-4 focus:border-blue-600 focus:outline-none"
-              />
-
-              <input
-                type="email"
-                placeholder="Email Address"
-                className="w-full rounded-xl border border-gray-300 p-4 focus:border-blue-600 focus:outline-none"
-              />
-
-              <input
-                type="tel"
-                placeholder="Mobile Number"
-                className="w-full rounded-xl border border-gray-300 p-4 focus:border-blue-600 focus:outline-none"
-              />
-
-              <input
-                type="text"
-                placeholder="School / Organisation"
-                className="w-full rounded-xl border border-gray-300 p-4 focus:border-blue-600 focus:outline-none"
-              />
-
-              <select className="w-full rounded-xl border border-gray-300 p-4 focus:border-blue-600 focus:outline-none">
-                <option>Select Enquiry Type</option>
-                <option>School Partnership</option>
-                <option>Book Catalogue</option>
-                <option>Teacher Resources</option>
-                <option>Publishing</option>
-                <option>General Enquiry</option>
-              </select>
-
-              <textarea
-                rows={6}
-                placeholder="Write your message..."
-                className="w-full rounded-xl border border-gray-300 p-4 focus:border-blue-600 focus:outline-none"
-              ></textarea>
-
-              <button
-                type="submit"
-                className="w-full rounded-xl bg-[#0B5ED7] py-4 text-lg font-semibold text-white transition hover:bg-[#083A75]"
-              >
-                Send Message
-              </button>
-
-            </form>
+            <ContactForm />
 
           </div>
 

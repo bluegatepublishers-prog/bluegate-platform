@@ -5,18 +5,11 @@ import {
   ChevronRight,
 } from "lucide-react";
 
-const chapters = [
-  "Living and Non-Living Things",
-  "Plants Around Us",
-  "Animals and Their Habitat",
-  "Food and Health",
-  "Water Resources",
-  "Air Around Us",
-  "Force and Energy",
-  "Earth and Space",
-];
+interface TableOfContentsProps {
+  chapters: string[];
+}
 
-export default function TableOfContents() {
+export default function TableOfContents({ chapters }: TableOfContentsProps) {
   if (!chapters.length) return null;
 
   return (

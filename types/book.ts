@@ -20,14 +20,23 @@ export interface Book {
 
   pages: number;
 
+  weight?: string;
+
   cover: string;
 
   publicPreviewPdf: string;
 
   description: string;
 
+  features: string[];
+
+  learningOutcomes: string[];
+
+  tableOfContents: string[];
+
   featured: boolean;
   edition?: string;
   publisher?: string;
+  publisherId?: string;
   price?: string;
 }

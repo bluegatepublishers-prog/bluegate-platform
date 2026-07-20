@@ -91,9 +91,9 @@ export default function Leadership() {
   Founder & Managing Director
 </p>
 
-<p className="mt-4 italic text-gray-500">
-  "Education is not just about books—it is about inspiring young minds,
-  building confidence and preparing every child for the opportunities of tomorrow."
+              <p className="mt-4 italic text-gray-500">
+  &ldquo;Education is not just about books—it is about inspiring young minds,
+  building confidence and preparing every child for the opportunities of tomorrow.&rdquo;
 </p>
 
             </div>

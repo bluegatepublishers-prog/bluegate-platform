@@ -15,23 +15,21 @@ const modules = [
   {
     title: "Classes",
     description:
-      "Manage all academic classes used throughout the platform.",
+      "View and manage classes used throughout the platform.",
     href: "/admin/master/classes",
     icon: GraduationCap,
     color: "bg-blue-100 text-blue-700",
   },
   {
     title: "Subjects",
-    description:
-      "Manage subjects available for books, teachers and resources.",
+    description: "Create and manage subjects used across the platform.",
     href: "/admin/master/subjects",
     icon: BookOpen,
     color: "bg-green-100 text-green-700",
   },
   {
     title: "Book Series",
-    description:
-      "Create and manage Bluegate publication series.",
+    description: "Create and manage Bluegate publication series.",
     href: "/admin/master/series",
     icon: LibraryBig,
     color: "bg-purple-100 text-purple-700",

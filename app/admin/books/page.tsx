@@ -53,7 +53,7 @@ export default async function BooksPage() {
         createdAt: "desc",
       },
     });
-  } catch (error) {
+  } catch {
     errorMessage = "Database connection is unavailable. Check the DATABASE_URL environment variable.";
   }
 
