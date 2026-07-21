@@ -17,7 +17,11 @@ const defaultDependencies: ResourceMutationDependencies<Bookmark> = {
   findBookmark: (teacherId, resourceId) =>
     prisma.bookmark.findFirst({ where: { teacherId, resourceId } }),
   createBookmark: (teacherId, resourceId) =>
-    prisma.bookmark.create({ data: { teacherId, resourceId } }),
+    prisma.bookmark.upsert({
+      where: { teacherId_resourceId: { teacherId, resourceId } },
+      update: {},
+      create: { teacherId, resourceId },
+    }),
   deleteBookmarks: async (teacherId, resourceId) => {
     const result = await prisma.bookmark.deleteMany({
       where: { teacherId, resourceId },

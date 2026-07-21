@@ -5,7 +5,6 @@ import {
   EnrollmentStatus,
   PlatformFeatureKey,
   ResourceAudience,
-  type Resource,
 } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { isPublisherFeatureEnabled } from "@/lib/publisher-features";
@@ -19,10 +18,11 @@ import type {
   EntitlementDecision,
   ResourceEntitlementRequest,
 } from "./types";
+import type { ResourceAccessRecord } from "@/lib/resource-access-service";
 
 interface ResourceEntitlementResolution {
   decision: EntitlementDecision;
-  resource?: Resource;
+  resource?: ResourceAccessRecord;
   actorId?: string;
 }
 

@@ -355,14 +355,15 @@ model InspectionRequest {
 }
 
 model Class {
-  id        String   @id @default(cuid())
+  id        String     @id @default(cuid())
   name      String
-  code      String   @unique
-  sortOrder Int      @default(0)
-  active    Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  code      String     @unique
+  sortOrder Int        @default(0)
+  active    Boolean    @default(true)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
   books     Book[]
+  resources Resource[] @relation("ResourceClass")
 }
 
 model AcademicYear {
@@ -905,6 +906,7 @@ model Subject {
   learningTimeline   LearningTimeline[]
   skillAnalytics     StudentSkillAnalytics[]
   learningGaps       StudentLearningGap[]
+  resources          Resource[]                @relation("ResourceSubject")
 }
 
 model BookSeries {
@@ -917,6 +919,7 @@ model BookSeries {
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
   books       Book[]
+  resources   Resource[] @relation("ResourceSeries")
   publisher   Publisher? @relation(fields: [publisherId], references: [id], onDelete: Restrict)
 
   @@index([publisherId])
@@ -978,6 +981,7 @@ model Book {
   learningTimeline        LearningTimeline[]
   learningGaps            StudentLearningGap[]
   remedialRecommendations RemedialRecommendation[]
+  resources               Resource[]                @relation("ResourceBook")
 
   @@index([publisherId, published])
 }
@@ -1451,9 +1455,16 @@ model Resource {
   description             String
   subject                 String
   classLevel              String
+  classId                 String?
+  subjectId               String?
+  seriesId                String?
+  bookId                  String?
   type                    ResourceType
   audience                ResourceAudience         @default(TEACHER_ONLY)
   fileUrl                 String
+  originalFileName        String?
+  mimeType                String?
+  fileSizeBytes           BigInt?
   thumbnail               String?
   featured                Boolean                  @default(false)
   published               Boolean                  @default(true)
@@ -1463,10 +1474,18 @@ model Resource {
   downloads               Download[]
   sectionSubjects         SectionSubject[]
   publisher               Publisher?               @relation(fields: [publisherId], references: [id], onDelete: Restrict)
+  classRef                Class?                   @relation("ResourceClass", fields: [classId], references: [id], onDelete: SetNull)
+  subjectRef              Subject?                 @relation("ResourceSubject", fields: [subjectId], references: [id], onDelete: SetNull)
+  seriesRef               BookSeries?              @relation("ResourceSeries", fields: [seriesId], references: [id], onDelete: SetNull)
+  book                    Book?                    @relation("ResourceBook", fields: [bookId], references: [id], onDelete: SetNull)
   remedialRecommendations RemedialRecommendation[]
 
   @@index([publisherId, published])
   @@index([publisherId, audience, published])
+  @@index([publisherId, classId])
+  @@index([publisherId, subjectId])
+  @@index([publisherId, seriesId])
+  @@index([publisherId, bookId])
 }
 
 model Download {
@@ -1485,6 +1504,8 @@ model Bookmark {
   createdAt  DateTime @default(now())
   resource   Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
   teacher    Teacher  @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+
+  @@unique([teacherId, resourceId])
 }
 
 model StudentAnalytics {

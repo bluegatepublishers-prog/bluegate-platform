@@ -109,12 +109,26 @@ export function buildSchoolResourceWhere(
 
 export function buildAdminResourceWhere(
   publisherId: string,
-  input: { query?: string; type?: ResourceType; audience?: ResourceAudience },
+  input: {
+    query?: string;
+    type?: ResourceType;
+    audience?: ResourceAudience;
+    classId?: string;
+    subjectId?: string;
+    seriesId?: string;
+    bookId?: string;
+    published?: boolean;
+  },
 ): Prisma.ResourceWhereInput {
   return {
     publisherId,
     type: input.type,
     audience: input.audience,
+    classId: input.classId,
+    subjectId: input.subjectId,
+    seriesId: input.seriesId,
+    bookId: input.bookId,
+    published: input.published,
     OR: input.query
       ? [
           { title: { contains: input.query, mode: "insensitive" } },
