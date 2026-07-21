@@ -2,6 +2,7 @@
 
 import { randomBytes } from "node:crypto";
 import { revalidatePath } from "next/cache";
+import { SchoolStaffRole } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { hashPassword } from "@/lib/password";
 import { requireSchool } from "@/lib/school-dashboard";
@@ -42,8 +43,14 @@ export async function createSchoolTeacher(form: FormData) {
   await prisma.$transaction(async (tx) => {
     const user = await tx.user.create({ data: { name, email: teacherEmail, password, role: "TEACHER", phone: value(form, "phone", 30) || null } });
     await tx.teacher.create({ data: { userId: user.id, schoolId: school.id, schoolName: school.schoolName, designation: value(form, "designation", 80) || "Teacher", subject: value(form, "subject", 100) || "Not assigned", classes: value(form, "classes", 100) || "Not assigned", verified: true, active: true } });
+    await tx.schoolStaffMembership.upsert({
+      where: { schoolId_userId: { schoolId: school.id, userId: user.id } },
+      update: { role: SchoolStaffRole.TEACHER, active: true },
+      create: { schoolId: school.id, userId: user.id, role: SchoolStaffRole.TEACHER, active: true, joinedAt: new Date() },
+    });
   });
   revalidatePath("/school-dashboard/teachers");
+  revalidatePath("/school-dashboard/staff");
   revalidatePath("/school-dashboard");
 }
 
@@ -64,13 +71,67 @@ export async function setSchoolTeacherActive(form: FormData) {
   const school = await requireSchool();
   const teacherId = value(form, "teacherId");
   const active = value(form, "active") === "true";
-  const teacher = await prisma.teacher.findFirst({ where: { id: teacherId, schoolId: school.id }, select: { id: true } });
+  const teacher = await prisma.teacher.findFirst({ where: { id: teacherId, schoolId: school.id }, select: { id: true, userId: true } });
   if (!teacher) return;
   await prisma.$transaction(async (tx) => {
     await tx.teacher.update({ where: { id: teacher.id }, data: { active, verified: active, status: active ? "APPROVED" : "SUSPENDED" } });
+    await tx.schoolStaffMembership.upsert({
+      where: { schoolId_userId: { schoolId: school.id, userId: teacher.userId } },
+      update: { role: SchoolStaffRole.TEACHER, active },
+      create: { schoolId: school.id, userId: teacher.userId, role: SchoolStaffRole.TEACHER, active, joinedAt: new Date() },
+    });
     if (!active) await tx.teacherAssignment.updateMany({ where: { teacherId: teacher.id, schoolId: school.id, active: true }, data: { active: false } });
   });
   revalidatePath("/school-dashboard/teachers");
+  revalidatePath("/school-dashboard/staff");
   revalidatePath("/school-dashboard/teacher-assignments");
   revalidatePath("/school-dashboard");
+}
+
+export async function addSchoolStaffMembership(form: FormData) {
+  const school = await requireSchool();
+  const identifier = value(form, "identifier", 254).toLowerCase();
+  const roleInput = value(form, "role", 32);
+  if (!identifier || !Object.values(SchoolStaffRole).includes(roleInput as SchoolStaffRole)) return;
+  const role = roleInput as SchoolStaffRole;
+  const user = await prisma.user.findFirst({
+    where: {
+      OR: [{ email: identifier }, { id: identifier }],
+    },
+    select: {
+      id: true,
+      role: true,
+      teacher: { select: { id: true, schoolId: true } },
+    },
+  });
+  if (!user) return;
+  if (role === SchoolStaffRole.TEACHER && user.teacher?.schoolId !== school.id) return;
+  await prisma.schoolStaffMembership.create({
+    data: {
+      schoolId: school.id,
+      userId: user.id,
+      role,
+      active: true,
+      joinedAt: new Date(),
+    },
+  }).catch(() => null);
+  revalidatePath("/school-dashboard/staff");
+}
+
+export async function updateSchoolStaffMembership(form: FormData) {
+  const school = await requireSchool();
+  const membershipId = value(form, "membershipId", 64);
+  const roleInput = value(form, "role", 32);
+  const active = value(form, "active") === "true";
+  if (!membershipId || !Object.values(SchoolStaffRole).includes(roleInput as SchoolStaffRole)) return;
+  const membership = await prisma.schoolStaffMembership.findFirst({
+    where: { id: membershipId, schoolId: school.id },
+    select: { id: true },
+  });
+  if (!membership) return;
+  await prisma.schoolStaffMembership.update({
+    where: { id: membership.id },
+    data: { role: roleInput as SchoolStaffRole, active },
+  });
+  revalidatePath("/school-dashboard/staff");
 }

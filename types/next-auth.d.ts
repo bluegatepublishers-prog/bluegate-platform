@@ -11,6 +11,7 @@ declare module "next-auth" {
       schoolId?: string;
       academicYearId?: string;
       academicYear?: string;
+      mustChangePassword?: boolean;
     };
   }
 
@@ -21,6 +22,7 @@ declare module "next-auth" {
     schoolId?: string;
     academicYearId?: string;
     academicYear?: string;
+    mustChangePassword?: boolean;
   }
 }
 
@@ -32,5 +34,6 @@ declare module "next-auth/jwt" {
     schoolId?: string;
     academicYearId?: string;
     academicYear?: string;
+    mustChangePassword?: boolean;
   }
 }

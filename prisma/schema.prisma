@@ -11,7 +11,11 @@ model User {
   id                          String                       @id @default(cuid())
   name                        String
   email                       String                       @unique
+  username                    String?                      @unique
   password                    String
+  active                      Boolean                      @default(true)
+  mustChangePassword          Boolean                      @default(false)
+  passwordChangedAt           DateTime?
   phone                       String?
   role                        UserRole
   publisherId                 String?
@@ -48,8 +52,10 @@ model User {
   parentRelationshipsRevoked  ParentStudentRelationship[]  @relation("ParentRelationshipRevoker")
   emailVerificationChallenges EmailVerificationChallenge[]
   passwordResetChallenges     PasswordResetChallenge[]
+  staffMemberships            SchoolStaffMembership[]
 
   @@index([publisherId, role])
+  @@index([role, active])
 }
 
 model Publisher {
@@ -282,6 +288,7 @@ model School {
   mentorNotes             MentorNote[]
   mentorActivities        MentorActivity[]
   parentInvitations       ParentInvitation[]
+  staffMemberships        SchoolStaffMembership[]
 
   @@index([publisherId, status])
   @@index([publisherId])
@@ -458,7 +465,14 @@ model Student {
   schoolId            String
   admissionNumber     String
   name                String
+  firstName           String?
+  lastName            String?
+  displayName         String?
   email               String?
+  phone               String?
+  guardianName        String?
+  guardianPhone       String?
+  joinDate            DateTime?
   dateOfBirth         DateTime?
   gender              String?
   active              Boolean                     @default(true)
@@ -490,6 +504,8 @@ model Student {
   mentorActivities    MentorActivity[]
   parentRelationships ParentStudentRelationship[]
   parentInvitations   ParentInvitation[]
+  resourceBookmarks   StudentResourceBookmark[]
+  resourceDownloads   StudentResourceDownload[]
 
   @@unique([schoolId, admissionNumber])
   @@index([schoolId, active, name])
@@ -818,9 +834,26 @@ model StudentEnrollment {
   schoolClass    SchoolClass      @relation(fields: [schoolClassId], references: [id], onDelete: Restrict)
   section        ClassSection     @relation(fields: [sectionId], references: [id], onDelete: Restrict)
 
-  @@unique([studentId, academicYearId])
-  @@unique([sectionId, rollNumber])
+  @@index([studentId, academicYearId])
+  @@index([sectionId, rollNumber])
   @@index([schoolId, academicYearId, schoolClassId, sectionId, status])
+}
+
+model SchoolStaffMembership {
+  id        String          @id @default(cuid())
+  schoolId  String
+  userId    String
+  role      SchoolStaffRole
+  active    Boolean         @default(true)
+  joinedAt  DateTime?
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+  school    School          @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  user      User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([schoolId, userId])
+  @@index([schoolId, active])
+  @@index([userId])
 }
 
 model StudentAccessGrant {
@@ -1472,6 +1505,8 @@ model Resource {
   updatedAt               DateTime                 @updatedAt
   bookmarks               Bookmark[]
   downloads               Download[]
+  studentBookmarks        StudentResourceBookmark[]
+  studentDownloads        StudentResourceDownload[]
   sectionSubjects         SectionSubject[]
   publisher               Publisher?               @relation(fields: [publisherId], references: [id], onDelete: Restrict)
   classRef                Class?                   @relation("ResourceClass", fields: [classId], references: [id], onDelete: SetNull)
@@ -1506,6 +1541,31 @@ model Bookmark {
   teacher    Teacher  @relation(fields: [teacherId], references: [id], onDelete: Cascade)
 
   @@unique([teacherId, resourceId])
+}
+
+model StudentResourceBookmark {
+  id         String   @id @default(cuid())
+  studentId  String
+  resourceId String
+  createdAt  DateTime @default(now())
+  student    Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  resource   Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, resourceId])
+  @@index([studentId, createdAt])
+  @@index([resourceId])
+}
+
+model StudentResourceDownload {
+  id           String   @id @default(cuid())
+  studentId    String
+  resourceId   String
+  downloadedAt DateTime @default(now())
+  student      Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  resource     Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+
+  @@index([studentId, downloadedAt])
+  @@index([resourceId])
 }
 
 model StudentAnalytics {
@@ -2106,6 +2166,15 @@ enum TeacherOnboardingStatus {
   APPROVED
   REJECTED
   SUSPENDED
+}
+
+enum SchoolStaffRole {
+  ADMINISTRATOR
+  PRINCIPAL
+  COORDINATOR
+  TEACHER
+  ACCOUNTANT
+  OTHER
 }
 
 enum LearningActivityType {

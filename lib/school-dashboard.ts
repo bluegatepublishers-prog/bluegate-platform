@@ -1,8 +1,9 @@
 import { notFound } from "next/navigation";
-import type { Prisma, ResourceType } from "@prisma/client";
+import { SchoolStaffRole, type Prisma, type ResourceType } from "@prisma/client";
 import { requireUser } from "@/lib/authz";
 import { prisma } from "@/lib/prisma";
 import { getSchoolResourceScope } from "@/lib/resource-audience";
+import { buildSchoolSetupChecklist } from "@/lib/school-setup-checklist";
 
 export async function requireSchool() {
   const user = await requireUser(["SCHOOL"]);
@@ -13,18 +14,118 @@ export async function requireSchool() {
 
 export async function getSchoolDashboard() {
   const school = await requireSchool();
-  const currentYear=await prisma.academicYear.findFirst({where:{schoolId:school.id,current:true},select:{id:true,name:true}});
-  const scope=currentYear?{schoolId:school.id,academicYearId:currentYear.id,active:true}:{schoolId:school.id,academicYearId:"",active:true};
-  const [teachers,students,classes,sections,classTeachers,sectionSubjects,subjectTeachers] = await prisma.$transaction([
-    prisma.teacher.count({ where: { schoolId: school.id,active:true } }),
-    prisma.student.count({where:{schoolId:school.id,active:true}}),
-    prisma.schoolClass.count({where:{schoolId:school.id,academicYearId:currentYear?.id??"",active:true}}),
-    prisma.classSection.count({where:{schoolClass:{schoolId:school.id,academicYearId:currentYear?.id??"",active:true},active:true}}),
-    prisma.teacherAssignment.count({where:{...scope,type:"CLASS_TEACHER"}}),
-    prisma.sectionSubject.count({where:{active:true,section:{active:true,schoolClass:{schoolId:school.id,academicYearId:currentYear?.id??"",active:true}}}}),
-    prisma.teacherAssignment.count({where:{...scope,type:"SUBJECT_TEACHER"}}),
+  const [currentYear, resourceScope] = await Promise.all([
+    prisma.academicYear.findFirst({
+      where: { schoolId: school.id, current: true },
+      select: { id: true, name: true },
+    }),
+    getSchoolResourceScope(school.userId),
   ]);
-  return { school,currentYear,stats:{teachers,students,classes,sections,pendingClassTeachers:Math.max(0,sections-classTeachers),pendingSubjectTeachers:Math.max(0,sectionSubjects-subjectTeachers)} };
+
+  const scope = currentYear
+    ? { schoolId: school.id, academicYearId: currentYear.id, active: true }
+    : { schoolId: school.id, academicYearId: "", active: true };
+
+  const [
+    teachers,
+    staffMemberships,
+    students,
+    classes,
+    sections,
+    classTeachers,
+    sectionSubjects,
+    subjectTeachers,
+    resources,
+    recentStudents,
+    recentAssignments,
+  ] = await prisma.$transaction([
+    prisma.teacher.count({ where: { schoolId: school.id, active: true } }),
+    prisma.schoolStaffMembership.count({ where: { schoolId: school.id, active: true } }),
+    prisma.student.count({ where: { schoolId: school.id, active: true } }),
+    prisma.schoolClass.count({
+      where: { schoolId: school.id, academicYearId: currentYear?.id ?? "", active: true },
+    }),
+    prisma.classSection.count({
+      where: {
+        schoolClass: {
+          schoolId: school.id,
+          academicYearId: currentYear?.id ?? "",
+          active: true,
+        },
+        active: true,
+      },
+    }),
+    prisma.teacherAssignment.count({ where: { ...scope, type: "CLASS_TEACHER" } }),
+    prisma.sectionSubject.count({
+      where: {
+        active: true,
+        section: {
+          active: true,
+          schoolClass: {
+            schoolId: school.id,
+            academicYearId: currentYear?.id ?? "",
+            active: true,
+          },
+        },
+      },
+    }),
+    prisma.teacherAssignment.count({ where: { ...scope, type: "SUBJECT_TEACHER" } }),
+    prisma.resource.count({ where: resourceScope?.where ?? { id: "" } }),
+    prisma.student.findMany({
+      where: { schoolId: school.id },
+      orderBy: { createdAt: "desc" },
+      take: 5,
+      select: {
+        id: true,
+        name: true,
+        admissionNumber: true,
+        createdAt: true,
+      },
+    }),
+    prisma.teacherAssignment.findMany({
+      where: { schoolId: school.id, active: true },
+      orderBy: { updatedAt: "desc" },
+      take: 5,
+      include: {
+        teacher: { select: { user: { select: { name: true } } } },
+        schoolClass: { select: { name: true } },
+        section: { select: { name: true } },
+        subject: { select: { name: true } },
+      },
+    }),
+  ]);
+
+  const checklist = buildSchoolSetupChecklist({
+    hasProfileBasics: Boolean(
+      school.schoolName?.trim() &&
+      school.city?.trim() &&
+      school.state?.trim() &&
+      school.user?.email?.trim(),
+    ),
+    hasCurrentAcademicYear: Boolean(currentYear),
+    hasSections: sections > 0,
+    hasStaff: teachers > 0,
+    hasStudents: students > 0,
+    hasTeacherAssignments: subjectTeachers > 0 || classTeachers > 0,
+  });
+
+  return {
+    school,
+    currentYear,
+    stats: {
+      teachers,
+      staff: staffMemberships || teachers,
+      students,
+      classes,
+      sections,
+      resources,
+      pendingClassTeachers: Math.max(0, sections - classTeachers),
+      pendingSubjectTeachers: Math.max(0, sectionSubjects - subjectTeachers),
+    },
+    recentStudents,
+    recentAssignments,
+    checklist,
+  };
 }
 
 export async function getSchoolTeachers(query?: string) {
@@ -63,4 +164,61 @@ export async function getSchoolResources(filters: { query?: string; classLevel?:
 export async function getSchoolInspectionRequests() {
   const school = await requireSchool();
   return prisma.inspectionRequest.findMany({ where: { schoolId: school.id }, orderBy: { createdAt: "desc" } });
+}
+
+export async function getSchoolStaff(filters: {
+  query?: string;
+  role?: string;
+  active?: "active" | "inactive";
+} = {}) {
+  const school = await requireSchool();
+  const query = filters.query?.trim();
+  const role = filters.role && Object.values(SchoolStaffRole).includes(filters.role as SchoolStaffRole)
+    ? (filters.role as SchoolStaffRole)
+    : undefined;
+  const rows = await prisma.schoolStaffMembership.findMany({
+    where: {
+      schoolId: school.id,
+      role,
+      active: filters.active === "active" ? true : filters.active === "inactive" ? false : undefined,
+      OR: query ? [
+        { user: { name: { contains: query, mode: "insensitive" } } },
+        { user: { email: { contains: query, mode: "insensitive" } } },
+      ] : undefined,
+    },
+    include: {
+      user: {
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+          teacher: {
+            select: {
+              id: true,
+              schoolId: true,
+              active: true,
+            },
+          },
+        },
+      },
+    },
+    orderBy: [{ active: "desc" }, { user: { name: "asc" } }],
+  });
+
+  const memberships = rows.map((row) => ({
+    id: row.id,
+    role: row.role,
+    active: row.active,
+    joinedAt: row.joinedAt,
+    userId: row.user.id,
+    userName: row.user.name,
+    userEmail: row.user.email,
+    userRole: row.user.role,
+    teacherId: row.user.teacher?.id ?? null,
+    teacherSchoolId: row.user.teacher?.schoolId ?? null,
+    teacherActive: row.user.teacher?.active ?? null,
+  }));
+
+  return { school, memberships };
 }

@@ -18,6 +18,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
   providers: [
     Credentials({
+      id: "credentials",
       name: "Teacher Login",
 
       credentials: {
@@ -45,6 +46,10 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           return null;
         }
 
+        if (user.role === "STUDENT" || !user.active) {
+          return null;
+        }
+
         const validPassword = await verifyPassword(
           password,
           user.password
@@ -54,17 +59,16 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           return null;
         }
 
-        const tenantOwnerPublisherId = user.role === "ADMIN"
-          ? user.publisherId
-          : user.role === "SCHOOL"
-            ? user.school?.publisherId ?? null
-            : user.role === "TEACHER"
-              ? user.teacher?.school?.publisherId ?? null
-              : user.role === "STUDENT"
-                ? user.student?.school.publisherId ?? null
-                : user.role === "MENTOR"
-                  ? user.mentor?.publisherId ?? null
-                  : null;
+        const tenantOwnerPublisherId =
+  user.role === "ADMIN"
+    ? user.publisherId
+    : user.role === "SCHOOL"
+      ? user.school?.publisherId ?? null
+      : user.role === "TEACHER"
+        ? user.teacher?.school?.publisherId ?? null
+        : user.role === "MENTOR"
+          ? user.mentor?.publisherId ?? null
+          : null;
 
         if (!isCredentialRolePublisherInvariantValid({
           role: user.role,
@@ -76,11 +80,11 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         }
 
         if (
-          ["SCHOOL", "TEACHER", "STUDENT"].includes(user.role) &&
-          !user.emailVerifiedAt
-        ) {
-          return null;
-        }
+  ["SCHOOL", "TEACHER"].includes(user.role) &&
+  !user.emailVerifiedAt
+) {
+  return null;
+}
 
         if (user.role === "SCHOOL" && (user.school?.status !== "APPROVED" || !user.school.publisher?.active)) return null;
         if (user.role === "TEACHER" && (!user.teacher?.active || user.teacher.status !== "APPROVED" || user.teacher.school?.status !== "APPROVED" || !user.teacher.school.publisher?.active)) return null;
@@ -88,19 +92,95 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         if (user.role === "MENTOR" && (!user.mentor?.active || !user.mentor.publisher.active || user.publisherId !== user.mentor.publisherId || !(await isPublisherFeatureEnabled(user.mentor.publisherId, PlatformFeatureKey.TUTOR_PLATFORM)))) return null;
         if (user.role === "PARENT" && !user.parent?.active) return null;
 
-        const claims = user.role === "STUDENT"
-          ? studentSessionClaims(
-              await loadStudentIdentity(user.id, user.role, user.publisherId),
-            )
-          : null;
+        
+        return {
+  id: user.id,
+  name: user.name,
+  email: user.email,
+  role: user.role,
+  mustChangePassword: user.mustChangePassword,
+};
+      },
+    }),
+    Credentials({
+      id: "student-credentials",
+      name: "Student Login",
+      credentials: {
+        loginId: {
+          label: "Student Login ID",
+          type: "text",
+        },
+        password: {
+          label: "Password",
+          type: "password",
+        },
+      },
+      async authorize(credentials) {
+        const loginId = String(credentials?.loginId ?? "").trim().toLowerCase();
+        const password = credentials?.password as string;
 
-        if (user.role === "STUDENT" && !claims) return null;
+        if (!loginId || !password) {
+          return null;
+        }
+
+        const user = await prisma.user.findFirst({
+          where: {
+            role: "STUDENT",
+            active: true,
+            OR: [{ username: loginId }, { email: loginId }],
+          },
+          include: {
+            student: {
+              select: {
+                active: true,
+                school: {
+                  select: {
+                    status: true,
+                    publisherId: true,
+                    publisher: { select: { active: true } },
+                  },
+                },
+              },
+            },
+            publisher: { select: { id: true, active: true } },
+          },
+        });
+
+        if (!user) {
+          return null;
+        }
+
+        const validPassword = await verifyPassword(password, user.password);
+        if (!validPassword) {
+          return null;
+        }
+
+        if (!user.student?.active) {
+          return null;
+        }
+
+        if (
+          user.student.school.status !== "APPROVED" ||
+          !user.student.school.publisherId ||
+          !user.student.school.publisher?.active
+        ) {
+          return null;
+        }
+
+        const claims = studentSessionClaims(
+          await loadStudentIdentity(user.id, user.role, user.publisherId),
+        );
+
+        if (!claims) {
+          return null;
+        }
 
         return {
           id: user.id,
           name: user.name,
           email: user.email,
           role: user.role,
+          mustChangePassword: user.mustChangePassword,
           ...claims,
         };
       },
@@ -120,6 +200,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         token.schoolId = user.schoolId;
         token.academicYearId = user.academicYearId;
         token.academicYear = user.academicYear;
+        token.mustChangePassword = user.mustChangePassword;
       }
 
       return token;
@@ -137,6 +218,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         session.user.schoolId = token.schoolId;
         session.user.academicYearId = token.academicYearId;
         session.user.academicYear = token.academicYear;
+        session.user.mustChangePassword = token.mustChangePassword;
       }
 
       return session;

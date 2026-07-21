@@ -39,10 +39,53 @@ export function normalizeAcademicName(value: string) {
   return value.trim().toLowerCase().replace(/\b(class|grade|standard|std)\b/g, "").replace(/[^a-z0-9]+/g, "");
 }
 
-export async function getStudents(query?: string) {
+export async function getStudents(filters: {
+  query?: string;
+  academicYearId?: string;
+  schoolClassId?: string;
+  sectionId?: string;
+  active?: "active" | "inactive";
+  login?: "enabled" | "disabled";
+} = {}) {
   const school = await requireSchool();
+  const query = filters.query?.trim();
+  const enrollmentScope = {
+    academicYearId: filters.academicYearId || undefined,
+    schoolClassId: filters.schoolClassId || undefined,
+    sectionId: filters.sectionId || undefined,
+  };
   const [students, years] = await Promise.all([
-    prisma.student.findMany({ where: { schoolId: school.id, OR: query ? [{ name: { contains: query, mode: "insensitive" } }, { admissionNumber: { contains: query, mode: "insensitive" } }] : undefined }, include: { enrollments: { include: { academicYear: true, schoolClass: true, section: true }, orderBy: { academicYear: { startDate: "desc" } }, take: 1 } }, orderBy: { name: "asc" } }),
+    prisma.student.findMany({
+      where: {
+        schoolId: school.id,
+        active: filters.active === "active" ? true : filters.active === "inactive" ? false : undefined,
+        userId: filters.login === "enabled" ? { not: null } : filters.login === "disabled" ? null : undefined,
+        OR: query ? [
+          { name: { contains: query, mode: "insensitive" } },
+          { admissionNumber: { contains: query, mode: "insensitive" } },
+          { firstName: { contains: query, mode: "insensitive" } },
+          { lastName: { contains: query, mode: "insensitive" } },
+        ] : undefined,
+        enrollments: (filters.academicYearId || filters.schoolClassId || filters.sectionId)
+          ? {
+              some: {
+                ...enrollmentScope,
+                schoolId: school.id,
+                status: "ACTIVE",
+              },
+            }
+          : undefined,
+      },
+      include: {
+        enrollments: {
+          where: { status: "ACTIVE" },
+          include: { academicYear: true, schoolClass: true, section: true },
+          orderBy: [{ joinedAt: "desc" }, { createdAt: "desc" }],
+          take: 1,
+        },
+      },
+      orderBy: [{ active: "desc" }, { name: "asc" }],
+    }),
     prisma.academicYear.findMany({
       where: { schoolId: school.id, active: true },
       include: { classes: { where: { active: true }, include: { sections: { where: { active: true }, orderBy: { name: "asc" } } }, orderBy: [{ sortOrder: "asc" }, { name: "asc" }] } },
@@ -55,7 +98,7 @@ export async function getStudents(query?: string) {
 export async function getStudent(id: string) {
   const school = await requireSchool();
   const [student, years] = await Promise.all([
-    prisma.student.findFirst({ where: { id, schoolId: school.id }, include: { enrollments: { include: { academicYear: true, schoolClass: true, section: true }, orderBy: { academicYear: { startDate: "desc" } } } } }),
+    prisma.student.findFirst({ where: { id, schoolId: school.id }, include: { enrollments: { include: { academicYear: true, schoolClass: true, section: true }, orderBy: [{ joinedAt: "desc" }, { createdAt: "desc" }] } } }),
     prisma.academicYear.findMany({
       where: { schoolId: school.id, active: true },
       include: { classes: { where: { active: true }, include: { sections: { where: { active: true } } } } },
@@ -68,14 +111,30 @@ export async function getStudent(id: string) {
 
 export async function getTeacherAssignments() {
   const school = await requireSchool();
-  const [assignments, teachers, years] = await Promise.all([
+  const [assignments, teachers, years, memberships] = await Promise.all([
     prisma.teacherAssignment.findMany({ where: { schoolId: school.id, active: true }, include: { teacher: { include: { user: true } }, academicYear: true, schoolClass: true, section: true, subject: true }, orderBy: [{ academicYear: { startDate: "desc" } }, { schoolClass: { sortOrder: "asc" } }] }),
-    prisma.teacher.findMany({ where: { schoolId: school.id,active:true }, include: { user: true,assignments:{where:{active:true},include:{schoolClass:true,section:true,subject:true}} }, orderBy: { user: { name: "asc" } } }),
+    prisma.teacher.findMany({ where: { schoolId: school.id, active: true, status: "APPROVED" }, include: { user: true, assignments:{where:{active:true},include:{schoolClass:true,section:true,subject:true}} }, orderBy: { user: { name: "asc" } } }),
     prisma.academicYear.findMany({
       where: { schoolId: school.id, active: true, current: true },
       include: { classes: { where: { active: true }, include: { sections: { where: { active: true }, include: { subjects: { where: { active: true }, include: { subject: true } } } } } } },
       orderBy: [{ current: "desc" }, { startDate: "desc" }],
     }),
+    prisma.schoolStaffMembership.findMany({
+      where: { schoolId: school.id, role: "TEACHER" },
+      select: { userId: true, active: true },
+    }),
   ]);
-  return { assignments, teachers, years };
+  const membershipState = new Map<string, boolean>();
+  for (const membership of memberships) {
+    if (!membershipState.has(membership.userId)) {
+      membershipState.set(membership.userId, membership.active);
+      continue;
+    }
+    membershipState.set(membership.userId, membershipState.get(membership.userId) || membership.active);
+  }
+  const filteredTeachers = teachers.filter((teacher) => {
+    if (!membershipState.has(teacher.userId)) return true;
+    return Boolean(membershipState.get(teacher.userId));
+  });
+  return { assignments, teachers: filteredTeachers, years };
 }
