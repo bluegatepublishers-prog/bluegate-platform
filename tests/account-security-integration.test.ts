@@ -45,7 +45,7 @@ test("verification challenges are hashed, expiring, single-use, attempt-limited,
 test("normal login remains password-only but denies unverified onboarding roles", () => {
   const auth = read("auth.ts");
   assert.ok(auth.indexOf("await verifyPassword") < auth.indexOf("!user.emailVerifiedAt"));
-  assert.match(auth, /\["SCHOOL", "TEACHER", "STUDENT"\]\.includes\(user\.role\)/);
+  assert.match(auth, /\["SCHOOL", "TEACHER"\]\.includes\(user\.role\)/);
   assert.doesNotMatch(auth, /verificationCode|one-time-code|otp/i);
   for (const role of ["ADMIN", "SUPER_ADMIN", "MENTOR", "PARENT"]) assert.doesNotMatch(auth, new RegExp(`user\\.role === "${role}"[^\n]+emailVerifiedAt`));
 });

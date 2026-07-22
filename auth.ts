@@ -59,16 +59,15 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           return null;
         }
 
-        const tenantOwnerPublisherId =
-  user.role === "ADMIN"
-    ? user.publisherId
-    : user.role === "SCHOOL"
-      ? user.school?.publisherId ?? null
-      : user.role === "TEACHER"
-        ? user.teacher?.school?.publisherId ?? null
-        : user.role === "MENTOR"
-          ? user.mentor?.publisherId ?? null
-          : null;
+        const tenantOwnerPublisherId = user.role === "ADMIN"
+          ? user.publisherId
+          : user.role === "SCHOOL"
+            ? user.school?.publisherId ?? null
+            : user.role === "TEACHER"
+              ? user.teacher?.school?.publisherId ?? null
+              : user.role === "MENTOR"
+                ? user.mentor?.publisherId ?? null
+                : null;
 
         if (!isCredentialRolePublisherInvariantValid({
           role: user.role,
@@ -79,12 +78,9 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           return null;
         }
 
-        if (
-  ["SCHOOL", "TEACHER"].includes(user.role) &&
-  !user.emailVerifiedAt
-) {
-  return null;
-}
+        if (["SCHOOL", "TEACHER"].includes(user.role) && !user.emailVerifiedAt) {
+          return null;
+        }
 
         if (user.role === "SCHOOL" && (user.school?.status !== "APPROVED" || !user.school.publisher?.active)) return null;
         if (user.role === "TEACHER" && (!user.teacher?.active || user.teacher.status !== "APPROVED" || user.teacher.school?.status !== "APPROVED" || !user.teacher.school.publisher?.active)) return null;
@@ -92,14 +88,13 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         if (user.role === "MENTOR" && (!user.mentor?.active || !user.mentor.publisher.active || user.publisherId !== user.mentor.publisherId || !(await isPublisherFeatureEnabled(user.mentor.publisherId, PlatformFeatureKey.TUTOR_PLATFORM)))) return null;
         if (user.role === "PARENT" && !user.parent?.active) return null;
 
-        
         return {
-  id: user.id,
-  name: user.name,
-  email: user.email,
-  role: user.role,
-  mustChangePassword: user.mustChangePassword,
-};
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          mustChangePassword: user.mustChangePassword,
+        };
       },
     }),
     Credentials({

@@ -3,12 +3,18 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import test from "node:test";
 
-const source = (path: string) => readFileSync(resolve(path), "utf8");
+const source = (path: string) => readFileSync(resolve(path), "utf8").replace(/\r\n/g, "\n");
 
 test("credentials login verifies password before deriving student identity", () => {
   const auth = source("auth.ts");
   assert.ok(auth.indexOf("await verifyPassword") < auth.indexOf("await loadStudentIdentity"));
-  assert.ok(auth.indexOf("await loadStudentIdentity") < auth.indexOf("return {\n          id: user.id"));
+  // The student return block is the one that includes ...claims (spread operator)
+  // This uniquely identifies the student authorize function's return statement
+  // Find the ...claims and then find the return statement that precedes it
+  const claimsIndex = auth.indexOf("...claims");
+  const studentReturnIndex = auth.lastIndexOf("return {", claimsIndex);
+  assert.ok(auth.indexOf("await loadStudentIdentity") < studentReturnIndex);
+  assert.ok(claimsIndex > 0, "student return block with ...claims should exist");
 });
 
 test("Auth.js session exposes server-derived student claims", () => {
