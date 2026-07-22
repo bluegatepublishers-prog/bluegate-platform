@@ -28,6 +28,29 @@ const MAX_EXPIRY_SECONDS = 60 * 60 * 2; // 2 hours
 const DEFAULT_UPLOAD_EXPIRY_SECONDS = 60 * 10; // 10 minutes
 const DEFAULT_DOWNLOAD_EXPIRY_SECONDS = 60 * 5; // 5 minutes
 
+/**
+ * Cloudflare R2 implementation of StorageProvider.
+ *
+ * ## Content-Length enforcement note
+ *
+ * A presigned PUT URL signs the Content-Type header and the checksum (if provided),
+ * but it **cannot** cryptographically enforce Content-Length. The browser or client
+ * can send a body of any size. Therefore:
+ *  - Maximum size is **enforced before presigning** by the upload-service (scope rules).
+ *  - Actual size is **verified after upload** via headObject in completeUpload().
+ *  - The presigned URL's Content-Length value influences the signature but is not
+ *    enforced by R2 — the client may omit or override it.
+ *
+ * ## Checksum support
+ *
+ * Cloudflare R2 supports the optional `ChecksumSHA256` parameter on PutObjectCommand.
+ * When provided, R2 stores the checksum and can validate it on read. However:
+ *  - R2's HeadObjectCommand does not reliably return checksum metadata in the response.
+ *  - The checksum is therefore **offered at upload time** (for R2-side integrity checks)
+ *    but **not verified at completion time** via headObject.
+ *  - Full checksum verification at completion would require a separate GetObject + digest
+ *    computation, which is not practical for large files in a request-response flow.
+ */
 export class R2StorageProvider implements StorageProvider {
   private readonly client = getR2Client();
   private readonly config: R2Config = getR2Config();

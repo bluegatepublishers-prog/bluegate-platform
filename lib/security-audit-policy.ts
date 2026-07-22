@@ -17,6 +17,8 @@ export const SECURITY_AUDIT_ACTIONS = [
   "publisher.book_adoption.revoke",
   "account.email.verify",
   "account.password_reset.complete",
+  "storage.upload.init",
+  "storage.upload.complete",
 ] as const;
 
 export type SecurityAuditAction = (typeof SECURITY_AUDIT_ACTIONS)[number];
