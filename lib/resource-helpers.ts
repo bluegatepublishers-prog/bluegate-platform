@@ -58,9 +58,18 @@ export function getResourceFileName(input: {
   try {
     const url = new URL(input.fileUrl);
     const name = url.pathname.split("/").pop();
-    return name ? decodeURIComponent(name) : "Resource file";
+    return name ? decodeResourceFileName(name) : "Resource file";
   } catch {
-    return "Resource file";
+    const name = input.fileUrl.split("/").pop();
+    return name ? decodeResourceFileName(name) : "Resource file";
+  }
+}
+
+function decodeResourceFileName(value: string) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
   }
 }
 

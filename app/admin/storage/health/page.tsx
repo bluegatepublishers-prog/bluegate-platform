@@ -1,0 +1,9 @@
+import { requireLivePublisherAdmin } from "@/lib/publisher-admin-authorization";
+import { inspectPublisherStorageHealth } from "@/lib/storage/storage-health-runtime";
+
+export default async function StorageHealthPage() {
+  const actor = await requireLivePublisherAdmin();
+  const report = await inspectPublisherStorageHealth(actor.publisherId).catch(() => null);
+  if (!report) return <section className="rounded-2xl border border-red-200 bg-red-50 p-6"><h2 className="text-xl font-bold">Health check unavailable</h2><p className="mt-2">R2 configuration or provider access could not be verified. No object was changed.</p></section>;
+  return <div className="space-y-6"><section className={`rounded-2xl border p-6 ${report.healthy ? "border-emerald-200 bg-emerald-50" : "border-red-200 bg-red-50"}`}><h2 className="text-xl font-bold">{report.healthy ? "Storage is healthy" : "Storage issues detected"}</h2><p className="mt-2">Checked {report.filesChecked} references and {report.objectsChecked} R2 objects. This report is read-only.</p></section><section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{Object.entries(report.counts).map(([type, count]) => <div key={type} className="rounded-xl border bg-white p-4"><p className="text-xs font-bold text-slate-500">{type.replaceAll("_", " ")}</p><p className="mt-1 text-2xl font-bold">{count}</p></div>)}</section><section className="rounded-2xl border bg-white p-6"><h2 className="text-xl font-bold">Issues</h2><div className="mt-4 space-y-3">{report.issues.length ? report.issues.slice(0, 500).map((issue, index) => <div key={`${issue.type}-${index}`} className="rounded-xl bg-slate-50 p-4"><strong>{issue.type}</strong><p className="mt-1 text-sm text-slate-600">{issue.message}</p></div>) : <p className="text-slate-600">No issues found.</p>}</div></section></div>;
+}

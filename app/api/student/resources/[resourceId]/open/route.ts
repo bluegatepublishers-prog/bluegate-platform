@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { resolveStudentResource } from "@/lib/student-subjects";
-import { requireStudent } from "@/lib/student-dashboard";
+import { prepareProtectedResourceDownload } from "@/lib/storage/protected-download";
+import { proxyLegacyBlob } from "@/lib/storage/legacy-proxy";
 
 const safeHeaders = {
   "Cache-Control": "private, no-store",
@@ -12,15 +12,19 @@ export async function GET(
   { params }: { params: Promise<{ resourceId: string }> },
 ) {
   const { resourceId } = await params;
-  const identity = await requireStudent();
-  const resource = await resolveStudentResource(resourceId, identity);
-  if (!resource) {
+  const result = await prepareProtectedResourceDownload({
+    resourceId,
+    allowedRoles: ["STUDENT"],
+    disposition: "inline",
+  });
+  if (!result.ok) {
     return NextResponse.json(
-      { message: "This learning resource is not available for your account." },
-      { status: 404, headers: safeHeaders },
+      { code: result.code, message: result.message },
+      { status: result.status, headers: safeHeaders },
     );
   }
-  const response = NextResponse.redirect(resource.fileUrl, { status: 307 });
+  if (result.legacy) return proxyLegacyBlob({ url: result.url, filename: "resource", disposition: "inline" });
+  const response = NextResponse.redirect(result.url, { status: 307 });
   for (const [name, value] of Object.entries(safeHeaders)) response.headers.set(name, value);
   return response;
 }

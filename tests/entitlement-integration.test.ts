@@ -5,12 +5,14 @@ import test from "node:test";
 
 const source = (path: string) => readFileSync(resolve(path), "utf8");
 
-test("full-book route authorizes before selecting or redirecting to fullBookPdf", () => {
+test("full-book route authorizes before selecting and preparing protected storage", () => {
   const route = source("app/api/books/[bookId]/full-pdf/route.ts");
   const authorize = route.indexOf("const decision = await getBookEntitlementForAuthenticatedUser");
-  const selectUrl = route.indexOf("select: { fullBookPdf: true }");
-  const redirect = route.indexOf("NextResponse.redirect(book.fullBookPdf");
+  const selectUrl = route.indexOf("select: { fullBookPdf: true, publisherId: true");
+  const redirect = route.indexOf("NextResponse.redirect(downloadUrl");
   assert.ok(authorize >= 0 && authorize < selectUrl && selectUrl < redirect);
+  assert.match(route, /createSignedDownloadUrl/);
+  assert.match(route, /proxyLegacyBlob/);
   assert.match(route, /Cache-Control", "private, no-store"/);
   assert.match(route, /Referrer-Policy", "no-referrer"/);
 });

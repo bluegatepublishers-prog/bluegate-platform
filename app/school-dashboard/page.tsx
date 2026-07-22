@@ -12,13 +12,15 @@ import {
 	Users,
 } from "lucide-react";
 import { getSchoolDashboard } from "@/lib/school-dashboard";
+import { schoolLogoPath } from "@/lib/storage/media-path";
 export const dynamic="force-dynamic";export const revalidate=0;
 export default async function SchoolDashboardPage(){
 	const { school, currentYear, stats, recentStudents, recentAssignments, checklist } = await getSchoolDashboard();
+	const logoUrl = schoolLogoPath(school.logoUrl);
 	const completed = checklist.filter((step) => step.complete).length;
 	const progressPercent = Math.round((completed / Math.max(1, checklist.length)) * 100);
 	return <main className="space-y-8 p-4 sm:p-6 lg:p-8">
-		<section className="flex flex-col gap-6 rounded-3xl bg-gradient-to-br from-blue-700 to-slate-900 p-8 text-white shadow-xl sm:flex-row sm:items-center">{school.logoUrl?<Image src={school.logoUrl} alt="School logo" width={112} height={112} className="h-28 w-28 rounded-2xl bg-white object-contain p-2"/>:<div className="flex h-28 w-28 items-center justify-center rounded-2xl bg-white/15 text-3xl font-bold">{initials(school.schoolName)}</div>}<div><p className="font-semibold text-blue-100">School / Institution Dashboard</p><h1 className="mt-2 text-3xl font-bold sm:text-4xl">{school.schoolName}</h1><p className="mt-3 text-blue-100">Current Academic Year: <strong>{currentYear?.name??"Not selected"}</strong></p></div></section>
+		<section className="flex flex-col gap-6 rounded-3xl bg-gradient-to-br from-blue-700 to-slate-900 p-8 text-white shadow-xl sm:flex-row sm:items-center">{logoUrl?<Image src={logoUrl} alt="School logo" width={112} height={112} className="h-28 w-28 rounded-2xl bg-white object-contain p-2"/>:<div className="flex h-28 w-28 items-center justify-center rounded-2xl bg-white/15 text-3xl font-bold">{initials(school.schoolName)}</div>}<div><p className="font-semibold text-blue-100">School / Institution Dashboard</p><h1 className="mt-2 text-3xl font-bold sm:text-4xl">{school.schoolName}</h1><p className="mt-3 text-blue-100">Current Academic Year: <strong>{currentYear?.name??"Not selected"}</strong></p></div></section>
 
 		<section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
 			<Stat icon={Users} label="Total Active Staff" value={stats.staff}/>

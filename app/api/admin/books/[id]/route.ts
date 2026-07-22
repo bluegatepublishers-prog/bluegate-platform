@@ -10,7 +10,7 @@ import {
   publisherAdminNotFound,
 } from "@/lib/publisher-admin-authorization";
 import { validatePublisherAdminBookRelations } from "@/lib/publisher-admin-data";
-import { isPublisherUploadUrl } from "@/lib/storage/upload-policy";
+import { isPublisherStorageValue } from "@/lib/storage/upload-policy";
 import { publisherAdminAuditActor, recordTrustedDeniedAudit, recordTrustedFailureAudit, writeSecurityAuditEvent } from "@/lib/security-audit";
 
 function generateSlug(title: string) {
@@ -56,7 +56,7 @@ export async function PUT(
       await recordTrustedDeniedAudit({ actor: publisherAdminAuditActor(access.actor), action: "publisher.book.update", targetType: "Book", reasonCode: "CROSS_TENANT_SCOPE", metadata: { scope: "publisher" } });
       return publisherAdminNotFound();
     }
-    if ((form.coverImage !== currentFiles.coverImage && !isPublisherUploadUrl(form.coverImage, access.actor.publisherId, ["book-cover"])) || (form.samplePdf !== currentFiles.samplePdf && !isPublisherUploadUrl(form.samplePdf, access.actor.publisherId, ["book-sample"])) || (form.publicPreviewPdf !== currentFiles.publicPreviewPdf && !isPublisherUploadUrl(form.publicPreviewPdf, access.actor.publisherId, ["book-public-preview"])) || (form.fullBookPdf !== currentFiles.fullBookPdf && !isPublisherUploadUrl(form.fullBookPdf, access.actor.publisherId, ["book-full"]))) return NextResponse.json({ message: "Upload files through this publisher workspace." }, { status: 400 });
+    if ((form.coverImage !== currentFiles.coverImage && !isPublisherStorageValue(form.coverImage, access.actor.publisherId, ["book-cover"])) || (form.samplePdf !== currentFiles.samplePdf && !isPublisherStorageValue(form.samplePdf, access.actor.publisherId, ["book-sample"])) || (form.publicPreviewPdf !== currentFiles.publicPreviewPdf && !isPublisherStorageValue(form.publicPreviewPdf, access.actor.publisherId, ["book-public-preview"])) || (form.fullBookPdf !== currentFiles.fullBookPdf && !isPublisherStorageValue(form.fullBookPdf, access.actor.publisherId, ["book-full"]))) return NextResponse.json({ message: "Upload files through this publisher workspace." }, { status: 400 });
     if (!await validatePublisherAdminBookRelations({
       publisherId: access.actor.publisherId,
       classId: form.classId,

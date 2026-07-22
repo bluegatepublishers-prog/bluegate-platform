@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { authorizePublisherAdminApi } from "@/lib/publisher-admin-authorization";
 import { validateResourceAudience } from "@/lib/resource-audience";
 import { isPublisherFeatureEnabled } from "@/lib/publisher-features";
-import { isPublisherUploadUrl } from "@/lib/storage/upload-policy";
+import { isPublisherStorageValue } from "@/lib/storage/upload-policy";
 import { publisherAdminAuditActor, writeSecurityAuditEvent } from "@/lib/security-audit";
 import { removeManagedResourceFile } from "@/lib/resource-files";
 import {
@@ -44,7 +44,7 @@ export async function POST(request: Request) {
   }
   if (!audience) return NextResponse.json({ message: "Select a valid audience." }, { status: 400 });
   const thumbnail = trimToNull(body.thumbnail);
-  if (!isPublisherUploadUrl(fileUrl, actor.publisherId, ["resource-file"]) || !isPublisherUploadUrl(thumbnail, actor.publisherId, ["resource-thumbnail"])) return NextResponse.json({ message: "Upload files through this publisher workspace." }, { status: 400 });
+  if (!isPublisherStorageValue(fileUrl, actor.publisherId, ["resource-file"]) || !isPublisherStorageValue(thumbnail, actor.publisherId, ["resource-thumbnail"])) return NextResponse.json({ message: "Upload files through this publisher workspace." }, { status: 400 });
 
   const classId = trimToNull(body.classId);
   const subjectId = trimToNull(body.subjectId);

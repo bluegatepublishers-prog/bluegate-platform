@@ -18,6 +18,7 @@ export default async function ResourceDetailsPage({
 
   const isVideo = resource.type === "VIDEO";
   const isPdf = resource.type === "PDF";
+  const protectedFilePath = `/api/resources/${resource.id}/download`;
 
   const fileName = getResourceFileName({
     originalFileName: resource.originalFileName,
@@ -40,13 +41,13 @@ export default async function ResourceDetailsPage({
       <div className="grid gap-8 xl:grid-cols-[1.5fr_1fr]">
         <section className="overflow-hidden rounded-3xl border bg-white shadow-sm">
           {isVideo ? (
-            <video controls className="aspect-video w-full bg-black" src={resource.fileUrl}>
+            <video controls className="aspect-video w-full bg-black" src={protectedFilePath}>
               Your browser does not support video.
             </video>
           ) : isPdf ? (
             <iframe
               title={`${resource.title} preview`}
-              src={resource.fileUrl}
+              src={protectedFilePath}
               className="h-[70vh] w-full"
             />
           ) : (
@@ -57,7 +58,7 @@ export default async function ResourceDetailsPage({
                   Preview is not available for this file type. Download the file to open it.
                 </p>
                 <a
-                  href={resource.fileUrl}
+                  href={protectedFilePath}
                   target="_blank"
                   rel="noreferrer"
                   className="mt-4 inline-flex rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white"

@@ -21,11 +21,12 @@ test("student subject selects omit protected book and resource URLs", () => {
 
 test("resource route authorizes before redirecting and never returns a denied URL", () => {
   const route = source("app/api/student/resources/[resourceId]/open/route.ts");
-  assert.match(route, /await requireStudent\(\)/);
-  const authorize = route.indexOf("await resolveStudentResource");
-  const redirect = route.indexOf("NextResponse.redirect(resource.fileUrl");
+  assert.match(route, /prepareProtectedResourceDownload/);
+  assert.match(route, /allowedRoles: \["STUDENT"\]/);
+  const authorize = route.indexOf("await prepareProtectedResourceDownload");
+  const redirect = route.indexOf("NextResponse.redirect(result.url");
   assert.ok(authorize >= 0 && authorize < redirect);
-  assert.doesNotMatch(route.slice(route.indexOf("if (!resource)"), redirect), /fileUrl/);
+  assert.doesNotMatch(route, /resource\.fileUrl/);
   assert.match(route, /private, no-store/);
   assert.match(route, /no-referrer/);
 });

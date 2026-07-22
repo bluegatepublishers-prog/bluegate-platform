@@ -28,6 +28,7 @@ export interface CreateSignedDownloadInput {
   key: string;
   expiresInSeconds?: number;
   downloadFilename?: string; // e.g., "chapter-1.pdf"
+  disposition?: "attachment" | "inline";
 }
 
 export interface SignedDownloadResult {
@@ -44,6 +45,31 @@ export interface HeadObjectInput {
   key: string;
 }
 
+export interface PutObjectInput {
+  key: string;
+  body: Uint8Array;
+  contentType: string;
+  customMetadata?: Record<string, string>;
+}
+
+export interface ListObjectsInput {
+  prefix: string;
+  continuationToken?: string;
+  maxKeys?: number;
+}
+
+export interface ListObjectsResult {
+  objects: StorageObjectMetadata[];
+  continuationToken?: string;
+}
+
+export interface ReplaceObjectMetadataInput {
+  key: string;
+  expectedETag: string;
+  contentType?: string;
+  customMetadata: Record<string, string>;
+}
+
 /**
  * Defines the contract for a provider-neutral storage service.
  * All methods must be safe to call from server-side application code.
@@ -58,6 +84,12 @@ export interface StorageProvider {
   deleteObject(input: DeleteObjectInput): Promise<void>;
   /** Retrieves object metadata. Returns null if the object does not exist. */
   headObject(input: HeadObjectInput): Promise<StorageObjectMetadata | null>;
+  /** Uploads bytes from trusted server-side maintenance code. */
+  putObject(input: PutObjectInput): Promise<StorageObjectMetadata>;
+  /** Lists object metadata without returning object bodies. */
+  listObjects(input: ListObjectsInput): Promise<ListObjectsResult>;
+  /** Replaces metadata only when the object still has the verified ETag. */
+  replaceObjectMetadata(input: ReplaceObjectMetadataInput): Promise<StorageObjectMetadata>;
 }
 
 /**

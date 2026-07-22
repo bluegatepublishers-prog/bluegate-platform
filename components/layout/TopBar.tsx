@@ -30,20 +30,6 @@ export default function TopBar() {
           </Link>
 
           <Link
-            href="/teacher-login"
-            className="transition hover:text-yellow-300"
-          >
-            Teacher Login
-          </Link>
-
-          <Link
-            href="/school-login"
-            className="transition hover:text-yellow-300"
-          >
-            School Login
-          </Link>
-
-          <Link
             href="/contact"
             className="transition hover:text-yellow-300"
           >

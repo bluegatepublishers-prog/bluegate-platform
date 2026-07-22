@@ -1,4 +1,5 @@
 import type { UploadScope, UploadValidation } from "./types";
+import { normalizeAndValidateObjectKey } from "./object-key";
 
 const MB = 1024 * 1024;
 export const uploadRules: Record<UploadScope, { extensions: string[]; contentTypes: string[]; maxSize: number; prefix: string }> = {
@@ -37,6 +38,16 @@ export function isPublisherUploadUrl(value: string | null | undefined, publisher
     if (parsed.protocol !== "https:" || !parsed.hostname.endsWith(".public.blob.vercel-storage.com") || !safePublisher) return false;
     return scopes.some(scope => parsed.pathname.startsWith(`/publishers/${safePublisher}/${uploadRules[scope].prefix}/`));
   } catch { return false; }
+}
+export function isPublisherStorageValue(value: string | null | undefined, publisherId: string, scopes: UploadScope[]) {
+  if (!value) return true;
+  if (isPublisherUploadUrl(value, publisherId, scopes)) return true;
+  try {
+    const key = normalizeAndValidateObjectKey(value);
+    return scopes.some(scope => key.startsWith(`${uploadRules[scope].prefix}/${publisherId}/`));
+  } catch {
+    return false;
+  }
 }
 export function isValidUploadPath(scope: UploadScope, name: string, pathname: string) { return pathname === clientUploadPath(scope, name) && !pathname.includes("..") && !pathname.includes("\\"); }
 export function validateDirectUpload(file: File, scope: unknown): UploadValidation {

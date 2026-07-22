@@ -19,6 +19,16 @@ export const SECURITY_AUDIT_ACTIONS = [
   "account.password_reset.complete",
   "storage.upload.init",
   "storage.upload.complete",
+  "storage.download",
+  "storage.migration.retry",
+  "storage.health.verify",
+  "storage.statistics.recalculate",
+  "storage.report.export",
+  "storage.verify",
+  "storage.repair",
+  "storage.download.retry",
+  "storage.reconciliation.scan",
+  "storage.reconciliation.retry",
 ] as const;
 
 export type SecurityAuditAction = (typeof SECURITY_AUDIT_ACTIONS)[number];
@@ -30,7 +40,8 @@ export type SecurityAuditTargetType =
   | "School"
   | "Teacher"
   | "SchoolBookAdoption"
-  | "User";
+  | "User"
+  | "Storage";
 
 export const SECURITY_AUDIT_REASON_CODES = [
   "AUTHORIZATION_DENIED",
@@ -59,6 +70,9 @@ const ALLOWED_METADATA_KEYS = new Set([
   "scope",
   "toStatus",
   "verified",
+  "attempt",
+  "mismatchCount",
+  "repairCount",
 ]);
 const SAFE_VALUE = /^[A-Za-z0-9_.:-]{1,120}$/;
 const SENSITIVE_KEY = /(password|token|secret|cookie|authorization|connection|prompt|response|email|url|body|hash|answer)/i;

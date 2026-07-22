@@ -1,4 +1,5 @@
 import { normalizeAcademicName } from "@/lib/section-subject-content-policy";
+import { bookCoverPath } from "@/lib/storage/book-asset-path";
 
 export type StudentResourceType = "PDF" | "PPT" | "DOC" | "VIDEO" | "ZIP";
 export type StudentResourceAudience = "STUDENT" | "BOTH" | "TEACHER_ONLY";
@@ -153,7 +154,7 @@ export function buildStudentSubjectViewModels(
         book: adoption ? {
           id: adoption.book.id,
           title: adoption.book.title,
-          coverImage: adoption.book.coverImage,
+          coverImage: bookCoverPath(adoption.book.id, adoption.book.coverImage),
           series: adoption.book.series?.name ?? null,
           className: adoption.book.class.name,
           subjectName: adoption.book.subject.name,

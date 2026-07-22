@@ -18,6 +18,7 @@ import {
   Settings,
   ChartNoAxesCombined,
   ScanSearch,
+  HardDrive,
 } from "lucide-react";
 
 const navigation = [
@@ -28,6 +29,7 @@ const navigation = [
   { name: "Books", href: "/admin/books", icon: BookOpen },
   { name: "Book Approvals", href: "/admin/book-adoptions", icon: BookOpenCheck },
   { name: "Resources", href: "/admin/resources", icon: FolderOpen },
+  { name: "Storage", href: "/admin/storage", icon: HardDrive },
   { name: "Teachers", href: "/admin/teachers", icon: Users },
   { name: "Schools", href: "/admin/schools", icon: School },
   { name: "School Requests", href: "/admin/school-requests", icon: School },

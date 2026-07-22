@@ -1,8 +1,10 @@
 import "server-only";
 import {
   DeleteObjectCommand,
+  CopyObjectCommand,
   GetObjectCommand,
   HeadObjectCommand,
+  ListObjectsV2Command,
   PutObjectCommand,
   S3ServiceException,
 } from "@aws-sdk/client-s3";
@@ -19,6 +21,10 @@ import {
   StorageObjectMetadata,
   SignedDownloadResult,
   StorageProvider,
+  PutObjectInput,
+  ListObjectsInput,
+  ListObjectsResult,
+  ReplaceObjectMetadataInput,
 } from "./types";
 import { createContentDisposition } from "./disposition";
 import { getR2Client } from "./r2-client";
@@ -127,7 +133,10 @@ export class R2StorageProvider implements StorageProvider {
     const expiresInSeconds = input.expiresInSeconds ?? DEFAULT_DOWNLOAD_EXPIRY_SECONDS;
     this.validateExpiry(expiresInSeconds, "download");
 
-    const contentDisposition = createContentDisposition(input.downloadFilename);
+    const contentDisposition = createContentDisposition(
+      input.downloadFilename,
+      input.disposition,
+    );
 
     const command = new GetObjectCommand({
       Bucket: this.config.bucketName,
@@ -183,6 +192,72 @@ export class R2StorageProvider implements StorageProvider {
         return null;
       }
       throw this.handleS3Error(error, "headObject", key);
+    }
+  }
+
+  async putObject(input: PutObjectInput): Promise<StorageObjectMetadata> {
+    const key = normalizeAndValidateObjectKey(input.key);
+    if (!input.body.byteLength) {
+      throw new AppError({ code: "INVALID_STORAGE_REQUEST", message: "Cannot upload an empty object." });
+    }
+    try {
+      await this.client.send(new PutObjectCommand({
+        Bucket: this.config.bucketName,
+        Key: key,
+        Body: input.body,
+        ContentType: input.contentType,
+        Metadata: input.customMetadata,
+      }));
+      const metadata = await this.headObject({ key });
+      if (!metadata) throw new Error("Uploaded object could not be verified.");
+      return metadata;
+    } catch (error) {
+      throw this.handleS3Error(error, "putObject", key);
+    }
+  }
+
+  async listObjects(input: ListObjectsInput): Promise<ListObjectsResult> {
+    const prefix = normalizeAndValidateObjectKey(input.prefix);
+    try {
+      const response = await this.client.send(new ListObjectsV2Command({
+        Bucket: this.config.bucketName,
+        Prefix: prefix,
+        ContinuationToken: input.continuationToken,
+        MaxKeys: Math.min(Math.max(input.maxKeys ?? 500, 1), 1000),
+      }));
+      return {
+        objects: (response.Contents ?? []).flatMap((object) => object.Key ? [{
+          key: object.Key,
+          contentLength: object.Size,
+          eTag: object.ETag?.replace(/"/g, ""),
+          lastModified: object.LastModified,
+        }] : []),
+        continuationToken: response.NextContinuationToken,
+      };
+    } catch (error) {
+      throw this.handleS3Error(error, "listObjects", prefix);
+    }
+  }
+
+  async replaceObjectMetadata(input: ReplaceObjectMetadataInput): Promise<StorageObjectMetadata> {
+    const key = normalizeAndValidateObjectKey(input.key);
+    if (!input.expectedETag.trim()) throw new AppError({ code: "INVALID_STORAGE_REQUEST", message: "Verified object identity is required." });
+    const copySource = `${this.config.bucketName}/${key.split("/").map(encodeURIComponent).join("/")}`;
+    try {
+      await this.client.send(new CopyObjectCommand({
+        Bucket: this.config.bucketName,
+        Key: key,
+        CopySource: copySource,
+        CopySourceIfMatch: `"${input.expectedETag.replaceAll('"', "")}"`,
+        MetadataDirective: "REPLACE",
+        Metadata: input.customMetadata,
+        ContentType: input.contentType,
+      }));
+      const metadata = await this.headObject({ key });
+      if (!metadata) throw new Error("Repaired object could not be verified.");
+      return metadata;
+    } catch (error) {
+      throw this.handleS3Error(error, "replaceObjectMetadata", key);
     }
   }
 

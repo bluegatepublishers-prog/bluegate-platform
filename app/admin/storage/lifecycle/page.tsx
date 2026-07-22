@@ -1,0 +1,9 @@
+import { requireLivePublisherAdmin } from "@/lib/publisher-admin-authorization";
+import { getPublisherLifecycleReport, getPublisherReconciliationReport } from "@/lib/storage/storage-lifecycle-runtime";
+
+export default async function StorageLifecyclePage() {
+  const actor = await requireLivePublisherAdmin();
+  const [lifecycle, reconciliation] = await Promise.all([getPublisherLifecycleReport(actor.publisherId), getPublisherReconciliationReport(actor).catch(() => null)]);
+  const cards = [["Never downloaded", lifecycle.neverDownloaded.length], ["Legacy Blob", lifecycle.legacyBlobRemaining.length], ["Missing metadata", lifecycle.missingMetadata.length], ["Oversized", lifecycle.oversizedFiles.length], ["Unknown MIME", lifecycle.unknownMime.length], ["Recent uploads", lifecycle.recentlyUploaded.length], ["Recent repairs", lifecycle.recentlyRepaired.length], ["Reconciliation issues", reconciliation?.issues.length ?? "Unavailable"]];
+  return <div className="space-y-6"><section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{cards.map(([label, value]) => <div key={label} className="rounded-2xl border bg-white p-5"><p className="text-sm text-slate-500">{label}</p><p className="mt-2 text-3xl font-bold">{value}</p></div>)}</section><section className="rounded-2xl border bg-white p-6"><h2 className="text-xl font-bold">Upload reconciliation</h2><p className="mt-2 text-sm text-slate-600">Bounded scan; no automatic mutation. The current schema has no upload-session identity, so abandoned sessions are inferred from audit timing and clearly marked.</p><div className="mt-4 space-y-2">{reconciliation?.issues.slice(0, 100).map((issue, index) => <div key={`${issue.type}-${index}`} className="rounded-xl bg-slate-50 p-3"><strong>{issue.type.replaceAll("_", " ")}</strong><p className="text-sm text-slate-600">{issue.message}</p></div>) ?? <p>Provider scan unavailable.</p>}</div></section></div>;
+}

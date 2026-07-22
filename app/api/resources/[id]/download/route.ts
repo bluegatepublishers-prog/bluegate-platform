@@ -1,18 +1,54 @@
 import { NextResponse } from "next/server";
-import { getApiUser } from "@/lib/authz";
-import { authorizeAndRecordResourceDownload } from "@/lib/resource-mutations";
+import { prepareProtectedResourceDownload } from "@/lib/storage/protected-download";
+import { proxyLegacyBlob } from "@/lib/storage/legacy-proxy";
+
+const safeHeaders = {
+  "Cache-Control": "private, no-store",
+  "Referrer-Policy": "no-referrer",
+  "X-Content-Type-Options": "nosniff",
+};
+
+async function prepare(
+  id: string,
+  disposition: "attachment" | "inline",
+) {
+  return prepareProtectedResourceDownload({
+    resourceId: id,
+    allowedRoles: ["TEACHER", "ADMIN"],
+    disposition,
+  });
+}
+
+export async function GET(
+  _request: Request,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const { id } = await params;
+  const result = await prepare(id, "inline");
+  if (!result.ok) {
+    return NextResponse.json(
+      { code: result.code, message: result.message },
+      { status: result.status, headers: safeHeaders },
+    );
+  }
+  if (result.legacy) return proxyLegacyBlob({ url: result.url, filename: "resource", disposition: "inline" });
+  return NextResponse.redirect(result.url, { status: 307, headers: safeHeaders });
+}
 
 export async function POST(
   _request: Request,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ id: string }> },
 ) {
-  const user = await getApiUser(["TEACHER"]);
-  if (!user) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
-
   const { id } = await params;
-  const result = await authorizeAndRecordResourceDownload(user.id!, id);
-  if (!result) {
-    return NextResponse.json({ message: "Resource not found." }, { status: 404 });
+  const result = await prepare(id, "attachment");
+  if (!result.ok) {
+    return NextResponse.json(
+      { code: result.code, message: result.message },
+      { status: result.status, headers: safeHeaders },
+    );
   }
-  return NextResponse.json(result);
+  return NextResponse.json(
+    { url: result.legacy ? `/api/resources/${encodeURIComponent(id)}/download` : result.url, expiresAt: result.expiresAt },
+    { headers: safeHeaders },
+  );
 }

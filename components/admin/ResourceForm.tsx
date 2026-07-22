@@ -5,9 +5,8 @@ import { useRouter } from "next/navigation";
 import { UploadCloud } from "lucide-react";
 import Image from "next/image";
 import { ResourceAudience, type ResourceType } from "@prisma/client";
-import { uploadPresigned } from "@vercel/blob/client";
-import { publisherUploadPath, validateDirectUpload } from "@/lib/storage/upload-policy";
-import { usePublisherAdminId } from "@/components/admin/PublisherAdminContext";
+import { validateDirectUpload } from "@/lib/storage/upload-policy";
+import { uploadFileToR2 } from "@/lib/storage/client-upload";
 import { RESOURCE_AUDIENCE_OPTIONS } from "@/lib/resource-audience-ui";
 import { formatFileSizeBytes, getResourceFileName } from "@/lib/resource-helpers";
 import type { ResourceFormOptions } from "@/lib/resource-form-data";
@@ -44,7 +43,6 @@ export default function ResourceForm({
   resource?: ResourceFormInitialValue;
   options: ResourceFormOptions;
 }) {
-  const publisherId = usePublisherAdminId();
   const router = useRouter();
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -109,30 +107,24 @@ export default function ResourceForm({
     }
 
     try {
-      const blob = await uploadPresigned(
-        publisherUploadPath(publisherId, scope, file.name),
+      const stored = await uploadFileToR2({
         file,
-        {
-          access: "public",
-          handleUploadUrl: "/api/upload",
-          clientPayload: JSON.stringify({ scope, originalName: file.name }),
-          multipart: file.size > 5 * 1024 * 1024,
-          onUploadProgress: (event) =>
-            setProgress(Math.max(1, Math.round(event.percentage))),
-        },
-      );
+        scope,
+        targetId: form.id,
+        onProgress: (percentage) => setProgress(Math.max(1, percentage)),
+      });
 
       if (scope === "resource-file") {
         setForm((value) => ({
           ...value,
-          fileUrl: blob.url,
+          fileUrl: stored.objectKey,
           type: inferType(file.name),
           originalFileName: file.name,
           mimeType: file.type.toLowerCase(),
           fileSizeBytes: String(file.size),
         }));
       } else {
-        setForm((value) => ({ ...value, thumbnail: blob.url }));
+        setForm((value) => ({ ...value, thumbnail: stored.objectKey }));
       }
 
       setUploadMessage("Upload complete.");
@@ -460,13 +452,15 @@ export default function ResourceForm({
       </label>
 
       {form.thumbnail ? (
-        <Image
-          src={form.thumbnail}
-          alt="Resource thumbnail preview"
-          width={192}
-          height={128}
-          className="h-32 w-48 rounded-xl border object-cover"
-        />
+        /^https?:\/\//.test(form.thumbnail) ? (
+          <Image
+            src={form.thumbnail}
+            alt="Resource thumbnail preview"
+            width={192}
+            height={128}
+            className="h-32 w-48 rounded-xl border object-cover"
+          />
+        ) : <p className="rounded-xl bg-emerald-50 p-4 text-sm font-semibold text-emerald-700">R2 thumbnail uploaded. Save the resource to apply it.</p>
       ) : null}
 
       {selectedClass || selectedSubject ? (

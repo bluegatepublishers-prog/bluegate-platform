@@ -5,9 +5,12 @@
  * @param filename The desired filename.
  * @returns A formatted string suitable for the Content-Disposition header.
  */
-export function createContentDisposition(filename: string | undefined): string {
+export function createContentDisposition(
+  filename: string | undefined,
+  disposition: "attachment" | "inline" = "attachment",
+): string {
   if (!filename) {
-    return 'attachment; filename="download"';
+    return `${disposition}; filename="download"`;
   }
 
   // 1. Sanitize for the simple `filename` parameter (ASCII fallback)
@@ -18,5 +21,5 @@ export function createContentDisposition(filename: string | undefined): string {
   const encodedUtf8 = encodeURIComponent(filename).replace(/'/g, "%27");
 
   // Combine both, with the UTF-8 version preferred by browsers that support it.
-  return `attachment; filename="${sanitizedAscii}"; filename*=UTF-8''${encodedUtf8}`;
+  return `${disposition}; filename="${sanitizedAscii}"; filename*=UTF-8''${encodedUtf8}`;
 }

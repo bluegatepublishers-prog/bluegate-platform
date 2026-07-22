@@ -1,5 +1,6 @@
 import type { StudentSubjectViewModel } from "@/lib/student-subject-policy";
 import { readingProgressPercent } from "@/lib/student-reading-policy";
+import { bookCoverPath } from "@/lib/storage/book-asset-path";
 
 export interface StudentBookProgressRow {
   bookId: string;
@@ -28,7 +29,7 @@ export function buildStudentBookLibrary(
     unique.set(subject.book.id, {
       id: subject.book.id,
       title: subject.book.title,
-      coverImage: subject.book.coverImage,
+      coverImage: bookCoverPath(subject.book.id, subject.book.coverImage),
       series: subject.book.series,
       className: subject.book.className,
       subjectName: subject.subjectName,

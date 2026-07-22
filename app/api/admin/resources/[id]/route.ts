@@ -12,7 +12,7 @@ import {
 import { removeManagedResourceFile } from "@/lib/resource-files";
 import { validateResourceAudience } from "@/lib/resource-audience";
 import { isPublisherFeatureEnabled } from "@/lib/publisher-features";
-import { isPublisherUploadUrl } from "@/lib/storage/upload-policy";
+import { isPublisherStorageValue } from "@/lib/storage/upload-policy";
 import {
   publisherAdminAuditActor,
   recordTrustedDeniedAudit,
@@ -111,9 +111,9 @@ export async function PUT(
 
   if (
     (fileUrl !== existing.fileUrl &&
-      !isPublisherUploadUrl(fileUrl, actor.publisherId, ["resource-file"])) ||
+      !isPublisherStorageValue(fileUrl, actor.publisherId, ["resource-file"])) ||
     (thumbnail !== existing.thumbnail &&
-      !isPublisherUploadUrl(thumbnail, actor.publisherId, ["resource-thumbnail"]))
+      !isPublisherStorageValue(thumbnail, actor.publisherId, ["resource-thumbnail"]))
   ) {
     return NextResponse.json(
       { message: "Upload files through this publisher workspace." },

@@ -5,6 +5,7 @@ import BookDetailsHero from "@/components/books/BookDetailsHero";
 import BookFeatures from "@/components/books/BookFeatures";
 import TableOfContents from "@/components/books/TableOfContents";
 import RelatedBooks from "@/components/books/RelatedBooks";
+import { bookCoverPath, bookPreviewPath } from "@/lib/storage/book-asset-path";
 
 interface PageProps {
   params: Promise<{ slug: string }>;
@@ -87,8 +88,8 @@ export default async function BookDetailsPage({ params }: PageProps) {
     isbn: item.isbn ?? "",
     pages: item.pages ?? 0,
     weight: item.weight ?? "",
-    cover: item.coverImage || "/images/book-placeholder.jpg",
-    publicPreviewPdf: item.publicPreviewPdf || item.samplePdf || "",
+    cover: bookCoverPath(item.id, item.coverImage) || "/images/book-placeholder.jpg",
+    publicPreviewPdf: bookPreviewPath(item.id, item.publicPreviewPdf || item.samplePdf) || "",
     description: item.description ?? item.aboutBook ?? "",
     featured: item.featured,
     edition: item.edition ?? "",

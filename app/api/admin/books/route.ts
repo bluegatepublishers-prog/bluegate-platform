@@ -6,7 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { authorizePublisherAdminApi } from "@/lib/publisher-admin-authorization";
 import { validatePublisherAdminBookRelations } from "@/lib/publisher-admin-data";
 import { parseBookFormData, toBookPersistenceData } from "@/lib/book-form-data";
-import { isPublisherUploadUrl } from "@/lib/storage/upload-policy";
+import { isPublisherStorageValue } from "@/lib/storage/upload-policy";
 import { publisherAdminAuditActor, recordTrustedFailureAudit, writeSecurityAuditEvent } from "@/lib/security-audit";
 
 function generateSlug(title: string) {
@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
     if (!form.title) return NextResponse.json({ message: "Book title is required." }, { status: 400 });
     if (!form.classId) return NextResponse.json({ message: "Please select a class." }, { status: 400 });
     if (!form.subjectId) return NextResponse.json({ message: "Please select a subject." }, { status: 400 });
-    if (!isPublisherUploadUrl(form.coverImage, access.actor.publisherId, ["book-cover"]) || !isPublisherUploadUrl(form.samplePdf, access.actor.publisherId, ["book-sample"]) || !isPublisherUploadUrl(form.publicPreviewPdf, access.actor.publisherId, ["book-public-preview"]) || !isPublisherUploadUrl(form.fullBookPdf, access.actor.publisherId, ["book-full"]) || form.galleryImages.some((url) => !isPublisherUploadUrl(url, access.actor.publisherId, ["book-gallery"]))) return NextResponse.json({ message: "Upload files through this publisher workspace." }, { status: 400 });
+    if (!isPublisherStorageValue(form.coverImage, access.actor.publisherId, ["book-cover"]) || !isPublisherStorageValue(form.samplePdf, access.actor.publisherId, ["book-sample"]) || !isPublisherStorageValue(form.publicPreviewPdf, access.actor.publisherId, ["book-public-preview"]) || !isPublisherStorageValue(form.fullBookPdf, access.actor.publisherId, ["book-full"]) || form.galleryImages.some((url) => !isPublisherStorageValue(url, access.actor.publisherId, ["book-gallery"]))) return NextResponse.json({ message: "Upload files through this publisher workspace." }, { status: 400 });
 
     const relationsAllowed = await validatePublisherAdminBookRelations({
       publisherId: access.actor.publisherId,

@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { hashPassword } from "@/lib/password";
 import { requireSchool } from "@/lib/school-dashboard";
 import { deleteFile, isManagedFileUrl } from "@/lib/storage";
+import { normalizeAndValidateObjectKey } from "@/lib/storage/object-key";
 
 const value = (form: FormData, key: string, max = 160) => String(form.get(key) ?? "").trim().slice(0, max);
 const email = (form: FormData) => value(form, "email", 254).toLowerCase();
@@ -29,6 +30,12 @@ export async function saveSchoolProfile(form: FormData) {
 }
 
 function isSchoolLogoUrl(url: string, schoolId: string) {
+  try {
+    const key = normalizeAndValidateObjectKey(url);
+    if (key.startsWith(`schools/${schoolId}/`)) return true;
+  } catch {
+    // Legacy managed URLs are checked below.
+  }
   if (!isManagedFileUrl(url)) return false;
   try { return new URL(url).pathname.slice(1).startsWith(`schools/${schoolId}/logo/`); }
   catch { return false; }

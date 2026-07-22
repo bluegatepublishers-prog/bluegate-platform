@@ -41,6 +41,7 @@ export type UploadInitResult = {
 export type UploadCompleteInput = {
   objectKey: string;
   scope: UploadScope;
+  originalFileName: string;
   expectedContentType: string;
   expectedSizeBytes: number;
   checksumSha256?: string;
@@ -237,6 +238,11 @@ export async function initUpload(
     contentType,
     contentLength: sizeBytes,
     checksumSHA256: checksumSha256,
+    customMetadata: {
+      "original-filename": encodeURIComponent(fileName),
+      "upload-scope": scope,
+      ...(checksumSha256 ? { "expected-sha256": checksumSha256 } : {}),
+    },
   });
 
   return {
@@ -441,6 +447,7 @@ export function parseAndValidateUploadInit(input: UploadInitRequest): UploadInit
 export type UploadCompleteRequest = {
   objectKey: unknown;
   scope: unknown;
+  originalFileName: unknown;
   expectedContentType: unknown;
   expectedSizeBytes: unknown;
   checksumSha256?: unknown;
@@ -455,6 +462,10 @@ export function parseAndValidateUploadComplete(input: UploadCompleteRequest): Up
 
   // Validate scope
   if (!isUploadScope(input.scope)) {
+    return null;
+  }
+
+  if (typeof input.originalFileName !== "string" || input.originalFileName.length === 0 || input.originalFileName.length > 255) {
     return null;
   }
 
@@ -485,6 +496,7 @@ export function parseAndValidateUploadComplete(input: UploadCompleteRequest): Up
   return {
     objectKey: input.objectKey,
     scope: input.scope,
+    originalFileName: input.originalFileName,
     expectedContentType: input.expectedContentType,
     expectedSizeBytes: input.expectedSizeBytes,
     checksumSha256: input.checksumSha256 ?? undefined,

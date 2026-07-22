@@ -20,6 +20,7 @@ import type { UploadScope } from "@/lib/storage/types";
 type UploadCompleteRequestBody = {
   objectKey: unknown;
   scope: unknown;
+  originalFileName: unknown;
   expectedContentType: unknown;
   expectedSizeBytes: unknown;
   checksumSha256?: unknown;
@@ -78,7 +79,7 @@ export async function POST(request: Request): Promise<NextResponse<UploadComplet
     const authResult = await authorizeUpload(
       scope,
       input.expectedSizeBytes,
-      `file.${input.expectedContentType.split("/")[1] || "bin"}`,
+      input.originalFileName,
       input.expectedContentType,
       input.targetId,
     );

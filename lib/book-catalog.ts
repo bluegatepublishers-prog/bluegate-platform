@@ -1,4 +1,5 @@
 import type { Book } from "@/types/book";
+import { bookCoverPath, bookPreviewPath } from "@/lib/storage/book-asset-path";
 
 type CatalogBookRecord = {
   id: string;
@@ -31,8 +32,8 @@ export function mapBookToCatalogBook(book: CatalogBookRecord): Book {
     series: book.series?.name ?? "",
     isbn: book.isbn ?? "",
     pages: book.pages ?? 0,
-    cover: book.coverImage || "/images/book-placeholder.jpg",
-    publicPreviewPdf: book.publicPreviewPdf || book.samplePdf || "",
+    cover: bookCoverPath(book.id, book.coverImage) || "/images/book-placeholder.jpg",
+    publicPreviewPdf: bookPreviewPath(book.id, book.publicPreviewPdf || book.samplePdf) || "",
     description: book.description ?? "",
     featured: book.featured,
     publisherId: undefined,

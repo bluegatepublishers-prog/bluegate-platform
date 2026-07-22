@@ -60,25 +60,22 @@ test("teacher preview resolves central access before using protected metadata", 
   assert.match(details, /if\(!access\)notFound\(\)/);
 });
 
-test("teacher and school direct download routes return only safe denial bodies", () => {
+test("teacher and school direct download routes delegate to the protected service", () => {
   for (const path of [
     "app/api/resources/[id]/download/route.ts",
     "app/api/school/resources/[id]/download/route.ts",
   ]) {
     const route = source(path);
-    assert.match(route, /Resource not found\./);
-    assert.match(route, /status:\s*404/);
-    const denial = route.match(/\{ message: "Resource not found\." \}/)?.[0] ??
-      route.match(/\{message:"Resource not found\."\}/)?.[0] ??
-      "";
-    assert.doesNotMatch(denial, /fileUrl|url|blob|protected|resource:/i);
+    assert.match(route, /prepareProtectedResourceDownload/);
+    assert.match(route, /private, no-store/);
+    assert.doesNotMatch(route, /resource\.fileUrl/);
   }
 });
 
-test("download and bookmark routes delegate to authorize-first mutation helpers", () => {
+test("download and bookmark routes delegate to centralized authorize-first helpers", () => {
   const download = source("app/api/resources/[id]/download/route.ts");
   const bookmark = source("app/api/resources/[id]/bookmark/route.ts");
-  assert.match(download, /authorizeAndRecordResourceDownload/);
+  assert.match(download, /prepareProtectedResourceDownload/);
   assert.doesNotMatch(download, /prisma\.download\.create/);
   assert.match(bookmark, /authorizeAndCreateResourceBookmark/);
   assert.match(bookmark, /authorizeAndRemoveResourceBookmark/);

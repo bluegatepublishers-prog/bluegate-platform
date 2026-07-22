@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import BookTable from "@/components/admin/books/BookTable";
 import type { BookTableItem } from "@/types/admin-book";
 import { requireLivePublisherAdmin } from "@/lib/publisher-admin-authorization";
+import { bookCoverPath } from "@/lib/storage/book-asset-path";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -79,7 +80,7 @@ export default async function BooksPage() {
   price: book.price?.toString() ?? null,
   subtitle: book.subtitle,
 
-  coverImage: book.coverImage,
+  coverImage: bookCoverPath(book.id, book.coverImage),
 
   featured: book.featured,
   published: book.published,
