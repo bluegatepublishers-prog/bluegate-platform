@@ -18,6 +18,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const book = await prisma.book.findFirst({
     where: { slug, published: true },
     select: {
+      id: true,
       title: true,
       description: true,
       seoTitle: true,
@@ -33,7 +34,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     title: book.seoTitle || book.title,
     description: book.seoDescription || book.description || undefined,
     keywords: book.keywords,
-    openGraph: book.coverImage ? { images: [book.coverImage] } : undefined,
+    openGraph: book.coverImage ? { images: [bookCoverPath(book.id, book.coverImage) || book.coverImage] } : undefined,
   };
 }
 

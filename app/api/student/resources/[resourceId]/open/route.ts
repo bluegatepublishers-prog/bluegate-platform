@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prepareProtectedResourceDownload } from "@/lib/storage/protected-download";
 import { proxyLegacyBlob } from "@/lib/storage/legacy-proxy";
+import { proxyRemoteStorage } from "@/lib/storage/storage-delivery";
 
 const safeHeaders = {
   "Cache-Control": "private, no-store",
@@ -8,7 +9,7 @@ const safeHeaders = {
 };
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ resourceId: string }> },
 ) {
   const { resourceId } = await params;
@@ -23,8 +24,6 @@ export async function GET(
       { status: result.status, headers: safeHeaders },
     );
   }
-  if (result.legacy) return proxyLegacyBlob({ url: result.url, filename: "resource", disposition: "inline" });
-  const response = NextResponse.redirect(result.url, { status: 307 });
-  for (const [name, value] of Object.entries(safeHeaders)) response.headers.set(name, value);
-  return response;
+  if (result.legacy) return proxyLegacyBlob({ request, url: result.url, filename: result.filename, disposition: "inline" });
+  return proxyRemoteStorage({ request, url: result.url, filename: result.filename, disposition: "inline", cacheControl: "private, no-store" });
 }

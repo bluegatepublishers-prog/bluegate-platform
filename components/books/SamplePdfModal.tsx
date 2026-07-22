@@ -1,6 +1,7 @@
 "use client";
 
 import { X, BookOpen } from "lucide-react";
+import PdfPreviewFrame from "./PdfPreviewFrame";
 
 interface SamplePdfModalProps {
   open: boolean;
@@ -68,12 +69,7 @@ export default function SamplePdfModal({
           {publicPreviewPdf ? (
 
             <div className="aspect-[0.85] w-full max-w-full overflow-hidden rounded-2xl bg-white shadow-lg">
-              <iframe
-                src={`${publicPreviewPdf}#toolbar=0&navpanes=0&scrollbar=0&zoom=page-fit`}
-                title={title}
-                className="h-full w-full border-0 pointer-events-none select-none"
-                aria-hidden="true"
-              />
+              <PdfPreviewFrame src={publicPreviewPdf} title={`${title} preview`} className="h-full w-full border-0" />
             </div>
 
           ) : (

@@ -58,13 +58,11 @@ export default async function ResourcesPage({
   return (
     <div className="space-y-8 p-4 sm:p-6 lg:p-8">
       <div>
-        <h1 className="text-3xl font-bold text-slate-900 sm:text-4xl">Resources</h1>
-        <p className="mt-2 text-slate-600">
-          Browse, bookmark, and download teaching resources.
-        </p>
+        <h1 className="text-3xl font-bold text-slate-900 sm:text-4xl">Teaching resources</h1>
+        <p className="mt-2 text-slate-600">Find material available to your current teaching assignments.</p>
       </div>
 
-      <form className="grid gap-4 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm lg:grid-cols-6">
+      <form className="grid gap-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm lg:grid-cols-6">
         <label className="relative lg:col-span-2">
           <Search className="absolute left-4 top-3.5 h-5 w-5 text-slate-400" />
           <input
@@ -152,13 +150,13 @@ export default async function ResourcesPage({
         </select>
 
         <div className="flex flex-wrap items-center gap-3 lg:col-span-6">
-          <button className="rounded-xl bg-blue-600 px-6 py-3 font-semibold text-white">
+          <button className="rounded-lg bg-blue-700 px-5 py-3 font-semibold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">
             Apply filters
           </button>
           {filtered ? (
             <Link
               href="/teacher-dashboard/resources"
-              className="inline-flex items-center rounded-xl border px-5"
+              className="inline-flex items-center rounded-lg border border-slate-300 px-5 py-3 font-semibold text-slate-700"
             >
               <X className="mr-2 h-4 w-4" />
               Clear
@@ -183,7 +181,7 @@ export default async function ResourcesPage({
             return (
               <article
                 key={resource.id}
-                className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"
+                className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm"
               >
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700">
@@ -221,13 +219,13 @@ export default async function ResourcesPage({
           })}
         </div>
       ) : (
-        <div className="rounded-3xl border bg-white p-14 text-center">
+        <div className="rounded-lg border border-slate-200 bg-white p-10 text-center">
           <FolderOpen className="mx-auto h-12 w-12 text-slate-300" />
           <h2 className="mt-4 text-xl font-bold">
             {filtered ? "No matching resources" : "No resources available"}
           </h2>
           <p className="mt-2 text-sm text-slate-500">
-            Try changing your filters or check back later.
+            Try changing the class, subject, or resource type.
           </p>
         </div>
       )}

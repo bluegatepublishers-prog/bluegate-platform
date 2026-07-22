@@ -390,10 +390,11 @@ export async function saveTeacherAssignment(form: FormData) {
     subjectId ? prisma.subject.findFirst({ where: { id: subjectId, active: true }, select: { id: true } }) : null,
   ]);
   if (!section || !Object.values(TeacherAssignmentType).includes(type) || (type === TeacherAssignmentType.SUBJECT_TEACHER && (!sectionSubject || !subject)) || (type === TeacherAssignmentType.CLASS_TEACHER && subjectId)) return;
-  if (academicYearId && section.schoolClass.academicYearId !== academicYearId) return;
+  if (section.schoolClass.academicYearId !== academicYearId) return;
   if (!teacherId) {
     await prisma.teacherAssignment.updateMany({ where: { schoolId: school.id, sectionId, type, subjectId, active: true }, data: { active: false } });
     revalidatePath("/school-dashboard/teacher-assignments");
+    revalidatePath("/school-dashboard");
     return;
   }
   if (!teacher) return;
@@ -404,7 +405,6 @@ export async function saveTeacherAssignment(form: FormData) {
   });
   if (memberships.length && !memberships.some((membership) => membership.active)) return;
   await prisma.$transaction(async (tx) => {
-    await tx.teacherAssignment.updateMany({ where: { schoolId: school.id, sectionId, type, subjectId, active: true }, data: { active: false } });
     const duplicate = await tx.teacherAssignment.findFirst({
       where: {
         schoolId: school.id,
@@ -416,14 +416,21 @@ export async function saveTeacherAssignment(form: FormData) {
       },
       select: { id: true },
     });
+    await tx.teacherAssignment.updateMany({ where: { schoolId: school.id, sectionId, type, subjectId, active: true, id: duplicate ? { not: duplicate.id } : undefined }, data: { active: false } });
     if (duplicate) return;
     await tx.teacherAssignment.create({ data: { teacherId, schoolId: school.id, academicYearId: section.schoolClass.academicYearId, schoolClassId: section.schoolClassId, sectionId, subjectId, type } });
   });
   revalidatePath("/school-dashboard/teacher-assignments");
+  revalidatePath("/school-dashboard/teachers");
+  revalidatePath("/school-dashboard/classes");
+  revalidatePath("/school-dashboard");
 }
 
 export async function removeTeacherAssignment(form: FormData) {
   const school = await requireSchool();
   await prisma.teacherAssignment.updateMany({ where: { id: text(form, "id"), schoolId: school.id }, data: { active: false } });
   revalidatePath("/school-dashboard/teacher-assignments");
+  revalidatePath("/school-dashboard/teachers");
+  revalidatePath("/school-dashboard/classes");
+  revalidatePath("/school-dashboard");
 }

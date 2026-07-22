@@ -9,10 +9,12 @@ import { getStorageProvider } from "@/lib/storage/provider";
 import { isPublisherUploadUrl, uploadPrefixForScope } from "@/lib/storage/upload-policy";
 import { normalizeAndValidateObjectKey } from "@/lib/storage/object-key";
 import { proxyLegacyBlob } from "@/lib/storage/legacy-proxy";
+import { classifyStorageValue } from "@/lib/storage/storage-records";
+import { proxyRemoteStorage, serveLocalUpload } from "@/lib/storage/storage-delivery";
 
 const ALLOWED_ROLES = ["ADMIN", "TEACHER", "SCHOOL", "STUDENT"];
 
-export async function GET(_request: Request, { params }: { params: Promise<{ bookId: string }> }) {
+export async function GET(request: Request, { params }: { params: Promise<{ bookId: string }> }) {
   const user = await getApiUser(ALLOWED_ROLES);
   if (!user) return NextResponse.json({ message: "Authentication required." }, { status: 401 });
 
@@ -29,23 +31,28 @@ export async function GET(_request: Request, { params }: { params: Promise<{ boo
     select: { fullBookPdf: true, publisherId: true, title: true },
   });
   if (!book?.fullBookPdf || !book.publisherId) return NextResponse.json({ message: "The book file is not available yet." }, { status: 404 });
-  let downloadUrl = book.fullBookPdf;
-  const legacy = isPublisherUploadUrl(downloadUrl, book.publisherId, ["book-full"]);
-  if (!legacy) {
+  const storedValue = book.fullBookPdf;
+  const filename = `${book.title}.pdf`;
+  const storageKind = classifyStorageValue(storedValue);
+  if (storageKind === "LOCAL") {
+    return serveLocalUpload({ request, storedPath: storedValue, filename, disposition: "inline", expectedContentType: "application/pdf", cacheControl: "private, no-store" });
+  }
+  if (storageKind === "BLOB") {
+    if (!isPublisherUploadUrl(storedValue, book.publisherId, ["book-full"])) return NextResponse.json({ message: "The book file is unavailable." }, { status: 409 });
+    return proxyLegacyBlob({ request, url: storedValue, filename, disposition: "inline", expectedContentType: "application/pdf" });
+  }
+  if (storageKind === "R2") {
     let key: string;
     try {
-      key = normalizeAndValidateObjectKey(downloadUrl);
+      key = normalizeAndValidateObjectKey(storedValue);
     } catch {
       return NextResponse.json({ message: "The book file is unavailable." }, { status: 409 });
     }
     if (!key.startsWith(`${uploadPrefixForScope("book-full")}/${book.publisherId}/`)) return NextResponse.json({ message: "The book file is unavailable." }, { status: 409 });
     const provider = getStorageProvider();
     if (!(await provider.headObject({ key }))) return NextResponse.json({ message: "The book file is not available yet." }, { status: 404 });
-    downloadUrl = (await provider.createSignedDownloadUrl({ key, expiresInSeconds: 60, downloadFilename: `${book.title}.pdf`, disposition: "inline" })).url;
+    const signed = await provider.createSignedDownloadUrl({ key, expiresInSeconds: 60, downloadFilename: filename, disposition: "inline" });
+    return proxyRemoteStorage({ request, url: signed.url, filename, disposition: "inline", expectedContentType: "application/pdf", cacheControl: "private, no-store" });
   }
-  if (legacy) return proxyLegacyBlob({ url: downloadUrl, filename: `${book.title}.pdf`, disposition: "inline" });
-  const response = NextResponse.redirect(downloadUrl, { status: 307 });
-  response.headers.set("Cache-Control", "private, no-store");
-  response.headers.set("Referrer-Policy", "no-referrer");
-  return response;
+  return NextResponse.json({ message: "The book file is unavailable." }, { status: 409 });
 }

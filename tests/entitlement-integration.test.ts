@@ -9,12 +9,12 @@ test("full-book route authorizes before selecting and preparing protected storag
   const route = source("app/api/books/[bookId]/full-pdf/route.ts");
   const authorize = route.indexOf("const decision = await getBookEntitlementForAuthenticatedUser");
   const selectUrl = route.indexOf("select: { fullBookPdf: true, publisherId: true");
-  const redirect = route.indexOf("NextResponse.redirect(downloadUrl");
-  assert.ok(authorize >= 0 && authorize < selectUrl && selectUrl < redirect);
+  const delivery = route.indexOf("proxyRemoteStorage({ request");
+  assert.ok(authorize >= 0 && authorize < selectUrl && selectUrl < delivery);
   assert.match(route, /createSignedDownloadUrl/);
   assert.match(route, /proxyLegacyBlob/);
-  assert.match(route, /Cache-Control", "private, no-store"/);
-  assert.match(route, /Referrer-Policy", "no-referrer"/);
+  assert.match(route, /cacheControl: "private, no-store"/);
+  assert.doesNotMatch(route, /NextResponse\.redirect/);
 });
 
 test("full-book denial uses a centralized safe message", () => {

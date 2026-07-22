@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prepareProtectedResourceDownload } from "@/lib/storage/protected-download";
 import { proxyLegacyBlob } from "@/lib/storage/legacy-proxy";
+import { proxyRemoteStorage } from "@/lib/storage/storage-delivery";
 
 const safeHeaders = {
   "Cache-Control": "private, no-store",
@@ -25,15 +26,16 @@ export async function POST(
     );
   }
   return NextResponse.json(
-    { url: result.legacy ? `/api/school/resources/${encodeURIComponent(id)}/download` : result.url, expiresAt: result.expiresAt },
+    { url: `/api/school/resources/${encodeURIComponent(id)}/download?disposition=attachment`, expiresAt: result.expiresAt },
     { headers: safeHeaders },
   );
 }
 
-export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const result = await prepareProtectedResourceDownload({ resourceId: id, allowedRoles: ["SCHOOL"], disposition: "attachment" });
+  const disposition = new URL(request.url).searchParams.get("disposition") === "attachment" ? "attachment" : "inline";
+  const result = await prepareProtectedResourceDownload({ resourceId: id, allowedRoles: ["SCHOOL"], disposition });
   if (!result.ok) return NextResponse.json({ code: result.code, message: result.message }, { status: result.status, headers: safeHeaders });
-  if (result.legacy) return proxyLegacyBlob({ url: result.url, filename: "resource" });
-  return NextResponse.redirect(result.url, { status: 307, headers: safeHeaders });
+  if (result.legacy) return proxyLegacyBlob({ request, url: result.url, filename: result.filename, disposition });
+  return proxyRemoteStorage({ request, url: result.url, filename: result.filename, disposition, cacheControl: "private, no-store" });
 }

@@ -19,16 +19,17 @@ test("student subject selects omit protected book and resource URLs", () => {
   assert.match(resolver, /audience: \{ in: \[ResourceAudience\.STUDENT, ResourceAudience\.BOTH\] \}/);
 });
 
-test("resource route authorizes before redirecting and never returns a denied URL", () => {
+test("resource route authorizes before streaming and never returns a denied URL", () => {
   const route = source("app/api/student/resources/[resourceId]/open/route.ts");
   assert.match(route, /prepareProtectedResourceDownload/);
   assert.match(route, /allowedRoles: \["STUDENT"\]/);
   const authorize = route.indexOf("await prepareProtectedResourceDownload");
-  const redirect = route.indexOf("NextResponse.redirect(result.url");
-  assert.ok(authorize >= 0 && authorize < redirect);
+  const delivery = route.indexOf("proxyRemoteStorage({ request");
+  assert.ok(authorize >= 0 && authorize < delivery);
   assert.doesNotMatch(route, /resource\.fileUrl/);
   assert.match(route, /private, no-store/);
   assert.match(route, /no-referrer/);
+  assert.doesNotMatch(route, /NextResponse\.redirect/);
 });
 
 test("resource resolver composes the central entitlement engine", () => {

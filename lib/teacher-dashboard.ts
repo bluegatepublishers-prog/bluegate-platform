@@ -5,6 +5,8 @@ import { requireUser } from "@/lib/authz";
 import { prisma } from "@/lib/prisma";
 import { getTeacherResourceScope } from "@/lib/resource-audience";
 import { requireTeacherResourceEntitlementAccess } from "@/lib/entitlements/resource";
+import { getPublisherFeatures } from "@/lib/publisher-features";
+import { summarizeTeacherAssignments } from "@/lib/teacher-dashboard-summary";
 
 export async function requireTeacher() {
   const user = await requireUser(["TEACHER"]);
@@ -26,11 +28,14 @@ export async function getTeacherDashboard() {
   const teacher = await requireTeacher();
   const resourceScope = await getTeacherResourceScope(teacher.userId);
   if (!resourceScope) notFound();
+  const features = teacher.school?.publisherId
+    ? await getPublisherFeatures(teacher.school.publisherId)
+    : null;
 
-  const [downloads, bookmarks, resources, latestResources, recentDownloads, teachingAssignments] =
+  const [downloads, bookmarks, resources, latestResources, recentDownloads, recentBookmarks, recentGenerations, teachingAssignments] =
     await prisma.$transaction([
-      prisma.download.count({ where: { teacherId: teacher.id } }),
-      prisma.bookmark.count({ where: { teacherId: teacher.id } }),
+      prisma.download.count({ where: { teacherId: teacher.id, resource: resourceScope.where } }),
+      prisma.bookmark.count({ where: { teacherId: teacher.id, resource: resourceScope.where } }),
       prisma.resource.count({ where: resourceScope.where }),
       prisma.resource.findMany({
         where: resourceScope.where,
@@ -57,6 +62,32 @@ export async function getTeacherDashboard() {
         },
         orderBy: { downloadedAt: "desc" },
         take: 5,
+      }),
+      prisma.bookmark.findMany({
+        where: { teacherId: teacher.id, resource: resourceScope.where },
+        include: {
+          resource: {
+            select: {
+              id: true,
+              title: true,
+              type: true,
+            },
+          },
+        },
+        orderBy: { createdAt: "desc" },
+        take: 3,
+      }),
+      prisma.aiGeneration.findMany({
+        where: { teacherId: teacher.id },
+        select: {
+          id: true,
+          title: true,
+          tool: true,
+          status: true,
+          createdAt: true,
+        },
+        orderBy: { createdAt: "desc" },
+        take: 3,
       }),
       prisma.teacherAssignment.findMany({
         where: {
@@ -127,12 +158,22 @@ export async function getTeacherDashboard() {
     })(),
   }));
 
+  const assignmentSummary = summarizeTeacherAssignments(teachingAssignments);
+
   return {
     teacher,
-    stats: { downloads, bookmarks, resources },
+    stats: {
+      downloads,
+      bookmarks,
+      resources,
+      ...assignmentSummary,
+    },
     latestResources,
     recentDownloads,
+    recentBookmarks,
+    recentGenerations,
     assignedClasses,
+    features,
   };
 }
 

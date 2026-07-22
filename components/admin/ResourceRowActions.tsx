@@ -6,11 +6,9 @@ import { useState, useTransition } from "react";
 
 export default function ResourceRowActions({
   id,
-  fileUrl,
   published,
 }: {
   id: string;
-  fileUrl: string;
   published: boolean;
 }) {
   const router = useRouter();
@@ -70,7 +68,7 @@ export default function ResourceRowActions({
         </Link>
 
         <a
-          href={fileUrl}
+          href={`/api/resources/${encodeURIComponent(id)}/download?disposition=attachment`}
           target="_blank"
           rel="noreferrer"
           className="rounded-lg border px-2 py-1 text-xs font-semibold text-slate-700"

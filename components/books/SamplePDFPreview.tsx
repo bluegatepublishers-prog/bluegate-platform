@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { BookOpen, FileText } from "lucide-react";
 import { Book } from "@/types/book";
+import PdfPreviewFrame from "./PdfPreviewFrame";
 
 interface SamplePDFPreviewProps {
   book: Book;
@@ -63,11 +64,7 @@ export default function SamplePDFPreview({
           </div>
 
           {book.publicPreviewPdf ? (
-            <iframe
-              src={`${book.publicPreviewPdf}#toolbar=0&navpanes=0&scrollbar=1`}
-              title={book.title}
-              className="h-[850px] w-full"
-            />
+            <PdfPreviewFrame src={book.publicPreviewPdf} title={`${book.title} preview`} className="h-[850px] w-full" />
           ) : (
             <div className="flex h-[700px] flex-col items-center justify-center bg-slate-50 text-center">
               <BookOpen

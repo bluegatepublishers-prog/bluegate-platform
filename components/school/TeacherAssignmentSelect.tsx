@@ -1,4 +1,14 @@
 "use client";
-import{useMemo,useState}from"react";import{saveTeacherAssignment}from"@/app/school-dashboard/academic-actions";
-type Teacher={id:string;name:string;summary:string};
-export default function TeacherAssignmentSelect({label,teachers,currentTeacherId,sectionId,academicYearId,type,subjectId=""}:{label:string;teachers:Teacher[];currentTeacherId:string;sectionId:string;academicYearId:string;type:"CLASS_TEACHER"|"SUBJECT_TEACHER";subjectId?:string}){const[query,setQuery]=useState("");const filtered=useMemo(()=>teachers.filter(item=>`${item.name} ${item.summary}`.toLowerCase().includes(query.toLowerCase())),[teachers,query]);return <div className="rounded-2xl border bg-slate-50 p-4"><p className="font-bold">{label}</p><input value={query} onChange={event=>setQuery(event.target.value)} placeholder="Search teachers" className="mt-3 w-full rounded-lg border bg-white px-3 py-2 text-sm"/><form action={saveTeacherAssignment} className="mt-2 flex flex-col gap-2 sm:flex-row"><input type="hidden" name="sectionId" value={sectionId}/><input type="hidden" name="academicYearId" value={academicYearId}/><input type="hidden" name="type" value={type}/><input type="hidden" name="subjectId" value={subjectId}/><select name="teacherId" defaultValue={currentTeacherId} className="min-w-0 flex-1 rounded-lg border bg-white px-3 py-2"><option value="">Unassigned</option>{filtered.map(teacher=><option key={teacher.id} value={teacher.id}>{teacher.name}{teacher.summary?` — ${teacher.summary}`:""}</option>)}</select><button className="rounded-lg bg-blue-600 px-4 py-2 font-semibold text-white">Save</button></form></div>}
+
+import { useId, useMemo, useState } from "react";
+import { saveTeacherAssignment } from "@/app/school-dashboard/academic-actions";
+
+type Teacher = { id: string; name: string; summary: string };
+
+export default function TeacherAssignmentSelect({ label, teachers, currentTeacherId, sectionId, academicYearId, type, subjectId = "" }: { label: string; teachers: Teacher[]; currentTeacherId: string; sectionId: string; academicYearId: string; type: "CLASS_TEACHER" | "SUBJECT_TEACHER"; subjectId?: string }) {
+  const id = useId();
+  const [query, setQuery] = useState("");
+  const filtered = useMemo(() => teachers.filter((item) => `${item.name} ${item.summary}`.toLowerCase().includes(query.toLowerCase())), [teachers, query]);
+
+  return <div className="rounded-2xl border bg-slate-50 p-4"><label htmlFor={`${id}-teacher`} className="font-bold">{label}</label><input aria-label={`Search teachers for ${label}`} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search teachers" className="mt-3 w-full rounded-lg border bg-white px-3 py-2 text-sm"/><form action={saveTeacherAssignment} className="mt-2 flex flex-col gap-2 sm:flex-row"><input type="hidden" name="sectionId" value={sectionId}/><input type="hidden" name="academicYearId" value={academicYearId}/><input type="hidden" name="type" value={type}/><input type="hidden" name="subjectId" value={subjectId}/><select id={`${id}-teacher`} name="teacherId" defaultValue={currentTeacherId} className="min-w-0 flex-1 rounded-lg border bg-white px-3 py-2"><option value="">Unassigned</option>{filtered.map((teacher) => <option key={teacher.id} value={teacher.id}>{teacher.name}{teacher.summary ? ` — ${teacher.summary}` : ""}</option>)}</select><button className="rounded-lg bg-blue-600 px-4 py-2 font-semibold text-white">Save</button></form></div>;
+}

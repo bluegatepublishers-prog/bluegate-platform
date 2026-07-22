@@ -299,7 +299,6 @@ export default async function AdminResourcesPage({
                       <td className="p-4">
                         <ResourceRowActions
                           id={resource.id}
-                          fileUrl={resource.fileUrl}
                           published={resource.published}
                         />
                       </td>

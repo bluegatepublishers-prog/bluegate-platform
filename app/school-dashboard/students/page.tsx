@@ -14,6 +14,7 @@ type Params = {
   sectionId?: string;
   active?: "active" | "inactive";
   login?: "enabled" | "disabled";
+  page?: string;
 };
 
 export default async function StudentsPage({
@@ -30,8 +31,9 @@ export default async function StudentsPage({
     sectionId: params.sectionId,
     active: params.active,
     login: params.login,
+    page: params.page,
   };
-  const { students, years } = await getStudents(filters);
+  const { students, years, total, page, pageCount } = await getStudents(filters);
   const classes = years.flatMap((year) => year.classes.map((item) => ({
     id: item.id,
     yearId: year.id,
@@ -186,7 +188,7 @@ export default async function StudentsPage({
       </section>
 
       <section>
-        <p className="mb-3 text-sm font-semibold text-slate-600">{students.length} students found</p>
+        <p className="mb-3 text-sm font-semibold text-slate-600">{total} students found · page {page} of {pageCount}</p>
         {students.length ? (
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {students.map((student) => {
@@ -240,7 +242,18 @@ export default async function StudentsPage({
             <p className="mt-2 text-slate-500">Try changing filters or add a new student.</p>
           </div>
         )}
+        {total > 0 && pageCount > 1 ? <nav aria-label="Student pages" className="mt-6 flex items-center justify-between gap-3"><Link aria-disabled={page <= 1} href={page <= 1 ? getStudentPageHref(params, 1) : getStudentPageHref(params, page - 1)} className={`rounded-xl border px-5 py-3 font-semibold ${page <= 1 ? "pointer-events-none opacity-50" : ""}`}>Previous</Link><span className="text-sm font-semibold text-slate-600">Page {page} of {pageCount}</span><Link aria-disabled={page >= pageCount} href={page >= pageCount ? getStudentPageHref(params, pageCount) : getStudentPageHref(params, page + 1)} className={`rounded-xl border px-5 py-3 font-semibold ${page >= pageCount ? "pointer-events-none opacity-50" : ""}`}>Next</Link></nav> : null}
       </section>
     </main>
   );
+}
+
+function getStudentPageHref(params: Params, page: number) {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (key !== "page" && value) query.set(key, value);
+  }
+  if (page > 1) query.set("page", String(page));
+  const suffix = query.toString();
+  return suffix ? `/school-dashboard/students?${suffix}` : "/school-dashboard/students";
 }

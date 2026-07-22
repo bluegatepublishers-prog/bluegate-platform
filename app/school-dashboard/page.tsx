@@ -6,6 +6,7 @@ import {
 	CheckCircle2,
 	Circle,
 	GraduationCap,
+	Inbox,
 	School,
 	UserPlus,
 	UserRoundCheck,
@@ -23,13 +24,19 @@ export default async function SchoolDashboardPage(){
 		<section className="flex flex-col gap-6 rounded-3xl bg-gradient-to-br from-blue-700 to-slate-900 p-8 text-white shadow-xl sm:flex-row sm:items-center">{logoUrl?<Image src={logoUrl} alt="School logo" width={112} height={112} className="h-28 w-28 rounded-2xl bg-white object-contain p-2"/>:<div className="flex h-28 w-28 items-center justify-center rounded-2xl bg-white/15 text-3xl font-bold">{initials(school.schoolName)}</div>}<div><p className="font-semibold text-blue-100">School / Institution Dashboard</p><h1 className="mt-2 text-3xl font-bold sm:text-4xl">{school.schoolName}</h1><p className="mt-3 text-blue-100">Current Academic Year: <strong>{currentYear?.name??"Not selected"}</strong></p></div></section>
 
 		<section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+			<Stat icon={Users} label="Active Teachers" value={stats.teachers}/>
 			<Stat icon={Users} label="Total Active Staff" value={stats.staff}/>
 			<Stat icon={GraduationCap} label="Total Active Students" value={stats.students}/>
 			<Stat icon={School} label="Total Active Classes" value={stats.classes}/>
 			<Stat icon={BookOpenCheck} label="Total Active Sections" value={stats.sections}/>
+			<Stat icon={BookOpen} label="Subjects Offered" value={stats.subjects}/>
+			<Stat icon={UserRoundCheck} label="Active Assignments" value={stats.teacherAssignments}/>
+			<Stat icon={BookOpenCheck} label="Approved Book Adoptions" value={stats.approvedBookAdoptions}/>
+			<Stat icon={BookOpenCheck} label="Pending Book Requests" value={stats.pendingBookAdoptions} warning/>
 			<Stat icon={UserRoundCheck} label="Pending Class Teachers" value={stats.pendingClassTeachers} warning/>
 			<Stat icon={UserRoundCheck} label="Pending Subject Teachers" value={stats.pendingSubjectTeachers} warning/>
 			<Stat icon={BookOpen} label="Available Resources" value={stats.resources}/>
+			<Stat icon={Inbox} label="Teacher Requests" value={stats.pendingTeacherRequests} warning/>
 		</section>
 
 		<section className="rounded-3xl border bg-white p-6 shadow-sm">
@@ -52,16 +59,16 @@ export default async function SchoolDashboardPage(){
 
 		<section className="grid gap-6 xl:grid-cols-2">
 			<div className="rounded-3xl border bg-white p-6 shadow-sm">
-				<h2 className="text-2xl font-bold">Recent Students</h2>
+				<div className="flex items-center justify-between gap-3"><h2 className="text-xl font-bold">Recent Students</h2><Link href="/school-dashboard/students" className="text-sm font-semibold text-blue-700">Manage</Link></div>
 				{recentStudents.length ? <ul className="mt-4 space-y-3">{recentStudents.map((student) => <li key={student.id} className="rounded-xl bg-slate-50 p-3"><p className="font-semibold">{student.name}</p><p className="text-sm text-slate-500">Admission {student.admissionNumber}</p></li>)}</ul> : <p className="mt-4 text-slate-500">No students have been added yet.</p>}
 			</div>
 			<div className="rounded-3xl border bg-white p-6 shadow-sm">
-				<h2 className="text-2xl font-bold">Recent Teacher Assignments</h2>
+				<div className="flex items-center justify-between gap-3"><h2 className="text-xl font-bold">Recent Assignments</h2><Link href="/school-dashboard/teacher-assignments" className="text-sm font-semibold text-blue-700">Manage</Link></div>
 				{recentAssignments.length ? <ul className="mt-4 space-y-3">{recentAssignments.map((assignment) => <li key={assignment.id} className="rounded-xl bg-slate-50 p-3"><p className="font-semibold">{assignment.teacher.user.name}</p><p className="text-sm text-slate-500">{assignment.schoolClass.name} - {assignment.section.name}{assignment.subject ? ` - ${assignment.subject.name}` : " - Class Teacher"}</p></li>)}</ul> : <p className="mt-4 text-slate-500">No assignments are active yet.</p>}
 			</div>
 		</section>
 
-		<section className="rounded-3xl border bg-white p-6 shadow-sm"><h2 className="text-2xl font-bold">Quick Actions</h2><div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-5"><Action href="/school-dashboard/teachers" label="Add Teacher" icon={UserPlus}/><Action href="/school-dashboard/students" label="Add Student" icon={GraduationCap}/><Action href="/school-dashboard/classes" label="Manage Classes" icon={School}/><Action href="/school-dashboard/teacher-assignments" label="Assign Teachers" icon={UserRoundCheck}/><Action href="/school-dashboard/profile" label="School / Institution Profile" icon={School}/></div></section>
+		<section className="rounded-3xl border bg-white p-6 shadow-sm"><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-2xl font-bold">Quick Actions</h2><p className="mt-1 text-sm text-slate-600">Continue the next step in your school setup.</p></div>{stats.pendingTeacherRequests ? <Link href="/school-dashboard/teacher-requests" className="rounded-xl bg-amber-100 px-4 py-2 text-sm font-bold text-amber-900">Review {stats.pendingTeacherRequests} teacher request{stats.pendingTeacherRequests === 1 ? "" : "s"}</Link> : null}</div><div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3"><Action href="/school-dashboard/academic-years" label="Manage Academic Years" icon={BookOpenCheck}/><Action href="/school-dashboard/teachers" label="Manage Teachers" icon={UserPlus}/><Action href="/school-dashboard/students" label="Manage Students" icon={GraduationCap}/><Action href="/school-dashboard/classes" label="View Classes" icon={School}/><Action href="/school-dashboard/teacher-assignments" label="Manage Assignments" icon={UserRoundCheck}/><Action href="/school-dashboard/profile" label="Complete School Profile" icon={School}/></div></section>
 	</main>
 }
 function Stat({icon:Icon,label,value,warning=false}:{icon:typeof Users;label:string;value:number;warning?:boolean}){return <div className={`rounded-3xl border bg-white p-6 shadow-sm ${warning&&value>0?"border-amber-300":""}`}><Icon className={`h-9 w-9 ${warning&&value>0?"text-amber-600":"text-blue-700"}`}/><p className="mt-5 text-3xl font-bold">{value}</p><p className="mt-1 text-slate-600">{label}</p></div>}

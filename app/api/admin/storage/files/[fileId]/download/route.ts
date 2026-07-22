@@ -5,8 +5,9 @@ import { publisherAdminAuditActor, recordTrustedAuditBestEffort } from "@/lib/se
 import { getStorageProvider } from "@/lib/storage/provider";
 import { scanStorageInventory } from "@/lib/storage/storage-inventory";
 import { proxyLegacyBlob } from "@/lib/storage/legacy-proxy";
+import { proxyRemoteStorage } from "@/lib/storage/storage-delivery";
 
-export async function GET(_request: Request, { params }: { params: Promise<{ fileId: string }> }) {
+export async function GET(request: Request, { params }: { params: Promise<{ fileId: string }> }) {
   const { actor, response } = await authorizePublisherAdminApi();
   if (response || !actor) return response!;
   const { fileId } = await params;
@@ -15,7 +16,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ fil
   let url = file.value;
   if (file.provider === "BLOB") {
     await recordTrustedAuditBestEffort({ actor: publisherAdminAuditActor(actor), action: "storage.download", targetType: file.entityType, targetId: file.entityId, outcome: SecurityAuditOutcome.SUCCESS, metadata: { scope: "admin", fileOperation: "download" } });
-    return proxyLegacyBlob({ url: file.value, filename: file.filename });
+    return proxyLegacyBlob({ request, url: file.value, filename: file.filename });
   }
   if (file.provider === "R2") {
     const provider = getStorageProvider();
@@ -23,5 +24,5 @@ export async function GET(_request: Request, { params }: { params: Promise<{ fil
     url = (await provider.createSignedDownloadUrl({ key: file.value, expiresInSeconds: 60, downloadFilename: file.filename })).url;
   }
   await recordTrustedAuditBestEffort({ actor: publisherAdminAuditActor(actor), action: "storage.download", targetType: file.entityType, targetId: file.entityId, outcome: SecurityAuditOutcome.SUCCESS, metadata: { scope: "admin", fileOperation: "download" } });
-  return NextResponse.redirect(url, { status: 307, headers: { "Cache-Control": "private, no-store", "Referrer-Policy": "no-referrer" } });
+  return proxyRemoteStorage({ request, url, filename: file.filename, disposition: "attachment", expectedContentType: file.mimeType || undefined, cacheControl: "private, no-store" });
 }

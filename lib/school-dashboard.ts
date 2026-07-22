@@ -4,12 +4,13 @@ import { requireUser } from "@/lib/authz";
 import { prisma } from "@/lib/prisma";
 import { getSchoolResourceScope } from "@/lib/resource-audience";
 import { buildSchoolSetupChecklist } from "@/lib/school-setup-checklist";
+import { buildAcademicCoverage } from "@/lib/school-academic-management";
 
 export async function requireSchool() {
   const user = await requireUser(["SCHOOL"]);
-  const school = await prisma.school.findFirst({ where: { userId: user.id, status: "APPROVED", publisher: { active: true } }, include: { user: true } });
-  if (!school) notFound();
-  return school;
+  const school = await prisma.school.findFirst({ where: { userId: user.id, status: "APPROVED", user: { active: true }, publisher: { active: true } }, include: { user: true, publisher: { select: { id: true, name: true, active: true } } } });
+  if (!school?.publisher) notFound();
+  return { ...school, publisher: school.publisher };
 }
 
 export async function getSchoolDashboard() {
@@ -31,21 +32,23 @@ export async function getSchoolDashboard() {
     staffMemberships,
     students,
     classes,
-    sections,
-    classTeachers,
-    sectionSubjects,
-    subjectTeachers,
+    sectionRows,
+    sectionSubjectRows,
+    assignmentGroups,
     resources,
     recentStudents,
     recentAssignments,
+    pendingTeacherRequests,
+    approvedBookAdoptions,
+    pendingBookAdoptions,
   ] = await prisma.$transaction([
-    prisma.teacher.count({ where: { schoolId: school.id, active: true } }),
+    prisma.teacher.count({ where: { schoolId: school.id, active: true, status: "APPROVED" } }),
     prisma.schoolStaffMembership.count({ where: { schoolId: school.id, active: true } }),
     prisma.student.count({ where: { schoolId: school.id, active: true } }),
     prisma.schoolClass.count({
       where: { schoolId: school.id, academicYearId: currentYear?.id ?? "", active: true },
     }),
-    prisma.classSection.count({
+    prisma.classSection.findMany({
       where: {
         schoolClass: {
           schoolId: school.id,
@@ -54,9 +57,9 @@ export async function getSchoolDashboard() {
         },
         active: true,
       },
+      select: { id: true },
     }),
-    prisma.teacherAssignment.count({ where: { ...scope, type: "CLASS_TEACHER" } }),
-    prisma.sectionSubject.count({
+    prisma.sectionSubject.findMany({
       where: {
         active: true,
         section: {
@@ -68,11 +71,12 @@ export async function getSchoolDashboard() {
           },
         },
       },
+      select: { sectionId: true, subjectId: true },
     }),
-    prisma.teacherAssignment.count({ where: { ...scope, type: "SUBJECT_TEACHER" } }),
+    prisma.teacherAssignment.findMany({ where: scope, select: { sectionId: true, subjectId: true, type: true } }),
     prisma.resource.count({ where: resourceScope?.where ?? { id: "" } }),
     prisma.student.findMany({
-      where: { schoolId: school.id },
+      where: { schoolId: school.id, active: true },
       orderBy: { createdAt: "desc" },
       take: 5,
       select: {
@@ -83,7 +87,7 @@ export async function getSchoolDashboard() {
       },
     }),
     prisma.teacherAssignment.findMany({
-      where: { schoolId: school.id, active: true },
+      where: scope,
       orderBy: { updatedAt: "desc" },
       take: 5,
       include: {
@@ -93,7 +97,18 @@ export async function getSchoolDashboard() {
         subject: { select: { name: true } },
       },
     }),
+    prisma.teacherSchoolRequest.count({
+      where: { schoolId: school.id, status: "PENDING" },
+    }),
+    prisma.schoolBookAdoption.count({ where: { schoolId: school.id, academicYearId: currentYear?.id ?? "", status: "APPROVED", active: true } }),
+    prisma.schoolBookAdoption.count({ where: { schoolId: school.id, academicYearId: currentYear?.id ?? "", status: "PENDING", active: true } }),
   ]);
+
+  const coverage = buildAcademicCoverage({
+    sections: sectionRows,
+    sectionSubjects: sectionSubjectRows,
+    assignments: assignmentGroups,
+  });
 
   const checklist = buildSchoolSetupChecklist({
     hasProfileBasics: Boolean(
@@ -103,10 +118,10 @@ export async function getSchoolDashboard() {
       school.user?.email?.trim(),
     ),
     hasCurrentAcademicYear: Boolean(currentYear),
-    hasSections: sections > 0,
+    hasSections: coverage.sections > 0,
     hasStaff: teachers > 0,
     hasStudents: students > 0,
-    hasTeacherAssignments: subjectTeachers > 0 || classTeachers > 0,
+    hasTeacherAssignments: coverage.activeAssignments > 0,
   });
 
   return {
@@ -117,10 +132,15 @@ export async function getSchoolDashboard() {
       staff: staffMemberships || teachers,
       students,
       classes,
-      sections,
+      sections: coverage.sections,
+      subjects: coverage.offeredSubjects,
+      teacherAssignments: coverage.activeAssignments,
       resources,
-      pendingClassTeachers: Math.max(0, sections - classTeachers),
-      pendingSubjectTeachers: Math.max(0, sectionSubjects - subjectTeachers),
+      pendingTeacherRequests,
+      approvedBookAdoptions,
+      pendingBookAdoptions,
+      pendingClassTeachers: coverage.missingClassTeachers,
+      pendingSubjectTeachers: coverage.missingSubjectTeachers,
     },
     recentStudents,
     recentAssignments,
@@ -130,6 +150,7 @@ export async function getSchoolDashboard() {
 
 export async function getSchoolTeachers(query?: string) {
   const school = await requireSchool();
+  const resourceScope = await getSchoolResourceScope(school.userId);
   return prisma.teacher.findMany({
     where: {
       schoolId: school.id,
@@ -139,7 +160,16 @@ export async function getSchoolTeachers(query?: string) {
         { subject: { contains: query, mode: "insensitive" } },
         { classes: { contains: query, mode: "insensitive" } },
       ] : undefined,
-    }, include: { user: true, assignments:{where:{active:true},include:{schoolClass:true,section:true,subject:true},orderBy:{createdAt:"asc"}} }, orderBy: { user: { name: "asc" } },
+    }, include: {
+      user: true,
+      assignments: { where: { active: true }, include: { schoolClass: true, section: true, subject: true }, orderBy: { createdAt: "asc" } },
+      _count: {
+        select: {
+          downloads: { where: { resource: resourceScope?.where ?? { id: "" } } },
+          bookmarks: { where: { resource: resourceScope?.where ?? { id: "" } } },
+        },
+      },
+    }, orderBy: { user: { name: "asc" } },
   });
 }
 
@@ -153,12 +183,13 @@ export async function getSchoolResources(filters: { query?: string; classLevel?:
       { subject: { contains: filters.query, mode: "insensitive" } },
     ] : undefined,
   };
-  const [resources, classes, subjects] = await prisma.$transaction([
-    prisma.resource.findMany({ where, orderBy: { createdAt: "desc" } }),
+  const [resources, total, classes, subjects] = await prisma.$transaction([
+    prisma.resource.findMany({ where, orderBy: { createdAt: "desc" }, take: 100, select: { id: true, title: true, description: true, subject: true, classLevel: true, type: true, book: { select: { title: true } } } }),
+    prisma.resource.count({ where }),
     prisma.resource.findMany({ where:scope.where, distinct: ["classLevel"], select: { classLevel: true }, orderBy: { classLevel: "asc" } }),
     prisma.resource.findMany({ where:scope.where, distinct: ["subject"], select: { subject: true }, orderBy: { subject: "asc" } }),
   ]);
-  return { resources, classes, subjects };
+  return { resources, total, classes, subjects };
 }
 
 export async function getSchoolInspectionRequests() {

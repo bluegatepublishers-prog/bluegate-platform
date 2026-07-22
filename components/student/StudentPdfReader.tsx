@@ -40,6 +40,7 @@ export default function StudentPdfReader({
   const [fitWidth, setFitWidth] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [saveMessage, setSaveMessage] = useState("");
   const [bookmarks, setBookmarks] = useState(new Set(initialBookmarks));
 
@@ -48,6 +49,8 @@ export default function StudentPdfReader({
     let loadingTask: PDFDocumentLoadingTask | null = null;
     void (async () => {
       try {
+        setLoading(true);
+        setError("");
         const pdfjs = await import("pdfjs-dist");
         pdfjs.GlobalWorkerOptions.workerSrc = new URL(
           "pdfjs-dist/build/pdf.worker.min.mjs",
@@ -63,9 +66,14 @@ export default function StudentPdfReader({
         setTotalPages(loaded.numPages);
         setPage((current) => Math.min(Math.max(1, current), loaded!.numPages));
         setLoading(false);
-      } catch {
+      } catch (cause) {
         if (!disposed) {
-          setError("The book file is not available yet.");
+          const status = typeof cause === "object" && cause && "status" in cause ? Number(cause.status) : null;
+          setError(status === 401 || status === 403
+            ? "You do not have access to this book file."
+            : status === 404
+              ? "The book file is not available yet."
+              : "The secure file link expired or the book is temporarily unavailable.");
           setLoading(false);
         }
       }
@@ -75,7 +83,7 @@ export default function StudentPdfReader({
       renderTaskRef.current?.cancel();
       if (loadingTask) void loadingTask.destroy();
     };
-  }, [bookId]);
+  }, [bookId, loadAttempt]);
 
   useEffect(() => {
     if (!document || !canvasRef.current || !viewportRef.current) return;
@@ -185,7 +193,7 @@ export default function StudentPdfReader({
       <div ref={viewportRef} className="flex flex-1 overflow-auto bg-slate-800 p-4">
         <div className="m-auto">
           {loading && <p className="p-10 text-center text-white">Loading book…</p>}
-          {error ? <div role="alert" className="max-w-lg rounded-2xl bg-white p-8 text-center text-red-700">{error}</div> : <canvas ref={canvasRef} aria-label={`${title}, page ${page}`} className={loading ? "hidden" : "block bg-white shadow-2xl"} />}
+          {error ? <div role="alert" className="max-w-lg rounded-2xl bg-white p-8 text-center text-red-700"><p>{error}</p><button type="button" onClick={() => setLoadAttempt((value) => value + 1)} className="mt-4 rounded-lg bg-slate-900 px-4 py-2 font-semibold text-white">Try again</button></div> : <canvas ref={canvasRef} aria-label={`${title}, page ${page}`} className={loading ? "hidden" : "block bg-white shadow-2xl"} />}
         </div>
       </div>
     </div>

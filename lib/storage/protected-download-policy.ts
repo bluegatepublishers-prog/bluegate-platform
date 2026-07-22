@@ -11,7 +11,7 @@ export type ProtectedDownloadRole = Extract<
 >;
 
 export type ProtectedDownloadResult =
-  | { ok: true; url: string; expiresAt: string | null; legacy: boolean }
+  | { ok: true; url: string; expiresAt: string | null; legacy: boolean; filename: string }
   | {
       ok: false;
       status: 401 | 403 | 404 | 409 | 500;
@@ -195,7 +195,7 @@ export async function prepareProtectedResourceDownloadWithDependencies(
     return failure(500, "STORAGE_SIGNING_FAILED", "Could not prepare the resource file.");
   }
 
-  return { ok: true, url, expiresAt, legacy };
+  return { ok: true, url, expiresAt, legacy, filename };
 }
 
 class InvalidProtectedResourceStateError extends Error {}
