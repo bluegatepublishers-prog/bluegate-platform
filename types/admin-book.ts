@@ -32,6 +32,7 @@ export interface BookTableItem {
   subtitle: string | null;
   coverImage: string | null;
   featured: boolean;
+  featuredOrder: number;
   published: boolean;
   publicPreviewAvailable: boolean;
   fullBookAvailable: boolean;

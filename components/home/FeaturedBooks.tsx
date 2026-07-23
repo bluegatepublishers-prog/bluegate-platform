@@ -2,10 +2,16 @@ import Image from "next/image";
 import { Star } from "lucide-react";
 
 import { prisma } from "@/lib/prisma";
+import { BLUEGATE_PUBLISHER_ID } from "@/lib/publisher-context";
+import { bookCoverPath } from "@/lib/storage/book-asset-path";
 
 export default async function FeaturedBooks() {
   const books = await prisma.book.findMany({
-    where: { published: true, featured: true },
+    where: {
+      publisherId: BLUEGATE_PUBLISHER_ID,
+      published: true,
+      featured: true,
+    },
     select: {
       id: true,
       slug: true,
@@ -15,7 +21,11 @@ export default async function FeaturedBooks() {
       price: true,
       subject: { select: { name: true } },
     },
-    orderBy: { createdAt: "desc" },
+    orderBy: [
+      { featuredOrder: "asc" },
+      { updatedAt: "desc" },
+      { id: "asc" },
+    ],
     take: 4,
   });
 
@@ -88,10 +98,7 @@ export default async function FeaturedBooks() {
                 <div className="flex justify-center">
 
                   <Image
-                    src={
-                      book.coverImage ||
-                      "/images/book-placeholder.jpg"
-                    }
+                    src={resolveCoverSrc(book.id, book.coverImage)}
                     alt={book.title}
                     width={180}
                     height={255}
@@ -143,6 +150,13 @@ export default async function FeaturedBooks() {
 
     </section>
   );
+}
+
+function resolveCoverSrc(bookId: string, coverImage: string | null) {
+  const resolved = bookCoverPath(bookId, coverImage);
+  if (!resolved) return "/images/book-placeholder.jpg";
+  if (resolved.startsWith("/") || /^https?:\/\//.test(resolved)) return resolved;
+  return "/images/book-placeholder.jpg";
 }
 
 function Meta({ label, value }: { label: string; value: string }) {

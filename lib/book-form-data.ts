@@ -33,6 +33,7 @@ export function createEmptyBookFormData(): BookFormData {
     subjectId: "",
     seriesId: "",
     featured: false,
+    featuredOrder: 0,
     published: true,
   };
 }
@@ -55,6 +56,14 @@ function optionalNumber(value: unknown): number | "" {
 
   const number = Number(value);
   return Number.isFinite(number) ? number : "";
+}
+
+function featuredOrderNumber(value: unknown): number {
+  if (value === "" || value === null || value === undefined) return 0;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 0;
+  const integer = Math.trunc(parsed);
+  return integer >= 0 ? integer : 0;
 }
 
 export function parseBookFormData(value: unknown): BookFormData {
@@ -96,6 +105,7 @@ export function parseBookFormData(value: unknown): BookFormData {
     seriesId: text(input.seriesId),
     featured:
       typeof input.featured === "boolean" ? input.featured : false,
+    featuredOrder: featuredOrderNumber(input.featuredOrder),
     published:
       typeof input.published === "boolean" ? input.published : true,
   };
@@ -134,6 +144,7 @@ export function toBookPersistenceData(data: BookFormData) {
     subjectId: data.subjectId,
     seriesId: data.seriesId || null,
     featured: data.featured,
+    featuredOrder: data.featuredOrder === "" ? 0 : data.featuredOrder,
     published: data.published,
   };
 }

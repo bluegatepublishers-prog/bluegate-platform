@@ -50,9 +50,12 @@ export default async function BooksPage() {
         subject: true,
         series: true,
       },
-      orderBy: {
-        createdAt: "desc",
-      },
+      orderBy: [
+        { featured: "desc" },
+        { featuredOrder: "asc" },
+        { updatedAt: "desc" },
+        { id: "asc" },
+      ],
     });
   } catch {
     errorMessage = "Database connection is unavailable. Check the DATABASE_URL environment variable.";
@@ -83,6 +86,7 @@ export default async function BooksPage() {
   coverImage: bookCoverPath(book.id, book.coverImage),
 
   featured: book.featured,
+  featuredOrder: book.featuredOrder,
   published: book.published,
   publicPreviewAvailable: Boolean(book.publicPreviewPdf || book.samplePdf),
   fullBookAvailable: Boolean(book.fullBookPdf),

@@ -60,6 +60,7 @@ export interface BookFormData {
   // ===========================
 
   featured: boolean;
+  featuredOrder: number | "";
   published: boolean;
 }
 

@@ -21,6 +21,7 @@ test("book form data round-trips content persistence fields", () => {
     subjectId: "subject-1",
     seriesId: "series-1",
     featured: true,
+    featuredOrder: 3,
     published: false,
   });
 
@@ -36,6 +37,7 @@ test("book form data round-trips content persistence fields", () => {
   assert.deepEqual(persisted.tableOfContents, ["Unit 1", "Unit 2"]);
   assert.equal(persisted.board, "CBSE");
   assert.equal(persisted.weight, "450 g");
+  assert.equal(persisted.featuredOrder, 3);
 });
 
 test("book form payload hides presentation-only fields but preserves editable values", () => {
@@ -53,6 +55,7 @@ test("book form payload hides presentation-only fields but preserves editable va
     dimensions: "20 x 25 cm",
     classId: "class-1",
     subjectId: "subject-1",
+    featuredOrder: 4,
   });
 
   assert.equal(payload.title, "Bluegate Maths");
@@ -62,4 +65,5 @@ test("book form payload hides presentation-only fields but preserves editable va
   assert.equal("board" in payload, false);
   assert.equal(payload.classId, "class-1");
   assert.equal(payload.subjectId, "subject-1");
+  assert.equal(payload.featuredOrder, 4);
 });

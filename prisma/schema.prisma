@@ -972,6 +972,7 @@ model Book {
   publicPreviewPdf        String?
   fullBookPdf             String?
   featured                Boolean                   @default(false)
+  featuredOrder           Int                       @default(0)
   published               Boolean                   @default(false)
   createdAt               DateTime                  @default(now())
   updatedAt               DateTime                  @updatedAt
@@ -1017,6 +1018,7 @@ model Book {
   resources               Resource[]                @relation("ResourceBook")
 
   @@index([publisherId, published])
+  @@index([publisherId, published, featured, featuredOrder, updatedAt])
 }
 
 model StudentBookProgress {

@@ -85,7 +85,7 @@ export async function PUT(
           slug: true, coverImage: true, samplePdf: true, publicPreviewPdf: true,
           fullBookPdf: true, galleryImages: true, subtitle: true, description: true,
           edition: true, publisher: true, language: true, board: true, binding: true,
-          dimensions: true,
+          dimensions: true, featured: true, featuredOrder: true, published: true,
         },
       });
       if (!previous) return null;
@@ -113,11 +113,17 @@ export async function PUT(
         previous.publicPreviewPdf !== updated.publicPreviewPdf,
         previous.fullBookPdf !== updated.fullBookPdf,
       ].filter(Boolean).length;
+      const changedFeaturedSettings = previous.featured !== updated.featured || previous.featuredOrder !== updated.featuredOrder;
       await writeSecurityAuditEvent(tx, {
         actor: publisherAdminAuditActor(access.actor), action: "publisher.book.update",
         targetType: "Book", targetId: id, outcome: SecurityAuditOutcome.SUCCESS,
         metadata: {
-          changedFields: ["bookMetadata", ...(changedFiles ? ["fileAttachments"] : []), ...(form.published !== undefined ? ["publicationState"] : [])],
+          changedFields: [
+            "bookMetadata",
+            ...(changedFiles ? ["fileAttachments"] : []),
+            ...(previous.published !== updated.published ? ["publicationState"] : []),
+            ...(changedFeaturedSettings ? ["featuredPlacement"] : []),
+          ],
           fileCount: changedFiles,
         },
       });
