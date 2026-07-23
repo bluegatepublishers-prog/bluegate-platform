@@ -34,3 +34,10 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Product Blueprint
+
+The approved Bluegate Education OS Version 1.0 blueprint is maintained at:
+
+`docs/BLUEGATE_EDUCATION_OS_V1_BLUEPRINT.md`
+
+All LMS, school-management, academic-content, assessment, reporting and AI development should follow this document.
