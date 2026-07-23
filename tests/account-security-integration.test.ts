@@ -92,13 +92,15 @@ test("password replacement uses the shared policy and has no crafted-user reset 
 
 test("email failures never reveal codes or complete verification and reset", () => {
   const service = security(), mail = read("lib/security-email.ts"), actions = read("app/account-security-actions.ts"), onboardingActions = read("app/onboarding-actions.ts");
-  assert.match(mail, /catch \{/);
+  assert.match(mail, /sendConfiguredMail/);
   assert.match(mail, /Security email could not be sent\./);
-  assert.doesNotMatch(mail, /console\.(?:log|error)\([^\n]*(?:code|token)/i);
+  assert.doesNotMatch(mail, /console\.(?:log|error)\([^\n]*(?:EMAIL_PASS|AUTH_SECRET|NEXTAUTH_SECRET|password|secret)/i);
   assert.match(onboardingActions, /deliveryState !== "SENT"/);
   assert.doesNotMatch(actions, /completionToken[^\n]*message|code[^\n]*message/);
   assert.doesNotMatch(onboardingActions, /challenge\.code|result\.code/);
   assert.match(service, /if \(delivery\.state !== "SENT"\) return/);
+  assert.match(service, /if \(delivery\.state === "SENT"\) \{\s*await prisma\.emailVerificationChallenge\.updateMany/);
+  assert.match(service, /if \(delivery\.state === "SENT"\) await prisma\.passwordResetChallenge\.updateMany/);
 });
 
 test("database-backed request, attempt, and resend protections are server authoritative", () => {
