@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import StudentPracticePlayer from "@/components/student/StudentPracticePlayer";
+import { requireStudent } from "@/lib/student-dashboard";
 import { getStudentPracticeAttempt } from "@/lib/student-practice";
 
 export default async function PracticeAttemptPage({
@@ -32,6 +33,7 @@ export default async function PracticeAttemptPage({
 
 async function loadAttempt(attemptId: string) {
   try {
+    await requireStudent();
     return await getStudentPracticeAttempt(attemptId);
   } catch {
     notFound();

@@ -1,9 +1,11 @@
 import Link from "next/link";
 import { ClipboardCheck, Clock3 } from "lucide-react";
 import StudentAssessmentStart from "@/components/student/StudentAssessmentStart";
+import { requireStudent } from "@/lib/student-dashboard";
 import { getStudentAssessments } from "@/lib/student-assessments";
 
 export default async function StudentAssessmentsPage() {
+  await requireStudent();
   const data = await getStudentAssessments();
   return <main className="space-y-7 p-4 sm:p-6 lg:p-8">
     <section className="rounded-3xl bg-gradient-to-br from-indigo-700 to-violet-700 p-7 text-white shadow-xl sm:p-10"><div className="flex items-center gap-3"><ClipboardCheck className="h-8 w-8" /><p className="font-bold uppercase tracking-wider text-indigo-100">Assessment Engine</p></div><h1 className="mt-4 text-3xl font-bold sm:text-4xl">My Assessments</h1><p className="mt-3 max-w-2xl text-indigo-100">Formal measurements assigned to your current class. Saved answers and submitted results become part of your academic record.</p></section>

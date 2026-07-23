@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound, redirect, unstable_rethrow } from "next/navigation";
 import StudentAssessmentPlayer from "@/components/student/StudentAssessmentPlayer";
+import { requireStudent } from "@/lib/student-dashboard";
 import { getStudentAssessmentAttempt } from "@/lib/student-assessments";
 
 export default async function AssessmentAttemptPage({ params }: { params: Promise<{ attemptId: string }> }) {
@@ -11,6 +12,9 @@ export default async function AssessmentAttemptPage({ params }: { params: Promis
 }
 
 async function safeAttempt(attemptId: string) {
-  try { return await getStudentAssessmentAttempt(attemptId); }
+  try {
+    await requireStudent();
+    return await getStudentAssessmentAttempt(attemptId);
+  }
   catch (error) { unstable_rethrow(error); notFound(); }
 }

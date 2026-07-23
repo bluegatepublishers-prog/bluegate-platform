@@ -36,12 +36,12 @@ export interface StudentBookViewModel {
 export const getStudentBooks = cache(async (): Promise<StudentBookViewModel[]> => {
   const identity = await requireStudent();
   const subjects = await getStudentSubjects();
-  const ids = [...new Set(subjects.flatMap((subject) => subject.book ? [subject.book.id] : []))];
-  const progress = ids.length ? await prisma.studentBookProgress.findMany({
+  const approvedIds = [...new Set(subjects.filter((subject) => subject.book).map((subject) => subject.book!.id))];
+  const progress = approvedIds.length ? await prisma.studentBookProgress.findMany({
     where: {
       studentId: identity.student.id,
       academicYearId: identity.academicYear.id,
-      bookId: { in: ids },
+      bookId: { in: approvedIds },
     },
     select: {
       bookId: true,
@@ -51,7 +51,14 @@ export const getStudentBooks = cache(async (): Promise<StudentBookViewModel[]> =
       lastReadAt: true,
     },
   }) : [];
-  return buildStudentBookLibrary(subjects, progress);
+  const library = buildStudentBookLibrary(
+    subjects.map((subject) => ({
+      ...subject,
+      book: subject.book && approvedIds.includes(subject.book.id) ? subject.book : null,
+    })),
+    progress,
+  );
+  return library;
 });
 
 export async function getStudentBook(bookId: string) {

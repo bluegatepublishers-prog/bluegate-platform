@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { requireStudent } from "@/lib/student-dashboard";
 import { getStudentRemedialPlans } from "@/lib/remedials/student";
 import { updateRemedialStepAction } from "./actions";
 
@@ -6,6 +7,7 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 export default async function StudentRemedialsPage() {
+  await requireStudent();
   const report = await getStudentRemedialPlans();
   if (report.state !== "READY") return <main className="space-y-6 p-4 sm:p-6 lg:p-8"><h1 className="text-3xl font-bold">My learning path</h1><div className="rounded-2xl border bg-white p-6">{report.state === "LOCKED" ? "Personalized learning paths are available with Premium." : "This feature is not available on your platform."}</div></main>;
   return <main className="space-y-7 p-4 sm:p-6 lg:p-8">

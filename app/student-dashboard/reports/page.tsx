@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { AnalyticsPlaceholders, EmptyAnalytics, MetricGrid, ProgressBars, ReportHero, Timeline, displayPercent } from "@/components/analytics/AnalyticsVisuals";
+import { requireStudent } from "@/lib/student-dashboard";
 import { getStudentAnalyticsReport } from "@/lib/analytics-reports";
 export const dynamic = "force-dynamic"; export const revalidate = 0;
 export default async function StudentReportsPage() {
+  await requireStudent();
   const report = await getStudentAnalyticsReport();
   if (report.state !== "READY") return <main className="space-y-7 p-4 sm:p-6 lg:p-8"><ReportHero eyebrow="Learning reports" title="My progress" description="Your factual learning record across reading, revision, practice, assessments, and the learning assistant."/><section className="rounded-3xl border bg-white p-10 text-center shadow-sm"><h2 className="text-xl font-bold">{report.state === "LOCKED" ? "Reports are available with Premium." : "Reports are not enabled on this platform."}</h2><p className="mt-2 text-slate-600">Your learning activity remains available in its original tools.</p></section></main>;
   const s = report.summary;

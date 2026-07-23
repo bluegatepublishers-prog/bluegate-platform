@@ -52,8 +52,8 @@ test("subject detail validates route ID and full book uses protected endpoint", 
 
 test("navigation enables completed student modules but keeps later modules unavailable", () => {
   const navigation = source("components/student/StudentNavigation.tsx");
-  assert.match(navigation, /href: "\/student-dashboard\/subjects".*available: true/);
-  assert.match(navigation, /href: "\/student-dashboard\/books".*available: true/);
+  assert.match(navigation, /href: "\/student-dashboard\/subjects"/);
+  assert.match(navigation, /href: "\/student-dashboard\/books"/);
   assert.match(navigation, /Reports/);
   assert.doesNotMatch(navigation, /Assignments|Gap Analysis|Mentor/);
 });

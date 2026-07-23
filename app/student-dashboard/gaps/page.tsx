@@ -1,7 +1,9 @@
 import { GapEmpty, GapHero, GapLink } from "@/components/gaps/GapVisuals";
+import { requireStudent } from "@/lib/student-dashboard";
 import { getStudentGaps } from "@/lib/gaps/student";
 export const dynamic = "force-dynamic"; export const revalidate = 0;
 export default async function StudentGapsPage() {
+  await requireStudent();
   const report = await getStudentGaps();
   if (report.state !== "READY") return <main className="space-y-7 p-4 sm:p-6 lg:p-8"><GapHero eyebrow="Premium learning support" title="My learning focus" description="Supportive, evidence-based learning signals from your scored activity."/><GapEmpty title={report.state === "LOCKED" ? "Learning Gap Analysis is available with Premium." : "This feature is not available on your platform."} message="Your original learning activity remains available in books, practice, assessments, and reports."/></main>;
   const active = report.gaps.filter((gap) => gap.status === "OPEN" || gap.status === "ACKNOWLEDGED");

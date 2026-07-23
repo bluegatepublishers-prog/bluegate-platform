@@ -1,8 +1,10 @@
 import { notFound } from "next/navigation";
 import { GapHero, GapLink } from "@/components/gaps/GapVisuals";
+import { requireStudent } from "@/lib/student-dashboard";
 import { getStudentGapDetail } from "@/lib/gaps/student";
 export const dynamic = "force-dynamic"; export const revalidate = 0;
 export default async function StudentGapDetailPage({ params }: { params: Promise<{ gapId: string }> }) {
+  await requireStudent();
   const { gapId } = await params; const gap = await getStudentGapDetail(gapId); if (!gap) notFound();
   return <main className="space-y-7 p-4 sm:p-6 lg:p-8"><GapHero eyebrow={gap.subject} title={gap.learningArea} description="A supportive explanation based on recent scored learning activity—not a diagnosis or prediction."/><section className="rounded-2xl border bg-white p-6 shadow-sm"><div className="flex flex-wrap gap-3"><span className="rounded-full bg-amber-50 px-3 py-1 text-sm font-bold text-amber-800">{gap.severityLabel}</span><span className="rounded-full bg-slate-100 px-3 py-1 text-sm font-semibold">{gap.status}</span></div><p className="mt-5 text-slate-700">{gap.message}</p><h2 className="mt-7 text-lg font-bold">What this is based on</h2><ul className="mt-3 space-y-3">{gap.evidence.map((row, index) => <li key={`${row.label}-${index}`} className="rounded-xl bg-slate-50 p-4"><span className="font-semibold">{row.label}: {row.value}</span>{row.sampleSize ? <span className="ml-2 text-sm text-slate-500">across {row.sampleSize} scored items</span> : null}</li>)}</ul><p className="mt-6 rounded-xl border border-dashed p-4 text-sm text-slate-500">Suggested practice will appear in a future remedials phase. No activity is assigned automatically.</p><div className="mt-6"><GapLink href="/student-dashboard/gaps">Back to learning focus</GapLink></div></section></main>;
 }
