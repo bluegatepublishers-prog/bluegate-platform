@@ -6,6 +6,30 @@ export const SECURITY_AUDIT_ACTIONS = [
   "publisher.book.create",
   "publisher.book.update",
   "publisher.book.delete",
+  "publisher.curriculum.edition.create",
+  "publisher.curriculum.edition.update",
+  "publisher.curriculum.edition.archive",
+  "publisher.curriculum.edition.restore",
+  "publisher.curriculum.unit.create",
+  "publisher.curriculum.unit.update",
+  "publisher.curriculum.unit.archive",
+  "publisher.curriculum.unit.restore",
+  "publisher.curriculum.module.create",
+  "publisher.curriculum.module.update",
+  "publisher.curriculum.module.archive",
+  "publisher.curriculum.module.restore",
+  "publisher.curriculum.topic.create",
+  "publisher.curriculum.topic.update",
+  "publisher.curriculum.topic.archive",
+  "publisher.curriculum.topic.restore",
+  "publisher.curriculum.exercise.create",
+  "publisher.curriculum.exercise.update",
+  "publisher.curriculum.exercise.archive",
+  "publisher.curriculum.exercise.restore",
+  "publisher.curriculum.video_lesson.create",
+  "publisher.curriculum.video_lesson.update",
+  "publisher.curriculum.video_lesson.archive",
+  "publisher.curriculum.video_lesson.restore",
   "publisher.resource.create",
   "publisher.resource.update",
   "publisher.resource.delete",
@@ -36,6 +60,12 @@ export type SecurityAuditTargetType =
   | "Publisher"
   | "PublisherFeature"
   | "Book"
+  | "BookEdition"
+  | "BookUnit"
+  | "BookModule"
+  | "BookTopic"
+  | "BookExercise"
+  | "VideoLesson"
   | "Resource"
   | "School"
   | "Teacher"
