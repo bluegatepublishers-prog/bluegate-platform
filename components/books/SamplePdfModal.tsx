@@ -20,16 +20,16 @@ export default function SamplePdfModal({
 
   return (
     <div
-      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-sm p-5"
+      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 p-3 backdrop-blur-sm sm:p-5"
       onContextMenu={(event) => event.preventDefault()}
       onCopy={(event) => event.preventDefault()}
     >
 
-      <div className="flex h-[92vh] w-full max-w-[min(92vw,42rem)] flex-col overflow-hidden rounded-3xl bg-white shadow-2xl">
+      <div className="flex max-h-[95vh] w-full max-w-[min(92vw,42rem)] flex-col overflow-hidden rounded-3xl bg-white shadow-2xl">
 
         {/* Header */}
 
-        <div className="flex items-center justify-between border-b bg-gradient-to-r from-blue-600 to-sky-500 px-8 py-5">
+        <div className="flex shrink-0 items-center justify-between border-b bg-gradient-to-r from-blue-600 to-sky-500 px-6 py-4 sm:px-8 sm:py-5">
 
           <div className="flex items-center gap-4">
 
@@ -64,17 +64,17 @@ export default function SamplePdfModal({
 
         {/* PDF */}
 
-        <div className="flex flex-1 items-center justify-center bg-slate-100 p-6 select-none">
+        <div className="min-h-0 flex flex-1 overflow-auto bg-slate-100 p-4 select-none sm:p-6">
 
           {publicPreviewPdf ? (
 
-            <div className="aspect-[0.85] w-full max-w-full overflow-hidden rounded-2xl bg-white shadow-lg">
-              <PdfPreviewFrame src={publicPreviewPdf} title={`${title} preview`} className="h-full w-full border-0" />
+            <div className="h-full min-h-[70vh] w-full overflow-hidden rounded-2xl bg-white shadow-lg">
+              <PdfPreviewFrame src={publicPreviewPdf} title={`${title} preview`} className="h-full min-h-[70vh] w-full border-0" />
             </div>
 
           ) : (
 
-            <div className="flex h-full items-center justify-center">
+            <div className="flex min-h-[70vh] w-full items-center justify-center">
 
               <div className="text-center">
 
@@ -101,7 +101,7 @@ export default function SamplePdfModal({
 
         {/* Footer */}
 
-        <div className="flex items-center justify-between border-t bg-white px-8 py-5">
+        <div className="flex shrink-0 items-center justify-between border-t bg-white px-6 py-4 sm:px-8 sm:py-5">
 
           <div>
 
