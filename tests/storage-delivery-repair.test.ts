@@ -13,6 +13,13 @@ test("R2 keys and legacy local book assets resolve to same-origin routes", () =>
   assert.equal(bookCoverPath("legacy", "/uploads/legacy.jpg"), "/api/books/legacy/asset/cover");
 });
 
+test("featured books use the cover resolver and placeholder fallback", () => {
+  const featured = source("components/home/FeaturedBooks.tsx");
+  assert.match(featured, /bookCoverPath/);
+  assert.match(featured, /resolveCoverSrc/);
+  assert.match(featured, /\/images\/book-placeholder\.jpg/);
+});
+
 test("PDF delivery headers support inline viewers and byte ranges", () => {
   const headers = storageDeliveryHeaders({
     contentType: "application/pdf",
