@@ -9,18 +9,25 @@ export const metadata: Metadata = {
 export default async function StudentLoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ callbackUrl?: string | string[]; error?: string | string[] }>;
+  searchParams: Promise<{
+    callbackUrl?: string | string[];
+    error?: string | string[];
+  }>;
 }) {
   const { callbackUrl, error } = await searchParams;
+
   return (
     <main className="flex min-h-screen items-center justify-center bg-slate-50 px-4 py-12">
       <div className="w-full max-w-md rounded-[2rem] border border-slate-200 bg-white shadow-xl">
         <LoginForm
-          callbackUrl={typeof callbackUrl === "string" ? callbackUrl : undefined}
+          authProvider="student-credentials"
+          callbackUrl={
+            typeof callbackUrl === "string" ? callbackUrl : undefined
+          }
           redirectPath="/student-dashboard"
           title="Student Login"
-          description="Use the email and password issued by your school."
-          emailPlaceholder="student@school.com"
+          description="Use your email address or student login ID and password."
+          emailPlaceholder="student@school.com or student login ID"
           showDemo={false}
           showPublicLink
           initialError={

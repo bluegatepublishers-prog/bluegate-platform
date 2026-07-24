@@ -15,6 +15,7 @@ import { useRouter } from "next/navigation";
 import { getLoginDestination } from "@/lib/auth-policy";
 
 interface LoginFormProps {
+  authProvider?: "credentials" | "student-credentials";
   redirectPath?: string;
   callbackUrl?: string;
   title?: string;
@@ -26,6 +27,7 @@ interface LoginFormProps {
 }
 
 export default function LoginForm({
+  authProvider = "credentials",
   redirectPath = "/teacher-dashboard",
   callbackUrl,
   title = "Teacher Login",
@@ -57,12 +59,18 @@ export default function LoginForm({
     setError("");
 
     startTransition(async () => {
-      const result = await signIn("credentials", {
-        email,
+      const result =
+  authProvider === "student-credentials"
+    ? await signIn("student-credentials", {
+        loginId: email.trim(),
+        password,
+        redirect: false,
+      })
+    : await signIn("credentials", {
+        email: email.trim(),
         password,
         redirect: false,
       });
-
       if (result?.error) {
         setError("Invalid email or password.");
         return;
@@ -110,7 +118,7 @@ export default function LoginForm({
               <Mail className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
 
               <input
-                type="email"
+                type="text"
                 required
                 value={email}
                 onChange={(e) =>

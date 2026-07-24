@@ -122,8 +122,21 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           where: {
             role: "STUDENT",
             active: true,
-            OR: [{ username: loginId }, { email: loginId }],
-          },
+            OR: [
+  {
+    username: {
+      equals: loginId,
+      mode: "insensitive",
+    },
+  },
+  {
+    email: {
+      equals: loginId,
+      mode: "insensitive",
+    },
+  },
+],
+            },
           include: {
             student: {
               select: {
