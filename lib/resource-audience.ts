@@ -10,6 +10,7 @@ import {
   getTeacherVisibleResourceWhere,
 } from "@/lib/resource-access-policy";
 import {
+  getTeacherResourceAccessWithDependencies,
   getSchoolResourceScopeWithDependencies,
   getTeacherResourceScopeWithDependencies,
   requireSchoolResourceAccessWithDependencies,
@@ -73,6 +74,10 @@ export function requireTeacherResourceAccess(userId: string, resourceId: string)
 
 export function getTeacherResourceScope(userId: string) {
   return getTeacherResourceScopeWithDependencies(userId, defaultDependencies);
+}
+
+export function getTeacherResourceAccessState(userId: string) {
+  return getTeacherResourceAccessWithDependencies(userId, defaultDependencies);
 }
 
 export function requireSchoolResourceAccess(userId: string, resourceId: string) {

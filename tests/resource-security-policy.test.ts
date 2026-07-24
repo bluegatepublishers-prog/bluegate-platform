@@ -55,9 +55,9 @@ test("teacher preview resolves central access before using protected metadata", 
   const details = dashboard.slice(dashboard.indexOf("export async function getResourceDetails"));
   assert.ok(
     details.indexOf("requireTeacherResourceEntitlementAccess") <
-      details.indexOf("const resource=access.resource"),
+      details.indexOf("const resource=entitlementAccess.resource"),
   );
-  assert.match(details, /if\(!access\)notFound\(\)/);
+  assert.match(details, /if\(!entitlementAccess\)notFound\(\)/);
 });
 
 test("teacher and school direct download routes delegate to the protected service", () => {

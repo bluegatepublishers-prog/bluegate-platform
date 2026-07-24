@@ -2,19 +2,35 @@ import type { ReactNode } from "react";
 import StudentHeader from "@/components/student/StudentHeader";
 import StudentNavigation from "@/components/student/StudentNavigation";
 import { getPublisherBranding } from "@/lib/publisher-context";
-import { requireStudent } from "@/lib/student-dashboard";
+import { requireStudentDashboardAccess } from "@/lib/student-dashboard";
 
 export const dynamic = "force-dynamic";
 
 export default async function StudentDashboardLayout({ children }: { children: ReactNode }) {
-  const identity = await requireStudent();
-  const branding = await getPublisherBranding(identity.publisher.id);
+  const access = await requireStudentDashboardAccess();
+  const isReadyIdentity =
+    access.status === "READY" ||
+    access.status === "FEATURE_DISABLED" ||
+    access.status === "NO_ENTITLEMENTS";
+  const publisherId = isReadyIdentity
+    ? access.identity.publisher.id
+    : access.shell.publisherId;
+  const schoolName = isReadyIdentity
+    ? access.identity.school.schoolName
+    : access.shell.schoolName;
+  const studentName = isReadyIdentity
+    ? access.identity.student.name
+    : access.shell.studentName;
+  const plan = isReadyIdentity
+    ? access.identity.effectivePlan.plan
+    : undefined;
+  const branding = await getPublisherBranding(publisherId);
   return (
     <div className="flex min-h-screen bg-slate-100">
-      <StudentNavigation branding={branding} schoolName={identity.school.schoolName} />
+      <StudentNavigation branding={branding} schoolName={schoolName} />
       <div className="min-w-0 flex-1">
-        <StudentHeader name={identity.student.name} plan={identity.effectivePlan.plan} />
-        <StudentNavigation mobile branding={branding} schoolName={identity.school.schoolName} />
+        <StudentHeader name={studentName} plan={plan} />
+        <StudentNavigation mobile branding={branding} schoolName={schoolName} />
         {children}
       </div>
     </div>

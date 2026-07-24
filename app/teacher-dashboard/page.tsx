@@ -10,7 +10,16 @@ export const revalidate = 0;
 export const metadata = { title: "Teacher Dashboard | Bluegate Publishers" };
 
 export default async function TeacherDashboardPage() {
-  const { teacher, stats, latestResources, recentDownloads, assignedClasses } = await getTeacherDashboard();
+  const data = await getTeacherDashboard();
+  const { teacher, stats, latestResources, recentDownloads, assignedClasses } = data;
+  const restrictedMessage =
+    data.status === "NO_ASSIGNMENTS"
+      ? "Your teaching assignment has not been configured yet. Please contact your school administrator."
+      : data.status === "NO_ENTITLEMENTS"
+        ? "No classes or subjects have been assigned to your account yet."
+        : data.status === "RESOURCES_DISABLED"
+          ? "Teacher resources are not currently enabled for your institution."
+          : null;
 
   return (
     <div className="space-y-8 p-4 sm:p-6 lg:p-8">
@@ -23,6 +32,13 @@ export default async function TeacherDashboardPage() {
           <Link href="/teacher-dashboard/downloads" className="rounded-xl border border-white/30 px-5 py-3 font-semibold">My downloads</Link>
         </div>
       </section>
+
+      {restrictedMessage ? (
+        <section className="rounded-3xl border border-amber-200 bg-amber-50 p-6 shadow-sm sm:p-8">
+          <h2 className="text-xl font-bold text-amber-900">Limited dashboard access</h2>
+          <p className="mt-2 text-amber-800">{restrictedMessage}</p>
+        </section>
+      ) : null}
 
       <div className="grid gap-5 sm:grid-cols-3">
         <Stat icon={Download} label="Downloads" value={stats.downloads} />

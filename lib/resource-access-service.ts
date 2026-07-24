@@ -63,6 +63,31 @@ export async function getTeacherResourceScopeWithDependencies(
   userId: string,
   dependencies: ResourceAccessDependencies,
 ) {
+  const result = await getTeacherResourceAccessWithDependencies(
+    userId,
+    dependencies,
+  );
+  if (result.status !== "READY") return null;
+  return result.resourceScope;
+}
+
+export type TeacherResourceAccessResult =
+  | {
+      status: "READY";
+      resourceScope: {
+        teacher: TeacherAccessRecord;
+        where: Prisma.ResourceWhereInput;
+      };
+    }
+  | { status: "INVALID_SCOPE" }
+  | { status: "RESOURCES_DISABLED" }
+  | { status: "NO_ASSIGNMENTS" }
+  | { status: "NO_ENTITLEMENTS" };
+
+export async function getTeacherResourceAccessWithDependencies(
+  userId: string,
+  dependencies: ResourceAccessDependencies,
+): Promise<TeacherResourceAccessResult> {
   const teacher = await dependencies.findTeacher(userId);
   if (
     !teacher?.active ||
@@ -70,29 +95,38 @@ export async function getTeacherResourceScopeWithDependencies(
     !teacher.school?.publisherId ||
     !teacher.school.publisher?.active
   ) {
-    return null;
+    return { status: "INVALID_SCOPE" };
   }
 
   const publisherId = teacher.school.publisherId;
-  if (!(await dependencies.isResourcesEnabled(publisherId))) return null;
+  if (!(await dependencies.isResourcesEnabled(publisherId))) {
+    return { status: "RESOURCES_DISABLED" };
+  }
   const assignments = await dependencies.findTeacherAssignments(
     teacher.id,
     teacher.schoolId,
   );
-  if (!assignments.length) return null;
+  if (!assignments.length) {
+    return { status: "NO_ASSIGNMENTS" };
+  }
   const sectionSubjects = await dependencies.findEntitledSectionSubjects(
     assignments,
     teacher.schoolId,
     publisherId,
   );
-  if (!sectionSubjects.length) return null;
+  if (!sectionSubjects.length) {
+    return { status: "NO_ENTITLEMENTS" };
+  }
 
   return {
-    teacher,
-    where: buildTeacherResourceWhere(
-      publisherId,
-      sectionSubjects.map((item) => item.id),
-    ),
+    status: "READY",
+    resourceScope: {
+      teacher,
+      where: buildTeacherResourceWhere(
+        publisherId,
+        sectionSubjects.map((item) => item.id),
+      ),
+    },
   };
 }
 

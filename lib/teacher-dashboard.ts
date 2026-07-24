@@ -1,9 +1,9 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import type { Prisma, ResourceAudience, ResourceType } from "@prisma/client";
 
 import { requireUser } from "@/lib/authz";
 import { prisma } from "@/lib/prisma";
-import { getTeacherResourceScope } from "@/lib/resource-audience";
+import { getTeacherResourceAccessState } from "@/lib/resource-audience";
 import { requireTeacherResourceEntitlementAccess } from "@/lib/entitlements/resource";
 
 export async function requireTeacher() {
@@ -24,8 +24,19 @@ export async function requireTeacher() {
 
 export async function getTeacherDashboard() {
   const teacher = await requireTeacher();
-  const resourceScope = await getTeacherResourceScope(teacher.userId);
-  if (!resourceScope) notFound();
+  const access = await getTeacherResourceAccessState(teacher.userId);
+  if (access.status === "INVALID_SCOPE") notFound();
+  if (access.status === "NO_ASSIGNMENTS" || access.status === "NO_ENTITLEMENTS" || access.status === "RESOURCES_DISABLED") {
+    return {
+      status: access.status,
+      teacher,
+      stats: { downloads: 0, bookmarks: 0, resources: 0 },
+      latestResources: [],
+      recentDownloads: [],
+      assignedClasses: [],
+    } as const;
+  }
+  const resourceScope = access.resourceScope;
 
   const [downloads, bookmarks, resources, latestResources, recentDownloads, teachingAssignments] =
     await prisma.$transaction([
@@ -128,6 +139,7 @@ export async function getTeacherDashboard() {
   }));
 
   return {
+    status: "READY" as const,
     teacher,
     stats: { downloads, bookmarks, resources },
     latestResources,
@@ -146,8 +158,10 @@ export async function getResources(filters: {
   audience?: ResourceAudience;
 }) {
   const teacher = await requireTeacher();
-  const resourceScope = await getTeacherResourceScope(teacher.userId);
-  if (!resourceScope) notFound();
+  const access = await getTeacherResourceAccessState(teacher.userId);
+  if (access.status === "INVALID_SCOPE") notFound();
+  if (access.status !== "READY") redirect("/teacher-dashboard");
+  const resourceScope = access.resourceScope;
 
   const where: Prisma.ResourceWhereInput = {
     ...resourceScope.where,
@@ -225,8 +239,10 @@ export async function getResources(filters: {
 
 export async function getDownloads(query?: string) {
   const teacher = await requireTeacher();
-  const resourceScope = await getTeacherResourceScope(teacher.userId);
-  if (!resourceScope) notFound();
+  const access = await getTeacherResourceAccessState(teacher.userId);
+  if (access.status === "INVALID_SCOPE") notFound();
+  if (access.status !== "READY") redirect("/teacher-dashboard");
+  const resourceScope = access.resourceScope;
 
   return prisma.download.findMany({
     where: {
@@ -260,8 +276,10 @@ export async function getDownloads(query?: string) {
 
 export async function getBookmarks(query?: string) {
   const teacher = await requireTeacher();
-  const resourceScope = await getTeacherResourceScope(teacher.userId);
-  if (!resourceScope) notFound();
+  const access = await getTeacherResourceAccessState(teacher.userId);
+  if (access.status === "INVALID_SCOPE") notFound();
+  if (access.status !== "READY") redirect("/teacher-dashboard");
+  const resourceScope = access.resourceScope;
 
   return prisma.bookmark.findMany({
     where: {
@@ -295,11 +313,13 @@ export async function getBookmarks(query?: string) {
 
 export async function getResourceDetails(id: string) {
   const teacher = await requireTeacher();
-  const access = await requireTeacherResourceEntitlementAccess(teacher.userId, id);
-  if(!access)notFound();
-  const resource=access.resource;
-  const resourceScope = await getTeacherResourceScope(teacher.userId);
-  if (!resourceScope) notFound();
+  const scopeAccess = await getTeacherResourceAccessState(teacher.userId);
+  if (scopeAccess.status === "INVALID_SCOPE") notFound();
+  if (scopeAccess.status !== "READY") redirect("/teacher-dashboard");
+  const entitlementAccess = await requireTeacherResourceEntitlementAccess(teacher.userId, id);
+  if(!entitlementAccess)notFound();
+  const resource=entitlementAccess.resource;
+  const resourceScope = scopeAccess.resourceScope;
 
   const resourceDetails = await prisma.resource.findFirst({
     where: { id: resource.id, ...resourceScope.where },

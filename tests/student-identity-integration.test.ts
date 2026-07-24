@@ -34,11 +34,13 @@ test("requireStudent revalidates live identity and session scope", () => {
 });
 
 test("every student dashboard page derives identity without URL ids", () => {
-  for (const path of ["app/student-dashboard/page.tsx", "app/student-dashboard/profile/page.tsx"]) {
-    const page = source(path);
-    assert.match(page, /await requireStudent\(\)/);
-    assert.doesNotMatch(page, /\bparams\b|searchParams/);
-  }
+  const dashboardPage = source("app/student-dashboard/page.tsx");
+  assert.match(dashboardPage, /await requireStudentDashboardAccess\(\)/);
+  assert.doesNotMatch(dashboardPage, /\bparams\b|searchParams/);
+
+  const profilePage = source("app/student-dashboard/profile/page.tsx");
+  assert.match(profilePage, /await requireStudent\(\)/);
+  assert.doesNotMatch(profilePage, /\bparams\b|searchParams/);
 });
 
 test("student profile is read-only and dashboard has no fake analytics", () => {
