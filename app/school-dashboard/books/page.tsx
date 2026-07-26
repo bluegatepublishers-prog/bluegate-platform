@@ -35,7 +35,18 @@ export default async function SchoolBooksPage({
     : years.find((year) => year.current)?.id ?? years[0]?.id ?? "";
   const [books, classes, adoptions] = await Promise.all([
     prisma.book.findMany({
-      where: { publisherId: school.publisherId, published: true },
+      where: {
+        publisherId: school.publisherId,
+        published: true,
+        archived: false,
+        schoolEntitlements: {
+          some: {
+            schoolId: school.id,
+            publisherId: school.publisherId,
+            status: "ACTIVE",
+          },
+        },
+      },
       include: { class: true, subject: true, series: true },
       orderBy: [{ class: { sortOrder: "asc" } }, { subject: { sortOrder: "asc" } }, { title: "asc" }],
     }),

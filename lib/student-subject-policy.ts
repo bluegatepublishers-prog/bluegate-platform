@@ -1,7 +1,19 @@
 import { normalizeAcademicName } from "@/lib/section-subject-content-policy";
 import { bookCoverPath } from "@/lib/storage/book-asset-path";
 
-export type StudentResourceType = "PDF" | "PPT" | "DOC" | "VIDEO" | "ZIP";
+export type StudentResourceType =
+  | "PDF"
+  | "PPT"
+  | "DOC"
+  | "VIDEO"
+  | "ZIP"
+  | "WORKSHEET"
+  | "AUDIO"
+  | "LINK"
+  | "INTERACTIVE"
+  | "ANSWER_KEY"
+  | "TEACHER_GUIDE"
+  | "QUESTION_BANK";
 export type StudentResourceAudience = "STUDENT" | "BOTH" | "TEACHER_ONLY";
 
 export interface StudentSubjectContext {

@@ -43,6 +43,16 @@ export const getStudentSubjects = cache(async () => {
           sectionId: enrollment.sectionId,
           status: BookAdoptionStatus.APPROVED,
           active: true,
+          book: {
+            archived: false,
+            schoolEntitlements: {
+              some: {
+                schoolId: school.id,
+                publisherId: publisher.id,
+                status: "ACTIVE",
+              },
+            },
+          },
         },
         select: {
           schoolId: true,
@@ -72,7 +82,33 @@ export const getStudentSubjects = cache(async () => {
         where: {
           publisherId: publisher.id,
           published: true,
+          archived: false,
           audience: { in: [ResourceAudience.STUDENT, ResourceAudience.BOTH] },
+          schoolEntitlements: {
+            some: {
+              schoolId: school.id,
+              publisherId: publisher.id,
+              status: "ACTIVE",
+            },
+          },
+          AND: [
+            {
+              OR: [
+                { bookId: null },
+                {
+                  book: {
+                    schoolEntitlements: {
+                      some: {
+                        schoolId: school.id,
+                        publisherId: publisher.id,
+                        status: "ACTIVE",
+                      },
+                    },
+                  },
+                },
+              ],
+            },
+          ],
         },
         select: {
           id: true,

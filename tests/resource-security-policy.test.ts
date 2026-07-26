@@ -38,7 +38,9 @@ test("Admin update and delete first look up the resource inside publisher scope"
   const route = source("app/api/admin/resources/[id]/route.ts");
   assert.equal(route.match(/findFirst\(\{ where: \{ id, publisherId:actor\.publisherId \} \}\)/g)?.length, 2);
   assert.match(route, /updateMany\([\s\S]*publisherId: actor\.publisherId/);
-  assert.match(route, /deleteMany\(\{ where: \{ id, publisherId: actor\.publisherId \} \}\)/);
+  assert.match(route, /updateMany\(\{[\s\S]*where: \{ id, publisherId: actor\.publisherId \}[\s\S]*archived: true/);
+  const deleteHandler = route.slice(route.indexOf("export async function DELETE"));
+  assert.doesNotMatch(deleteHandler, /deleteMany\(/);
 });
 
 test("Admin direct edit uses centralized live publisher ownership", () => {

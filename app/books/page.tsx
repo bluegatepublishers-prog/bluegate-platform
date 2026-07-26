@@ -20,6 +20,7 @@ export default async function BooksPage({
   const dbBooks = await prisma.book.findMany({
     where: {
       published: true,
+      archived: false,
     },
     select: {
       id:true,slug:true,title:true,subtitle:true,description:true,coverImage:true,publicPreviewPdf:true,samplePdf:true,featured:true,isbn:true,pages:true,board:true,price:true,

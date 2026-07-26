@@ -16,7 +16,7 @@ export const revalidate = 0;
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { slug } = await params;
   const book = await prisma.book.findFirst({
-    where: { slug, published: true },
+    where: { slug, published: true, archived: false },
     select: {
       title: true,
       description: true,
@@ -41,7 +41,7 @@ export default async function BookDetailsPage({ params }: PageProps) {
   const { slug } = await params;
 
   const dbBook = await prisma.book.findFirst({
-    where: { slug, published: true },
+    where: { slug, published: true, archived: false },
     select: {
       id: true,
       publisherId: true,

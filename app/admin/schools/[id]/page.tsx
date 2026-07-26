@@ -57,6 +57,24 @@ export default async function AdminSchoolDetailPage({
         ))}
       </section>
 
+      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {[
+          ["Books assigned", school.contentEntitlements.books.assigned],
+          ["Active books", school.contentEntitlements.books.active],
+          ["Paused books", school.contentEntitlements.books.paused],
+          ["Revoked books", school.contentEntitlements.books.revoked],
+          ["Resources assigned", school.contentEntitlements.resources.assigned],
+          ["Active resources", school.contentEntitlements.resources.active],
+          ["Paused resources", school.contentEntitlements.resources.paused],
+          ["Revoked resources", school.contentEntitlements.resources.revoked],
+        ].map(([label, count]) => (
+          <div key={String(label)} className="rounded-2xl border bg-white p-4">
+            <p className="text-sm text-slate-500">{label}</p>
+            <p className="mt-1 text-2xl font-bold">{count}</p>
+          </div>
+        ))}
+      </section>
+
       <div className="grid min-w-0 gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="min-w-0 space-y-6">
           <section className="rounded-2xl border bg-white p-5 shadow-sm">
@@ -76,10 +94,11 @@ export default async function AdminSchoolDetailPage({
 
           <section className="rounded-2xl border bg-white p-5 shadow-sm">
             <h2 className="text-xl font-bold">Publisher content</h2>
-            <p className="mt-2 text-sm text-slate-600">Approve publisher books requested by this school and manage publisher resources without changing classes or teacher assignments.</p>
+            <p className="mt-2 text-sm text-slate-600">Control the publisher-owned books and resources this school may use. Class, section, and subject assignment remains with the school.</p>
             <div className="mt-4 flex flex-wrap gap-3">
-              <Link href="/admin/book-adoptions" className="min-h-12 rounded-xl border px-4 py-3 font-semibold text-blue-700">Manage book availability</Link>
-              <Link href="/admin/resources" className="min-h-12 rounded-xl border px-4 py-3 font-semibold text-blue-700">Publisher resources</Link>
+              <Link href={`/admin/schools/${school.id}/books`} className="min-h-12 rounded-xl border px-4 py-3 font-semibold text-blue-700">Manage school books</Link>
+              <Link href={`/admin/schools/${school.id}/resources`} className="min-h-12 rounded-xl border px-4 py-3 font-semibold text-blue-700">Manage school resources</Link>
+              <Link href="/admin/book-adoptions" className="min-h-12 rounded-xl border px-4 py-3 font-semibold text-blue-700">Review class adoption requests</Link>
             </div>
           </section>
 
@@ -137,6 +156,8 @@ export default async function AdminSchoolDetailPage({
               <Row label="Email" value={school.user.email} />
               <Row label="Academic sessions" value={String(school._count.academicYears)} />
               <Row label="Classes" value={String(school._count.schoolClasses)} />
+              <Row label="Active books" value={String(school.contentEntitlements.books.active)} />
+              <Row label="Active resources" value={String(school.contentEntitlements.resources.active)} />
             </dl>
           </section>
         </aside>

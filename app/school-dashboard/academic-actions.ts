@@ -156,7 +156,7 @@ export async function saveSectionSubjectContent(schoolClassId: string, form: For
       ),
       include: { class: true },
     }) : null,
-    prisma.resource.findMany({ where: buildAssignableResourcesWhere(school.publisherId, resourceIds) }),
+    prisma.resource.findMany({ where: buildAssignableResourcesWhere(school.publisherId, school.id, resourceIds) }),
   ]);
   if (!isSectionSubjectContentSelectionValid({
     publisherId: school.publisherId,

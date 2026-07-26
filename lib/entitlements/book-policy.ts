@@ -11,6 +11,7 @@ export interface BookEntitlementFacts {
   academicContext: boolean;
   assignment: boolean;
   enrollment: boolean;
+  schoolEntitled: boolean;
   adoptionApproved: boolean;
 }
 
@@ -36,6 +37,9 @@ export function decideBookEntitlement(
   }
   if (!facts.academicContext) {
     return { allowed: false, reason: "NO_ACADEMIC_CONTEXT" };
+  }
+  if (!facts.schoolEntitled) {
+    return { allowed: false, reason: "BOOK_NOT_APPROVED" };
   }
   if (facts.role === "TEACHER" && !facts.assignment) {
     return { allowed: false, reason: "NO_ASSIGNMENT" };

@@ -218,15 +218,13 @@ export async function deleteChapter(bookId: string, chapterId: string) {
     await prisma.$transaction(async (tx) => {
       const chapter = await tx.bookChapter.findFirst({
         where: { id: chapterId, bookId },
-        select: {
-          _count: { select: { questions: true, learningOutcomes: true, activities: true } },
-        },
+        select: { id: true },
       });
       if (!chapter) throw new Error("Chapter not found.");
-      if (chapter._count.questions + chapter._count.learningOutcomes + chapter._count.activities > 0) {
-        throw new Error("Remove linked questions, outcomes, and activities before deleting this chapter.");
-      }
-      await tx.bookChapter.delete({ where: { id: chapterId } });
+      await tx.bookChapter.update({
+        where: { id: chapterId },
+        data: { archived: true, archivedAt: new Date(), published: false },
+      });
       await writeBookAudit(tx, actor, "publisher.book.delete", bookId, ["book_content", "chapter"]);
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   } catch (error) {

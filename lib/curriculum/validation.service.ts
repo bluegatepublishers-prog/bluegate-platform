@@ -76,7 +76,7 @@ type TopicRecord = {
   id: string;
   bookId: string;
   chapterId: string;
-  moduleId: string;
+  moduleId: string | null;
   published: boolean;
   archived: boolean;
 };

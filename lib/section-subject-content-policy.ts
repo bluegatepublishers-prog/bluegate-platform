@@ -32,7 +32,11 @@ export function buildAssignableBookWhere(
     id: bookId,
     publisherId,
     published: true,
+    archived: false,
     subjectId,
+    schoolEntitlements: {
+      some: { publisherId, schoolId, status: "ACTIVE" },
+    },
     schoolAdoptions: {
       some: {
         publisherId,
@@ -48,9 +52,32 @@ export function buildAssignableBookWhere(
 
 export function buildAssignableResourcesWhere(
   publisherId: string,
+  schoolId: string,
   resourceIds: string[],
 ): Prisma.ResourceWhereInput {
-  return { id: { in: resourceIds }, publisherId, published: true };
+  return {
+    id: { in: resourceIds },
+    publisherId,
+    published: true,
+    archived: false,
+    schoolEntitlements: {
+      some: { publisherId, schoolId, status: "ACTIVE" },
+    },
+    AND: [
+      {
+        OR: [
+          { bookId: null },
+          {
+            book: {
+              schoolEntitlements: {
+                some: { publisherId, schoolId, status: "ACTIVE" },
+              },
+            },
+          },
+        ],
+      },
+    ],
+  };
 }
 
 interface CompatibleBook {

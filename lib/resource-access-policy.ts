@@ -4,7 +4,7 @@ import { ResourceAudience as Audience } from "@prisma/client";
 export function getTeacherVisibleResourceWhere(
   publisherId: string,
 ): Prisma.ResourceWhereInput {
-  return { publisherId, published: true };
+  return { publisherId, published: true, archived: false };
 }
 
 export function getStudentVisibleResourceWhere(
@@ -13,6 +13,7 @@ export function getStudentVisibleResourceWhere(
   return {
     publisherId,
     published: true,
+    archived: false,
     audience: { in: [Audience.STUDENT, Audience.BOTH] },
   };
 }
@@ -52,12 +53,29 @@ export function buildEntitledSectionSubjectsWhere(
 
 export function buildTeacherResourceWhere(
   publisherId: string,
+  schoolId: string,
   sectionSubjectIds: string[],
 ): Prisma.ResourceWhereInput {
   return {
     publisherId,
     published: true,
+    archived: false,
     sectionSubjects: { some: { id: { in: sectionSubjectIds } } },
+    schoolEntitlements: { some: { schoolId, publisherId, status: "ACTIVE" } },
+    AND: [
+      {
+        OR: [
+          { bookId: null },
+          {
+            book: {
+              schoolEntitlements: {
+                some: { schoolId, publisherId, status: "ACTIVE" },
+              },
+            },
+          },
+        ],
+      },
+    ],
   };
 }
 
@@ -68,6 +86,22 @@ export function buildSchoolResourceWhere(
   return {
     publisherId,
     published: true,
+    archived: false,
+    schoolEntitlements: { some: { schoolId, publisherId, status: "ACTIVE" } },
+    AND: [
+      {
+        OR: [
+          { bookId: null },
+          {
+            book: {
+              schoolEntitlements: {
+                some: { schoolId, publisherId, status: "ACTIVE" },
+              },
+            },
+          },
+        ],
+      },
+    ],
     sectionSubjects: {
       some: {
         active: true,
@@ -106,6 +140,7 @@ export function buildAdminResourceWhere(
     seriesId: input.seriesId,
     bookId: input.bookId,
     published: input.published,
+    archived: false,
     OR: input.query
       ? [
           { title: { contains: input.query, mode: "insensitive" } },

@@ -16,6 +16,7 @@ const allowed: BookEntitlementFacts = {
   academicContext: true,
   assignment: true,
   enrollment: false,
+  schoolEntitled: true,
   adoptionApproved: true,
 };
 

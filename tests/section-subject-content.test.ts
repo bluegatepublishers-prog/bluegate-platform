@@ -102,7 +102,15 @@ test("assignment lookup builders retain publisher ownership", () => {
       id: "book-a",
       publisherId: "publisher-a",
       published: true,
+      archived: false,
       subjectId: "subject-science",
+      schoolEntitlements: {
+        some: {
+          publisherId: "publisher-a",
+          schoolId: "school-a",
+          status: "ACTIVE",
+        },
+      },
       schoolAdoptions: {
         some: {
           publisherId: "publisher-a",
@@ -116,11 +124,37 @@ test("assignment lookup builders retain publisher ownership", () => {
     },
   );
   assert.deepEqual(
-    buildAssignableResourcesWhere("publisher-a", ["resource-a"]),
+    buildAssignableResourcesWhere("publisher-a", "school-a", ["resource-a"]),
     {
       id: { in: ["resource-a"] },
       publisherId: "publisher-a",
       published: true,
+      archived: false,
+      schoolEntitlements: {
+        some: {
+          publisherId: "publisher-a",
+          schoolId: "school-a",
+          status: "ACTIVE",
+        },
+      },
+      AND: [
+        {
+          OR: [
+            { bookId: null },
+            {
+              book: {
+                schoolEntitlements: {
+                  some: {
+                    publisherId: "publisher-a",
+                    schoolId: "school-a",
+                    status: "ACTIVE",
+                  },
+                },
+              },
+            },
+          ],
+        },
+      ],
     },
   );
 });

@@ -129,6 +129,7 @@ export async function getTeacherResourceAccessWithDependencies(
       teacher,
       where: buildTeacherResourceWhere(
         publisherId,
+        teacher.schoolId,
         sectionSubjects.map((item) => item.id),
       ),
     },

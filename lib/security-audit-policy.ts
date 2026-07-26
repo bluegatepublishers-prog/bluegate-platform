@@ -14,6 +14,10 @@ export const SECURITY_AUDIT_ACTIONS = [
   "publisher.curriculum.unit.update",
   "publisher.curriculum.unit.archive",
   "publisher.curriculum.unit.restore",
+  "publisher.curriculum.chapter.create",
+  "publisher.curriculum.chapter.update",
+  "publisher.curriculum.chapter.archive",
+  "publisher.curriculum.chapter.restore",
   "publisher.curriculum.module.create",
   "publisher.curriculum.module.update",
   "publisher.curriculum.module.archive",
@@ -52,6 +56,32 @@ export const SECURITY_AUDIT_ACTIONS = [
   "publisher.book_adoption.approve",
   "publisher.book_adoption.reject",
   "publisher.book_adoption.revoke",
+  "publisher.school_book_entitlement.assign",
+  "publisher.school_book_entitlement.pause",
+  "publisher.school_book_entitlement.resume",
+  "publisher.school_book_entitlement.revoke",
+  "publisher.school_book_entitlement.restore",
+  "publisher.school_book_entitlement.archive",
+  "publisher.school_resource_entitlement.assign",
+  "publisher.school_resource_entitlement.pause",
+  "publisher.school_resource_entitlement.resume",
+  "publisher.school_resource_entitlement.revoke",
+  "publisher.school_resource_entitlement.restore",
+  "publisher.school_resource_entitlement.archive",
+  "publisher.book_part.create",
+  "publisher.book_part.update",
+  "publisher.book_part.archive",
+  "publisher.book_part.restore",
+  "publisher.book_structure.reorder",
+  "publisher.book_structure.duplicate",
+  "publisher.book_feature.create",
+  "publisher.book_feature.update",
+  "publisher.book_feature.attach",
+  "publisher.book_feature.detach",
+  "publisher.book_feature.reorder",
+  "publisher.book_resource.attach",
+  "publisher.book_resource.detach",
+  "publisher.book_resource.reorder",
   "account.email.verify",
   "account.password_reset.complete",
   "storage.upload.init",
@@ -95,6 +125,7 @@ export type SecurityAuditTargetType =
   | "Book"
   | "BookEdition"
   | "BookUnit"
+  | "BookChapter"
   | "BookModule"
   | "BookTopic"
   | "BookExercise"
@@ -106,6 +137,12 @@ export type SecurityAuditTargetType =
   | "ReportCardSnapshot"
   | "Teacher"
   | "SchoolBookAdoption"
+  | "SchoolBookEntitlement"
+  | "SchoolResourceEntitlement"
+  | "BookPart"
+  | "BookFeatureDefinition"
+  | "BookFeatureAssignment"
+  | "BookResourceLink"
   | "User"
   | "Storage"
   | "ClassMaterial"

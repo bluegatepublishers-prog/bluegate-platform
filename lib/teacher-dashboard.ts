@@ -112,11 +112,50 @@ export async function getTeacherDashboard() {
               status: "APPROVED",
               active: true,
               publisherId: teacher.school?.publisherId,
+              book: {
+                archived: false,
+                schoolEntitlements: {
+                  some: {
+                    schoolId: teacher.schoolId!,
+                    publisherId: teacher.school?.publisherId!,
+                    status: "ACTIVE",
+                  },
+                },
+              },
             },
             include: { book: { include: { series: true } } },
           },
           resources: {
-            where: { publisherId: teacher.school?.publisherId, published: true },
+            where: {
+              publisherId: teacher.school?.publisherId,
+              published: true,
+              archived: false,
+              schoolEntitlements: {
+                some: {
+                  schoolId: teacher.schoolId!,
+                  publisherId: teacher.school?.publisherId!,
+                  status: "ACTIVE",
+                },
+              },
+              AND: [
+                {
+                  OR: [
+                    { bookId: null },
+                    {
+                      book: {
+                        schoolEntitlements: {
+                          some: {
+                            schoolId: teacher.schoolId!,
+                            publisherId: teacher.school?.publisherId!,
+                            status: "ACTIVE",
+                          },
+                        },
+                      },
+                    },
+                  ],
+                },
+              ],
+            },
             include: {
               classRef: { select: { name: true } },
               subjectRef: { select: { name: true } },

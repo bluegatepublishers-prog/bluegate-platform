@@ -86,6 +86,7 @@ export async function PUT(
           fullBookPdf: true, galleryImages: true, subtitle: true, description: true,
           edition: true, publisher: true, language: true, board: true, binding: true,
           dimensions: true, featured: true, featuredOrder: true, published: true,
+          publishedAt: true,
         },
       });
       if (!previous) return null;
@@ -104,6 +105,7 @@ export async function PUT(
           binding: previous.binding,
           dimensions: previous.dimensions,
           slug,
+          publishedAt: form.published ? previous.publishedAt ?? new Date() : null,
         },
         include: { class: true, subject: true, series: true },
       });
@@ -164,11 +166,18 @@ export async function DELETE(
         select: { slug: true, coverImage: true, samplePdf: true, publicPreviewPdf: true, fullBookPdf: true, galleryImages: true },
       });
       if (!owned) return null;
-      await tx.book.delete({ where: { id } });
+      await tx.book.update({
+        where: { id },
+        data: {
+          archived: true,
+          archivedAt: new Date(),
+          published: false,
+        },
+      });
       await writeSecurityAuditEvent(tx, {
         actor: publisherAdminAuditActor(access.actor), action: "publisher.book.delete",
         targetType: "Book", targetId: id, outcome: SecurityAuditOutcome.SUCCESS,
-        metadata: { fileOperation: "delete_requested", fileCount: [owned.coverImage, owned.samplePdf, owned.publicPreviewPdf, owned.fullBookPdf, ...owned.galleryImages].filter(Boolean).length },
+        metadata: { changedFields: ["archived", "publicationState"] },
       });
       return owned;
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
@@ -177,11 +186,10 @@ export async function DELETE(
       return publisherAdminNotFound();
     }
 
-    await removeManagedBookFiles([book.coverImage, book.samplePdf, book.publicPreviewPdf, book.fullBookPdf, ...book.galleryImages]);
     revalidatePath("/admin/books");
     revalidatePath("/books");
     revalidatePath(`/books/${book.slug}`);
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, message: "Book archived." });
   } catch {
     await recordTrustedFailureAudit({ actor: publisherAdminAuditActor(access.actor), action: "publisher.book.delete", targetType: "Book" });
     console.warn("Publisher Admin book deletion failed.", { code: "BOOK_DELETE_FAILED" });

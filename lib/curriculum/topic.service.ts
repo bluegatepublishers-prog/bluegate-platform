@@ -162,19 +162,26 @@ export async function updateTopic(
       select: { chapterId: true, moduleId: true },
     });
     if (!existing) throw new CurriculumValidationError("ENTITY_NOT_FOUND", "Topic was not found for update.");
+    const targetModuleId = normalized.moduleId ?? existing.moduleId;
+    if (!targetModuleId) {
+      throw new CurriculumValidationError(
+        "INVALID_PARENT_CHAIN",
+        "This curriculum service requires a topic lesson group.",
+      );
+    }
     await validateTopicBelongsToModule(
       {
         actor: input.actor,
         bookId: input.bookId,
         chapterId: normalized.chapterId ?? existing.chapterId,
-        moduleId: normalized.moduleId ?? existing.moduleId,
+        moduleId: targetModuleId,
         topicId: input.topicId,
         requirePublished: normalized.published === true,
       },
       loaders,
     );
     await assertTopicCodeAvailable(tx, {
-      moduleId: normalized.moduleId ?? existing.moduleId,
+      moduleId: targetModuleId,
       code: normalized.code,
       currentId: input.topicId,
     });

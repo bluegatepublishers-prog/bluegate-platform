@@ -39,9 +39,11 @@ test("cross-tenant denials and failures are audited", () => {
   assert.match(source, /publisher\.book\.delete/);
 });
 
-test("chapter and question deletes protect linked child content", () => {
+test("chapter archival retains linked child content and question deletion protects usage history", () => {
   const source = read("app/admin/books/[id]/knowledge-actions.ts");
-  assert.match(source, /Remove linked questions, outcomes, and activities before deleting this chapter/);
+  assert.match(source, /bookChapter\.update\(/);
+  assert.match(source, /archived: true, archivedAt: new Date\(\), published: false/);
+  assert.doesNotMatch(source, /bookChapter\.delete/);
   assert.match(source, /practiceResponses/);
   assert.match(source, /assessmentQuestions/);
   assert.match(source, /This question is already used\./);

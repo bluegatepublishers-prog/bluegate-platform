@@ -141,7 +141,33 @@ export async function resolveResourceEntitlementForAuthenticatedUser(
         id: request.resourceId,
         publisherId: student.school.publisherId,
         published: true,
+        archived: false,
         audience: { in: [ResourceAudience.STUDENT, ResourceAudience.BOTH] },
+        schoolEntitlements: {
+          some: {
+            schoolId: student.schoolId,
+            publisherId: student.school.publisherId,
+            status: "ACTIVE",
+          },
+        },
+        AND: [
+          {
+            OR: [
+              { bookId: null },
+              {
+                book: {
+                  schoolEntitlements: {
+                    some: {
+                      schoolId: student.schoolId,
+                      publisherId: student.school.publisherId,
+                      status: "ACTIVE",
+                    },
+                  },
+                },
+              },
+            ],
+          },
+        ],
         sectionSubjects: {
           some: {
             id: request.sectionSubjectId,

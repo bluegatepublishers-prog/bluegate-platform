@@ -60,10 +60,12 @@ test("Prisma visibility conditions retain publisher and publication scope", () =
   assert.deepEqual(getTeacherVisibleResourceWhere("publisher-a"), {
     publisherId: "publisher-a",
     published: true,
+    archived: false,
   });
   assert.deepEqual(getStudentVisibleResourceWhere("publisher-a"), {
     publisherId: "publisher-a",
     published: true,
+    archived: false,
     audience: { in: [ResourceAudience.STUDENT, ResourceAudience.BOTH] },
   });
 });

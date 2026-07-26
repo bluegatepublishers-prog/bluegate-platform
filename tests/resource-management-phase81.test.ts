@@ -56,11 +56,12 @@ test("resource lifecycle avoids deleting shared old files and keeps db success i
   assert.match(route, /return NextResponse\.json\(toResourceJson\(resource\)\);/);
 });
 
-test("resource delete checks shared references before removing blob files", () => {
+test("resource delete archives metadata and retains blob files and reference history", () => {
   const route = source("app/api/admin/resources/[id]/route.ts");
-  assert.match(route, /const \[fileRefCount, thumbnailRefCount\] = await Promise\.all\(/);
-  assert.match(route, /if \(fileRefCount === 0\) \{\s*await removeManagedResourceFile\(resource\.fileUrl\);/);
-  assert.match(route, /if \(resource\.thumbnail && thumbnailRefCount === 0\) \{\s*await removeManagedResourceFile\(resource\.thumbnail\);/);
+  assert.match(route, /updateMany\(\{[\s\S]*where: \{ id, publisherId: actor\.publisherId \}[\s\S]*archived: true[\s\S]*published: false/);
+  const deleteHandler = route.slice(route.indexOf("export async function DELETE"));
+  assert.doesNotMatch(deleteHandler, /deleteMany\(/);
+  assert.doesNotMatch(deleteHandler, /removeManagedResourceFile\(/);
 });
 
 test("teacher resources support class/subject/series/book filters", () => {
@@ -84,6 +85,6 @@ test("bookmark writes use an idempotent composite upsert", () => {
 
 test("teacher-visible resources remain published-only and student-visible excludes teacher-only", () => {
   const policy = source("lib/resource-access-policy.ts");
-  assert.match(policy, /return \{ publisherId, published: true \};/);
+  assert.match(policy, /return \{ publisherId, published: true, archived: false \};/);
   assert.match(policy, /audience: \{ in: \[Audience\.STUDENT, Audience\.BOTH\] \}/);
 });

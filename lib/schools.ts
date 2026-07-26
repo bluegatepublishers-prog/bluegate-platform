@@ -127,7 +127,7 @@ export async function getSchoolById(id: string) {
   if (!process.env.DATABASE_URL) return null;
   const actor = await requireLivePublisherAdmin();
 
-  const [school, recentAuditEvents] = await prisma.$transaction([
+  const [school, recentAuditEvents, bookEntitlementRows, resourceEntitlementRows] = await prisma.$transaction([
     prisma.school.findFirst({
       where: { id, publisherId: actor.publisherId },
       include: {
@@ -140,6 +140,8 @@ export async function getSchoolById(id: string) {
             academicYears: true,
             schoolClasses: true,
             bookAdoptions: true,
+            bookEntitlements: true,
+            resourceEntitlements: true,
           },
         },
         onboardingReviews: {
@@ -158,13 +160,65 @@ export async function getSchoolById(id: string) {
     prisma.securityAuditEvent.findMany({
       where: {
         publisherId: actor.publisherId,
-        targetType: "School",
-        targetId: id,
+        OR: [
+          { targetType: "School", targetId: id },
+          {
+            targetType: "SchoolBookEntitlement",
+            targetId: {
+              in: (
+                await prisma.schoolBookEntitlement.findMany({
+                  where: { schoolId: id, publisherId: actor.publisherId },
+                  select: { id: true },
+                })
+              ).map((item) => item.id),
+            },
+          },
+          {
+            targetType: "SchoolResourceEntitlement",
+            targetId: {
+              in: (
+                await prisma.schoolResourceEntitlement.findMany({
+                  where: { schoolId: id, publisherId: actor.publisherId },
+                  select: { id: true },
+                })
+              ).map((item) => item.id),
+            },
+          },
+        ],
       },
       select: { id: true, action: true, outcome: true, createdAt: true },
       orderBy: { createdAt: "desc" },
       take: 8,
     }),
+    prisma.schoolBookEntitlement.findMany({
+      where: { schoolId: id, publisherId: actor.publisherId },
+      select: { status: true },
+    }),
+    prisma.schoolResourceEntitlement.findMany({
+      where: { schoolId: id, publisherId: actor.publisherId },
+      select: { status: true },
+    }),
   ]);
-  return school ? { ...school, recentAuditEvents } : null;
+  const countByStatus = (rows: Array<{ status: string }>, status: string) =>
+    rows.filter((row) => row.status === status).length;
+  return school
+    ? {
+        ...school,
+        recentAuditEvents,
+        contentEntitlements: {
+          books: {
+            assigned: school._count.bookEntitlements,
+            active: countByStatus(bookEntitlementRows, "ACTIVE"),
+            paused: countByStatus(bookEntitlementRows, "PAUSED"),
+            revoked: countByStatus(bookEntitlementRows, "REVOKED"),
+          },
+          resources: {
+            assigned: school._count.resourceEntitlements,
+            active: countByStatus(resourceEntitlementRows, "ACTIVE"),
+            paused: countByStatus(resourceEntitlementRows, "PAUSED"),
+            revoked: countByStatus(resourceEntitlementRows, "REVOKED"),
+          },
+        },
+      }
+    : null;
 }

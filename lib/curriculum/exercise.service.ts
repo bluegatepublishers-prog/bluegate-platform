@@ -65,6 +65,12 @@ async function validateExerciseParentChain(
     if (!topic || topic.bookId !== input.bookId || topic.chapterId !== input.chapterId) {
       throw new CurriculumValidationError("INVALID_PARENT_CHAIN", "Topic does not belong to the provided chapter chain.");
     }
+    if (!topic.moduleId) {
+      throw new CurriculumValidationError(
+        "INVALID_PARENT_CHAIN",
+        "This exercise service requires the topic to belong to a lesson group.",
+      );
+    }
     await validateTopicBelongsToModule(
       {
         actor: input.actor,

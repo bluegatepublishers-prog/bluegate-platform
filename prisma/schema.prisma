@@ -53,66 +53,80 @@ model User {
   emailVerificationChallenges EmailVerificationChallenge[]
   passwordResetChallenges     PasswordResetChallenge[]
   staffMemberships            SchoolStaffMembership[]
+  assignedSchoolBooks         SchoolBookEntitlement[]      @relation("SchoolBookEntitlementAssigner")
+  pausedSchoolBooks           SchoolBookEntitlement[]      @relation("SchoolBookEntitlementPauser")
+  revokedSchoolBooks          SchoolBookEntitlement[]      @relation("SchoolBookEntitlementRevoker")
+  restoredSchoolBooks         SchoolBookEntitlement[]      @relation("SchoolBookEntitlementRestorer")
+  archivedSchoolBooks         SchoolBookEntitlement[]      @relation("SchoolBookEntitlementArchiver")
+  assignedSchoolResources     SchoolResourceEntitlement[]  @relation("SchoolResourceEntitlementAssigner")
+  pausedSchoolResources       SchoolResourceEntitlement[]  @relation("SchoolResourceEntitlementPauser")
+  revokedSchoolResources      SchoolResourceEntitlement[]  @relation("SchoolResourceEntitlementRevoker")
+  restoredSchoolResources     SchoolResourceEntitlement[]  @relation("SchoolResourceEntitlementRestorer")
+  archivedSchoolResources     SchoolResourceEntitlement[]  @relation("SchoolResourceEntitlementArchiver")
 
   @@index([publisherId, role])
   @@index([role, active])
 }
 
 model Publisher {
-  id                      String                    @id @default(cuid())
-  name                    String
-  shortName               String?
-  slug                    String                    @unique
-  active                  Boolean                   @default(true)
-  logoUrl                 String?
-  faviconUrl              String?
-  primaryColor            String?
-  secondaryColor          String?
-  accentColor             String?
-  supportEmail            String?
-  supportPhone            String?
-  websiteUrl              String?
-  portalTitle             String?
-  aiName                  String?
-  createdAt               DateTime                  @default(now())
-  updatedAt               DateTime                  @updatedAt
-  users                   User[]
-  schools                 School[]
-  books                   Book[]
-  resources               Resource[]
-  series                  BookSeries[]
-  inspectionRequests      InspectionRequest[]
-  bookAdoptions           SchoolBookAdoption[]
-  studentAccessGrants     StudentAccessGrant[]
-  studentBookProgress     StudentBookProgress[]
-  studentBookBookmarks    StudentBookBookmark[]
-  studentAiConversations  StudentAiConversation[]
-  assessments             Assessment[]
-  assessmentAttempts      AssessmentAttempt[]
-  analytics               StudentAnalytics[]
-  subjectAnalytics        StudentSubjectAnalytics[]
-  chapterAnalytics        StudentChapterAnalytics[]
-  skillAnalytics          StudentSkillAnalytics[]
-  learningTimeline        LearningTimeline[]
-  publisherAnalytics      PublisherAnalytics[]
-  features                PublisherFeature[]
-  teacherAnalytics        TeacherAnalytics[]
-  schoolAnalytics         SchoolAnalytics[]
-  gapAnalysisRuns         GapAnalysisRun[]
-  learningGaps            StudentLearningGap[]
-  remedialPlans           RemedialPlan[]
-  schoolOnboardingReviews SchoolOnboardingReview[]
-  teacherSchoolRequests   TeacherSchoolRequest[]
-  mentors                 Mentor[]
-  mentorAssignments       MentorStudentAssignment[]
-  mentorSessions          MentorSession[]
-  mentorNotes             MentorNote[]
-  mentorActivities        MentorActivity[]
-  parentInvitations       ParentInvitation[]
-  videoLessons            VideoLesson[]
-  classMaterials          ClassMaterial[]
-  classroomAssignments    ClassroomAssignment[]
-  assignmentSubmissions   AssignmentSubmission[]
+  id                         String                      @id @default(cuid())
+  name                       String
+  shortName                  String?
+  slug                       String                      @unique
+  active                     Boolean                     @default(true)
+  logoUrl                    String?
+  faviconUrl                 String?
+  primaryColor               String?
+  secondaryColor             String?
+  accentColor                String?
+  supportEmail               String?
+  supportPhone               String?
+  websiteUrl                 String?
+  portalTitle                String?
+  aiName                     String?
+  createdAt                  DateTime                    @default(now())
+  updatedAt                  DateTime                    @updatedAt
+  users                      User[]
+  schools                    School[]
+  books                      Book[]
+  resources                  Resource[]
+  series                     BookSeries[]
+  inspectionRequests         InspectionRequest[]
+  bookAdoptions              SchoolBookAdoption[]
+  studentAccessGrants        StudentAccessGrant[]
+  studentBookProgress        StudentBookProgress[]
+  studentBookBookmarks       StudentBookBookmark[]
+  studentAiConversations     StudentAiConversation[]
+  assessments                Assessment[]
+  assessmentAttempts         AssessmentAttempt[]
+  analytics                  StudentAnalytics[]
+  subjectAnalytics           StudentSubjectAnalytics[]
+  chapterAnalytics           StudentChapterAnalytics[]
+  skillAnalytics             StudentSkillAnalytics[]
+  learningTimeline           LearningTimeline[]
+  publisherAnalytics         PublisherAnalytics[]
+  features                   PublisherFeature[]
+  teacherAnalytics           TeacherAnalytics[]
+  schoolAnalytics            SchoolAnalytics[]
+  gapAnalysisRuns            GapAnalysisRun[]
+  learningGaps               StudentLearningGap[]
+  remedialPlans              RemedialPlan[]
+  schoolOnboardingReviews    SchoolOnboardingReview[]
+  teacherSchoolRequests      TeacherSchoolRequest[]
+  mentors                    Mentor[]
+  mentorAssignments          MentorStudentAssignment[]
+  mentorSessions             MentorSession[]
+  mentorNotes                MentorNote[]
+  mentorActivities           MentorActivity[]
+  parentInvitations          ParentInvitation[]
+  videoLessons               VideoLesson[]
+  classMaterials             ClassMaterial[]
+  classroomAssignments       ClassroomAssignment[]
+  assignmentSubmissions      AssignmentSubmission[]
+  schoolBookEntitlements     SchoolBookEntitlement[]
+  schoolResourceEntitlements SchoolResourceEntitlement[]
+  bookFeatureDefinitions     BookFeatureDefinition[]
+  bookResourceLinks          BookResourceLink[]
 }
 
 model FeatureDefinition {
@@ -255,8 +269,8 @@ model PromptTemplate {
 }
 
 model School {
-  id                      String                    @id @default(cuid())
-  userId                  String                    @unique
+  id                      String                      @id @default(cuid())
+  userId                  String                      @unique
   publisherId             String?
   schoolName              String
   city                    String
@@ -265,8 +279,8 @@ model School {
   address                 String?
   pincode                 String?
   logoUrl                 String?
-  status                  SchoolOnboardingStatus    @default(APPROVED)
-  user                    User                      @relation(fields: [userId], references: [id], onDelete: Restrict)
+  status                  SchoolOnboardingStatus      @default(APPROVED)
+  user                    User                        @relation(fields: [userId], references: [id], onDelete: Restrict)
   inspectionRequests      InspectionRequest[]
   teachers                Teacher[]
   academicYears           AcademicYear[]
@@ -280,7 +294,7 @@ model School {
   assessmentAttempts      AssessmentAttempt[]
   analytics               SchoolAnalytics[]
   learningTimeline        LearningTimeline[]
-  publisher               Publisher?                @relation(fields: [publisherId], references: [id], onDelete: Restrict)
+  publisher               Publisher?                  @relation(fields: [publisherId], references: [id], onDelete: Restrict)
   studentAnalytics        StudentAnalytics[]
   studentSubjectAnalytics StudentSubjectAnalytics[]
   studentChapterAnalytics StudentChapterAnalytics[]
@@ -302,6 +316,8 @@ model School {
   classroomAssignments    ClassroomAssignment[]
   assignmentSubmissions   AssignmentSubmission[]
   reportCardSnapshots     ReportCardSnapshot[]
+  bookEntitlements        SchoolBookEntitlement[]
+  resourceEntitlements    SchoolResourceEntitlement[]
 
   @@index([publisherId, status])
   @@index([publisherId])
@@ -1011,6 +1027,9 @@ model Book {
   featured                Boolean                   @default(false)
   featuredOrder           Int                       @default(0)
   published               Boolean                   @default(false)
+  archived                Boolean                   @default(false)
+  publishedAt             DateTime?
+  archivedAt              DateTime?
   createdAt               DateTime                  @default(now())
   updatedAt               DateTime                  @updatedAt
   classId                 String
@@ -1041,6 +1060,7 @@ model Book {
   questions               BookQuestion[]
   editions                BookEdition[]
   units                   BookUnit[]
+  parts                   BookPart[]
   modules                 BookModule[]
   topics                  BookTopic[]
   exercises               BookExercise[]
@@ -1060,9 +1080,45 @@ model Book {
   resources               Resource[]                @relation("ResourceBook")
   videoLessons            VideoLesson[]
   classroomAssignments    ClassroomAssignment[]
+  schoolEntitlements      SchoolBookEntitlement[]
+  featureAssignments      BookFeatureAssignment[]
+  resourceLinks           BookResourceLink[]
 
-  @@index([publisherId, published])
+  @@index([publisherId, published, archived])
   @@index([publisherId, published, featured, featuredOrder, updatedAt])
+}
+
+model BookPart {
+  id               String             @id @default(cuid())
+  bookId           String
+  editionId        String?
+  kind             BookPartKind       @default(MODULE)
+  code             String?
+  slug             String
+  title            String
+  subtitle         String?
+  shortTitle       String?
+  description      String?
+  content          Json?
+  estimatedMinutes Int?
+  imageUrl         String?
+  published        Boolean            @default(false)
+  archived         Boolean            @default(false)
+  publishedAt      DateTime?
+  archivedAt       DateTime?
+  displayOrder     Int                @default(0)
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  book             Book               @relation(fields: [bookId], references: [id], onDelete: Restrict)
+  edition          BookEdition?       @relation(fields: [editionId], references: [id], onDelete: Restrict)
+  units            BookUnit[]
+  chapters         BookChapter[]
+  resourceLinks    BookResourceLink[]
+
+  @@unique([bookId, slug])
+  @@index([bookId, displayOrder])
+  @@index([editionId, displayOrder])
+  @@index([bookId, published, archived])
 }
 
 model BookEdition {
@@ -1084,6 +1140,7 @@ model BookEdition {
   chapters      BookChapter[]
   resources     Resource[]    @relation("ResourceBookEdition")
   videoLessons  VideoLesson[]
+  parts         BookPart[]
 
   @@unique([bookId, code])
   @@unique([bookId, title, versionNumber])
@@ -1094,35 +1151,46 @@ model BookEdition {
 }
 
 model BookUnit {
-  id               String        @id @default(cuid())
+  id               String             @id @default(cuid())
   bookId           String
   editionId        String?
+  partId           String?
   code             String?
+  slug             String?
   title            String
+  subtitle         String?
+  shortTitle       String?
   number           String?
   description      String?
   introduction     String?
   learningGoals    Json?
+  content          Json?
   estimatedMinutes Int?
   imageUrl         String?
-  published        Boolean       @default(false)
-  archived         Boolean       @default(false)
-  displayOrder     Int           @default(0)
-  createdAt        DateTime      @default(now())
-  updatedAt        DateTime      @updatedAt
-  book             Book          @relation(fields: [bookId], references: [id], onDelete: Cascade)
-  edition          BookEdition?  @relation(fields: [editionId], references: [id], onDelete: Restrict)
+  published        Boolean            @default(false)
+  archived         Boolean            @default(false)
+  publishedAt      DateTime?
+  archivedAt       DateTime?
+  displayOrder     Int                @default(0)
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  book             Book               @relation(fields: [bookId], references: [id], onDelete: Restrict)
+  edition          BookEdition?       @relation(fields: [editionId], references: [id], onDelete: Restrict)
+  part             BookPart?          @relation(fields: [partId], references: [id], onDelete: Restrict)
   chapters         BookChapter[]
   modules          BookModule[]
-  resources        Resource[]    @relation("ResourceBookUnit")
+  resources        Resource[]         @relation("ResourceBookUnit")
   videoLessons     VideoLesson[]
+  resourceLinks    BookResourceLink[]
 
   @@index([bookId])
   @@index([editionId])
+  @@index([partId])
   @@index([bookId, code])
   @@index([editionId, code])
   @@index([bookId, displayOrder])
   @@index([editionId, displayOrder])
+  @@index([partId, displayOrder])
 }
 
 model StudentBookProgress {
@@ -1225,14 +1293,87 @@ model SchoolBookAdoption {
   @@index([publisherId, status, requestedAt])
 }
 
+model SchoolBookEntitlement {
+  id               String                   @id @default(cuid())
+  publisherId      String
+  schoolId         String
+  bookId           String
+  status           ContentEntitlementStatus @default(ACTIVE)
+  assignedAt       DateTime                 @default(now())
+  assignedByUserId String?
+  pausedAt         DateTime?
+  pausedByUserId   String?
+  revokedAt        DateTime?
+  revokedByUserId  String?
+  restoredAt       DateTime?
+  restoredByUserId String?
+  archivedAt       DateTime?
+  archivedByUserId String?
+  reason           String?
+  createdAt        DateTime                 @default(now())
+  updatedAt        DateTime                 @updatedAt
+  publisher        Publisher                @relation(fields: [publisherId], references: [id], onDelete: Restrict)
+  school           School                   @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  book             Book                     @relation(fields: [bookId], references: [id], onDelete: Restrict)
+  assignedBy       User?                    @relation("SchoolBookEntitlementAssigner", fields: [assignedByUserId], references: [id], onDelete: SetNull)
+  pausedBy         User?                    @relation("SchoolBookEntitlementPauser", fields: [pausedByUserId], references: [id], onDelete: SetNull)
+  revokedBy        User?                    @relation("SchoolBookEntitlementRevoker", fields: [revokedByUserId], references: [id], onDelete: SetNull)
+  restoredBy       User?                    @relation("SchoolBookEntitlementRestorer", fields: [restoredByUserId], references: [id], onDelete: SetNull)
+  archivedBy       User?                    @relation("SchoolBookEntitlementArchiver", fields: [archivedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([schoolId, bookId])
+  @@index([publisherId, schoolId, status])
+  @@index([bookId, status])
+}
+
+model SchoolResourceEntitlement {
+  id               String                   @id @default(cuid())
+  publisherId      String
+  schoolId         String
+  resourceId       String
+  status           ContentEntitlementStatus @default(ACTIVE)
+  assignedAt       DateTime                 @default(now())
+  assignedByUserId String?
+  pausedAt         DateTime?
+  pausedByUserId   String?
+  revokedAt        DateTime?
+  revokedByUserId  String?
+  restoredAt       DateTime?
+  restoredByUserId String?
+  archivedAt       DateTime?
+  archivedByUserId String?
+  reason           String?
+  createdAt        DateTime                 @default(now())
+  updatedAt        DateTime                 @updatedAt
+  publisher        Publisher                @relation(fields: [publisherId], references: [id], onDelete: Restrict)
+  school           School                   @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  resource         Resource                 @relation(fields: [resourceId], references: [id], onDelete: Restrict)
+  assignedBy       User?                    @relation("SchoolResourceEntitlementAssigner", fields: [assignedByUserId], references: [id], onDelete: SetNull)
+  pausedBy         User?                    @relation("SchoolResourceEntitlementPauser", fields: [pausedByUserId], references: [id], onDelete: SetNull)
+  revokedBy        User?                    @relation("SchoolResourceEntitlementRevoker", fields: [revokedByUserId], references: [id], onDelete: SetNull)
+  restoredBy       User?                    @relation("SchoolResourceEntitlementRestorer", fields: [restoredByUserId], references: [id], onDelete: SetNull)
+  archivedBy       User?                    @relation("SchoolResourceEntitlementArchiver", fields: [archivedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([schoolId, resourceId])
+  @@index([publisherId, schoolId, status])
+  @@index([resourceId, status])
+}
+
 model BookChapter {
   id                      String                    @id @default(cuid())
   bookId                  String
+  partId                  String?
   unitId                  String?
   editionId               String?
   chapterNumber           Int
   title                   String
   slug                    String
+  subtitle                String?
+  shortTitle              String?
+  description             String?
+  content                 Json?
+  estimatedMinutes        Int?
+  thumbnail               String?
   startPage               Int?
   endPage                 Int?
   extractedText           String?
@@ -1240,10 +1381,15 @@ model BookChapter {
   summary                 String?
   keywords                String[]                  @default([])
   approved                Boolean                   @default(false)
+  published               Boolean                   @default(false)
+  archived                Boolean                   @default(false)
+  publishedAt             DateTime?
+  archivedAt              DateTime?
   sortOrder               Int                       @default(0)
   createdAt               DateTime                  @default(now())
   updatedAt               DateTime                  @updatedAt
-  book                    Book                      @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  book                    Book                      @relation(fields: [bookId], references: [id], onDelete: Restrict)
+  part                    BookPart?                 @relation(fields: [partId], references: [id], onDelete: Restrict)
   unit                    BookUnit?                 @relation(fields: [unitId], references: [id], onDelete: SetNull)
   edition                 BookEdition?              @relation(fields: [editionId], references: [id], onDelete: SetNull)
   modules                 BookModule[]
@@ -1266,13 +1412,16 @@ model BookChapter {
   classMaterials          ClassMaterial[]
   classroomAssignments    ClassroomAssignment[]
   assignmentAttachments   AssignmentAttachment[]
+  resourceLinks           BookResourceLink[]
 
   @@unique([bookId, chapterNumber])
   @@unique([bookId, slug])
   @@index([bookId, sortOrder])
+  @@index([partId, sortOrder])
   @@index([unitId])
   @@index([editionId])
   @@index([unitId, sortOrder])
+  @@index([bookId, published, archived])
 }
 
 model BookModule {
@@ -1281,18 +1430,25 @@ model BookModule {
   chapterId        String
   unitId           String?
   code             String?
+  slug             String?
   title            String
+  subtitle         String?
+  shortTitle       String?
   number           String?
   description      String?
   teacherNotes     Json?
   studentNotes     Json?
+  content          Json?
   estimatedMinutes Int?
+  imageUrl         String?
   published        Boolean                  @default(false)
   archived         Boolean                  @default(false)
+  publishedAt      DateTime?
+  archivedAt       DateTime?
   displayOrder     Int                      @default(0)
   createdAt        DateTime                 @default(now())
   updatedAt        DateTime                 @updatedAt
-  book             Book                     @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  book             Book                     @relation(fields: [bookId], references: [id], onDelete: Restrict)
   chapter          BookChapter              @relation(fields: [chapterId], references: [id], onDelete: Restrict)
   unit             BookUnit?                @relation(fields: [unitId], references: [id], onDelete: SetNull)
   topics           BookTopic[]
@@ -1302,6 +1458,7 @@ model BookModule {
   activities       ChapterActivity[]
   resources        Resource[]               @relation("ResourceBookModule")
   videoLessons     VideoLesson[]
+  resourceLinks    BookResourceLink[]
 
   @@index([bookId])
   @@index([chapterId])
@@ -1314,34 +1471,45 @@ model BookTopic {
   id               String                   @id @default(cuid())
   bookId           String
   chapterId        String
-  moduleId         String
+  moduleId         String?
   code             String?
+  slug             String?
   title            String
+  subtitle         String?
+  shortTitle       String?
+  description      String?
   number           String?
   explanation      Json?
   examples         Json?
   summary          Json?
+  content          Json?
   keywords         String[]                 @default([])
+  estimatedMinutes Int?
+  imageUrl         String?
   published        Boolean                  @default(false)
   archived         Boolean                  @default(false)
+  publishedAt      DateTime?
+  archivedAt       DateTime?
   displayOrder     Int                      @default(0)
   createdAt        DateTime                 @default(now())
   updatedAt        DateTime                 @updatedAt
-  book             Book                     @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  book             Book                     @relation(fields: [bookId], references: [id], onDelete: Restrict)
   chapter          BookChapter              @relation(fields: [chapterId], references: [id], onDelete: Restrict)
-  module           BookModule               @relation(fields: [moduleId], references: [id], onDelete: Restrict)
+  module           BookModule?              @relation(fields: [moduleId], references: [id], onDelete: Restrict)
   exercises        BookExercise[]
   questions        BookQuestion[]
   learningOutcomes ChapterLearningOutcome[]
   activities       ChapterActivity[]
   resources        Resource[]               @relation("ResourceBookTopic")
   videoLessons     VideoLesson[]
+  resourceLinks    BookResourceLink[]
 
   @@index([bookId])
   @@index([chapterId])
   @@index([moduleId])
   @@index([moduleId, code])
   @@index([moduleId, displayOrder])
+  @@index([chapterId, displayOrder])
 }
 
 model BookExercise {
@@ -1733,8 +1901,79 @@ model ChapterActivity {
   @@index([exerciseId])
 }
 
+model BookFeatureDefinition {
+  id          String                  @id @default(cuid())
+  publisherId String
+  key         String
+  title       String
+  description String?
+  icon        String?
+  active      Boolean                 @default(true)
+  archivedAt  DateTime?
+  createdAt   DateTime                @default(now())
+  updatedAt   DateTime                @updatedAt
+  publisher   Publisher               @relation(fields: [publisherId], references: [id], onDelete: Restrict)
+  books       BookFeatureAssignment[]
+
+  @@unique([publisherId, key])
+  @@index([publisherId, active])
+}
+
+model BookFeatureAssignment {
+  id           String                @id @default(cuid())
+  bookId       String
+  featureId    String
+  displayOrder Int                   @default(0)
+  highlighted  Boolean               @default(false)
+  active       Boolean               @default(true)
+  customText   String?
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
+  book         Book                  @relation(fields: [bookId], references: [id], onDelete: Restrict)
+  feature      BookFeatureDefinition @relation(fields: [featureId], references: [id], onDelete: Restrict)
+
+  @@unique([bookId, featureId])
+  @@index([bookId, active, displayOrder])
+}
+
+model BookResourceLink {
+  id               String                @id @default(cuid())
+  publisherId      String
+  bookId           String
+  resourceId       String
+  targetType       BookContentTargetType
+  targetKey        String
+  partId           String?
+  unitId           String?
+  chapterId        String?
+  moduleId         String?
+  topicId          String?
+  displayOrder     Int                   @default(0)
+  audienceOverride ResourceAudience?
+  qrEligible       Boolean               @default(false)
+  active           Boolean               @default(true)
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+  publisher        Publisher             @relation(fields: [publisherId], references: [id], onDelete: Restrict)
+  book             Book                  @relation(fields: [bookId], references: [id], onDelete: Restrict)
+  resource         Resource              @relation(fields: [resourceId], references: [id], onDelete: Restrict)
+  part             BookPart?             @relation(fields: [partId], references: [id], onDelete: Restrict)
+  unit             BookUnit?             @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  chapter          BookChapter?          @relation(fields: [chapterId], references: [id], onDelete: Restrict)
+  module           BookModule?           @relation(fields: [moduleId], references: [id], onDelete: Restrict)
+  topic            BookTopic?            @relation(fields: [topicId], references: [id], onDelete: Restrict)
+
+  @@unique([resourceId, targetKey])
+  @@index([publisherId, bookId, active])
+  @@index([partId, displayOrder])
+  @@index([unitId, displayOrder])
+  @@index([chapterId, displayOrder])
+  @@index([moduleId, displayOrder])
+  @@index([topicId, displayOrder])
+}
+
 model Resource {
-  id                      String                    @id @default(cuid())
+  id                      String                      @id @default(cuid())
   title                   String
   publisherId             String?
   description             String
@@ -1751,37 +1990,42 @@ model Resource {
   topicId                 String?
   exerciseId              String?
   type                    ResourceType
-  audience                ResourceAudience          @default(TEACHER_ONLY)
+  audience                ResourceAudience            @default(TEACHER_ONLY)
   fileUrl                 String
   originalFileName        String?
   mimeType                String?
   fileSizeBytes           BigInt?
   thumbnail               String?
-  featured                Boolean                   @default(false)
-  published               Boolean                   @default(true)
-  createdAt               DateTime                  @default(now())
-  updatedAt               DateTime                  @updatedAt
+  featured                Boolean                     @default(false)
+  published               Boolean                     @default(true)
+  archived                Boolean                     @default(false)
+  publishedAt             DateTime?
+  archivedAt              DateTime?
+  createdAt               DateTime                    @default(now())
+  updatedAt               DateTime                    @updatedAt
   bookmarks               Bookmark[]
   downloads               Download[]
   studentBookmarks        StudentResourceBookmark[]
   studentDownloads        StudentResourceDownload[]
   sectionSubjects         SectionSubject[]
-  publisher               Publisher?                @relation(fields: [publisherId], references: [id], onDelete: Restrict)
-  classRef                Class?                    @relation("ResourceClass", fields: [classId], references: [id], onDelete: SetNull)
-  subjectRef              Subject?                  @relation("ResourceSubject", fields: [subjectId], references: [id], onDelete: SetNull)
-  seriesRef               BookSeries?               @relation("ResourceSeries", fields: [seriesId], references: [id], onDelete: SetNull)
-  book                    Book?                     @relation("ResourceBook", fields: [bookId], references: [id], onDelete: SetNull)
-  edition                 BookEdition?              @relation("ResourceBookEdition", fields: [editionId], references: [id], onDelete: SetNull)
-  unit                    BookUnit?                 @relation("ResourceBookUnit", fields: [unitId], references: [id], onDelete: SetNull)
-  chapter                 BookChapter?              @relation("ResourceBookChapter", fields: [chapterId], references: [id], onDelete: SetNull)
-  module                  BookModule?               @relation("ResourceBookModule", fields: [moduleId], references: [id], onDelete: SetNull)
-  topic                   BookTopic?                @relation("ResourceBookTopic", fields: [topicId], references: [id], onDelete: SetNull)
-  exercise                BookExercise?             @relation("ResourceBookExercise", fields: [exerciseId], references: [id], onDelete: SetNull)
+  publisher               Publisher?                  @relation(fields: [publisherId], references: [id], onDelete: Restrict)
+  classRef                Class?                      @relation("ResourceClass", fields: [classId], references: [id], onDelete: SetNull)
+  subjectRef              Subject?                    @relation("ResourceSubject", fields: [subjectId], references: [id], onDelete: SetNull)
+  seriesRef               BookSeries?                 @relation("ResourceSeries", fields: [seriesId], references: [id], onDelete: SetNull)
+  book                    Book?                       @relation("ResourceBook", fields: [bookId], references: [id], onDelete: SetNull)
+  edition                 BookEdition?                @relation("ResourceBookEdition", fields: [editionId], references: [id], onDelete: SetNull)
+  unit                    BookUnit?                   @relation("ResourceBookUnit", fields: [unitId], references: [id], onDelete: SetNull)
+  chapter                 BookChapter?                @relation("ResourceBookChapter", fields: [chapterId], references: [id], onDelete: SetNull)
+  module                  BookModule?                 @relation("ResourceBookModule", fields: [moduleId], references: [id], onDelete: SetNull)
+  topic                   BookTopic?                  @relation("ResourceBookTopic", fields: [topicId], references: [id], onDelete: SetNull)
+  exercise                BookExercise?               @relation("ResourceBookExercise", fields: [exerciseId], references: [id], onDelete: SetNull)
   remedialRecommendations RemedialRecommendation[]
   classMaterials          ClassMaterial[]
   assignmentAttachments   AssignmentAttachment[]
+  schoolEntitlements      SchoolResourceEntitlement[]
+  bookResourceLinks       BookResourceLink[]
 
-  @@index([publisherId, published])
+  @@index([publisherId, published, archived])
   @@index([publisherId, audience, published])
   @@index([publisherId, classId])
   @@index([publisherId, subjectId])
@@ -2928,6 +3172,13 @@ enum ResourceType {
   DOC
   VIDEO
   ZIP
+  WORKSHEET
+  AUDIO
+  LINK
+  INTERACTIVE
+  ANSWER_KEY
+  TEACHER_GUIDE
+  QUESTION_BANK
 }
 
 enum ResourceAudience {
@@ -3040,4 +3291,25 @@ enum BookAdoptionStatus {
   REJECTED
   REVOKED
   EXPIRED
+}
+
+enum ContentEntitlementStatus {
+  ACTIVE
+  PAUSED
+  REVOKED
+  ARCHIVED
+}
+
+enum BookPartKind {
+  PART
+  MODULE
+}
+
+enum BookContentTargetType {
+  BOOK
+  PART
+  UNIT
+  CHAPTER
+  MODULE
+  TOPIC
 }

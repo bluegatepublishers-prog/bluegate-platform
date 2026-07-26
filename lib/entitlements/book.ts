@@ -24,6 +24,7 @@ const deniedFacts = (
   academicContext: false,
   assignment: false,
   enrollment: false,
+  schoolEntitled: false,
   adoptionApproved: false,
 });
 
@@ -35,10 +36,10 @@ export async function getBookEntitlementForAuthenticatedUser(
   if (!user.id || !user.role) return decideBookEntitlement(base);
   const book = await prisma.book.findUnique({
     where: { id: request.bookId },
-    select: { id: true, publisherId: true, published: true },
+    select: { id: true, publisherId: true, published: true, archived: true },
   });
   base.recordFound = Boolean(book);
-  base.published = Boolean(book?.published);
+  base.published = Boolean(book?.published && !book.archived);
   if (!book?.publisherId) return decideBookEntitlement(base);
 
   if (user.role === "ADMIN") {
@@ -58,7 +59,19 @@ export async function getBookEntitlementForAuthenticatedUser(
     });
     base.publisherActive = Boolean(school?.publisher?.active);
     base.samePublisher = school?.publisherId === book.publisherId;
+    base.schoolActive = school?.status === "APPROVED";
     if (!school) return decideBookEntitlement(base);
+    base.schoolEntitled = Boolean(
+      await prisma.schoolBookEntitlement.findFirst({
+        where: {
+          schoolId: school.id,
+          bookId: book.id,
+          publisherId: book.publisherId,
+          status: "ACTIVE",
+        },
+        select: { id: true },
+      }),
+    );
     const year = await prisma.academicYear.findFirst({
       where: {
         id: request.academicYearId,
@@ -92,13 +105,34 @@ export async function getBookEntitlementForAuthenticatedUser(
   if (user.role === "TEACHER") {
     const teacher = await prisma.teacher.findUnique({
       where: { userId: user.id },
-      include: { school: { include: { publisher: { select: { active: true } } } } },
+      include: {
+        school: { include: { publisher: { select: { active: true } } } },
+        schoolMemberships: {
+          where: { active: true, status: "ACTIVE" },
+          select: { schoolId: true },
+        },
+      },
     });
     base.publisherActive = Boolean(teacher?.school?.publisher?.active);
     base.samePublisher = teacher?.school?.publisherId === book.publisherId;
+    base.schoolActive = teacher?.school?.status === "APPROVED";
     if (!teacher?.active || !teacher.schoolId || !teacher.school?.publisherId) {
       return decideBookEntitlement(base);
     }
+    if (!teacher.schoolMemberships.some((membership) => membership.schoolId === teacher.schoolId)) {
+      return decideBookEntitlement(base);
+    }
+    base.schoolEntitled = Boolean(
+      await prisma.schoolBookEntitlement.findFirst({
+        where: {
+          schoolId: teacher.schoolId,
+          bookId: book.id,
+          publisherId: book.publisherId,
+          status: "ACTIVE",
+        },
+        select: { id: true },
+      }),
+    );
     const assignments = await prisma.teacherAssignment.findMany({
       where: {
         teacherId: teacher.id,
@@ -154,9 +188,21 @@ export async function getBookEntitlementForAuthenticatedUser(
     });
     base.publisherActive = Boolean(student?.school.publisher?.active);
     base.samePublisher = student?.school.publisherId === book.publisherId;
+    base.schoolActive = student?.school.status === "APPROVED";
     if (!student?.active || !student.school.publisherId) {
       return decideBookEntitlement(base);
     }
+    base.schoolEntitled = Boolean(
+      await prisma.schoolBookEntitlement.findFirst({
+        where: {
+          schoolId: student.schoolId,
+          bookId: book.id,
+          publisherId: book.publisherId,
+          status: "ACTIVE",
+        },
+        select: { id: true },
+      }),
+    );
     const enrollment = await prisma.studentEnrollment.findFirst({
       where: {
         studentId: student.id,
@@ -238,7 +284,18 @@ export async function getTeacherEntitledBookIds(userId: string) {
       publisherId: teacher.school.publisherId,
       status: BookAdoptionStatus.APPROVED,
       active: true,
-      book: { publisherId: teacher.school.publisherId, published: true },
+      book: {
+        publisherId: teacher.school.publisherId,
+        published: true,
+        archived: false,
+        schoolEntitlements: {
+          some: {
+            schoolId: teacher.schoolId,
+            publisherId: teacher.school.publisherId,
+            status: "ACTIVE",
+          },
+        },
+      },
       OR: assignments.map((assignment) => ({
         academicYearId: assignment.academicYearId,
         sectionId: assignment.sectionId,

@@ -238,6 +238,7 @@ export async function PUT(
           fileSizeBytes: fileSizeInput ?? existing.fileSizeBytes,
           featured: Boolean(body.featured),
           published: body.published !== false,
+          publishedAt: body.published !== false ? existing.publishedAt ?? new Date() : null,
         },
       });
       if (result.count !== 1) return null;
@@ -337,7 +338,7 @@ export async function PATCH(
 
   const updated = await prisma.resource.update({
     where: { id: resource.id },
-    data: { published },
+    data: { published, publishedAt: published ? resource.publishedAt ?? new Date() : null },
   });
 
   await prisma.$transaction(async (tx) => {
@@ -374,8 +375,11 @@ export async function DELETE(
     const owned = await tx.resource.findFirst({ where: { id, publisherId:actor.publisherId } });
     if (!owned) return null;
 
-    const deleted = await tx.resource.deleteMany({ where: { id, publisherId: actor.publisherId } });
-    if (deleted.count !== 1) return null;
+    const archived = await tx.resource.updateMany({
+      where: { id, publisherId: actor.publisherId },
+      data: { archived: true, archivedAt: new Date(), published: false },
+    });
+    if (archived.count !== 1) return null;
 
     await writeSecurityAuditEvent(tx, {
       actor: publisherAdminAuditActor(actor),
@@ -384,8 +388,7 @@ export async function DELETE(
       targetId: id,
       outcome: SecurityAuditOutcome.SUCCESS,
       metadata: {
-        fileOperation: "delete_requested",
-        fileCount: owned.thumbnail ? 2 : 1,
+        changedFields: ["archived", "publicationState"],
       },
     });
     return owned;
@@ -402,19 +405,5 @@ export async function DELETE(
     return publisherAdminNotFound();
   }
 
-  const [fileRefCount, thumbnailRefCount] = await Promise.all([
-    prisma.resource.count({ where: { fileUrl: resource.fileUrl } }),
-    resource.thumbnail
-      ? prisma.resource.count({ where: { thumbnail: resource.thumbnail } })
-      : Promise.resolve(0),
-  ]);
-
-  if (fileRefCount === 0) {
-    await removeManagedResourceFile(resource.fileUrl);
-  }
-  if (resource.thumbnail && thumbnailRefCount === 0) {
-    await removeManagedResourceFile(resource.thumbnail);
-  }
-
-  return NextResponse.json({ success: true, message: "Resource deleted." });
+  return NextResponse.json({ success: true, message: "Resource archived." });
 }

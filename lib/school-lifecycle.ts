@@ -229,6 +229,8 @@ export type SchoolDependencyCounts = Record<
   | "results"
   | "reportCards"
   | "bookAdoptions"
+  | "bookEntitlements"
+  | "resourceEntitlements"
   | "resourceAssignments"
   | "auditEvents",
   number
@@ -252,6 +254,8 @@ export async function countSchoolDeletionDependencies(
     results,
     reportCards,
     bookAdoptions,
+    bookEntitlements,
+    resourceEntitlements,
     resourceAssignments,
     auditEvents,
   ] = await Promise.all([
@@ -268,6 +272,8 @@ export async function countSchoolDeletionDependencies(
     tx.assessmentResult.count({ where: { attempt: { schoolId } } }),
     tx.reportCardSnapshot.count({ where: { schoolId } }),
     tx.schoolBookAdoption.count({ where: { schoolId } }),
+    tx.schoolBookEntitlement.count({ where: { schoolId } }),
+    tx.schoolResourceEntitlement.count({ where: { schoolId } }),
     tx.sectionSubject.count({ where: { section: { schoolClass: { schoolId } }, resources: { some: {} } } }),
     tx.securityAuditEvent.count({ where: { targetType: "School", targetId: schoolId } }),
   ]);
@@ -285,6 +291,8 @@ export async function countSchoolDeletionDependencies(
     results,
     reportCards,
     bookAdoptions,
+    bookEntitlements,
+    resourceEntitlements,
     resourceAssignments,
     auditEvents,
   };

@@ -8,7 +8,21 @@ export function normalizeAcademicName(value: string) { return value.trim().toLow
 export async function validateAdoptionScope(schoolId: string, academicYearId: string, sectionSubjectId: string, bookId: string) {
   const school=await prisma.school.findUnique({where:{id:schoolId},select:{publisherId:true}});
   const link = await prisma.sectionSubject.findFirst({ where: { id: sectionSubjectId, active: true, section: { active: true, schoolClass: { schoolId, academicYearId, active: true } } }, include: { subject: true, section: { include: { schoolClass: true } } } });
-  const book = await prisma.book.findFirst({ where: { id: bookId, published: true }, include: { class: true } });
+  const book = await prisma.book.findFirst({
+    where: {
+      id: bookId,
+      published: true,
+      archived: false,
+      schoolEntitlements: {
+        some: {
+          schoolId,
+          publisherId: school?.publisherId ?? "__none__",
+          status: "ACTIVE",
+        },
+      },
+    },
+    include: { class: true },
+  });
   if (!school?.publisherId || !link || !book || book.publisherId!==school.publisherId || book.subjectId !== link.subjectId || normalizeAcademicName(book.class.name) !== normalizeAcademicName(link.section.schoolClass.name)) return null;
   return { link, book, schoolClass: link.section.schoolClass, section: link.section };
 }
