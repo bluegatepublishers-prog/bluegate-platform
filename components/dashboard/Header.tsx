@@ -23,15 +23,16 @@ export default function Header({ teacherName }: { teacherName: string }) {
 
   return (
     <header className="sticky top-0 z-30 border-b border-slate-200 bg-white">
-      <div className="flex h-20 items-center justify-between px-6 lg:px-10">
+      <div className="flex min-h-20 items-center justify-between gap-2 px-3 py-3 sm:gap-4 sm:px-6 lg:px-10">
         {/* Left */}
-        <div className="flex items-center gap-4">
-          <div>
-            <h1 className="text-2xl font-bold text-slate-900">
-              Teacher Dashboard
+        <div className="min-w-0">
+          <div className="min-w-0">
+            <h1 className="truncate text-lg font-bold text-slate-900 sm:text-2xl">
+              <span className="sm:hidden">Teacher</span>
+              <span className="hidden sm:inline">Teacher Dashboard</span>
             </h1>
 
-            <div className="mt-1 flex items-center text-sm text-slate-500">
+            <div className="mt-1 hidden items-center text-sm text-slate-500 sm:flex">
               <CalendarDays className="mr-2 h-4 w-4" />
               {today}
             </div>
@@ -39,9 +40,9 @@ export default function Header({ teacherName }: { teacherName: string }) {
         </div>
 
         {/* Right */}
-        <div className="flex items-center gap-4">
+        <div className="flex shrink-0 items-center gap-2 sm:gap-4">
           {/* Notification */}
-          <Link href="/teacher-dashboard/notifications" aria-label="Notifications" className="rounded-xl border border-slate-200 p-3 transition hover:bg-slate-100">
+          <Link href="/teacher-dashboard/notifications" aria-label="Notifications" className="rounded-xl border border-slate-200 p-2.5 transition hover:bg-slate-100 sm:p-3">
             <Bell className="h-5 w-5 text-slate-700" />
           </Link>
 
@@ -49,7 +50,7 @@ export default function Header({ teacherName }: { teacherName: string }) {
           <div className="relative">
             <button
               onClick={() => setShowProfileMenu(!showProfileMenu)}
-              className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-2 transition hover:bg-slate-50"
+              className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white p-1.5 transition hover:bg-slate-50 sm:gap-3 sm:px-4 sm:py-2"
             >
               <div className="flex h-11 w-11 items-center justify-center rounded-full bg-blue-600 font-bold text-white">
                 TS
@@ -65,7 +66,7 @@ export default function Header({ teacherName }: { teacherName: string }) {
                 </p>
               </div>
 
-              <ChevronDown className="h-4 w-4 text-slate-500" />
+              <ChevronDown className="hidden h-4 w-4 text-slate-500 sm:block" />
             </button>
 
             {/* Dropdown */}

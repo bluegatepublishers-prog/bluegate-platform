@@ -106,7 +106,8 @@ export type UploadScope =
   | "publisher-logo"
   | "publisher-favicon"
   | "resource-thumbnail"
-  | "resource-file";
+  | "resource-file"
+  | "class-material";
 
 export interface UploadValidation {
   ok: boolean;

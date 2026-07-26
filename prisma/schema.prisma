@@ -110,6 +110,7 @@ model Publisher {
   mentorActivities        MentorActivity[]
   parentInvitations       ParentInvitation[]
   videoLessons            VideoLesson[]
+  classMaterials          ClassMaterial[]
 }
 
 model FeatureDefinition {
@@ -184,6 +185,7 @@ model Teacher {
   aiPlanExpiresAt DateTime?
   aiUsage         AiUsage[]
   assignments     TeacherAssignment[]
+  classMaterials  ClassMaterial[]
   analytics       TeacherAnalytics[]
   gapReviews      StudentLearningGapReview[]
   remedialReviews RemedialPlanReview[]
@@ -194,21 +196,22 @@ model Teacher {
 }
 
 model AiGeneration {
-  id             String    @id @default(cuid())
+  id             String          @id @default(cuid())
   teacherId      String
   tool           String
   title          String
   prompt         String
   output         String?
-  status         String    @default("DRAFT")
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-  teacher        Teacher   @relation(fields: [teacherId], references: [id], onDelete: Cascade)
-  providerCalled Boolean   @default(false)
-  quotaConsumed  Boolean   @default(false)
+  status         String          @default("DRAFT")
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  teacher        Teacher         @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  providerCalled Boolean         @default(false)
+  quotaConsumed  Boolean         @default(false)
   completedAt    DateTime?
   failureReason  String?
   usage          AiUsage?
+  classMaterials ClassMaterial[]
 
   @@index([teacherId, createdAt])
 }
@@ -290,6 +293,7 @@ model School {
   mentorActivities        MentorActivity[]
   parentInvitations       ParentInvitation[]
   staffMemberships        SchoolStaffMembership[]
+  classMaterials          ClassMaterial[]
 
   @@index([publisherId, status])
   @@index([publisherId])
@@ -412,6 +416,7 @@ model AcademicYear {
   mentorSessions          MentorSession[]
   mentorNotes             MentorNote[]
   mentorActivities        MentorActivity[]
+  classMaterials          ClassMaterial[]
 
   @@unique([schoolId, name])
   @@index([schoolId, current, active])
@@ -434,6 +439,7 @@ model SchoolClass {
   teacherAssignments TeacherAssignment[]
   bookAdoptions      SchoolBookAdoption[]
   assessments        Assessment[]
+  classMaterials     ClassMaterial[]
 
   @@unique([academicYearId, code])
   @@index([schoolId, academicYearId, active])
@@ -455,6 +461,7 @@ model ClassSection {
   teacherAssignments TeacherAssignment[]
   bookAdoptions      SchoolBookAdoption[]
   assessments        Assessment[]
+  classMaterials     ClassMaterial[]
 
   @@unique([schoolClassId, code])
   @@index([schoolClassId, active])
@@ -881,20 +888,21 @@ model StudentAccessGrant {
 }
 
 model SectionSubject {
-  id            String               @id @default(cuid())
-  sectionId     String
-  subjectId     String
-  bookId        String?
-  active        Boolean              @default(true)
-  sortOrder     Int                  @default(0)
-  createdAt     DateTime             @default(now())
-  updatedAt     DateTime             @updatedAt
-  section       ClassSection         @relation(fields: [sectionId], references: [id], onDelete: Cascade)
-  subject       Subject              @relation(fields: [subjectId], references: [id], onDelete: Restrict)
-  book          Book?                @relation(fields: [bookId], references: [id], onDelete: SetNull)
-  resources     Resource[]
-  bookAdoptions SchoolBookAdoption[]
-  assessments   Assessment[]
+  id             String               @id @default(cuid())
+  sectionId      String
+  subjectId      String
+  bookId         String?
+  active         Boolean              @default(true)
+  sortOrder      Int                  @default(0)
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  section        ClassSection         @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  subject        Subject              @relation(fields: [subjectId], references: [id], onDelete: Restrict)
+  book           Book?                @relation(fields: [bookId], references: [id], onDelete: SetNull)
+  resources      Resource[]
+  bookAdoptions  SchoolBookAdoption[]
+  assessments    Assessment[]
+  classMaterials ClassMaterial[]
 
   @@unique([sectionId, subjectId])
   @@index([sectionId, active, sortOrder])
@@ -941,6 +949,7 @@ model Subject {
   skillAnalytics     StudentSkillAnalytics[]
   learningGaps       StudentLearningGap[]
   resources          Resource[]                @relation("ResourceSubject")
+  classMaterials     ClassMaterial[]
 }
 
 model BookSeries {
@@ -1226,6 +1235,7 @@ model BookChapter {
   remedialRecommendations RemedialRecommendation[]
   resources               Resource[]                @relation("ResourceBookChapter")
   videoLessons            VideoLesson[]
+  classMaterials          ClassMaterial[]
 
   @@unique([bookId, chapterNumber])
   @@unique([bookId, slug])
@@ -1738,6 +1748,7 @@ model Resource {
   topic                   BookTopic?                @relation("ResourceBookTopic", fields: [topicId], references: [id], onDelete: SetNull)
   exercise                BookExercise?             @relation("ResourceBookExercise", fields: [exerciseId], references: [id], onDelete: SetNull)
   remedialRecommendations RemedialRecommendation[]
+  classMaterials          ClassMaterial[]
 
   @@index([publisherId, published])
   @@index([publisherId, audience, published])
@@ -1798,6 +1809,59 @@ model VideoLesson {
   @@index([publisherId, published, archived])
   @@index([chapterId, displayOrder])
   @@index([topicId, displayOrder])
+}
+
+model ClassMaterial {
+  id               String              @id @default(cuid())
+  publisherId      String
+  schoolId         String
+  academicYearId   String
+  schoolClassId    String
+  sectionId        String
+  sectionSubjectId String
+  subjectId        String
+  teacherId        String
+  chapterId        String?
+  resourceId       String?
+  aiGenerationId   String?
+  sourceMaterialId String?
+  title            String
+  description      String?
+  kind             ClassMaterialKind
+  source           ClassMaterialSource
+  status           ClassMaterialStatus @default(DRAFT)
+  fileUrl          String?
+  originalFileName String?
+  mimeType         String?
+  fileSizeBytes    BigInt?
+  externalUrl      String?
+  scheduledAt      DateTime?
+  sharedAt         DateTime?
+  unsharedAt       DateTime?
+  archivedAt       DateTime?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  publisher        Publisher           @relation(fields: [publisherId], references: [id], onDelete: Restrict)
+  school           School              @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  academicYear     AcademicYear        @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
+  schoolClass      SchoolClass         @relation(fields: [schoolClassId], references: [id], onDelete: Restrict)
+  section          ClassSection        @relation(fields: [sectionId], references: [id], onDelete: Restrict)
+  sectionSubject   SectionSubject      @relation(fields: [sectionSubjectId], references: [id], onDelete: Restrict)
+  subject          Subject             @relation(fields: [subjectId], references: [id], onDelete: Restrict)
+  teacher          Teacher             @relation(fields: [teacherId], references: [id], onDelete: Restrict)
+  chapter          BookChapter?        @relation(fields: [chapterId], references: [id], onDelete: SetNull)
+  resource         Resource?           @relation(fields: [resourceId], references: [id], onDelete: SetNull)
+  aiGeneration     AiGeneration?       @relation(fields: [aiGenerationId], references: [id], onDelete: SetNull)
+  sourceMaterial   ClassMaterial?      @relation("ClassMaterialReuse", fields: [sourceMaterialId], references: [id], onDelete: SetNull)
+  reusedMaterials  ClassMaterial[]     @relation("ClassMaterialReuse")
+
+  @@index([publisherId, schoolId, academicYearId])
+  @@index([teacherId, sectionId, subjectId, archivedAt])
+  @@index([sectionId, sectionSubjectId, status, scheduledAt])
+  @@index([chapterId])
+  @@index([resourceId])
+  @@index([aiGenerationId])
+  @@index([sourceMaterialId])
 }
 
 model Download {
@@ -2668,6 +2732,30 @@ enum ResourceAudience {
   TEACHER_ONLY
   STUDENT
   BOTH
+}
+
+enum ClassMaterialKind {
+  LESSON_PLAN
+  WORKSHEET
+  PDF
+  PPT
+  VIDEO
+  AI_GENERATED
+  OTHER
+}
+
+enum ClassMaterialSource {
+  UPLOAD
+  AI_GENERATION
+  PUBLISHER_RESOURCE
+  EXTERNAL_LINK
+}
+
+enum ClassMaterialStatus {
+  DRAFT
+  SCHEDULED
+  SHARED
+  UNSHARED
 }
 
 enum CurriculumExerciseType {

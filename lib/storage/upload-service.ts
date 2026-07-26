@@ -72,9 +72,10 @@ export type UploadAuthorization = {
 // Scope to Audit Target Type Mapping
 // ============================================================================
 
-export function scopeToTargetType(scope: UploadScope): "Book" | "Resource" | "School" | "Publisher" {
+export function scopeToTargetType(scope: UploadScope): "Book" | "Resource" | "School" | "Publisher" | "ClassMaterial" {
   if (scope.startsWith("book-")) return "Book";
   if (scope.startsWith("resource-")) return "Resource";
+  if (scope === "class-material") return "ClassMaterial";
   if (scope === "school-logo") return "School";
   if (scope.startsWith("publisher-")) return "Publisher";
   return "Book"; // fallback
@@ -140,6 +141,44 @@ export async function authorizeUpload(
     }
     // The tenant ID is the school ID, not the user ID
     return { status: "AUTHORIZED", tenantId: school.id, scope, userId: user.id, role: user.role, publisherId: null };
+  }
+
+  if (scope === "class-material") {
+    const session = await auth();
+    const user = session?.user;
+    if (!user?.id) return { status: "UNAUTHENTICATED" };
+    if (user.role !== "TEACHER" || !targetId) {
+      return { status: "DENIED", reasonCode: "UNAUTHORIZED_ROLE" };
+    }
+    const teacher = await prisma.teacher.findFirst({
+      where: {
+        userId: user.id,
+        active: true,
+        status: "APPROVED",
+        school: { status: "APPROVED", publisher: { active: true } },
+        assignments: {
+          some: {
+            sectionId: targetId,
+            active: true,
+            academicYear: { active: true },
+            schoolClass: { active: true },
+            section: { active: true },
+          },
+        },
+      },
+      select: { school: { select: { publisherId: true } } },
+    });
+    const publisherId = teacher?.school?.publisherId;
+    if (!publisherId) return { status: "DENIED", reasonCode: "INACTIVE_SCHOOL" };
+    return {
+      status: "AUTHORIZED",
+      tenantId: publisherId,
+      scope,
+      targetId,
+      userId: user.id,
+      role: user.role,
+      publisherId,
+    };
   }
 
   // Publisher ADMIN can upload book/resource scopes for its own active publisher
@@ -222,7 +261,7 @@ async function verifyTargetOwnership(
  */
 export async function initUpload(
   input: UploadInitInput,
-  authorization: { status: "AUTHORIZED"; tenantId: string; scope: UploadScope; targetId?: string },
+  authorization: { status: "AUTHORIZED"; tenantId: string; scope: UploadScope; targetId?: string; userId?: string },
 ): Promise<UploadInitResult> {
   const { scope, fileName, contentType, sizeBytes, checksumSha256 } = input;
   const { tenantId } = authorization;
@@ -241,6 +280,8 @@ export async function initUpload(
     customMetadata: {
       "original-filename": encodeURIComponent(fileName),
       "upload-scope": scope,
+      ...(authorization.userId ? { "uploader-user-id": authorization.userId } : {}),
+      ...(authorization.targetId ? { "target-id": authorization.targetId } : {}),
       ...(checksumSha256 ? { "expected-sha256": checksumSha256 } : {}),
     },
   });

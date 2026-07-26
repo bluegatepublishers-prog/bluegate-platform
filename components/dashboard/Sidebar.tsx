@@ -16,10 +16,11 @@ import {
   ChartNoAxesCombined,
   ChevronRight,
   ScanSearch,
+  School,
 } from "lucide-react";
 import LogoutButton from "./LogoutButton";
 
-const navigation = [
+export const teacherNavigation = [
   {
     name: "AI Studio",
     href: "/teacher-dashboard/ai",
@@ -29,6 +30,11 @@ const navigation = [
     name: "Dashboard",
     href: "/teacher-dashboard",
     icon: LayoutDashboard,
+  },
+  {
+    name: "My Classes",
+    href: "/teacher-dashboard/classes",
+    icon: School,
   },
   {
     name: "Reports",
@@ -136,7 +142,7 @@ export default function Sidebar({ teacherName, schoolName,branding,features }: {
       {/* Navigation */}
       <nav className="flex-1 p-6">
         <ul className="space-y-2">
-          {navigation.filter(item=>item.href!=="/teacher-dashboard/ai"||features.AI_STUDIO).filter(item=>item.href!=="/teacher-dashboard/reports"||features.REPORTS).filter(item=>item.href!=="/teacher-dashboard/gaps"||features.GAP_ANALYSIS).filter(item=>item.href!=="/teacher-dashboard/remedials"||features.REMEDIALS).filter(item=>!["/teacher-dashboard/resources","/teacher-dashboard/downloads","/teacher-dashboard/bookmarks"].includes(item.href)||features.RESOURCES).filter(item=>item.href!=="/teacher-dashboard/notifications"||features.NOTIFICATIONS).map((item) => {
+          {teacherNavigation.filter(item=>item.href!=="/teacher-dashboard/ai"||features.AI_STUDIO).filter(item=>item.href!=="/teacher-dashboard/reports"||features.REPORTS).filter(item=>item.href!=="/teacher-dashboard/gaps"||features.GAP_ANALYSIS).filter(item=>item.href!=="/teacher-dashboard/remedials"||features.REMEDIALS).filter(item=>!["/teacher-dashboard/resources","/teacher-dashboard/downloads","/teacher-dashboard/bookmarks"].includes(item.href)||features.RESOURCES).filter(item=>item.href!=="/teacher-dashboard/notifications"||features.NOTIFICATIONS).map((item) => {
             const Icon = item.icon;
             const active = item.href === "/teacher-dashboard" ? pathname === item.href : pathname.startsWith(item.href);
 

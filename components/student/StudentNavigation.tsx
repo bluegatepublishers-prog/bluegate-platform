@@ -29,7 +29,7 @@ const items: ReadonlyArray<{
   { label: "Reports", href: "/student-dashboard/reports", icon: ChartNoAxesCombined, available: true },
   { label: "Learning focus", href: "/student-dashboard/gaps", icon: ScanSearch, available: true },
   { label: "My learning path", href: "/student-dashboard/remedials", icon: ChartNoAxesCombined, available: true },
-  { label: "Resources", icon: FolderOpen },
+  { label: "Class Materials", href: "/student-dashboard/resources", icon: FolderOpen, available: true },
   { label: "Bookmarks", icon: Bookmark },
   { label: "Notifications", icon: Bell },
   { label: "Profile", href: "/student-dashboard/profile", icon: CircleUserRound, available: true },

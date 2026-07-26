@@ -53,6 +53,7 @@ export const SECURITY_AUDIT_ACTIONS = [
   "storage.download.retry",
   "storage.reconciliation.scan",
   "storage.reconciliation.retry",
+  "classroom.material.open",
 ] as const;
 
 export type SecurityAuditAction = (typeof SECURITY_AUDIT_ACTIONS)[number];
@@ -71,7 +72,8 @@ export type SecurityAuditTargetType =
   | "Teacher"
   | "SchoolBookAdoption"
   | "User"
-  | "Storage";
+  | "Storage"
+  | "ClassMaterial";
 
 export const SECURITY_AUDIT_REASON_CODES = [
   "AUTHORIZATION_DENIED",

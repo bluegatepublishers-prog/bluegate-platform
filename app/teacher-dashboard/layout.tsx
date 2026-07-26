@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 
 import { Header, Sidebar } from "@/components/dashboard";
+import TeacherMobileNavigation from "@/components/dashboard/TeacherMobileNavigation";
 import { requireTeacher } from "@/lib/teacher-dashboard";
 import{getBrandingForAuthenticatedUser}from"@/lib/publisher-context";import{resolveFeaturesForAuthenticatedUser}from"@/lib/publisher-features";
 
@@ -19,6 +20,7 @@ export default async function TeacherDashboardLayout({
       <Sidebar teacherName={teacher.user.name} schoolName={teacher.school?.schoolName ?? teacher.schoolName} branding={branding} features={features}/>
       <div className="min-w-0 flex-1">
         <Header teacherName={teacher.user.name} />
+        <TeacherMobileNavigation features={features} />
         {children}
       </div>
     </div>
