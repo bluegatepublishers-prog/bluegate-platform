@@ -24,6 +24,7 @@ const student: StudentRecord = {
     city: "Delhi",
     state: "Delhi",
     logoUrl: null,
+    status: "APPROVED",
     publisherId: "publisher-1",
     publisher: { id: "publisher-1", active: true },
   },
@@ -89,6 +90,14 @@ test("missing enrollment denies student identity and does not load entitlement",
   const deps = dependencies({ async findCurrentEnrollment() { return null; } });
   const result = await resolveStudentIdentity({ userId: "user-1", role: "STUDENT" }, deps.value);
   assert.deepEqual(result, { ok: false, reason: "NO_CURRENT_ENROLLMENT" });
+  assert.equal(deps.calls.plan, 0);
+});
+
+test("archived school denies active learning identity without deleting the student identity", async () => {
+  const archivedStudent = { ...student, school: { ...student.school, status: "ARCHIVED" } };
+  const deps = dependencies({ async findStudentByUserId() { return archivedStudent; } });
+  const result = await resolveStudentIdentity({ userId: "user-1", role: "STUDENT" }, deps.value);
+  assert.deepEqual(result, { ok: false, reason: "SCHOOL_UNAVAILABLE" });
   assert.equal(deps.calls.plan, 0);
 });
 

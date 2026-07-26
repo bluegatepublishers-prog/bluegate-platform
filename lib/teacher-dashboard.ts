@@ -15,10 +15,17 @@ export async function requireTeacher() {
       status: "APPROVED",
       school: { status: "APPROVED", publisher: { active: true } },
     },
-    include: { user: true, school: true },
+    include: {
+      user: true,
+      school: true,
+      schoolMemberships: {
+        where: { active: true, status: "ACTIVE" },
+        select: { schoolId: true },
+      },
+    },
   });
 
-  if (!teacher) notFound();
+  if (!teacher || !teacher.schoolId || !teacher.schoolMemberships.some((membership) => membership.schoolId === teacher.schoolId)) notFound();
   return teacher;
 }
 

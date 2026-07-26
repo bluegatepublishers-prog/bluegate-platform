@@ -1,6 +1,6 @@
 import "server-only";
 
-import { SchoolOnboardingStatus, SecurityAuditOutcome, TeacherOnboardingStatus, UserRole } from "@prisma/client";
+import { SchoolOnboardingStatus, SchoolStaffMembershipStatus, SecurityAuditOutcome, TeacherOnboardingStatus, UserRole } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requirePublisherAdmin } from "@/lib/publisher-context";
 import { requireSchool } from "@/lib/school-dashboard";
@@ -11,7 +11,7 @@ import { accountAuditActor, publisherAdminAuditActor, writeSecurityAuditEvent } 
 
 export async function getPublisherSchoolRequests() {
   const { publisher } = await requirePublisherAdmin();
-  return prisma.school.findMany({ where: { publisherId: publisher.id }, include: { user: { select: { name: true, email: true, phone: true } }, onboardingReviews: { orderBy: { createdAt: "desc" }, take: 1, select: { reason: true, createdAt: true } } }, orderBy: [{ status: "asc" }, { schoolName: "asc" }], take: 200 });
+  return prisma.school.findMany({ where: { publisherId: publisher.id, status: SchoolOnboardingStatus.PENDING }, include: { user: { select: { name: true, email: true, phone: true } }, onboardingReviews: { orderBy: { createdAt: "desc" }, take: 1, select: { reason: true, createdAt: true } } }, orderBy: { schoolName: "asc" }, take: 200 });
 }
 
 export async function reviewSchoolRequest(input: { schoolId: string; status: string; reason?: unknown }) {
@@ -25,7 +25,6 @@ export async function reviewSchoolRequest(input: { schoolId: string; status: str
     const updated = await tx.school.updateMany({ where: { id: school.id, publisherId: publisher.id }, data: { status } });
     if (updated.count !== 1) throw new OnboardingError("This request changed before review.");
     await tx.schoolOnboardingReview.create({ data: { schoolId: school.id, publisherId: publisher.id, reviewerUserId: user.id!, fromStatus: school.status, toStatus: status, reason } });
-    if (status === SchoolOnboardingStatus.SUSPENDED) await tx.teacher.updateMany({ where: { schoolId: school.id }, data: { active: false, status: TeacherOnboardingStatus.SUSPENDED } });
     await writeSecurityAuditEvent(tx, {
       actor: publisherAdminAuditActor(actor), action: "publisher.school.status.set",
       targetType: "School", targetId: school.id, outcome: SecurityAuditOutcome.SUCCESS,
@@ -51,8 +50,37 @@ export async function reviewTeacherRequest(input: { requestId: string; status: s
     if (!current || current.status === status) throw new OnboardingError("This request changed before review.");
     const approved = status === TeacherOnboardingStatus.APPROVED;
     await tx.teacherSchoolRequest.update({ where: { id: current.id }, data: { status, activeKey: approved ? `${current.teacherId}:${school.id}` : null, reviewedById: school.userId, reviewedAt: new Date(), reason } });
-    await tx.teacher.update({ where: { id: current.teacherId }, data: { schoolId: approved ? school.id : current.teacher.schoolId, schoolName: school.schoolName, verified: approved, active: approved, status } });
-    if (status === TeacherOnboardingStatus.SUSPENDED) await tx.teacherAssignment.updateMany({ where: { teacherId: current.teacherId, schoolId: school.id, active: true }, data: { active: false } });
+    if (approved) {
+      const now = new Date();
+      await tx.schoolStaffMembership.updateMany({
+        where: { teacherId: current.teacherId, active: true },
+        data: { active: false, activeKey: null, status: SchoolStaffMembershipStatus.LEFT, leftAt: now },
+      });
+      await tx.teacherAssignment.updateMany({
+        where: { teacherId: current.teacherId, active: true },
+        data: { active: false, endedAt: now },
+      });
+      await tx.teacher.update({ where: { id: current.teacherId }, data: { schoolId: school.id, schoolName: school.schoolName, verified: true, active: true, status: TeacherOnboardingStatus.APPROVED } });
+      await tx.schoolStaffMembership.create({
+        data: {
+          schoolId: school.id,
+          userId: current.teacher.userId,
+          teacherId: current.teacherId,
+          role: "TEACHER",
+          status: SchoolStaffMembershipStatus.ACTIVE,
+          active: true,
+          activeKey: `${school.id}:${current.teacher.userId}`,
+          joinedAt: now,
+        },
+      });
+    } else if (status === TeacherOnboardingStatus.SUSPENDED) {
+      const now = new Date();
+      await tx.schoolStaffMembership.updateMany({
+        where: { teacherId: current.teacherId, schoolId: school.id, active: true },
+        data: { active: false, activeKey: null, status: SchoolStaffMembershipStatus.SUSPENDED, leftAt: now },
+      });
+      await tx.teacherAssignment.updateMany({ where: { teacherId: current.teacherId, schoolId: school.id, active: true }, data: { active: false, endedAt: now } });
+    }
     await writeSecurityAuditEvent(tx, {
       actor: accountAuditActor({ id: school.userId, role: UserRole.SCHOOL, publisherId: school.publisherId }),
       action: "publisher.teacher.status.set", targetType: "Teacher", targetId: current.teacherId,

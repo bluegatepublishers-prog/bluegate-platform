@@ -62,6 +62,11 @@ async function findLiveDownloadUser(userId: string): Promise<LiveDownloadUser | 
         select: {
           active: true,
           status: true,
+          schoolId: true,
+          schoolMemberships: {
+            where: { active: true, status: "ACTIVE" },
+            select: { schoolId: true },
+          },
           school: {
             select: {
               status: true,
@@ -102,7 +107,7 @@ async function findLiveDownloadUser(userId: string): Promise<LiveDownloadUser | 
       id: user.id,
       role: user.role,
       active: user.active,
-      eligible: Boolean(user.emailVerifiedAt && user.teacher?.active && user.teacher.status === "APPROVED" && user.teacher.school?.status === "APPROVED" && user.teacher.school.publisher?.active),
+      eligible: Boolean(user.emailVerifiedAt && user.teacher?.active && user.teacher.status === "APPROVED" && user.teacher.school?.status === "APPROVED" && user.teacher.school.publisher?.active && user.teacher.schoolId && user.teacher.schoolMemberships.some((membership) => membership.schoolId === user.teacher!.schoolId)),
       publisherId: user.teacher?.school?.publisherId ?? null,
     };
   }

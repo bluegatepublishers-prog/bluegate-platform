@@ -2,12 +2,13 @@
 
 import { randomBytes } from "node:crypto";
 import { revalidatePath } from "next/cache";
-import { SchoolStaffRole } from "@prisma/client";
+import { SchoolStaffMembershipStatus, SchoolStaffRole, SecurityAuditOutcome, UserRole } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { hashPassword } from "@/lib/password";
 import { requireSchool } from "@/lib/school-dashboard";
 import { deleteFile, isManagedFileUrl } from "@/lib/storage";
 import { normalizeAndValidateObjectKey } from "@/lib/storage/object-key";
+import { accountAuditActor, writeSecurityAuditEvent } from "@/lib/security-audit";
 
 const value = (form: FormData, key: string, max = 160) => String(form.get(key) ?? "").trim().slice(0, max);
 const email = (form: FormData) => value(form, "email", 254).toLowerCase();
@@ -49,11 +50,9 @@ export async function createSchoolTeacher(form: FormData) {
   const password = await hashPassword(randomBytes(32).toString("base64url"));
   await prisma.$transaction(async (tx) => {
     const user = await tx.user.create({ data: { name, email: teacherEmail, password, role: "TEACHER", phone: value(form, "phone", 30) || null } });
-    await tx.teacher.create({ data: { userId: user.id, schoolId: school.id, schoolName: school.schoolName, designation: value(form, "designation", 80) || "Teacher", subject: "Assigned through school", classes: "Assigned through school", verified: true, active: true } });
-    await tx.schoolStaffMembership.upsert({
-      where: { schoolId_userId: { schoolId: school.id, userId: user.id } },
-      update: { role: SchoolStaffRole.TEACHER, active: true },
-      create: { schoolId: school.id, userId: user.id, role: SchoolStaffRole.TEACHER, active: true, joinedAt: new Date() },
+    const teacher = await tx.teacher.create({ data: { userId: user.id, schoolId: school.id, schoolName: school.schoolName, designation: value(form, "designation", 80) || "Teacher", subject: "Assigned through school", classes: "Assigned through school", verified: true, active: true } });
+    await tx.schoolStaffMembership.create({
+      data: { schoolId: school.id, userId: user.id, teacherId: teacher.id, role: SchoolStaffRole.TEACHER, status: SchoolStaffMembershipStatus.ACTIVE, active: true, activeKey: `${school.id}:${user.id}`, joinedAt: new Date() },
     });
   });
   revalidatePath("/school-dashboard/teachers");
@@ -82,12 +81,25 @@ export async function setSchoolTeacherActive(form: FormData) {
   if (!teacher) return;
   await prisma.$transaction(async (tx) => {
     await tx.teacher.update({ where: { id: teacher.id }, data: { active, verified: active, status: active ? "APPROVED" : "SUSPENDED" } });
-    await tx.schoolStaffMembership.upsert({
-      where: { schoolId_userId: { schoolId: school.id, userId: teacher.userId } },
-      update: { role: SchoolStaffRole.TEACHER, active },
-      create: { schoolId: school.id, userId: teacher.userId, role: SchoolStaffRole.TEACHER, active, joinedAt: new Date() },
+    const membership = await tx.schoolStaffMembership.findFirst({
+      where: { schoolId: school.id, userId: teacher.userId, status: SchoolStaffMembershipStatus.ACTIVE },
+      orderBy: { joinedAt: "desc" },
     });
-    if (!active) await tx.teacherAssignment.updateMany({ where: { teacherId: teacher.id, schoolId: school.id, active: true }, data: { active: false } });
+    if (active && !membership) {
+      await tx.schoolStaffMembership.create({ data: { schoolId: school.id, userId: teacher.userId, teacherId: teacher.id, role: SchoolStaffRole.TEACHER, status: SchoolStaffMembershipStatus.ACTIVE, active: true, activeKey: `${school.id}:${teacher.userId}` } });
+    } else if (!active && membership) {
+      const now = new Date();
+      await tx.schoolStaffMembership.update({ where: { id: membership.id }, data: { active: false, activeKey: null, status: SchoolStaffMembershipStatus.LEFT, leftAt: now } });
+      await tx.teacherAssignment.updateMany({ where: { teacherId: teacher.id, schoolId: school.id, active: true }, data: { active: false, endedAt: now } });
+      await writeSecurityAuditEvent(tx, {
+        actor: accountAuditActor({ id: school.userId, role: UserRole.SCHOOL, publisherId: school.publisherId }),
+        action: "school.teacher.membership.close",
+        targetType: "SchoolStaffMembership",
+        targetId: membership.id,
+        outcome: SecurityAuditOutcome.SUCCESS,
+        metadata: { fromStatus: "ACTIVE", toStatus: "LEFT" },
+      });
+    }
   });
   revalidatePath("/school-dashboard/teachers");
   revalidatePath("/school-dashboard/staff");
@@ -117,8 +129,11 @@ export async function addSchoolStaffMembership(form: FormData) {
     data: {
       schoolId: school.id,
       userId: user.id,
+      teacherId: role === SchoolStaffRole.TEACHER ? user.teacher?.id : null,
       role,
+      status: SchoolStaffMembershipStatus.ACTIVE,
       active: true,
+      activeKey: `${school.id}:${user.id}`,
       joinedAt: new Date(),
     },
   }).catch(() => null);
@@ -133,12 +148,32 @@ export async function updateSchoolStaffMembership(form: FormData) {
   if (!membershipId || !Object.values(SchoolStaffRole).includes(roleInput as SchoolStaffRole)) return;
   const membership = await prisma.schoolStaffMembership.findFirst({
     where: { id: membershipId, schoolId: school.id },
-    select: { id: true },
+    select: { id: true, userId: true, teacherId: true, active: true },
   });
   if (!membership) return;
-  await prisma.schoolStaffMembership.update({
-    where: { id: membership.id },
-    data: { role: roleInput as SchoolStaffRole, active },
-  });
+  if (active && !membership.active) {
+    await prisma.schoolStaffMembership.create({
+      data: {
+        schoolId: school.id,
+        userId: membership.userId,
+        teacherId: membership.teacherId,
+        role: roleInput as SchoolStaffRole,
+        active: true,
+        status: SchoolStaffMembershipStatus.ACTIVE,
+        activeKey: `${school.id}:${membership.userId}`,
+      },
+    }).catch(() => null);
+  } else {
+    await prisma.schoolStaffMembership.update({
+      where: { id: membership.id },
+      data: {
+        role: roleInput as SchoolStaffRole,
+        active,
+        status: active ? SchoolStaffMembershipStatus.ACTIVE : SchoolStaffMembershipStatus.LEFT,
+        activeKey: active ? `${school.id}:${membership.userId}` : null,
+        leftAt: active ? null : new Date(),
+      },
+    });
+  }
   revalidatePath("/school-dashboard/staff");
 }

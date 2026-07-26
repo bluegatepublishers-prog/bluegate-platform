@@ -59,9 +59,10 @@ test("staff membership foundation is additive and school scoped", () => {
 
   assert.match(schema, /model SchoolStaffMembership \{/);
   assert.match(schema, /enum SchoolStaffRole \{/);
-  assert.match(schema, /@@unique\(\[schoolId, userId\]\)/);
+  assert.match(schema, /activeKey\s+String\?\s+@unique/);
+  assert.match(schema, /status\s+SchoolStaffMembershipStatus/);
   assert.match(schoolActions, /addSchoolStaffMembership\(/);
-  assert.match(schoolActions, /where: \{ schoolId_userId: \{ schoolId: school\.id, userId:/);
+  assert.match(schoolActions, /status: SchoolStaffMembershipStatus\.ACTIVE/);
   assert.match(schoolActions, /updateSchoolStaffMembership\(/);
   assert.match(schoolActions, /findFirst\(\{[\s\S]*schoolId: school\.id/);
   assert.match(staffPage, /Create the user account first, then add the person to your institution\./);

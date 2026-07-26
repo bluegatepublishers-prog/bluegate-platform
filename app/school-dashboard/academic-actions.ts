@@ -1,6 +1,6 @@
 "use server";
 
-import { EnrollmentStatus, PlatformFeatureKey, TeacherAssignmentType } from "@prisma/client";
+import { EnrollmentStatus, PlatformFeatureKey, SecurityAuditOutcome, TeacherAssignmentType, UserRole } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireSchool } from "@/lib/school-dashboard";
@@ -13,6 +13,7 @@ import {
   buildSectionSubjectContentUpdate,
   isSectionSubjectContentSelectionValid,
 } from "@/lib/section-subject-content-policy";
+import { accountAuditActor, writeSecurityAuditEvent } from "@/lib/security-audit";
 
 const text = (form: FormData, key: string, max = 120) => String(form.get(key) ?? "").trim().slice(0, max);
 const checked = (form: FormData, key: string) => form.get(key) === "on" || form.get(key) === "true";
@@ -316,6 +317,8 @@ export async function createStudent(form: FormData) {
         academicYearId,
         schoolClassId: section.schoolClass.id,
         sectionId,
+        admissionNumber,
+        activeSessionKey: `${student.id}:${academicYearId}`,
         rollNumber,
         status: EnrollmentStatus.ACTIVE,
         joinedAt: joinDate,
@@ -399,7 +402,16 @@ export async function changeStudentEnrollment(studentId: string, form: FormData)
         data: {
           status: EnrollmentStatus.TRANSFERRED,
           leftAt: movedOn,
+          activeSessionKey: null,
         },
+      });
+      await writeSecurityAuditEvent(tx, {
+        actor: accountAuditActor({ id: school.userId, role: UserRole.SCHOOL, publisherId: school.publisherId }),
+        action: "school.student.enrollment.close",
+        targetType: "StudentEnrollment",
+        targetId: currentActive.id,
+        outcome: SecurityAuditOutcome.SUCCESS,
+        metadata: { fromStatus: "ACTIVE", toStatus: "TRANSFERRED" },
       });
     }
     await tx.studentEnrollment.create({
@@ -409,6 +421,8 @@ export async function changeStudentEnrollment(studentId: string, form: FormData)
         academicYearId,
         schoolClassId: section.schoolClass.id,
         sectionId,
+        admissionNumber: student.admissionNumber,
+        activeSessionKey: `${studentId}:${academicYearId}`,
         rollNumber,
         status: EnrollmentStatus.ACTIVE,
         joinedAt: movedOn,
@@ -450,19 +464,19 @@ export async function saveTeacherAssignment(form: FormData) {
   if (!section || !Object.values(TeacherAssignmentType).includes(type) || (type === TeacherAssignmentType.SUBJECT_TEACHER && (!sectionSubject || !subject)) || (type === TeacherAssignmentType.CLASS_TEACHER && subjectId)) return;
   if (academicYearId && section.schoolClass.academicYearId !== academicYearId) return;
   if (!teacherId) {
-    await prisma.teacherAssignment.updateMany({ where: { schoolId: school.id, sectionId, type, subjectId, active: true }, data: { active: false } });
+    await prisma.teacherAssignment.updateMany({ where: { schoolId: school.id, sectionId, type, subjectId, active: true }, data: { active: false, endedAt: new Date() } });
     revalidatePath("/school-dashboard/teacher-assignments");
     return;
   }
   if (!teacher) return;
   const memberships = await prisma.schoolStaffMembership.findMany({
-    where: { schoolId: school.id, userId: teacher.userId, role: "TEACHER" },
+    where: { schoolId: school.id, userId: teacher.userId, role: "TEACHER", active: true, status: "ACTIVE" },
     select: { active: true },
-    take: 2,
+    take: 1,
   });
-  if (memberships.length && !memberships.some((membership) => membership.active)) return;
+  if (!memberships.length) return;
   await prisma.$transaction(async (tx) => {
-    await tx.teacherAssignment.updateMany({ where: { schoolId: school.id, sectionId, type, subjectId, active: true }, data: { active: false } });
+    await tx.teacherAssignment.updateMany({ where: { schoolId: school.id, sectionId, type, subjectId, active: true }, data: { active: false, endedAt: new Date() } });
     const duplicate = await tx.teacherAssignment.findFirst({
       where: {
         schoolId: school.id,
@@ -482,6 +496,6 @@ export async function saveTeacherAssignment(form: FormData) {
 
 export async function removeTeacherAssignment(form: FormData) {
   const school = await requireSchool();
-  await prisma.teacherAssignment.updateMany({ where: { id: text(form, "id"), schoolId: school.id }, data: { active: false } });
+  await prisma.teacherAssignment.updateMany({ where: { id: text(form, "id"), schoolId: school.id }, data: { active: false, endedAt: new Date() } });
   revalidatePath("/school-dashboard/teacher-assignments");
 }

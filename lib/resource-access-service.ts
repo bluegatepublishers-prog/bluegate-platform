@@ -9,13 +9,16 @@ export interface TeacherAccessRecord {
   active: boolean;
   schoolId: string | null;
   school: {
+    status: string;
     publisherId: string | null;
     publisher: { active: boolean } | null;
   } | null;
+  schoolMemberships: Array<{ schoolId: string; active: boolean; status: string }>;
 }
 
 export interface SchoolAccessRecord {
   id: string;
+  status: string;
   publisherId: string | null;
   publisher: { active: boolean } | null;
 }
@@ -90,6 +93,12 @@ export async function getTeacherResourceAccessWithDependencies(
   if (
     !teacher?.active ||
     !teacher.schoolId ||
+    teacher.school?.status !== "APPROVED" ||
+    !teacher.schoolMemberships.some((membership) =>
+      membership.schoolId === teacher.schoolId &&
+      membership.active &&
+      membership.status === "ACTIVE"
+    ) ||
     !teacher.school?.publisherId ||
     !teacher.school.publisher?.active
   ) {
@@ -145,7 +154,7 @@ export async function getSchoolResourceScopeWithDependencies(
   dependencies: ResourceAccessDependencies,
 ) {
   const school = await dependencies.findSchool(userId);
-  if (!school?.publisherId || !school.publisher?.active) return null;
+  if (!school?.publisherId || school.status !== "APPROVED" || !school.publisher?.active) return null;
   if (!(await dependencies.isResourcesEnabled(school.publisherId))) return null;
   return {
     school,

@@ -110,10 +110,10 @@ async function requireStudentDashboardAccessUncached(): Promise<StudentDashboard
 
   const identity = await loadStudentIdentity(user.id, user.role, user.publisherId);
   if (!identity.ok) {
-    if (identity.reason === "NO_CURRENT_ENROLLMENT" || identity.reason === "INVALID_ACADEMIC_SCOPE") {
+    if (identity.reason === "NO_CURRENT_ENROLLMENT" || identity.reason === "INVALID_ACADEMIC_SCOPE" || identity.reason === "SCHOOL_UNAVAILABLE") {
       const shell = await resolveStudentShell(user.id);
       if (!shell) redirect("/student-login?error=student_access_unavailable");
-      if (identity.reason === "NO_CURRENT_ENROLLMENT") {
+      if (identity.reason === "NO_CURRENT_ENROLLMENT" || identity.reason === "SCHOOL_UNAVAILABLE") {
         return { status: "NO_ENROLMENT", shell };
       }
       return shell.className && shell.sectionName

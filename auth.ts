@@ -40,7 +40,28 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           return null;
         }
 
-        const user = await prisma.user.findUnique({ where: { email }, include: { school: { select: { status: true, publisherId: true, publisher: { select: { active: true } } } }, teacher: { select: { active: true, status: true, school: { select: { status: true, publisherId: true, publisher: { select: { active: true } } } } } }, student: { select: { school: { select: { publisherId: true } } } }, mentor: { select: { active: true, publisherId: true, publisher: { select: { active: true } } } }, parent: { select: { active: true } }, publisher: { select: { id: true, active: true } } } });
+        const user = await prisma.user.findUnique({
+          where: { email },
+          include: {
+            school: { select: { status: true, publisherId: true, publisher: { select: { active: true } } } },
+            teacher: {
+              select: {
+                active: true,
+                status: true,
+                schoolId: true,
+                schoolMemberships: {
+                  where: { active: true, status: "ACTIVE" },
+                  select: { schoolId: true },
+                },
+                school: { select: { status: true, publisherId: true, publisher: { select: { active: true } } } },
+              },
+            },
+            student: { select: { school: { select: { publisherId: true } } } },
+            mentor: { select: { active: true, publisherId: true, publisher: { select: { active: true } } } },
+            parent: { select: { active: true } },
+            publisher: { select: { id: true, active: true } },
+          },
+        });
 
         if (!user) {
           return null;
@@ -83,7 +104,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         }
 
         if (user.role === "SCHOOL" && (user.school?.status !== "APPROVED" || !user.school.publisher?.active)) return null;
-        if (user.role === "TEACHER" && (!user.teacher?.active || user.teacher.status !== "APPROVED" || user.teacher.school?.status !== "APPROVED" || !user.teacher.school.publisher?.active)) return null;
+        if (user.role === "TEACHER" && (!user.teacher?.active || user.teacher.status !== "APPROVED" || user.teacher.school?.status !== "APPROVED" || !user.teacher.school.publisher?.active || !user.teacher.schoolId || !user.teacher.schoolMemberships.some((membership) => membership.schoolId === user.teacher!.schoolId))) return null;
         if (user.role === "ADMIN" && !user.publisher?.active) return null;
         if (user.role === "MENTOR" && (!user.mentor?.active || !user.mentor.publisher.active || user.publisherId !== user.mentor.publisherId || !(await isPublisherFeatureEnabled(user.mentor.publisherId, PlatformFeatureKey.TUTOR_PLATFORM)))) return null;
         if (user.role === "PARENT" && !user.parent?.active) return null;
@@ -167,20 +188,18 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           return null;
         }
 
-        if (
-          user.student.school.status !== "APPROVED" ||
-          !user.student.school.publisherId ||
-          !user.student.school.publisher?.active
-        ) {
+        if (!user.student.school.publisherId || !user.student.school.publisher?.active) {
           return null;
         }
 
-        const claims = studentSessionClaims(
-          await loadStudentIdentity(user.id, user.role, user.publisherId),
-        );
+        const identity = await loadStudentIdentity(user.id, user.role, user.publisherId);
+        const claims = studentSessionClaims(identity);
 
         if (!claims) {
-          return null;
+          if (identity.ok) return null;
+          if (!["SCHOOL_UNAVAILABLE", "NO_CURRENT_ENROLLMENT", "INVALID_ACADEMIC_SCOPE"].includes(identity.reason)) {
+            return null;
+          }
         }
 
         return {

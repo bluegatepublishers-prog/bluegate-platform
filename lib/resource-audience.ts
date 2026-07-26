@@ -36,7 +36,13 @@ const defaultDependencies: ResourceAccessDependencies = {
   findTeacher: (userId) =>
     prisma.teacher.findUnique({
       where: { userId },
-      include: { school: { include: { publisher: true } } },
+      include: {
+        school: { include: { publisher: true } },
+        schoolMemberships: {
+          where: { active: true, status: "ACTIVE" },
+          select: { schoolId: true, active: true, status: true },
+        },
+      },
     }),
   findTeacherAssignments: (teacherId, schoolId) =>
     prisma.teacherAssignment.findMany({

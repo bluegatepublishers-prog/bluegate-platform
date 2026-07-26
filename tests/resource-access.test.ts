@@ -84,9 +84,11 @@ function accessDependencies(scenario: AccessScenario = {}) {
         schoolId: ids.schoolA,
         school: {
           id: ids.schoolA,
+          status: "APPROVED",
           publisherId: ids.publisherA,
           publisher: { id: ids.publisherA, active: config.publisherActive },
         },
+        schoolMemberships: [{ schoolId: ids.schoolA, active: true, status: "ACTIVE" }],
       };
     },
     async findTeacherAssignments() {
@@ -110,6 +112,7 @@ function accessDependencies(scenario: AccessScenario = {}) {
       return {
         id: ids.schoolA,
         userId: ids.schoolUserA,
+        status: "APPROVED",
         publisherId: ids.publisherA,
         publisher: { id: ids.publisherA, active: config.publisherActive },
       };

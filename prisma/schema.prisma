@@ -194,6 +194,7 @@ model Teacher {
   gapReviews                  StudentLearningGapReview[]
   remedialReviews             RemedialPlanReview[]
   schoolRequests              TeacherSchoolRequest[]
+  schoolMemberships           SchoolStaffMembership[]
 
   @@index([schoolId])
   @@index([schoolId, status, active])
@@ -265,7 +266,7 @@ model School {
   pincode                 String?
   logoUrl                 String?
   status                  SchoolOnboardingStatus    @default(APPROVED)
-  user                    User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user                    User                      @relation(fields: [userId], references: [id], onDelete: Restrict)
   inspectionRequests      InspectionRequest[]
   teachers                Teacher[]
   academicYears           AcademicYear[]
@@ -300,6 +301,7 @@ model School {
   classMaterials          ClassMaterial[]
   classroomAssignments    ClassroomAssignment[]
   assignmentSubmissions   AssignmentSubmission[]
+  reportCardSnapshots     ReportCardSnapshot[]
 
   @@index([publisherId, status])
   @@index([publisherId])
@@ -394,7 +396,7 @@ model AcademicYear {
   current                 Boolean                   @default(false)
   createdAt               DateTime                  @default(now())
   updatedAt               DateTime                  @updatedAt
-  school                  School                    @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  school                  School                    @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   classes                 SchoolClass[]
   enrollments             StudentEnrollment[]
   teacherAssignments      TeacherAssignment[]
@@ -425,6 +427,7 @@ model AcademicYear {
   classMaterials          ClassMaterial[]
   classroomAssignments    ClassroomAssignment[]
   assignmentSubmissions   AssignmentSubmission[]
+  reportCardSnapshots     ReportCardSnapshot[]
 
   @@unique([schoolId, name])
   @@index([schoolId, current, active])
@@ -440,8 +443,8 @@ model SchoolClass {
   active               Boolean               @default(true)
   createdAt            DateTime              @default(now())
   updatedAt            DateTime              @updatedAt
-  school               School                @relation(fields: [schoolId], references: [id], onDelete: Cascade)
-  academicYear         AcademicYear          @relation(fields: [academicYearId], references: [id], onDelete: Cascade)
+  school               School                @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  academicYear         AcademicYear          @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
   sections             ClassSection[]
   enrollments          StudentEnrollment[]
   teacherAssignments   TeacherAssignment[]
@@ -498,7 +501,7 @@ model Student {
   createdAt             DateTime                    @default(now())
   updatedAt             DateTime                    @updatedAt
   user                  User?                       @relation(fields: [userId], references: [id], onDelete: SetNull)
-  school                School                      @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  school                School                      @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   enrollments           StudentEnrollment[]
   accessGrants          StudentAccessGrant[]
   bookProgress          StudentBookProgress[]
@@ -526,6 +529,7 @@ model Student {
   resourceBookmarks     StudentResourceBookmark[]
   resourceDownloads     StudentResourceDownload[]
   assignmentSubmissions AssignmentSubmission[]
+  reportCardSnapshots   ReportCardSnapshot[]
 
   @@unique([schoolId, admissionNumber])
   @@index([schoolId, active, name])
@@ -836,23 +840,26 @@ model MentorAvailability {
 }
 
 model StudentEnrollment {
-  id             String           @id @default(cuid())
-  studentId      String
-  schoolId       String
-  academicYearId String
-  schoolClassId  String
-  sectionId      String
-  rollNumber     String?
-  status         EnrollmentStatus @default(ACTIVE)
-  joinedAt       DateTime         @default(now())
-  leftAt         DateTime?
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
-  student        Student          @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  school         School           @relation(fields: [schoolId], references: [id], onDelete: Cascade)
-  academicYear   AcademicYear     @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
-  schoolClass    SchoolClass      @relation(fields: [schoolClassId], references: [id], onDelete: Restrict)
-  section        ClassSection     @relation(fields: [sectionId], references: [id], onDelete: Restrict)
+  id                  String               @id @default(cuid())
+  studentId           String
+  schoolId            String
+  academicYearId      String
+  schoolClassId       String
+  sectionId           String
+  admissionNumber     String?
+  activeSessionKey    String?              @unique
+  rollNumber          String?
+  status              EnrollmentStatus     @default(ACTIVE)
+  joinedAt            DateTime             @default(now())
+  leftAt              DateTime?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  student             Student              @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  school              School               @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  academicYear        AcademicYear         @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
+  schoolClass         SchoolClass          @relation(fields: [schoolClassId], references: [id], onDelete: Restrict)
+  section             ClassSection         @relation(fields: [sectionId], references: [id], onDelete: Restrict)
+  reportCardSnapshots ReportCardSnapshot[]
 
   @@index([studentId, academicYearId])
   @@index([sectionId, rollNumber])
@@ -860,20 +867,25 @@ model StudentEnrollment {
 }
 
 model SchoolStaffMembership {
-  id        String          @id @default(cuid())
+  id        String                      @id @default(cuid())
   schoolId  String
   userId    String
+  teacherId String?
   role      SchoolStaffRole
-  active    Boolean         @default(true)
-  joinedAt  DateTime?
-  createdAt DateTime        @default(now())
-  updatedAt DateTime        @updatedAt
-  school    School          @relation(fields: [schoolId], references: [id], onDelete: Cascade)
-  user      User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status    SchoolStaffMembershipStatus @default(ACTIVE)
+  active    Boolean                     @default(true)
+  activeKey String?                     @unique
+  joinedAt  DateTime                    @default(now())
+  leftAt    DateTime?
+  createdAt DateTime                    @default(now())
+  updatedAt DateTime                    @updatedAt
+  school    School                      @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  user      User                        @relation(fields: [userId], references: [id], onDelete: Restrict)
+  teacher   Teacher?                    @relation(fields: [teacherId], references: [id], onDelete: Restrict)
 
-  @@unique([schoolId, userId])
-  @@index([schoolId, active])
-  @@index([userId])
+  @@index([schoolId, status, active])
+  @@index([userId, status])
+  @@index([teacherId, status])
 }
 
 model StudentAccessGrant {
@@ -932,10 +944,11 @@ model TeacherAssignment {
   subjectId      String?
   type           TeacherAssignmentType
   active         Boolean               @default(true)
+  endedAt        DateTime?
   createdAt      DateTime              @default(now())
   updatedAt      DateTime              @updatedAt
-  teacher        Teacher               @relation(fields: [teacherId], references: [id], onDelete: Cascade)
-  school         School                @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  teacher        Teacher               @relation(fields: [teacherId], references: [id], onDelete: Restrict)
+  school         School                @relation(fields: [schoolId], references: [id], onDelete: Restrict)
   academicYear   AcademicYear          @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
   schoolClass    SchoolClass           @relation(fields: [schoolClassId], references: [id], onDelete: Restrict)
   section        ClassSection          @relation(fields: [sectionId], references: [id], onDelete: Restrict)
@@ -2014,6 +2027,34 @@ model SubmissionAttachment {
   @@index([submissionId, createdAt])
 }
 
+model ReportCardSnapshot {
+  id                   String            @id @default(cuid())
+  documentId           String            @unique
+  version              Int               @default(1)
+  studentId            String
+  enrollmentId         String
+  schoolId             String
+  academicYearId       String
+  schoolDisplayName    String
+  academicYearName     String
+  classDisplayName     String
+  sectionDisplayName   String
+  principalDisplayName String?
+  teacherDisplayNames  String[]          @default([])
+  subjectResults       Json
+  attendanceSnapshot   Json?
+  issuedAt             DateTime
+  createdAt            DateTime          @default(now())
+  student              Student           @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  enrollment           StudentEnrollment @relation(fields: [enrollmentId], references: [id], onDelete: Restrict)
+  school               School            @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  academicYear         AcademicYear      @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
+
+  @@unique([enrollmentId, version])
+  @@index([studentId, issuedAt])
+  @@index([schoolId, academicYearId, issuedAt])
+}
+
 model Download {
   id           String   @id @default(cuid())
   teacherId    String
@@ -2649,7 +2690,10 @@ enum SchoolOnboardingStatus {
   PENDING
   APPROVED
   REJECTED
+  PAUSED
   SUSPENDED
+  REVOKED
+  ARCHIVED
 }
 
 enum TeacherOnboardingStatus {
@@ -2666,6 +2710,13 @@ enum SchoolStaffRole {
   TEACHER
   ACCOUNTANT
   OTHER
+}
+
+enum SchoolStaffMembershipStatus {
+  ACTIVE
+  LEFT
+  SUSPENDED
+  REVOKED
 }
 
 enum LearningActivityType {
@@ -2852,6 +2903,7 @@ enum EnrollmentStatus {
   TRANSFERRED
   WITHDRAWN
   COMPLETED
+  CANCELLED
 }
 
 enum TeacherAssignmentType {

@@ -53,7 +53,7 @@ export default function AdminShell({
       <div className="min-w-0 flex-1">
         <AdminHeader userLabel={userLabel} onOpenMenu={() => setMobileOpen(true)} />
         <div className="min-w-0 overflow-x-hidden p-4 sm:p-6 lg:p-8">
-          <div className="mx-auto w-full max-w-[1600px] min-w-0 overflow-x-auto">
+          <div className="mx-auto w-full max-w-[1600px] min-w-0">
             {children}
           </div>
         </div>

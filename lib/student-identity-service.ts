@@ -5,6 +5,7 @@ export type StudentIdentityFailure =
   | "STUDENT_NOT_FOUND"
   | "STUDENT_INACTIVE"
   | "PUBLISHER_UNAVAILABLE"
+  | "SCHOOL_UNAVAILABLE"
   | "WRONG_PUBLISHER"
   | "NO_CURRENT_ENROLLMENT"
   | "INVALID_ACADEMIC_SCOPE";
@@ -25,6 +26,7 @@ export interface StudentRecord {
     city: string;
     state: string;
     logoUrl: string | null;
+    status: string;
     publisherId: string | null;
     publisher: { id: string; active: boolean } | null;
   };
@@ -82,6 +84,9 @@ export async function resolveStudentIdentity(
   const publisher = student.school.publisher;
   if (!student.school.publisherId || !publisher?.active) {
     return { ok: false, reason: "PUBLISHER_UNAVAILABLE" };
+  }
+  if (student.school.status !== "APPROVED") {
+    return { ok: false, reason: "SCHOOL_UNAVAILABLE" };
   }
   if (
     publisher.id !== student.school.publisherId ||

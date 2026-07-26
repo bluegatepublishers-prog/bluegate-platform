@@ -15,7 +15,8 @@ function makeDependencies(
       id: "teacher-1",
       active: true,
       schoolId: "school-1",
-      school: { publisherId: "publisher-1", publisher: { active: true } },
+      school: { status: "APPROVED", publisherId: "publisher-1", publisher: { active: true } },
+      schoolMemberships: [{ schoolId: "school-1", active: true, status: "ACTIVE" }],
     }),
     findTeacherAssignments: async () => [
       { sectionId: "section-1", subjectId: "subject-1", academicYearId: "ay-1" },
@@ -23,6 +24,7 @@ function makeDependencies(
     findEntitledSectionSubjects: async () => [{ id: "section-subject-1" }],
     findSchool: async () => ({
       id: "school-1",
+      status: "APPROVED",
       publisherId: "publisher-1",
       publisher: { active: true },
     }),

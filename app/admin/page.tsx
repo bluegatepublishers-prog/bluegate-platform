@@ -1,7 +1,6 @@
 import { requireLivePublisherAdmin } from "@/lib/publisher-admin-authorization";
 import { prisma } from "@/lib/prisma";
 import {
-  Users,
   School,
   BookOpen,
   FolderOpen,
@@ -14,19 +13,12 @@ export const revalidate = 0;
 
 export default async function AdminDashboardPage() {
   const actor = await requireLivePublisherAdmin();
-  const [teachers, schools, books, resources] = await Promise.all([
-    prisma.teacher.count({ where: { school: { publisherId: actor.publisherId } } }),
+  const [schools, books, resources] = await Promise.all([
     prisma.school.count({ where: { publisherId: actor.publisherId } }),
     prisma.book.count({ where: { publisherId: actor.publisherId } }),
     prisma.resource.count({ where: { publisherId: actor.publisherId } }),
   ]);
   const stats = [
-    {
-      title: "Teachers",
-      value: teachers,
-      icon: Users,
-      color: "bg-blue-100 text-blue-700",
-    },
     {
       title: "Schools",
       value: schools,
@@ -52,11 +44,6 @@ export default async function AdminDashboardPage() {
       title: "Add Book",
       href: "/admin/books/new",
       icon: BookOpen,
-    },
-    {
-      title: "Manage Teachers",
-      href: "/admin/teachers",
-      icon: Users,
     },
     {
       title: "Manage Schools",

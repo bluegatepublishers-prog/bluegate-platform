@@ -158,6 +158,9 @@ export async function authorizeUpload(
         active: true,
         status: "APPROVED",
         school: { status: "APPROVED", publisher: { active: true } },
+        schoolMemberships: {
+          some: { active: true, status: "ACTIVE" },
+        },
         assignments: {
           some: {
             sectionId: targetId,

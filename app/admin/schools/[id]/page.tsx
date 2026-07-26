@@ -1,183 +1,156 @@
 import Link from "next/link";
-import { requireLivePublisherAdmin } from "@/lib/publisher-admin-authorization";
-import { ArrowRight, MapPin, Mail, User, Smartphone } from "lucide-react";
+import { notFound } from "next/navigation";
 
 import { getSchoolById } from "@/lib/schools";
+import { SCHOOL_LIFECYCLE_TRANSITIONS, type SchoolLifecycleAction } from "@/lib/school-lifecycle";
+import { changeSchoolLifecycleAction, updateSchoolProfileAction } from "../actions";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+export const metadata = { title: "School Details | Bluegate Admin" };
 
-export const metadata = {
-  title: "School Details | Bluegate Admin",
+const lifecycleLabels: Record<SchoolLifecycleAction, string> = {
+  pause: "Pause",
+  resume: "Resume",
+  suspend: "Suspend",
+  revoke: "Revoke",
+  archive: "Archive",
+  restore: "Restore",
 };
 
-interface SchoolDetailPageProps {
-  params: {
-    id: string;
-  };
-}
-
-export default async function AdminSchoolDetailPage({ params }: SchoolDetailPageProps) {
-  if (!process.env.DATABASE_URL) {
-    return (
-      <div className="space-y-8 p-8">
-        <div className="rounded-2xl border border-rose-200 bg-rose-50 p-8 text-slate-900">
-          <h1 className="text-3xl font-bold">Database configuration required</h1>
-          <p className="mt-4 text-slate-700">
-            School details cannot load because the database is not configured.
-            Check the <code>DATABASE_URL</code> environment variable and try again.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  await requireLivePublisherAdmin();
-
-  let school = null;
-  let errorMessage: string | null = null;
-
-  try {
-    school = await getSchoolById(params.id);
-  } catch (error) {
-    console.error("Admin school detail error:", error);
-    errorMessage =
-      "Database connection is unavailable. Check the DATABASE_URL environment variable.";
-  }
-
-  if (errorMessage) {
-    return (
-      <div className="space-y-8 p-8">
-        <div className="rounded-2xl border border-rose-200 bg-rose-50 p-8 text-slate-900">
-          <h1 className="text-3xl font-bold">Unable to load school details</h1>
-          <p className="mt-4 text-slate-700">{errorMessage}</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!school) {
-    return (
-      <div className="space-y-8 p-8">
-        <div className="rounded-2xl border border-slate-200 bg-white p-8 text-slate-900 shadow-sm">
-          <h1 className="text-3xl font-bold">School Not Found</h1>
-          <p className="mt-4 text-slate-700">
-            The school record you requested does not exist or may have been removed.
-          </p>
-          <Link
-            href="/admin/schools"
-            className="mt-6 inline-flex rounded-xl bg-blue-600 px-5 py-3 font-semibold text-white hover:bg-blue-700"
-          >
-            Back to Schools
-          </Link>
-        </div>
-      </div>
-    );
-  }
+export default async function AdminSchoolDetailPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const { id } = await params;
+  const school = await getSchoolById(id);
+  if (!school) notFound();
+  const availableActions = Object.entries(SCHOOL_LIFECYCLE_TRANSITIONS)
+    .filter(([, transition]) => (transition.from as readonly string[]).includes(school.status))
+    .map(([action]) => action as SchoolLifecycleAction);
 
   return (
-    <div className="space-y-8">
-      <div className="space-y-4">
-        <div>
-          <p className="text-sm font-semibold uppercase tracking-[0.24em] text-sky-600">
-            Admin / Schools
-          </p>
-          <h1 className="mt-2 text-3xl font-bold text-slate-900">{school.schoolName}</h1>
-          <p className="mt-3 max-w-2xl text-slate-600">
-            School details and associated account information.
-          </p>
+    <main className="min-w-0 space-y-6">
+      <header className="flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0">
+          <Link href="/admin/schools" className="font-semibold text-blue-700">← Schools</Link>
+          <h1 className="mt-3 break-words text-3xl font-bold">{school.schoolName}</h1>
+          <p className="mt-2 text-slate-600">{school.city}, {school.state}</p>
+        </div>
+        <span className="rounded-full bg-slate-100 px-4 py-2 text-sm font-bold">
+          Status: {school.status}
+        </span>
+      </header>
+
+      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {[
+          ["Teacher memberships", school._count.staffMemberships],
+          ["Student enrollments", school._count.studentEnrollments],
+          ["Subject assignments", school._count.teacherAssignments],
+          ["Book adoption records", school._count.bookAdoptions],
+        ].map(([label, count]) => (
+          <div key={String(label)} className="rounded-2xl border bg-white p-4">
+            <p className="text-sm text-slate-500">{label}</p>
+            <p className="mt-1 text-2xl font-bold">{count}</p>
+          </div>
+        ))}
+      </section>
+
+      <div className="grid min-w-0 gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
+        <div className="min-w-0 space-y-6">
+          <section className="rounded-2xl border bg-white p-5 shadow-sm">
+            <h2 className="text-xl font-bold">School profile</h2>
+            <form action={updateSchoolProfileAction.bind(null, school.id)} className="mt-5 grid gap-4 sm:grid-cols-2">
+              <Field name="schoolName" label="School name" value={school.schoolName} wide />
+              <Field name="city" label="City" value={school.city} />
+              <Field name="state" label="State" value={school.state} />
+              <Field name="principalName" label="Principal display name" value={school.principalName ?? ""} />
+              <Field name="pincode" label="Pincode" value={school.pincode ?? ""} />
+              <label className="sm:col-span-2 text-sm font-semibold">Address
+                <textarea name="address" defaultValue={school.address ?? ""} maxLength={300} className="mt-2 min-h-24 w-full rounded-xl border px-3 py-2 font-normal" />
+              </label>
+              <button className="min-h-12 rounded-xl bg-blue-700 px-5 font-semibold text-white sm:w-fit">Save school profile</button>
+            </form>
+          </section>
+
+          <section className="rounded-2xl border bg-white p-5 shadow-sm">
+            <h2 className="text-xl font-bold">Publisher content</h2>
+            <p className="mt-2 text-sm text-slate-600">Approve publisher books requested by this school and manage publisher resources without changing classes or teacher assignments.</p>
+            <div className="mt-4 flex flex-wrap gap-3">
+              <Link href="/admin/book-adoptions" className="min-h-12 rounded-xl border px-4 py-3 font-semibold text-blue-700">Manage book availability</Link>
+              <Link href="/admin/resources" className="min-h-12 rounded-xl border px-4 py-3 font-semibold text-blue-700">Publisher resources</Link>
+            </div>
+          </section>
+
+          <section className="rounded-2xl border bg-white p-5 shadow-sm">
+            <h2 className="text-xl font-bold">Recent lifecycle activity</h2>
+            <ul className="mt-4 divide-y">
+              {school.onboardingReviews.map((review) => (
+                <li key={review.id} className="py-3 text-sm">
+                  <p className="font-semibold">{review.fromStatus} → {review.toStatus}</p>
+                  <p className="text-slate-500">{review.createdAt.toLocaleString("en-IN")}{review.reason ? ` · ${review.reason}` : ""}</p>
+                </li>
+              ))}
+              {!school.onboardingReviews.length ? <li className="py-4 text-sm text-slate-500">No lifecycle changes recorded.</li> : null}
+            </ul>
+            <h3 className="mt-5 border-t pt-5 font-bold">Security audit</h3>
+            <ul className="mt-2 divide-y">
+              {school.recentAuditEvents.map((event) => (
+                <li key={event.id} className="py-3 text-sm">
+                  <p className="break-words font-semibold">{event.action}</p>
+                  <p className="text-slate-500">{event.outcome} · {event.createdAt.toLocaleString("en-IN")}</p>
+                </li>
+              ))}
+              {!school.recentAuditEvents.length ? <li className="py-4 text-sm text-slate-500">No safe audit events recorded.</li> : null}
+            </ul>
+          </section>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <div className="rounded-3xl border bg-white p-6 shadow-sm">
-            <p className="text-sm uppercase tracking-[0.24em] text-slate-500">City</p>
-            <p className="mt-2 text-xl font-semibold text-slate-900">{school.city}</p>
-          </div>
-          <div className="rounded-3xl border bg-white p-6 shadow-sm">
-            <p className="text-sm uppercase tracking-[0.24em] text-slate-500">State</p>
-            <p className="mt-2 text-xl font-semibold text-slate-900">{school.state}</p>
-          </div>
-          <div className="rounded-3xl border bg-white p-6 shadow-sm">
-            <p className="text-sm uppercase tracking-[0.24em] text-slate-500">Contact</p>
-            <p className="mt-2 text-xl font-semibold text-slate-900">
-              {school.user?.phone ?? "—"}
-            </p>
-          </div>
-          <div className="rounded-3xl border bg-white p-6 shadow-sm">
-            <p className="text-sm uppercase tracking-[0.24em] text-slate-500">Registered user</p>
-            <p className="mt-2 text-xl font-semibold text-slate-900">
-              {school.user?.name ?? "—"}
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <div className="grid gap-6 xl:grid-cols-[1fr_320px]">
-        <section className="rounded-3xl border bg-white p-6 shadow-sm">
-          <div className="mb-6 flex items-center justify-between gap-4">
-            <div>
-              <p className="text-sm font-semibold uppercase tracking-[0.24em] text-slate-500">
-                School profile
-              </p>
-              <h2 className="mt-2 text-2xl font-bold text-slate-900">Overview</h2>
-            </div>
-            <ArrowRight className="h-6 w-6 text-slate-400" />
-          </div>
-
-          <div className="space-y-6">
-            <div>
-              <p className="text-sm uppercase tracking-[0.24em] text-slate-500">School name</p>
-              <p className="mt-2 text-base font-semibold text-slate-900">{school.schoolName}</p>
-            </div>
-            <div>
-              <p className="text-sm uppercase tracking-[0.24em] text-slate-500">City</p>
-              <p className="mt-2 text-base font-semibold text-slate-900">{school.city}</p>
-            </div>
-            <div>
-              <p className="text-sm uppercase tracking-[0.24em] text-slate-500">State</p>
-              <p className="mt-2 text-base font-semibold text-slate-900">{school.state}</p>
-            </div>
-          </div>
-        </section>
-
-        <aside className="space-y-4">
-          <section className="rounded-3xl border bg-white p-6 shadow-sm">
-            <p className="text-sm uppercase tracking-[0.24em] text-slate-500">Account</p>
-            <h2 className="mt-2 text-2xl font-bold text-slate-900">User details</h2>
-
-            <div className="mt-6 space-y-4">
-              <div className="flex items-center gap-3 rounded-3xl bg-slate-50 p-4">
-                <User className="h-5 w-5 text-slate-500" />
-                <div>
-                  <p className="text-sm text-slate-500">Name</p>
-                  <p className="font-medium text-slate-900">{school.user?.name ?? "—"}</p>
-                </div>
+        <aside className="min-w-0 space-y-6">
+          <section className="rounded-2xl border bg-white p-5 shadow-sm">
+            <h2 className="text-xl font-bold">Lifecycle actions</h2>
+            <p className="mt-2 text-sm text-slate-600">These actions retain identities and academic history. Permanent deletion is not available here.</p>
+            <form action={changeSchoolLifecycleAction.bind(null, school.id)} className="mt-4 space-y-3">
+              <label className="block text-sm font-semibold">Reason
+                <textarea name="reason" maxLength={500} className="mt-2 min-h-20 w-full rounded-xl border px-3 py-2 font-normal" />
+              </label>
+              <div className="flex flex-wrap gap-2">
+                {availableActions.map((action) => (
+                  <button
+                    key={action}
+                    name="lifecycleAction"
+                    value={action}
+                    className="min-h-11 rounded-xl border px-4 font-semibold text-slate-800 hover:bg-slate-50"
+                  >
+                    {lifecycleLabels[action]}
+                  </button>
+                ))}
               </div>
-              <div className="flex items-center gap-3 rounded-3xl bg-slate-50 p-4">
-                <Mail className="h-5 w-5 text-slate-500" />
-                <div>
-                  <p className="text-sm text-slate-500">Email</p>
-                  <p className="font-medium text-slate-900">{school.user?.email ?? "—"}</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-3 rounded-3xl bg-slate-50 p-4">
-                <Smartphone className="h-5 w-5 text-slate-500" />
-                <div>
-                  <p className="text-sm text-slate-500">Phone</p>
-                  <p className="font-medium text-slate-900">{school.user?.phone ?? "—"}</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-3 rounded-3xl bg-slate-50 p-4">
-                <MapPin className="h-5 w-5 text-slate-500" />
-                <div>
-                  <p className="text-sm text-slate-500">Location</p>
-                  <p className="font-medium text-slate-900">{school.city}, {school.state}</p>
-                </div>
-              </div>
-            </div>
+            </form>
+          </section>
+
+          <section className="rounded-2xl border bg-white p-5 shadow-sm">
+            <h2 className="font-bold">Account and entitlement</h2>
+            <dl className="mt-4 space-y-3 text-sm">
+              <Row label="Account" value={school.user.active ? "Active" : "Inactive"} />
+              <Row label="Email" value={school.user.email} />
+              <Row label="Academic sessions" value={String(school._count.academicYears)} />
+              <Row label="Classes" value={String(school._count.schoolClasses)} />
+            </dl>
           </section>
         </aside>
       </div>
-    </div>
+    </main>
   );
+}
+
+function Field({ name, label, value, wide = false }: { name: string; label: string; value: string; wide?: boolean }) {
+  return <label className={`${wide ? "sm:col-span-2 " : ""}text-sm font-semibold`}>{label}
+    <input name={name} defaultValue={value} required={["schoolName", "city", "state"].includes(name)} className="mt-2 block min-h-11 w-full rounded-xl border px-3 font-normal" />
+  </label>;
+}
+
+function Row({ label, value }: { label: string; value: string }) {
+  return <div className="flex min-w-0 justify-between gap-3"><dt className="text-slate-500">{label}</dt><dd className="break-all text-right font-semibold">{value}</dd></div>;
 }

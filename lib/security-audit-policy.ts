@@ -33,7 +33,20 @@ export const SECURITY_AUDIT_ACTIONS = [
   "publisher.resource.create",
   "publisher.resource.update",
   "publisher.resource.delete",
+  "publisher.school.create",
+  "publisher.school.update",
+  "publisher.school.pause",
+  "publisher.school.resume",
+  "publisher.school.suspend",
+  "publisher.school.revoke",
+  "publisher.school.archive",
+  "publisher.school.restore",
+  "publisher.school.permanent_delete.blocked",
   "publisher.school.status.set",
+  "school.student.enrollment.close",
+  "school.student.transfer",
+  "school.teacher.membership.close",
+  "school.report_card.issue",
   "publisher.teacher.status.set",
   "publisher.teacher.ai_plan.set",
   "publisher.book_adoption.approve",
@@ -88,6 +101,9 @@ export type SecurityAuditTargetType =
   | "VideoLesson"
   | "Resource"
   | "School"
+  | "StudentEnrollment"
+  | "SchoolStaffMembership"
+  | "ReportCardSnapshot"
   | "Teacher"
   | "SchoolBookAdoption"
   | "User"
@@ -128,6 +144,7 @@ const ALLOWED_METADATA_KEYS = new Set([
   "attempt",
   "mismatchCount",
   "repairCount",
+  "dependencyCount",
 ]);
 const SAFE_VALUE = /^[A-Za-z0-9_.:-]{1,120}$/;
 const SENSITIVE_KEY = /(password|token|secret|cookie|authorization|connection|prompt|response|email|url|body|hash|answer)/i;

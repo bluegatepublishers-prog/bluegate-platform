@@ -20,6 +20,7 @@ const dependencies: StudentIdentityDependencies = {
             city: true,
             state: true,
             logoUrl: true,
+            status: true,
             publisherId: true,
             publisher: { select: { id: true, active: true } },
           },
