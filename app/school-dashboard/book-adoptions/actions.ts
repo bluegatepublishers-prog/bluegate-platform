@@ -20,5 +20,6 @@ export async function requestBookAdoption(form: FormData) {
     await prisma.schoolBookAdoption.create({ data: { publisherId:school.publisherId,schoolId: school.id, academicYearId, schoolClassId: scope.schoolClass.id, sectionId: scope.section.id, sectionSubjectId, bookId, requestNote, requestedById: school.userId } });
   }
   revalidatePath("/school-dashboard/book-adoptions");
+  revalidatePath("/school-dashboard/books");
 }
-export async function cancelBookAdoption(id: string) { const school = await requireSchool(); await prisma.schoolBookAdoption.updateMany({ where: { id, schoolId: school.id, status: BookAdoptionStatus.PENDING }, data: { status: BookAdoptionStatus.REVOKED, active: false, revokedAt: new Date(), revokedReason: "Cancelled by school" } }); revalidatePath("/school-dashboard/book-adoptions"); }
+export async function cancelBookAdoption(id: string) { const school = await requireSchool(); await prisma.schoolBookAdoption.updateMany({ where: { id, schoolId: school.id, status: BookAdoptionStatus.PENDING }, data: { status: BookAdoptionStatus.REVOKED, active: false, revokedAt: new Date(), revokedReason: "Cancelled by school" } }); revalidatePath("/school-dashboard/book-adoptions"); revalidatePath("/school-dashboard/books"); }

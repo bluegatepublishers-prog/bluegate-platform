@@ -10,6 +10,7 @@ import {
   ClipboardCheck,
   CircleUserRound,
   FolderOpen,
+  ClipboardList,
   Gauge,
   ChartNoAxesCombined,
   ScanSearch,
@@ -30,6 +31,7 @@ const items: ReadonlyArray<{
   { label: "Learning focus", href: "/student-dashboard/gaps", icon: ScanSearch, available: true },
   { label: "My learning path", href: "/student-dashboard/remedials", icon: ChartNoAxesCombined, available: true },
   { label: "Class Materials", href: "/student-dashboard/resources", icon: FolderOpen, available: true },
+  { label: "Assignments", href: "/student-dashboard/assignments", icon: ClipboardList, available: true },
   { label: "Bookmarks", icon: Bookmark },
   { label: "Notifications", icon: Bell },
   { label: "Profile", href: "/student-dashboard/profile", icon: CircleUserRound, available: true },
@@ -39,13 +41,15 @@ export default function StudentNavigation({
   mobile = false,
   branding,
   schoolName,
+  assignmentsEnabled,
 }: {
   mobile?: boolean;
   branding: { shortName: string; portalTitle: string; logoUrl: string | null; primaryColor: string };
   schoolName: string;
+  assignmentsEnabled: boolean;
 }) {
   const pathname = usePathname();
-  const links = items.map(({ label, href, icon: Icon, available }) => {
+  const links = items.filter((item) => item.label !== "Assignments" || assignmentsEnabled).map(({ label, href, icon: Icon, available }) => {
     const active = href === "/student-dashboard" ? pathname === href : Boolean(href && pathname.startsWith(href));
     const content = (
       <>
@@ -68,7 +72,7 @@ export default function StudentNavigation({
     );
   });
 
-  if (mobile) return <nav aria-label="Student navigation" className="flex gap-2 overflow-x-auto border-b bg-white p-3 lg:hidden">{links}</nav>;
+  if (mobile) return <nav aria-label="Student navigation" className="grid grid-cols-2 gap-2 border-b bg-white p-3 sm:grid-cols-3 lg:hidden">{links}</nav>;
   return (
     <aside className="sticky top-0 hidden h-screen w-72 shrink-0 flex-col border-r bg-white lg:flex">
       <div className="border-b p-7">

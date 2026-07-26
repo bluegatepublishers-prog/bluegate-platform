@@ -49,7 +49,7 @@ export async function createSchoolTeacher(form: FormData) {
   const password = await hashPassword(randomBytes(32).toString("base64url"));
   await prisma.$transaction(async (tx) => {
     const user = await tx.user.create({ data: { name, email: teacherEmail, password, role: "TEACHER", phone: value(form, "phone", 30) || null } });
-    await tx.teacher.create({ data: { userId: user.id, schoolId: school.id, schoolName: school.schoolName, designation: value(form, "designation", 80) || "Teacher", subject: value(form, "subject", 100) || "Not assigned", classes: value(form, "classes", 100) || "Not assigned", verified: true, active: true } });
+    await tx.teacher.create({ data: { userId: user.id, schoolId: school.id, schoolName: school.schoolName, designation: value(form, "designation", 80) || "Teacher", subject: "Assigned through school", classes: "Assigned through school", verified: true, active: true } });
     await tx.schoolStaffMembership.upsert({
       where: { schoolId_userId: { schoolId: school.id, userId: user.id } },
       update: { role: SchoolStaffRole.TEACHER, active: true },
@@ -68,7 +68,7 @@ export async function updateSchoolTeacher(teacherId: string, form: FormData) {
   if (!teacher || !name || !teacherEmail || !teacherEmail.includes("@")) return;
   await prisma.$transaction([
     prisma.user.update({ where: { id: teacher.userId }, data: { name, email: teacherEmail, phone: value(form, "phone", 30) || null } }),
-    prisma.teacher.update({ where: { id: teacher.id }, data: { designation: value(form, "designation", 80) || "Teacher", subject: value(form, "subject", 100) || "Not assigned", classes: value(form, "classes", 100) || "Not assigned" } }),
+    prisma.teacher.update({ where: { id: teacher.id }, data: { designation: value(form, "designation", 80) || "Teacher" } }),
   ]);
   revalidatePath("/school-dashboard/teachers");
   revalidatePath("/school-dashboard/teacher-assignments");

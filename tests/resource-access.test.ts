@@ -34,7 +34,6 @@ interface AccessScenario {
   activeAcademicContext?: boolean;
   subjectMatches?: boolean;
   sectionSubjectMatches?: boolean;
-  adoptionApproved?: boolean;
   resourcePublisherId?: string;
   resourcePublished?: boolean;
   resourceLinked?: boolean;
@@ -51,7 +50,6 @@ function accessDependencies(scenario: AccessScenario = {}) {
     activeAcademicContext: true,
     subjectMatches: true,
     sectionSubjectMatches: true,
-    adoptionApproved: true,
     resourcePublisherId: ids.publisherA,
     resourcePublished: true,
     resourceLinked: true,
@@ -104,8 +102,7 @@ function accessDependencies(scenario: AccessScenario = {}) {
     },
     async findEntitledSectionSubjects() {
       return config.subjectMatches &&
-        config.sectionSubjectMatches &&
-        config.adoptionApproved
+        config.sectionSubjectMatches
         ? [{ id: ids.sectionSubject }]
         : [];
     },
@@ -126,7 +123,6 @@ function accessDependencies(scenario: AccessScenario = {}) {
       return samePublisher &&
         config.resourcePublished &&
         config.resourceLinked &&
-        config.adoptionApproved &&
         config.schoolAcademicContextMatches
         ? resource
         : null;
@@ -144,7 +140,6 @@ for (const [name, scenario] of [
   ["no active assignment", { activeAssignment: false }],
   ["wrong subject", { subjectMatches: false }],
   ["no matching SectionSubject", { sectionSubjectMatches: false }],
-  ["no approved adoption", { adoptionApproved: false }],
 ] as const) {
   test(`teacher access denies ${name}`, async () => {
     const { dependencies } = accessDependencies(scenario);
@@ -178,7 +173,7 @@ test("teacher access denies a resource owned by Publisher B", async () => {
 });
 
 for (const audience of Object.values(ResourceAudience)) {
-  test(`teacher access allows ${audience} after assignment and adoption checks`, async () => {
+  test(`teacher access allows ${audience} after current subject and resource assignment checks`, async () => {
     const { dependencies } = accessDependencies({ resourceAudience: audience });
     const access = await requireTeacherResourceAccessWithDependencies(
       ids.teacherUserA,
@@ -197,14 +192,14 @@ test("teacher assignment query requires active school, year, class, section, and
       schoolId: ids.schoolA,
       active: true,
       subjectId: { not: null },
-      academicYear: { active: true },
+      academicYear: { active: true, current: true },
       schoolClass: { active: true },
       section: { active: true },
     },
   );
 });
 
-test("teacher adoption query binds publisher, school, year, section, and subject", () => {
+test("teacher resource query binds the current assigned section and subject", () => {
   const where = buildEntitledSectionSubjectsWhere(
     [
       {
@@ -213,29 +208,16 @@ test("teacher adoption query binds publisher, school, year, section, and subject
         academicYearId: ids.year,
       },
     ],
-    ids.schoolA,
-    ids.publisherA,
   );
   assert.deepEqual(where.OR, [
     {
       sectionId: ids.section,
       subjectId: ids.subject,
-      bookAdoptions: {
-        some: {
-          schoolId: ids.schoolA,
-          publisherId: ids.publisherA,
-          academicYearId: ids.year,
-          status: "APPROVED",
-          active: true,
-          academicYear: { active: true },
-          book: { publisherId: ids.publisherA },
-        },
-      },
     },
   ]);
 });
 
-test("school access allows matching publisher and approved academic context", async () => {
+test("school access allows matching publisher and assigned current academic context", async () => {
   const { dependencies } = accessDependencies();
   const access = await requireSchoolResourceAccessWithDependencies(
     ids.schoolUserA,
@@ -247,7 +229,6 @@ test("school access allows matching publisher and approved academic context", as
 
 for (const [name, scenario] of [
   ["wrong publisher", { resourcePublisherId: ids.publisherB }],
-  ["no approved adoption", { adoptionApproved: false }],
   ["feature disabled", { featureEnabled: false }],
   ["unrelated academic context", { schoolAcademicContextMatches: false }],
   ["direct resource ID from another tenant", { resourcePublisherId: ids.publisherB }],
@@ -265,7 +246,7 @@ for (const [name, scenario] of [
   });
 }
 
-test("school query binds approved adoption to the same publisher and school", () => {
+test("school query binds assigned resources to the current school context", () => {
   const where = buildSchoolResourceWhere(ids.publisherA, ids.schoolA);
   assert.equal(where.publisherId, ids.publisherA);
   const section = where.sectionSubjects?.some;
@@ -276,17 +257,7 @@ test("school query binds approved adoption to the same publisher and school", ()
       schoolClass: {
         schoolId: ids.schoolA,
         active: true,
-        academicYear: { active: true },
-      },
-    },
-    bookAdoptions: {
-      some: {
-        schoolId: ids.schoolA,
-        publisherId: ids.publisherA,
-        status: "APPROVED",
-        active: true,
-        academicYear: { active: true },
-        book: { publisherId: ids.publisherA },
+        academicYear: { active: true, current: true },
       },
     },
   });

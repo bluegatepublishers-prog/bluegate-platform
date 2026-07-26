@@ -43,13 +43,9 @@ const defaultDependencies: ResourceAccessDependencies = {
       where: buildActiveTeacherAssignmentsWhere(teacherId, schoolId),
       select: { sectionId: true, subjectId: true, academicYearId: true },
     }),
-  findEntitledSectionSubjects: (assignments, schoolId, publisherId) =>
+  findEntitledSectionSubjects: (assignments) =>
     prisma.sectionSubject.findMany({
-      where: buildEntitledSectionSubjectsWhere(
-        assignments,
-        schoolId,
-        publisherId,
-      ),
+      where: buildEntitledSectionSubjectsWhere(assignments),
       select: { id: true },
     }),
   findSchool: (userId) =>

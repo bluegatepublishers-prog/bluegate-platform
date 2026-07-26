@@ -32,7 +32,7 @@ export function buildActiveTeacherAssignmentsWhere(
     schoolId,
     active: true,
     subjectId: { not: null },
-    academicYear: { active: true },
+    academicYear: { active: true, current: true },
     schoolClass: { active: true },
     section: { active: true },
   };
@@ -40,25 +40,12 @@ export function buildActiveTeacherAssignmentsWhere(
 
 export function buildEntitledSectionSubjectsWhere(
   assignments: TeacherAssignmentResourceScope[],
-  schoolId: string,
-  publisherId: string,
 ): Prisma.SectionSubjectWhereInput {
   return {
     active: true,
     OR: assignments.map((item) => ({
       sectionId: item.sectionId,
       subjectId: item.subjectId!,
-      bookAdoptions: {
-        some: {
-          schoolId,
-          publisherId,
-          academicYearId: item.academicYearId,
-          status: "APPROVED",
-          active: true,
-          academicYear: { active: true },
-          book: { publisherId },
-        },
-      },
     })),
   };
 }
@@ -89,17 +76,7 @@ export function buildSchoolResourceWhere(
           schoolClass: {
             schoolId,
             active: true,
-            academicYear: { active: true },
-          },
-        },
-        bookAdoptions: {
-          some: {
-            schoolId,
-            publisherId,
-            status: "APPROVED",
-            active: true,
-            academicYear: { active: true },
-            book: { publisherId },
+            academicYear: { active: true, current: true },
           },
         },
       },

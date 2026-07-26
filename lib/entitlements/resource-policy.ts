@@ -13,7 +13,6 @@ export interface ResourceEntitlementFacts {
   academicContext: boolean;
   assignment: boolean;
   enrollment: boolean;
-  adoptionApproved: boolean;
   featureEnabled: boolean;
   audience: ResourceAudience | null;
 }
@@ -48,9 +47,6 @@ export function decideResourceEntitlement(
   if (facts.role === "STUDENT" && !facts.enrollment) {
     return { allowed: false, reason: "NO_ENROLLMENT" };
   }
-  if (!facts.adoptionApproved) {
-    return { allowed: false, reason: "BOOK_NOT_APPROVED" };
-  }
   const audienceAllowed =
     facts.audience &&
     (facts.role === "STUDENT"
@@ -68,6 +64,6 @@ export function decideResourceEntitlement(
   return {
     allowed: true,
     reason: "ALLOWED",
-    source: "SCHOOL_BOOK_ADOPTION",
+    source: "SCHOOL_RESOURCE_ASSIGNMENT",
   };
 }

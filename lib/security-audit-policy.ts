@@ -54,6 +54,25 @@ export const SECURITY_AUDIT_ACTIONS = [
   "storage.reconciliation.scan",
   "storage.reconciliation.retry",
   "classroom.material.open",
+  "classroom.assignment.create",
+  "classroom.assignment.update",
+  "classroom.assignment.publish",
+  "classroom.assignment.schedule",
+  "classroom.assignment.close",
+  "classroom.assignment.reopen",
+  "classroom.assignment.archive",
+  "classroom.assignment.results.publish",
+  "classroom.assignment.attachment.add",
+  "classroom.assignment.attachment.remove",
+  "classroom.assignment.attachment.open",
+  "classroom.submission.draft.save",
+  "classroom.submission.submit",
+  "classroom.submission.resubmit",
+  "classroom.submission.grade",
+  "classroom.submission.return",
+  "classroom.submission.attachment.add",
+  "classroom.submission.attachment.remove",
+  "classroom.submission.attachment.open",
 ] as const;
 
 export type SecurityAuditAction = (typeof SECURITY_AUDIT_ACTIONS)[number];
@@ -73,7 +92,11 @@ export type SecurityAuditTargetType =
   | "SchoolBookAdoption"
   | "User"
   | "Storage"
-  | "ClassMaterial";
+  | "ClassMaterial"
+  | "ClassroomAssignment"
+  | "AssignmentAttachment"
+  | "AssignmentSubmission"
+  | "SubmissionAttachment";
 
 export const SECURITY_AUDIT_REASON_CODES = [
   "AUTHORIZATION_DENIED",

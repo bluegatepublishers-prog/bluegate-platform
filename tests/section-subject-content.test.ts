@@ -90,12 +90,29 @@ test("wrong subject book and resource selections fail", () => {
 
 test("assignment lookup builders retain publisher ownership", () => {
   assert.deepEqual(
-    buildAssignableBookWhere("publisher-a", "book-a", "subject-science"),
+    buildAssignableBookWhere(
+      "publisher-a",
+      "school-a",
+      "year-a",
+      "section-subject-a",
+      "book-a",
+      "subject-science",
+    ),
     {
       id: "book-a",
       publisherId: "publisher-a",
       published: true,
       subjectId: "subject-science",
+      schoolAdoptions: {
+        some: {
+          publisherId: "publisher-a",
+          schoolId: "school-a",
+          academicYearId: "year-a",
+          sectionSubjectId: "section-subject-a",
+          status: "APPROVED",
+          active: true,
+        },
+      },
     },
   );
   assert.deepEqual(

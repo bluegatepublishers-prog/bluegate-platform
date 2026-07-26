@@ -1,7 +1,6 @@
 import "server-only";
 
 import {
-  BookAdoptionStatus,
   SecurityAuditOutcome,
   UserRole,
 } from "@prisma/client";
@@ -163,16 +162,6 @@ async function authorizeProtectedResource(
         sectionId: identity.value.enrollment.sectionId,
         active: true,
         resources: { some: { id: resourceId } },
-        bookAdoptions: {
-          some: {
-            schoolId: identity.value.school.id,
-            publisherId: identity.value.publisher.id,
-            academicYearId: identity.value.enrollment.academicYearId,
-            sectionId: identity.value.enrollment.sectionId,
-            status: BookAdoptionStatus.APPROVED,
-            active: true,
-          },
-        },
       },
       select: { id: true },
     });

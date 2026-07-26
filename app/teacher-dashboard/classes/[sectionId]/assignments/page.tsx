@@ -1,2 +1,8 @@
-import FutureClassroomSection from "@/components/classroom/FutureClassroomSection";
-export default function Page() { return <FutureClassroomSection title="Assignments" description="The classroom is ready for the separately governed Assignment Module in Phase 2. No assessment or homework records are being duplicated here." />; }
+import AssignmentList from "@/components/assignments/AssignmentList";
+import { getTeacherAssignments } from "@/lib/assignments/queries";
+
+export default async function Page({ params }: { params: Promise<{ sectionId: string }> }) {
+  const { sectionId } = await params;
+  const { assignments } = await getTeacherAssignments(sectionId);
+  return <AssignmentList sectionId={sectionId} assignments={assignments} />;
+}

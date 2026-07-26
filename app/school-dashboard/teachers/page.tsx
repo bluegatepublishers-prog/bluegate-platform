@@ -1,5 +1,138 @@
 import { Search, Users } from "lucide-react";
+
 import { getSchoolTeachers } from "@/lib/school-dashboard";
-import { createSchoolTeacher, setSchoolTeacherActive, updateSchoolTeacher } from "../school-actions";
-export const dynamic="force-dynamic";export const revalidate=0;const input="w-full rounded-xl border px-4 py-3";
-export default async function SchoolTeachersPage({searchParams}:{searchParams:Promise<{query?:string}>}){const{query}=await searchParams;const teachers=await getSchoolTeachers(query?.trim());return <main className="space-y-7 p-4 sm:p-6 lg:p-8"><header><h1 className="text-3xl font-bold">Teachers</h1><p className="mt-2 text-slate-600">Manage teachers securely linked to your school.</p></header><details className="rounded-3xl border bg-white p-6 shadow-sm"><summary className="cursor-pointer text-lg font-bold text-blue-700">+ Add Teacher</summary><form action={createSchoolTeacher} className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3"><input name="name" required placeholder="Teacher name" className={input}/><input name="email" type="email" required placeholder="Email" className={input}/><input name="phone" placeholder="Phone" className={input}/><input name="designation" placeholder="Designation" className={input}/><input name="subject" placeholder="Primary subject" className={input}/><input name="classes" placeholder="Classes, for example 6–8" className={input}/><button className="rounded-xl bg-blue-600 px-5 py-3 font-bold text-white">Add Teacher</button></form><p className="mt-4 text-sm text-slate-500">A secure random password is created but never displayed. The teacher can use the password-reset flow to establish access.</p></details><form className="rounded-3xl border bg-white p-6 shadow-sm"><label className="relative block max-w-xl"><Search className="absolute left-4 top-3.5 h-5 w-5 text-slate-400"/><input name="query" defaultValue={query} placeholder="Search name, email, subject or class" className="w-full rounded-xl border py-3 pl-12 pr-4"/></label></form>{teachers.length?<div className="grid gap-5 xl:grid-cols-2">{teachers.map(teacher=><article key={teacher.id} className="rounded-3xl border bg-white p-6 shadow-sm"><div className="flex items-start justify-between gap-4"><div><h2 className="text-xl font-bold">{teacher.user.name}</h2><p className="mt-1 text-sm text-slate-500">{teacher.user.email} · {teacher.designation}</p></div><span className={`rounded-full px-3 py-1 text-xs font-bold ${teacher.active?"bg-green-100 text-green-700":"bg-slate-100 text-slate-600"}`}>{teacher.active?"Active":"Inactive"}</span></div><div className="mt-5 rounded-2xl bg-slate-50 p-4"><p className="font-semibold">Current assignments</p>{teacher.assignments.length?<ul className="mt-2 space-y-1 text-sm text-slate-600">{teacher.assignments.map(item=><li key={item.id}>{item.type==="CLASS_TEACHER"?"Class Teacher":item.subject?.name}: {item.schoolClass.name}{item.section.name}</li>)}</ul>:<p className="mt-2 text-sm text-slate-500">No active assignments.</p>}</div><details className="mt-5"><summary className="cursor-pointer font-semibold text-blue-700">Edit teacher</summary><form action={updateSchoolTeacher.bind(null,teacher.id)} className="mt-4 grid gap-3 sm:grid-cols-2"><input name="name" required defaultValue={teacher.user.name} className={input}/><input name="email" type="email" required defaultValue={teacher.user.email} className={input}/><input name="phone" defaultValue={teacher.user.phone??""} placeholder="Phone" className={input}/><input name="designation" defaultValue={teacher.designation} className={input}/><input name="subject" defaultValue={teacher.subject} className={input}/><input name="classes" defaultValue={teacher.classes} className={input}/><button className="rounded-xl bg-slate-900 px-5 py-3 font-bold text-white">Save Changes</button></form></details><form action={setSchoolTeacherActive} className="mt-4"><input type="hidden" name="teacherId" value={teacher.id}/><input type="hidden" name="active" value={teacher.active?"false":"true"}/><button className={`rounded-xl border px-4 py-2 font-semibold ${teacher.active?"border-red-200 text-red-600":"border-green-200 text-green-700"}`}>{teacher.active?"Deactivate Teacher":"Reactivate Teacher"}</button></form></article>)}</div>:<div className="rounded-3xl border bg-white p-14 text-center"><Users className="mx-auto h-12 w-12 text-slate-300"/><h2 className="mt-4 text-xl font-bold">{query?"No matching teachers":"No teachers added"}</h2></div>}</main>}
+import {
+  createSchoolTeacher,
+  setSchoolTeacherActive,
+  updateSchoolTeacher,
+} from "../school-actions";
+
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+const input = "w-full rounded-xl border px-4 py-3";
+
+export default async function SchoolTeachersPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ query?: string }>;
+}) {
+  const { query } = await searchParams;
+  const teachers = await getSchoolTeachers(query?.trim());
+
+  return (
+    <main className="space-y-7 p-4 sm:p-6 lg:p-8">
+      <header>
+        <h1 className="text-3xl font-bold">Teachers</h1>
+        <p className="mt-2 text-slate-600">
+          Manage school teachers. Classes and subjects come only from official
+          teacher assignments.
+        </p>
+      </header>
+
+      <details className="rounded-3xl border bg-white p-6 shadow-sm">
+        <summary className="cursor-pointer text-lg font-bold text-blue-700">
+          + Add teacher
+        </summary>
+        <form
+          action={createSchoolTeacher}
+          className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4"
+        >
+          <input name="name" required placeholder="Teacher name" className={input} />
+          <input name="email" type="email" required placeholder="Email" className={input} />
+          <input name="phone" placeholder="Phone" className={input} />
+          <input name="designation" placeholder="Designation" className={input} />
+          <button className="rounded-xl bg-blue-600 px-5 py-3 font-bold text-white">
+            Add teacher
+          </button>
+        </form>
+        <p className="mt-4 text-sm text-slate-500">
+          A secure random password is created but never displayed. The teacher
+          establishes access through password reset, then receives classes and
+          subjects from Teacher Assignments.
+        </p>
+      </details>
+
+      <form className="rounded-3xl border bg-white p-6 shadow-sm">
+        <label className="relative block max-w-xl">
+          <Search className="absolute left-4 top-3.5 h-5 w-5 text-slate-400" />
+          <input
+            name="query"
+            defaultValue={query}
+            placeholder="Search name, email, assigned subject or class"
+            className="w-full rounded-xl border py-3 pl-12 pr-4"
+          />
+        </label>
+      </form>
+
+      {teachers.length ? (
+        <div className="grid gap-5 xl:grid-cols-2">
+          {teachers.map((teacher) => (
+            <article key={teacher.id} className="rounded-3xl border bg-white p-6 shadow-sm">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <h2 className="break-words text-xl font-bold">{teacher.user.name}</h2>
+                  <p className="mt-1 break-words text-sm text-slate-500">
+                    {teacher.user.email} · {teacher.designation}
+                  </p>
+                </div>
+                <span className={`rounded-full px-3 py-1 text-xs font-bold ${teacher.active ? "bg-green-100 text-green-700" : "bg-slate-100 text-slate-600"}`}>
+                  {teacher.active ? "Active" : "Inactive"}
+                </span>
+              </div>
+
+              <div className="mt-5 rounded-2xl bg-slate-50 p-4">
+                <p className="font-semibold">Current assignments</p>
+                {teacher.assignments.length ? (
+                  <ul className="mt-2 space-y-1 text-sm text-slate-600">
+                    {teacher.assignments.map((item) => (
+                      <li key={item.id}>
+                        {item.type === "CLASS_TEACHER" ? "Class Teacher" : item.subject?.name}:{" "}
+                        {item.schoolClass.name} · Section {item.section.name}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="mt-2 text-sm text-slate-500">No active assignments.</p>
+                )}
+              </div>
+
+              <details className="mt-5">
+                <summary className="cursor-pointer font-semibold text-blue-700">
+                  Edit teacher
+                </summary>
+                <form
+                  action={updateSchoolTeacher.bind(null, teacher.id)}
+                  className="mt-4 grid gap-3 sm:grid-cols-2"
+                >
+                  <input name="name" required defaultValue={teacher.user.name} className={input} />
+                  <input name="email" type="email" required defaultValue={teacher.user.email} className={input} />
+                  <input name="phone" defaultValue={teacher.user.phone ?? ""} placeholder="Phone" className={input} />
+                  <input name="designation" defaultValue={teacher.designation} className={input} />
+                  <button className="rounded-xl bg-slate-900 px-5 py-3 font-bold text-white">
+                    Save changes
+                  </button>
+                </form>
+              </details>
+
+              <form action={setSchoolTeacherActive} className="mt-4">
+                <input type="hidden" name="teacherId" value={teacher.id} />
+                <input type="hidden" name="active" value={teacher.active ? "false" : "true"} />
+                <button className={`rounded-xl border px-4 py-2 font-semibold ${teacher.active ? "border-red-200 text-red-600" : "border-green-200 text-green-700"}`}>
+                  {teacher.active ? "Deactivate teacher" : "Reactivate teacher"}
+                </button>
+              </form>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <div className="rounded-3xl border bg-white p-14 text-center">
+          <Users className="mx-auto h-12 w-12 text-slate-300" />
+          <h2 className="mt-4 text-xl font-bold">
+            {query ? "No matching teachers" : "No teachers added"}
+          </h2>
+        </div>
+      )}
+    </main>
+  );
+}

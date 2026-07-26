@@ -1,7 +1,6 @@
 import "server-only";
 
 import {
-  BookAdoptionStatus,
   EnrollmentStatus,
   PlatformFeatureKey,
   ResourceAudience,
@@ -61,7 +60,7 @@ export async function resolveResourceEntitlementForAuthenticatedUser(
           decision: {
             allowed: true,
             reason: "ALLOWED",
-            source: "SCHOOL_BOOK_ADOPTION",
+            source: "SCHOOL_RESOURCE_ASSIGNMENT",
           },
           resource: access.resource,
           actorId: access.school.id,
@@ -148,17 +147,6 @@ export async function resolveResourceEntitlementForAuthenticatedUser(
             id: request.sectionSubjectId,
             active: true,
             sectionId: enrollment.sectionId,
-            bookAdoptions: {
-              some: {
-                schoolId: student.schoolId,
-                publisherId: student.school.publisherId,
-                academicYearId: enrollment.academicYearId,
-                sectionId: enrollment.sectionId,
-                status: BookAdoptionStatus.APPROVED,
-                active: true,
-                book: { publisherId: student.school.publisherId },
-              },
-            },
           },
         },
       },

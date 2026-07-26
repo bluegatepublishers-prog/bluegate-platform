@@ -1,9 +1,10 @@
 import { notFound } from "next/navigation";
-import { SchoolStaffRole, type Prisma, type ResourceType } from "@prisma/client";
+import { PlatformFeatureKey, SchoolStaffRole, type Prisma, type ResourceType } from "@prisma/client";
 import { requireUser } from "@/lib/authz";
 import { prisma } from "@/lib/prisma";
 import { getSchoolResourceScope } from "@/lib/resource-audience";
 import { buildSchoolSetupChecklist } from "@/lib/school-setup-checklist";
+import { isPublisherFeatureEnabled } from "@/lib/publisher-features";
 
 export async function requireSchool() {
   const user = await requireUser(["SCHOOL"]);
@@ -136,29 +137,57 @@ export async function getSchoolTeachers(query?: string) {
       OR: query ? [
         { user: { name: { contains: query, mode: "insensitive" } } },
         { user: { email: { contains: query, mode: "insensitive" } } },
-        { subject: { contains: query, mode: "insensitive" } },
-        { classes: { contains: query, mode: "insensitive" } },
+        { assignments: { some: { active: true, subject: { name: { contains: query, mode: "insensitive" } } } } },
+        { assignments: { some: { active: true, schoolClass: { name: { contains: query, mode: "insensitive" } } } } },
       ] : undefined,
     }, include: { user: true, assignments:{where:{active:true},include:{schoolClass:true,section:true,subject:true},orderBy:{createdAt:"asc"}} }, orderBy: { user: { name: "asc" } },
   });
 }
 
 export async function getSchoolResources(filters: { query?: string; classLevel?: string; subject?: string; type?: ResourceType }) {
-  const school=await requireSchool();const scope=await getSchoolResourceScope(school.userId);if(!scope)notFound();
-  const where: Prisma.ResourceWhereInput = {
-    ...scope.where, classLevel: filters.classLevel || undefined, subject: filters.subject || undefined, type: filters.type,
+  const school = await requireSchool();
+  if (
+    !school.publisherId ||
+    !await isPublisherFeatureEnabled(school.publisherId, PlatformFeatureKey.RESOURCES)
+  ) notFound();
+  const catalogWhere: Prisma.ResourceWhereInput = {
+    publisherId: school.publisherId,
+    published: true,
+  };
+  const assignedWhere: Prisma.ResourceWhereInput = {
+    ...catalogWhere,
+    sectionSubjects: {
+      some: {
+        active: true,
+        section: {
+          active: true,
+          schoolClass: {
+            schoolId: school.id,
+            active: true,
+            academicYear: { active: true, current: true },
+          },
+        },
+      },
+    },
+    classLevel: filters.classLevel || undefined, subject: filters.subject || undefined, type: filters.type,
     OR: filters.query ? [
       { title: { contains: filters.query, mode: "insensitive" } },
       { description: { contains: filters.query, mode: "insensitive" } },
       { subject: { contains: filters.query, mode: "insensitive" } },
     ] : undefined,
   };
-  const [resources, classes, subjects] = await prisma.$transaction([
-    prisma.resource.findMany({ where, orderBy: { createdAt: "desc" } }),
-    prisma.resource.findMany({ where:scope.where, distinct: ["classLevel"], select: { classLevel: true }, orderBy: { classLevel: "asc" } }),
-    prisma.resource.findMany({ where:scope.where, distinct: ["subject"], select: { subject: true }, orderBy: { subject: "asc" } }),
+  const [resources, catalog, classes, subjects, schoolClasses] = await prisma.$transaction([
+    prisma.resource.findMany({ where: assignedWhere, orderBy: { createdAt: "desc" } }),
+    prisma.resource.findMany({ where: catalogWhere, orderBy: [{ classLevel: "asc" }, { subject: "asc" }, { title: "asc" }] }),
+    prisma.resource.findMany({ where: catalogWhere, distinct: ["classLevel"], select: { classLevel: true }, orderBy: { classLevel: "asc" } }),
+    prisma.resource.findMany({ where: catalogWhere, distinct: ["subject"], select: { subject: true }, orderBy: { subject: "asc" } }),
+    prisma.schoolClass.findMany({
+      where: { schoolId: school.id, academicYear: { active: true, current: true }, active: true },
+      select: { id: true, name: true },
+      orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+    }),
   ]);
-  return { resources, classes, subjects };
+  return { resources, catalog, classes, subjects, schoolClasses };
 }
 
 export async function getSchoolInspectionRequests() {

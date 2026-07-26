@@ -144,7 +144,17 @@ export async function saveSectionSubjectContent(schoolClassId: string, form: For
   });
   if (!link) return;
   const [book, resources] = await Promise.all([
-    bookId ? prisma.book.findFirst({ where: buildAssignableBookWhere(school.publisherId, bookId, link.subjectId), include: { class: true } }) : null,
+    bookId ? prisma.book.findFirst({
+      where: buildAssignableBookWhere(
+        school.publisherId,
+        school.id,
+        link.section.schoolClass.academicYearId,
+        link.id,
+        bookId,
+        link.subjectId,
+      ),
+      include: { class: true },
+    }) : null,
     prisma.resource.findMany({ where: buildAssignableResourcesWhere(school.publisherId, resourceIds) }),
   ]);
   if (!isSectionSubjectContentSelectionValid({
@@ -162,7 +172,55 @@ export async function saveSectionSubjectContent(schoolClassId: string, form: For
     data: buildSectionSubjectContentUpdate(bookId, resources.map((resource) => resource.id)),
   });
   revalidatePath(`/school-dashboard/classes/${schoolClassId}`);
+  revalidatePath("/school-dashboard/books");
+  revalidatePath("/school-dashboard/resources");
   revalidatePath("/teacher-dashboard");
+}
+
+export async function assignApprovedBook(schoolClassId: string, form: FormData) {
+  const school = await requireSchool();
+  if (
+    !school.publisherId ||
+    !await isPublisherFeatureEnabled(
+      school.publisherId,
+      PlatformFeatureKey.BOOK_APPROVALS,
+    )
+  ) return;
+  const sectionSubjectId = text(form, "sectionSubjectId");
+  const bookId = text(form, "bookId") || null;
+  const link = await prisma.sectionSubject.findFirst({
+    where: buildSectionSubjectContentScopeWhere(
+      school.id,
+      schoolClassId,
+      sectionSubjectId,
+    ),
+    include: {
+      section: { include: { schoolClass: true } },
+    },
+  });
+  if (!link) return;
+  if (bookId) {
+    const approved = await prisma.book.findFirst({
+      where: buildAssignableBookWhere(
+        school.publisherId,
+        school.id,
+        link.section.schoolClass.academicYearId,
+        link.id,
+        bookId,
+        link.subjectId,
+      ),
+      select: { id: true },
+    });
+    if (!approved) return;
+  }
+  await prisma.sectionSubject.update({
+    where: { id: link.id },
+    data: { bookId },
+  });
+  revalidatePath("/school-dashboard/books");
+  revalidatePath(`/school-dashboard/classes/${schoolClassId}`);
+  revalidatePath("/teacher-dashboard");
+  revalidatePath("/student-dashboard");
 }
 
 export async function createStudent(form: FormData) {

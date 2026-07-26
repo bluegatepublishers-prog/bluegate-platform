@@ -3,6 +3,7 @@ import StudentHeader from "@/components/student/StudentHeader";
 import StudentNavigation from "@/components/student/StudentNavigation";
 import { getPublisherBranding } from "@/lib/publisher-context";
 import { requireStudentDashboardAccess } from "@/lib/student-dashboard";
+import { getPublisherFeatures } from "@/lib/publisher-features";
 
 export const dynamic = "force-dynamic";
 
@@ -25,12 +26,13 @@ export default async function StudentDashboardLayout({ children }: { children: R
     ? access.identity.effectivePlan.plan
     : undefined;
   const branding = await getPublisherBranding(publisherId);
+  const features = await getPublisherFeatures(publisherId);
   return (
     <div className="flex min-h-screen bg-slate-100">
-      <StudentNavigation branding={branding} schoolName={schoolName} />
+      <StudentNavigation branding={branding} schoolName={schoolName} assignmentsEnabled={features.ASSIGNMENTS} />
       <div className="min-w-0 flex-1">
         <StudentHeader name={studentName} plan={plan} />
-        <StudentNavigation mobile branding={branding} schoolName={schoolName} />
+        <StudentNavigation mobile branding={branding} schoolName={schoolName} assignmentsEnabled={features.ASSIGNMENTS} />
         {children}
       </div>
     </div>

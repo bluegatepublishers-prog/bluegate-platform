@@ -11,7 +11,8 @@
     "test": "node --conditions=react-server --import tsx --test tests/*.test.ts",
     "gaps:backfill": "node --conditions=react-server --import tsx scripts/gap-analysis-backfill.ts",
     "provision:super-admin": "tsx scripts/provision-super-admin.ts",
-    "seed": "tsx prisma/seed.ts"
+    "seed": "tsx prisma/seed.ts",
+    "cleanup:operational-demo": "tsx scripts/cleanup-operational-demo.ts"
   },
   "dependencies": {
     "@headlessui/react": "^2.2.10",
@@ -29,7 +30,8 @@
     "react": "19.2.0",
     "react-dom": "19.2.0",
     "react-icons": "^5.7.0",
-    "swiper": "^12.2.0"
+    "swiper": "^12.2.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

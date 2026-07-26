@@ -22,10 +22,28 @@ export function buildSectionSubjectContentScopeWhere(
 
 export function buildAssignableBookWhere(
   publisherId: string,
+  schoolId: string,
+  academicYearId: string,
+  sectionSubjectId: string,
   bookId: string,
   subjectId: string,
 ): Prisma.BookWhereInput {
-  return { id: bookId, publisherId, published: true, subjectId };
+  return {
+    id: bookId,
+    publisherId,
+    published: true,
+    subjectId,
+    schoolAdoptions: {
+      some: {
+        publisherId,
+        schoolId,
+        academicYearId,
+        sectionSubjectId,
+        status: "APPROVED",
+        active: true,
+      },
+    },
+  };
 }
 
 export function buildAssignableResourcesWhere(

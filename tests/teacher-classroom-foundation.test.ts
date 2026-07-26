@@ -29,7 +29,7 @@ test("teacher class reads start from live official assignments", () => {
   assert.match(service, /teacherId: teacher\.id/);
   assert.match(service, /schoolId: teacher\.schoolId/);
   assert.match(service, /active: true/);
-  assert.match(service, /academicYear: \{ active: true, schoolId: teacher\.schoolId \}/);
+  assert.match(service, /academicYear: \{ active: true, current: true, schoolId: teacher\.schoolId \}/);
   assert.match(service, /TeacherAssignmentType\.CLASS_TEACHER/);
   assert.match(service, /TeacherAssignmentType\.SUBJECT_TEACHER/);
 });
@@ -75,9 +75,10 @@ test("new classroom UI has responsive list management and remembered class views
   assert.doesNotMatch(`${classes}\n${materials}\n${tabs}`, /overflow-x-auto|min-w-\[[0-9]+px\]/);
 });
 
-test("phase one keeps assignments future-ready without creating a duplicate assignment domain", () => {
+test("phase two replaces the placeholder with one explicitly named classroom assignment domain", () => {
   const schema = read("prisma/schema.prisma");
   const page = read("app/teacher-dashboard/classes/[sectionId]/assignments/page.tsx");
   assert.doesNotMatch(schema, /model Assignment \{/);
-  assert.match(page, /separately governed Assignment Module in Phase 2/);
+  assert.equal((schema.match(/model ClassroomAssignment \{/g) ?? []).length, 1);
+  assert.match(page, /getTeacherAssignments/);
 });

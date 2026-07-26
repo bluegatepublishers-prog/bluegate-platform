@@ -1,14 +1,31 @@
-import { PlatformFeatureKey, PrismaClient, TeacherAiPlan, UserRole } from "@prisma/client";
+import { PlatformFeatureKey, PrismaClient, UserRole } from "@prisma/client";
 import bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
 
+function code(value: string) {
+  return value.replaceAll(" ", "_").toUpperCase();
+}
+
 async function main() {
-  const publisher = await prisma.publisher.upsert({ where: { slug: "bluegate" }, update: { name: "Bluegate Publishers", active: true }, create: { id: "publisher_bluegate", name: "Bluegate Publishers", shortName: "Bluegate", slug: "bluegate", portalTitle: "Bluegate Platform", aiName: "Bluegate AI" } });
+  const publisher = await prisma.publisher.upsert({
+    where: { slug: "bluegate" },
+    update: { name: "Bluegate Publishers", active: true },
+    create: {
+      id: "publisher_bluegate",
+      name: "Bluegate Publishers",
+      shortName: "Bluegate",
+      slug: "bluegate",
+      portalTitle: "Bluegate Platform",
+      aiName: "Bluegate AI",
+    },
+  });
+
   const implemented = new Set<PlatformFeatureKey>([
     PlatformFeatureKey.AI_STUDIO,
     PlatformFeatureKey.BOOK_APPROVALS,
     PlatformFeatureKey.RESOURCES,
+    PlatformFeatureKey.ASSIGNMENTS,
     PlatformFeatureKey.ASSESSMENTS,
     PlatformFeatureKey.INTERACTIVE_QUIZZES,
     PlatformFeatureKey.STUDENT_AI,
@@ -23,6 +40,7 @@ async function main() {
     PlatformFeatureKey.RESOURCES,
     PlatformFeatureKey.NOTIFICATIONS,
   ]);
+
   for (const key of Object.values(PlatformFeatureKey)) {
     const feature = await prisma.featureDefinition.upsert({
       where: { key },
@@ -30,29 +48,33 @@ async function main() {
       create: {
         id: `feature_${key.toLowerCase()}`,
         key,
-        name: key.split("_").map((part) => part[0] + part.slice(1).toLowerCase()).join(" "),
+        name: key
+          .split("_")
+          .map((part) => part[0] + part.slice(1).toLowerCase())
+          .join(" "),
         implemented: implemented.has(key),
         active: true,
       },
     });
     await prisma.publisherFeature.upsert({
-      where: { publisherId_featureId: { publisherId: publisher.id, featureId: feature.id } },
+      where: {
+        publisherId_featureId: {
+          publisherId: publisher.id,
+          featureId: feature.id,
+        },
+      },
       update: { enabled: enabledForBluegate.has(key) },
-      create: { publisherId: publisher.id, featureId: feature.id, enabled: enabledForBluegate.has(key) },
+      create: {
+        publisherId: publisher.id,
+        featureId: feature.id,
+        enabled: enabledForBluegate.has(key),
+      },
     });
   }
-  console.log("🌱 Seeding Bluegate Database...");
-
-  // ----------------------------
-  // Admin User
-  // ----------------------------
 
   const password = await bcrypt.hash("Admin@123", 10);
-
   await prisma.user.upsert({
-    where: {
-      email: "admin@bluegatepublishers.com",
-    },
+    where: { email: "admin@bluegatepublishers.com" },
     update: { publisherId: publisher.id },
     create: {
       name: "Bluegate Admin",
@@ -63,50 +85,19 @@ async function main() {
     },
   });
 
-  // ----------------------------
-  // Classes
-  // ----------------------------
-
   const classNames = [
     "Nursery",
     "LKG",
     "UKG",
-    "Class 1",
-    "Class 2",
-    "Class 3",
-    "Class 4",
-    "Class 5",
-    "Class 6",
-    "Class 7",
-    "Class 8",
-    "Class 9",
-    "Class 10",
-    "Class 11",
-    "Class 12",
+    ...Array.from({ length: 12 }, (_, index) => `Class ${index + 1}`),
   ];
-
-  for (let i = 0; i < classNames.length; i++) {
+  for (const [index, name] of classNames.entries()) {
     await prisma.class.upsert({
-      where: {
-        code: classNames[i]
-          .replaceAll(" ", "_")
-          .toUpperCase(),
-      },
+      where: { code: code(name) },
       update: {},
-      create: {
-        name: classNames[i],
-        code: classNames[i]
-          .replaceAll(" ", "_")
-          .toUpperCase(),
-        sortOrder: i + 1,
-        active: true,
-      },
+      create: { name, code: code(name), sortOrder: index + 1, active: true },
     });
   }
-
-  // ----------------------------
-  // Subjects
-  // ----------------------------
 
   const subjects = [
     "English",
@@ -122,29 +113,13 @@ async function main() {
     "Drawing",
     "Sanskrit",
   ];
-
-  for (let i = 0; i < subjects.length; i++) {
+  for (const [index, name] of subjects.entries()) {
     await prisma.subject.upsert({
-      where: {
-        code: subjects[i]
-          .replaceAll(" ", "_")
-          .toUpperCase(),
-      },
+      where: { code: code(name) },
       update: {},
-      create: {
-        name: subjects[i],
-        code: subjects[i]
-          .replaceAll(" ", "_")
-          .toUpperCase(),
-        sortOrder: i + 1,
-        active: true,
-      },
+      create: { name, code: code(name), sortOrder: index + 1, active: true },
     });
   }
-
-  // ----------------------------
-  // Book Series
-  // ----------------------------
 
   const series = [
     "Bluegate Foundation",
@@ -155,158 +130,29 @@ async function main() {
     "Bluegate Coding",
     "Bluegate Future Skills",
   ];
-
-  for (const item of series) {
+  for (const name of series) {
     await prisma.bookSeries.upsert({
-      where: {
-        code: item.replaceAll(" ", "_").toUpperCase(),
-      },
-      update: {},
+      where: { code: code(name) },
+      update: { publisherId: publisher.id },
       create: {
-        name: item,
-        code: item.replaceAll(" ", "_").toUpperCase(),
+        name,
+        code: code(name),
+        publisherId: publisher.id,
         active: true,
       },
     });
   }
 
-  // ----------------------------
-  // Teacher Test Account
-  // ----------------------------
-
-  const teacherPassword = await bcrypt.hash("Teacher@123", 10);
-  const teacherUser = await prisma.user.upsert({
-    where: {
-      email: "teacher@bluegatepublishers.com",
-    },
-    update: {
-      name: "Bluegate Teacher",
-      password: teacherPassword,
-      role: UserRole.TEACHER,
-    },
-    create: {
-      name: "Bluegate Teacher",
-      email: "teacher@bluegatepublishers.com",
-      password: teacherPassword,
-      role: UserRole.TEACHER,
-    },
-  });
-
-  await prisma.teacher.upsert({
-    where: {
-      userId: teacherUser.id,
-    },
-    update: {
-      schoolName: "Bluegate Demonstration School",
-      designation: "Senior Teacher",
-      subject: "Science",
-      classes: "Classes 6-8",
-      verified: true,
-      aiPlan: TeacherAiPlan.PREMIUM,
-      aiDailyLimit: 5,
-      aiPlanExpiresAt: null,
-    },
-    create: {
-      userId: teacherUser.id,
-      schoolName: "Bluegate Demonstration School",
-      designation: "Senior Teacher",
-      subject: "Science",
-      classes: "Classes 6-8",
-      verified: true,
-      aiPlan: TeacherAiPlan.PREMIUM,
-      aiDailyLimit: 5,
-      aiPlanExpiresAt: null,
-    },
-  });
-
-  // ----------------------------
-  // School Test Account
-  // ----------------------------
-
-  const schoolPassword = await bcrypt.hash("School@123", 10);
-  const schoolUser = await prisma.user.upsert({
-    where: {
-      email: "school@bluegatepublishers.com",
-    },
-    update: {
-      name: "Bluegate School Admin",
-      password: schoolPassword,
-      role: UserRole.SCHOOL,
-    },
-    create: {
-      name: "Bluegate School Admin",
-      email: "school@bluegatepublishers.com",
-      password: schoolPassword,
-      role: UserRole.SCHOOL,
-    },
-  });
-
-  const school = await prisma.school.upsert({
-    where: {
-      userId: schoolUser.id,
-    },
-    update: {
-      publisherId: publisher.id,
-      schoolName: "Bluegate Demonstration School",
-      city: "New Delhi",
-      state: "Delhi",
-    },
-    create: {
-      publisherId: publisher.id,
-      userId: schoolUser.id,
-      schoolName: "Bluegate Demonstration School",
-      city: "New Delhi",
-      state: "Delhi",
-    },
-  });
-
-  await prisma.teacher.update({
-    where: {
-      userId: teacherUser.id,
-    },
-    data: {
-      schoolId: school.id,
-    },
-  });
-
-  await prisma.academicYear.updateMany({
-    where: { schoolId: school.id, current: true, name: { not: "2026-27" } },
-    data: { current: false },
-  });
-
-  const academicYear = await prisma.academicYear.upsert({
-    where: { schoolId_name: { schoolId: school.id, name: "2026-27" } },
-    update: { active: true, current: true },
-    create: {
-      schoolId: school.id,
-      name: "2026-27",
-      startDate: new Date("2026-04-01T00:00:00.000Z"),
-      endDate: new Date("2027-03-31T00:00:00.000Z"),
-      active: true,
-      current: true,
-    },
-  });
-
-  const sampleClass = await prisma.schoolClass.upsert({
-    where: { academicYearId_code: { academicYearId: academicYear.id, code: "CLASS_6" } },
-    update: {},
-    create: { schoolId: school.id, academicYearId: academicYear.id, name: "Class 6", code: "CLASS_6", sortOrder: 6 },
-  });
-
-  await prisma.classSection.upsert({
-    where: { schoolClassId_code: { schoolClassId: sampleClass.id, code: "A" } },
-    update: {},
-    create: { schoolClassId: sampleClass.id, name: "A", code: "A", room: "Room 6A", capacity: 40 },
-  });
-
-  console.log("✅ Database Seed Completed");
+  console.log(
+    "Publisher content foundation seed completed. Operational school data is not seeded.",
+  );
 }
 
 main()
   .catch((error: unknown) => {
     console.error(
       "Database seed failed:",
-      error instanceof Error ? error.message : "Unknown error"
+      error instanceof Error ? error.message : "Unknown error",
     );
     process.exitCode = 1;
   })

@@ -72,10 +72,12 @@ export type UploadAuthorization = {
 // Scope to Audit Target Type Mapping
 // ============================================================================
 
-export function scopeToTargetType(scope: UploadScope): "Book" | "Resource" | "School" | "Publisher" | "ClassMaterial" {
+export function scopeToTargetType(scope: UploadScope): "Book" | "Resource" | "School" | "Publisher" | "ClassMaterial" | "ClassroomAssignment" | "AssignmentSubmission" {
   if (scope.startsWith("book-")) return "Book";
   if (scope.startsWith("resource-")) return "Resource";
   if (scope === "class-material") return "ClassMaterial";
+  if (scope === "assignment-attachment") return "ClassroomAssignment";
+  if (scope === "submission-attachment") return "AssignmentSubmission";
   if (scope === "school-logo") return "School";
   if (scope.startsWith("publisher-")) return "Publisher";
   return "Book"; // fallback
@@ -178,6 +180,111 @@ export async function authorizeUpload(
       userId: user.id,
       role: user.role,
       publisherId,
+    };
+  }
+
+  if (scope === "assignment-attachment" || scope === "submission-attachment") {
+    const session = await auth();
+    const user = session?.user;
+    if (!user?.id) return { status: "UNAUTHENTICATED" };
+    if (!targetId) return { status: "DENIED", reasonCode: "CROSS_TENANT_TARGET" };
+    const now = new Date();
+    const assignment = await prisma.classroomAssignment.findFirst({
+      where: {
+        id: targetId,
+        archivedAt: null,
+        publisher: {
+          active: true,
+          features: {
+            some: {
+              enabled: true,
+              feature: { key: "ASSIGNMENTS", active: true, implemented: true },
+            },
+          },
+        },
+        school: { status: "APPROVED" },
+        academicYear: { active: true, current: true },
+        schoolClass: { active: true },
+        section: { active: true },
+      },
+      select: {
+        id: true,
+        publisherId: true,
+        schoolId: true,
+        academicYearId: true,
+        schoolClassId: true,
+        sectionId: true,
+        teacherId: true,
+        status: true,
+        publishAt: true,
+        dueAt: true,
+        closeAt: true,
+        allowLateSubmission: true,
+        allowFileSubmission: true,
+      },
+    });
+    if (!assignment) return { status: "DENIED", reasonCode: "CROSS_TENANT_TARGET" };
+    if (scope === "assignment-attachment") {
+      if (user.role !== "TEACHER") return { status: "DENIED", reasonCode: "UNAUTHORIZED_ROLE" };
+      const teacher = await prisma.teacher.findFirst({
+        where: {
+          userId: user.id,
+          id: assignment.teacherId,
+          schoolId: assignment.schoolId,
+          active: true,
+          status: "APPROVED",
+          assignments: {
+            some: {
+              schoolId: assignment.schoolId,
+              academicYearId: assignment.academicYearId,
+              schoolClassId: assignment.schoolClassId,
+              sectionId: assignment.sectionId,
+              active: true,
+            },
+          },
+        },
+        select: { id: true },
+      });
+      if (!teacher) return { status: "DENIED", reasonCode: "CROSS_TENANT_TARGET" };
+    } else {
+      if (user.role !== "STUDENT" || !assignment.allowFileSubmission) {
+        return { status: "DENIED", reasonCode: "UNAUTHORIZED_ROLE" };
+      }
+      const visible = assignment.status === "PUBLISHED" ||
+        (assignment.status === "SCHEDULED" && Boolean(assignment.publishAt && assignment.publishAt <= now));
+      const late = Boolean(assignment.dueAt && assignment.dueAt < now);
+      const closed = assignment.status === "CLOSED" || Boolean(assignment.closeAt && assignment.closeAt <= now);
+      if (!visible || closed || (late && !assignment.allowLateSubmission)) {
+        return { status: "DENIED", reasonCode: "CROSS_TENANT_TARGET" };
+      }
+      const student = await prisma.student.findFirst({
+        where: {
+          userId: user.id,
+          schoolId: assignment.schoolId,
+          active: true,
+          user: { active: true, emailVerifiedAt: { not: null } },
+          enrollments: {
+            some: {
+              schoolId: assignment.schoolId,
+              academicYearId: assignment.academicYearId,
+              schoolClassId: assignment.schoolClassId,
+              sectionId: assignment.sectionId,
+              status: "ACTIVE",
+            },
+          },
+        },
+        select: { id: true },
+      });
+      if (!student) return { status: "DENIED", reasonCode: "CROSS_TENANT_TARGET" };
+    }
+    return {
+      status: "AUTHORIZED",
+      tenantId: assignment.publisherId,
+      scope,
+      targetId: assignment.id,
+      userId: user.id,
+      role: user.role,
+      publisherId: assignment.publisherId,
     };
   }
 

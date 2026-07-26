@@ -17,7 +17,6 @@ const allowed: ResourceEntitlementFacts = {
   academicContext: true,
   assignment: true,
   enrollment: false,
-  adoptionApproved: true,
   featureEnabled: true,
   audience: ResourceAudience.TEACHER_ONLY,
 };
@@ -44,7 +43,7 @@ test("Student is denied TEACHER_ONLY resource", () => {
 });
 
 for (const audience of [ResourceAudience.STUDENT, ResourceAudience.BOTH]) {
-  test(`Student may use ${audience} when enrollment and adoption pass`, () => {
+  test(`Student may use ${audience} when enrollment and section assignment pass`, () => {
     assert.deepEqual(
       decideResourceEntitlement({
         ...allowed,
@@ -69,13 +68,6 @@ test("cross-publisher resource is denied", () => {
   assert.deepEqual(
     decideResourceEntitlement({ ...allowed, samePublisher: false }),
     { allowed: false, reason: "WRONG_PUBLISHER" },
-  );
-});
-
-test("missing approved adoption denies book-scoped resource", () => {
-  assert.deepEqual(
-    decideResourceEntitlement({ ...allowed, adoptionApproved: false }),
-    { allowed: false, reason: "BOOK_NOT_APPROVED" },
   );
 });
 

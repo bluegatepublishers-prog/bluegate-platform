@@ -51,8 +51,6 @@ export interface ResourceAccessDependencies {
   ): Promise<TeacherAssignmentScope[]>;
   findEntitledSectionSubjects(
     assignments: TeacherAssignmentScope[],
-    schoolId: string,
-    publisherId: string,
   ): Promise<Array<{ id: string }>>;
   findSchool(userId: string): Promise<SchoolAccessRecord | null>;
   isResourcesEnabled(publisherId: string): Promise<boolean>;
@@ -111,8 +109,6 @@ export async function getTeacherResourceAccessWithDependencies(
   }
   const sectionSubjects = await dependencies.findEntitledSectionSubjects(
     assignments,
-    teacher.schoolId,
-    publisherId,
   );
   if (!sectionSubjects.length) {
     return { status: "NO_ENTITLEMENTS" };

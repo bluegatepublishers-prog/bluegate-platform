@@ -3,6 +3,8 @@ import Link from "next/link";
 
 import ClassTabs from "@/components/classroom/ClassTabs";
 import { requireTeacherClass } from "@/lib/classroom";
+import { isPublisherFeatureEnabled } from "@/lib/publisher-features";
+import { PlatformFeatureKey } from "@prisma/client";
 
 export default async function TeacherClassLayout({
   children,
@@ -13,6 +15,7 @@ export default async function TeacherClassLayout({
 }) {
   const { sectionId } = await params;
   const scope = await requireTeacherClass(sectionId);
+  const assignmentsEnabled = await isPublisherFeatureEnabled(scope.publisherId, PlatformFeatureKey.ASSIGNMENTS);
   return (
     <main className="space-y-6 p-4 sm:p-6 lg:p-8">
       <header className="min-w-0">
@@ -21,7 +24,7 @@ export default async function TeacherClassLayout({
         <h1 className="mt-1 break-words text-3xl font-bold sm:text-4xl">{scope.schoolClass.name} · Section {scope.section.name}</h1>
         <p className="mt-2 text-slate-600">{scope.isClassTeacher ? "Class teacher access" : scope.sectionSubjects.map((item) => item.subject.name).join(", ")}</p>
       </header>
-      <ClassTabs sectionId={sectionId} />
+      <ClassTabs sectionId={sectionId} assignmentsEnabled={assignmentsEnabled} />
       {children}
     </main>
   );
