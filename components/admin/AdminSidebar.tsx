@@ -22,12 +22,12 @@ import {
 
 const navigation = [
   { name: "Dashboard", href: "/admin", icon: LayoutDashboard },
+  { name: "Books", href: "/admin/books", icon: BookOpen, section: "CONTENT" },
+  { name: "Resource Library", href: "/admin/resources", icon: FolderOpen },
   { name: "Reports", href: "/admin/reports", icon: ChartNoAxesCombined },
   { name: "Learning Gaps", href: "/admin/gaps", icon: ScanSearch },
   { name: "Remedial Learning", href: "/admin/remedials", icon: ChartNoAxesCombined },
-  { name: "Books", href: "/admin/books", icon: BookOpen },
   { name: "Book Approvals", href: "/admin/book-adoptions", icon: BookOpenCheck },
-  { name: "Resources", href: "/admin/resources", icon: FolderOpen },
   { name: "Storage", href: "/admin/storage", icon: HardDrive },
   { name: "Schools", href: "/admin/schools", icon: School },
   { name: "School Requests", href: "/admin/school-requests", icon: School },
@@ -97,7 +97,12 @@ export default function AdminSidebar({
                 : pathname === item.href || pathname.startsWith(`${item.href}/`);
 
             return (
-              <li key={item.href}>
+              <li key={item.href} className={item.section ? "pt-4 first:pt-0" : undefined}>
+                {item.section ? (
+                  <p className="mb-2 px-4 text-[11px] font-bold tracking-[0.18em] text-slate-400">
+                    {item.section}
+                  </p>
+                ) : null}
                 <Link
                   href={item.href}
                   onClick={onClose}

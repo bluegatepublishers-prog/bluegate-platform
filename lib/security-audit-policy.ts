@@ -80,6 +80,7 @@ export const SECURITY_AUDIT_ACTIONS = [
   "publisher.book_feature.detach",
   "publisher.book_feature.reorder",
   "publisher.book_resource.attach",
+  "publisher.book_resource.update",
   "publisher.book_resource.detach",
   "publisher.book_resource.reorder",
   "account.email.verify",

@@ -47,7 +47,42 @@ export async function PUT(
   const { id } = await params;
 
   try {
-    const form = parseBookFormData(await request.json());
+    const payload = await request.json();
+    const inspectorChanges =
+      typeof payload === "object" &&
+      payload !== null &&
+      typeof payload.inspectorChanges === "object" &&
+      payload.inspectorChanges !== null
+        ? (payload.inspectorChanges as Record<string, unknown>)
+        : null;
+    let formInput = payload;
+    if (inspectorChanges) {
+      const current = await prisma.book.findFirst({
+        where: { id, publisherId: access.actor.publisherId },
+      });
+      if (!current) return publisherAdminNotFound();
+      const allowedFields = new Set([
+        "title",
+        "subtitle",
+        "classId",
+        "subjectId",
+        "seriesId",
+        "isbn",
+        "published",
+        "featured",
+        "description",
+      ]);
+      const allowedChanges = Object.fromEntries(
+        Object.entries(inspectorChanges).filter(([key]) =>
+          allowedFields.has(key),
+        ),
+      );
+      formInput = {
+        ...parseBookFormData(current),
+        ...allowedChanges,
+      };
+    }
+    const form = parseBookFormData(formInput);
     if (!form.title) return NextResponse.json({ message: "Book title is required." }, { status: 400 });
     if (!form.classId) return NextResponse.json({ message: "Please select a class." }, { status: 400 });
     if (!form.subjectId) return NextResponse.json({ message: "Please select a subject." }, { status: 400 });
@@ -95,8 +130,8 @@ export async function PUT(
         data: {
           ...toBookPersistenceData(form),
           publisherId: access.actor.publisherId,
-          subtitle: previous.subtitle,
-          description: previous.description,
+          subtitle: inspectorChanges ? form.subtitle || null : previous.subtitle,
+          description: inspectorChanges ? form.description || null : previous.description,
           galleryImages: previous.galleryImages,
           edition: previous.edition,
           publisher: previous.publisher,

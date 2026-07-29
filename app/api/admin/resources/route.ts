@@ -14,14 +14,28 @@ import {
 } from "@/lib/resource-helpers";
 import { toResourceJson, toResourceJsonList } from "@/lib/resource-json";
 import {
+  isSafeExternalResourceUrl,
+  listPublisherResources,
+  normalizeResourceLibraryQuery,
+  type ResourceLibraryQueryInput,
+} from "@/lib/admin-resource-library";
+import {
   resolveResourceLinks,
   trimToNull,
 } from "@/lib/resource-relations";
 
-export async function GET() {
+export async function GET(request: Request) {
   const { actor, response } = await authorizePublisherAdminApi();
   if (response) return response;
   if(!await isPublisherFeatureEnabled(actor.publisherId,PlatformFeatureKey.RESOURCES))return NextResponse.json({message:"Forbidden"},{status:403});
+
+  const url = new URL(request.url);
+  if (url.searchParams.get("paginated") === "true") {
+    const input = Object.fromEntries(url.searchParams) as ResourceLibraryQueryInput;
+    const query = normalizeResourceLibraryQuery(input);
+    const result = await listPublisherResources(actor.publisherId, query);
+    return NextResponse.json(result);
+  }
 
   const resources = await prisma.resource.findMany({ where:{publisherId:actor.publisherId},orderBy: { createdAt: "desc" } });
   return NextResponse.json(toResourceJsonList(resources));
@@ -43,8 +57,16 @@ export async function POST(request: Request) {
     );
   }
   if (!audience) return NextResponse.json({ message: "Select a valid audience." }, { status: 400 });
+  const inputType = body.type as ResourceType;
+  const type = Object.values(ResourceType).includes(inputType)
+    ? inputType
+    : ResourceType.PDF;
   const thumbnail = trimToNull(body.thumbnail);
-  if (!isPublisherStorageValue(fileUrl, actor.publisherId, ["resource-file"]) || !isPublisherStorageValue(thumbnail, actor.publisherId, ["resource-thumbnail"])) return NextResponse.json({ message: "Upload files through this publisher workspace." }, { status: 400 });
+  const validPrimaryValue =
+    type === ResourceType.LINK
+      ? isSafeExternalResourceUrl(fileUrl)
+      : isPublisherStorageValue(fileUrl, actor.publisherId, ["resource-file"]);
+  if (!validPrimaryValue || !isPublisherStorageValue(thumbnail, actor.publisherId, ["resource-thumbnail"])) return NextResponse.json({ message: type === ResourceType.LINK ? "Enter a valid HTTPS link." : "Upload files through this publisher workspace." }, { status: 400 });
 
   const classId = trimToNull(body.classId);
   const subjectId = trimToNull(body.subjectId);
@@ -52,11 +74,6 @@ export async function POST(request: Request) {
   const bookId = trimToNull(body.bookId);
   const classLevel = String(body.classLevel ?? "");
   const subject = String(body.subject ?? "");
-
-  const inputType = body.type as ResourceType;
-  const type = Object.values(ResourceType).includes(inputType)
-    ? inputType
-    : ResourceType.PDF;
 
   const [classRecord, subjectRecord, seriesRecord, bookRecord] = await Promise.all([
     classId ? prisma.class.findFirst({ where: { id: classId, active: true }, select: { id: true, name: true } }) : Promise.resolve(null),
@@ -112,6 +129,7 @@ export async function POST(request: Request) {
           fileSizeBytes,
           featured: Boolean(body.featured),
           published: body.published !== false,
+          publishedAt: body.published !== false ? new Date() : null,
         },
       });
       await writeSecurityAuditEvent(tx, {

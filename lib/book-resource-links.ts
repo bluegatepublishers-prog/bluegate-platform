@@ -167,3 +167,53 @@ export async function moveBookResourceLink(bookId: string, linkId: string, direc
     });
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 }
+
+export async function updateBookResourceLink(input: {
+  bookId: string;
+  linkId: string;
+  targetType: BookContentTargetType;
+  ids: TargetIds;
+  audienceOverride?: ResourceAudience | null;
+  qrEligible?: boolean;
+}) {
+  const actor = await requireLivePublisherAdmin();
+  return prisma.$transaction(async (tx) => {
+    const link = await tx.bookResourceLink.findFirst({
+      where: {
+        id: input.linkId,
+        bookId: input.bookId,
+        publisherId: actor.publisherId,
+        active: true,
+      },
+    });
+    if (!link) throw new BookResourceLinkError("Resource link not found.");
+    await requireTarget(tx, input.bookId, input.targetType, input.ids);
+    const id = targetId(input.targetType, input.ids);
+    const targetKey = `${input.targetType}:${id ?? input.bookId}`;
+    const updated = await tx.bookResourceLink.update({
+      where: { id: link.id },
+      data: {
+        targetType: input.targetType,
+        targetKey,
+        partId: input.targetType === "PART" ? id : null,
+        unitId: input.targetType === "UNIT" ? id : null,
+        chapterId: input.targetType === "CHAPTER" ? id : null,
+        moduleId: input.targetType === "MODULE" ? id : null,
+        topicId: input.targetType === "TOPIC" ? id : null,
+        audienceOverride: input.audienceOverride ?? null,
+        qrEligible: Boolean(input.qrEligible),
+      },
+    });
+    await writeSecurityAuditEvent(tx, {
+      actor: publisherAdminAuditActor(actor),
+      action: "publisher.book_resource.update",
+      targetType: "BookResourceLink",
+      targetId: updated.id,
+      outcome: SecurityAuditOutcome.SUCCESS,
+      metadata: {
+        changedFields: ["targetType", "audienceOverride", "qrEligible"],
+      },
+    });
+    return updated;
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+}

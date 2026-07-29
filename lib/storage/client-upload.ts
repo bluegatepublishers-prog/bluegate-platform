@@ -15,8 +15,9 @@ export async function uploadFileToR2(input: {
   scope: UploadScope;
   targetId?: string;
   onProgress?: (percentage: number) => void;
+  signal?: AbortSignal;
 }): Promise<UploadResult> {
-  const { file, scope, targetId, onProgress } = input;
+  const { file, scope, targetId, onProgress, signal } = input;
   onProgress?.(5);
 
   const initResponse = await fetch("/api/storage/upload/init", {
@@ -29,6 +30,7 @@ export async function uploadFileToR2(input: {
       sizeBytes: file.size,
       targetId,
     }),
+    signal,
   });
   const initialized = await readJson<{
     ok: true;
@@ -42,6 +44,7 @@ export async function uploadFileToR2(input: {
     method: "PUT",
     headers: initialized.requiredHeaders,
     body: file,
+    signal,
   });
   if (!uploadResponse.ok) throw new Error("R2 upload failed.");
   onProgress?.(80);
@@ -57,6 +60,7 @@ export async function uploadFileToR2(input: {
       expectedSizeBytes: file.size,
       targetId,
     }),
+    signal,
   });
   const completed = await readJson<{ ok: true } & UploadResult>(completeResponse);
   onProgress?.(100);

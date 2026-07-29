@@ -64,6 +64,13 @@ export function canStudentUseResource(audience: ResourceAudience) {
   );
 }
 
+export function resolveResourcePlacementAudience(
+  resourceAudience: ResourceAudience,
+  audienceOverride: ResourceAudience | null | undefined,
+) {
+  return audienceOverride ?? resourceAudience;
+}
+
 export function filterResourcesForTeacher<
   T extends { audience: ResourceAudience },
 >(resources: readonly T[]) {

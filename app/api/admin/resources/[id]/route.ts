@@ -25,6 +25,7 @@ import {
 } from "@/lib/resource-helpers";
 import { toResourceJson } from "@/lib/resource-json";
 import { resolveResourceLinks, trimToNull } from "@/lib/resource-relations";
+import { isSafeExternalResourceUrl } from "@/lib/admin-resource-library";
 
 function hasOwn(payload: Record<string, unknown>, key: string) {
   return Object.prototype.hasOwnProperty.call(payload, key);
@@ -110,8 +111,9 @@ export async function PUT(
     : existing.thumbnail;
 
   if (
-    (fileUrl !== existing.fileUrl &&
-      !isPublisherStorageValue(fileUrl, actor.publisherId, ["resource-file"])) ||
+    !(type === ResourceType.LINK
+      ? isSafeExternalResourceUrl(fileUrl)
+      : isPublisherStorageValue(fileUrl, actor.publisherId, ["resource-file"])) ||
     (thumbnail !== existing.thumbnail &&
       !isPublisherStorageValue(thumbnail, actor.publisherId, ["resource-thumbnail"]))
   ) {
@@ -314,13 +316,18 @@ export async function PATCH(
 
   const { id } = await params;
   const body = (await request.json()) as Record<string, unknown>;
-  if (typeof body.published !== "boolean") {
+  const requestedAction =
+    typeof body.action === "string" ? body.action : null;
+  const validActions = new Set(["publish", "unpublish", "archive", "restore"]);
+  if (
+    typeof body.published !== "boolean" &&
+    (!requestedAction || !validActions.has(requestedAction))
+  ) {
     return NextResponse.json(
-      { message: "Published status is required." },
+      { message: "A valid lifecycle action is required." },
       { status: 400 },
     );
   }
-  const published = body.published;
 
   const resource = await prisma.resource.findFirst({
     where: { id, publisherId: actor.publisherId },
@@ -336,9 +343,26 @@ export async function PATCH(
     return publisherAdminNotFound();
   }
 
+  const action =
+    requestedAction ??
+    (body.published === true ? "publish" : "unpublish");
+  if (resource.archived && action !== "restore") {
+    return NextResponse.json(
+      { message: "Restore the resource before changing its publication state." },
+      { status: 409 },
+    );
+  }
+  const now = new Date();
   const updated = await prisma.resource.update({
     where: { id: resource.id },
-    data: { published, publishedAt: published ? resource.publishedAt ?? new Date() : null },
+    data:
+      action === "archive"
+        ? { archived: true, archivedAt: now, published: false }
+        : action === "restore"
+          ? { archived: false, archivedAt: null }
+          : action === "publish"
+            ? { published: true, publishedAt: resource.publishedAt ?? now }
+            : { published: false, publishedAt: null },
   });
 
   await prisma.$transaction(async (tx) => {
@@ -348,15 +372,40 @@ export async function PATCH(
       targetType: "Resource",
       targetId: resource.id,
       outcome: SecurityAuditOutcome.SUCCESS,
-      metadata: { changedFields: ["publicationState"], published },
+      metadata: {
+        changedFields:
+          action === "archive" || action === "restore"
+            ? ["archived", "publicationState"]
+            : ["publicationState"],
+        fromStatus: resource.archived
+          ? "ARCHIVED"
+          : resource.published
+            ? "PUBLISHED"
+            : "DRAFT",
+        toStatus: updated.archived
+          ? "ARCHIVED"
+          : updated.published
+            ? "PUBLISHED"
+            : "DRAFT",
+      },
     });
   });
 
-  return NextResponse.json(toResourceJson(updated));
+  return NextResponse.json({
+    ...toResourceJson(updated),
+    message:
+      action === "archive"
+        ? "Resource archived."
+        : action === "restore"
+          ? "Resource restored."
+          : action === "publish"
+            ? "Resource published."
+            : "Resource moved to draft.",
+  });
 }
 
 export async function DELETE(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { actor, response } = await authorizePublisherAdminApi();
@@ -371,6 +420,38 @@ export async function DELETE(
   }
 
   const { id } = await params;
+  if (new URL(request.url).searchParams.get("permanent") === "true") {
+    const owned = await prisma.resource.findFirst({
+      where: { id, publisherId: actor.publisherId },
+      select: {
+        _count: {
+          select: {
+            bookResourceLinks: true,
+            schoolEntitlements: true,
+            bookmarks: true,
+            downloads: true,
+            studentBookmarks: true,
+            studentDownloads: true,
+            classMaterials: true,
+            assignmentAttachments: true,
+          },
+        },
+      },
+    });
+    if (!owned) return publisherAdminNotFound();
+    const references = Object.values(owned._count).reduce(
+      (total, count) => total + count,
+      0,
+    );
+    return NextResponse.json(
+      {
+        message: references
+          ? `Permanent deletion is blocked because this resource has ${references} reference${references === 1 ? "" : "s"}. Archive it instead.`
+          : "Permanent deletion is disabled until durable object-storage cleanup is configured. Archive the resource instead.",
+      },
+      { status: 409 },
+    );
+  }
   const resource = await prisma.$transaction(async (tx) => {
     const owned = await tx.resource.findFirst({ where: { id, publisherId:actor.publisherId } });
     if (!owned) return null;

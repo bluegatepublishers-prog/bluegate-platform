@@ -63,6 +63,11 @@ model User {
   revokedSchoolResources      SchoolResourceEntitlement[]  @relation("SchoolResourceEntitlementRevoker")
   restoredSchoolResources     SchoolResourceEntitlement[]  @relation("SchoolResourceEntitlementRestorer")
   archivedSchoolResources     SchoolResourceEntitlement[]  @relation("SchoolResourceEntitlementArchiver")
+  createdQrCodes              DynamicQrCode[]               @relation("QrCodeCreatedBy")
+  suspendedQrCodes            DynamicQrCode[]               @relation("QrCodeSuspendedBy")
+  createdQrDestinations       QrDestination[]                @relation("QrDestinationCreatedBy")
+  approvedQrDestinations      QrDestination[]                @relation("QrDestinationApprovedBy")
+  changedQrRedirectRevisions  QrRedirectRevision[]            @relation("QrRevisionChangedBy")
 
   @@index([publisherId, role])
   @@index([role, active])
@@ -127,6 +132,7 @@ model Publisher {
   schoolResourceEntitlements SchoolResourceEntitlement[]
   bookFeatureDefinitions     BookFeatureDefinition[]
   bookResourceLinks          BookResourceLink[]
+  dynamicQrCodes             DynamicQrCode[]
 }
 
 model FeatureDefinition {
@@ -1083,6 +1089,7 @@ model Book {
   schoolEntitlements      SchoolBookEntitlement[]
   featureAssignments      BookFeatureAssignment[]
   resourceLinks           BookResourceLink[]
+  dynamicQrCodes          DynamicQrCode[]
 
   @@index([publisherId, published, archived])
   @@index([publisherId, published, featured, featuredOrder, updatedAt])
@@ -1114,6 +1121,7 @@ model BookPart {
   units            BookUnit[]
   chapters         BookChapter[]
   resourceLinks    BookResourceLink[]
+  dynamicQrCodes   DynamicQrCode[]
 
   @@unique([bookId, slug])
   @@index([bookId, displayOrder])
@@ -1182,6 +1190,7 @@ model BookUnit {
   resources        Resource[]         @relation("ResourceBookUnit")
   videoLessons     VideoLesson[]
   resourceLinks    BookResourceLink[]
+  dynamicQrCodes   DynamicQrCode[]
 
   @@index([bookId])
   @@index([editionId])
@@ -1413,6 +1422,7 @@ model BookChapter {
   classroomAssignments    ClassroomAssignment[]
   assignmentAttachments   AssignmentAttachment[]
   resourceLinks           BookResourceLink[]
+  dynamicQrCodes          DynamicQrCode[]
 
   @@unique([bookId, chapterNumber])
   @@unique([bookId, slug])
@@ -1459,6 +1469,7 @@ model BookModule {
   resources        Resource[]               @relation("ResourceBookModule")
   videoLessons     VideoLesson[]
   resourceLinks    BookResourceLink[]
+  dynamicQrCodes   DynamicQrCode[]
 
   @@index([bookId])
   @@index([chapterId])
@@ -1503,6 +1514,7 @@ model BookTopic {
   resources        Resource[]               @relation("ResourceBookTopic")
   videoLessons     VideoLesson[]
   resourceLinks    BookResourceLink[]
+  dynamicQrCodes   DynamicQrCode[]
 
   @@index([bookId])
   @@index([chapterId])
@@ -1962,6 +1974,7 @@ model BookResourceLink {
   chapter          BookChapter?          @relation(fields: [chapterId], references: [id], onDelete: Restrict)
   module           BookModule?           @relation(fields: [moduleId], references: [id], onDelete: Restrict)
   topic            BookTopic?            @relation(fields: [topicId], references: [id], onDelete: Restrict)
+  qrDestinations   QrDestination[]
 
   @@unique([resourceId, targetKey])
   @@index([publisherId, bookId, active])
@@ -2024,6 +2037,7 @@ model Resource {
   assignmentAttachments   AssignmentAttachment[]
   schoolEntitlements      SchoolResourceEntitlement[]
   bookResourceLinks       BookResourceLink[]
+  qrDestinations          QrDestination[]
 
   @@index([publisherId, published, archived])
   @@index([publisherId, audience, published])
@@ -2037,6 +2051,112 @@ model Resource {
   @@index([publisherId, moduleId])
   @@index([publisherId, topicId])
   @@index([publisherId, exerciseId])
+}
+
+model DynamicQrCode {
+  id                   String                @id @default(cuid())
+  publicCode           String                @unique @db.VarChar(20)
+  name                 String                @db.VarChar(160)
+  publisherId          String
+  bookId               String
+  targetType           BookContentTargetType @default(BOOK)
+  partId               String?
+  unitId               String?
+  chapterId            String?
+  moduleId             String?
+  topicId              String?
+  status               QrStatus              @default(DRAFT)
+  audience             QrAccessAudience       @default(PUBLIC)
+  currentDestinationId String?                @unique
+  qrEligible           Boolean               @default(true)
+  activatesAt          DateTime?
+  expiresAt            DateTime?
+  createdById          String
+  suspendedById        String?
+  suspendedAt          DateTime?
+  suspensionReason     String?
+  archivedAt           DateTime?
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
+  publisher            Publisher              @relation(fields: [publisherId], references: [id], onDelete: Restrict)
+  book                 Book                   @relation(fields: [bookId], references: [id], onDelete: Restrict)
+  part                 BookPart?              @relation(fields: [partId], references: [id], onDelete: Restrict)
+  unit                 BookUnit?              @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  chapter              BookChapter?           @relation(fields: [chapterId], references: [id], onDelete: Restrict)
+  module               BookModule?            @relation(fields: [moduleId], references: [id], onDelete: Restrict)
+  topic                BookTopic?             @relation(fields: [topicId], references: [id], onDelete: Restrict)
+  createdBy            User                   @relation("QrCodeCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  suspendedBy          User?                  @relation("QrCodeSuspendedBy", fields: [suspendedById], references: [id], onDelete: SetNull)
+  currentDestination   QrDestination?         @relation("CurrentQrDestination", fields: [currentDestinationId], references: [id], onDelete: SetNull)
+  destinations         QrDestination[]        @relation("QrDestinationOwner")
+  redirectRevisions    QrRedirectRevision[]
+
+  @@index([publisherId, status, updatedAt])
+  @@index([publisherId, bookId, status])
+  @@index([bookId, targetType])
+  @@index([partId])
+  @@index([unitId])
+  @@index([chapterId])
+  @@index([moduleId])
+  @@index([topicId])
+  @@index([status, activatesAt, expiresAt])
+}
+
+model QrDestination {
+  id                   String             @id @default(cuid())
+  qrCodeId             String
+  type                 QrDestinationType
+  resourceId           String?
+  bookResourceLinkId   String?
+  validatedExternalUrl String?
+  externalHost         String?
+  internalRoute        String?
+  audience             QrAccessAudience   @default(PUBLIC)
+  active               Boolean            @default(true)
+  metadata             Json?
+  validatedAt          DateTime?
+  externalApprovedAt   DateTime?
+  externalApprovedById String?
+  createdById          String
+  deactivatedAt        DateTime?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+  qrCode               DynamicQrCode      @relation("QrDestinationOwner", fields: [qrCodeId], references: [id], onDelete: Restrict)
+  currentFor           DynamicQrCode?      @relation("CurrentQrDestination")
+  resource             Resource?           @relation(fields: [resourceId], references: [id], onDelete: Restrict)
+  bookResourceLink     BookResourceLink?   @relation(fields: [bookResourceLinkId], references: [id], onDelete: Restrict)
+  createdBy            User                @relation("QrDestinationCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  externalApprovedBy   User?               @relation("QrDestinationApprovedBy", fields: [externalApprovedById], references: [id], onDelete: SetNull)
+  previousRevisions    QrRedirectRevision[] @relation("PreviousQrRevisionDestination")
+  newRevisions         QrRedirectRevision[] @relation("NewQrRevisionDestination")
+
+  @@index([qrCodeId, active, createdAt])
+  @@index([resourceId])
+  @@index([bookResourceLinkId])
+  @@index([externalHost, active])
+}
+
+model QrRedirectRevision {
+  id                    String           @id @default(cuid())
+  qrCodeId              String
+  revisionNumber        Int
+  previousDestinationId String?
+  newDestinationId      String?
+  fromStatus            QrStatus?
+  toStatus              QrStatus?
+  reason                QrRevisionReason
+  changedById           String
+  changedAt             DateTime         @default(now())
+  effectiveAt           DateTime         @default(now())
+  appliedAt             DateTime         @default(now())
+  metadata              Json?
+  qrCode                DynamicQrCode    @relation(fields: [qrCodeId], references: [id], onDelete: Restrict)
+  previousDestination   QrDestination?   @relation("PreviousQrRevisionDestination", fields: [previousDestinationId], references: [id], onDelete: Restrict)
+  newDestination        QrDestination?   @relation("NewQrRevisionDestination", fields: [newDestinationId], references: [id], onDelete: Restrict)
+  changedBy             User             @relation("QrRevisionChangedBy", fields: [changedById], references: [id], onDelete: Restrict)
+
+  @@unique([qrCodeId, revisionNumber])
+  @@index([qrCodeId, changedAt])
 }
 
 model VideoLesson {
@@ -3312,4 +3432,44 @@ enum BookContentTargetType {
   CHAPTER
   MODULE
   TOPIC
+}
+
+enum QrStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  EXPIRED
+  ARCHIVED
+  SUSPENDED
+}
+
+enum QrDestinationType {
+  RESOURCE
+  BOOK_RESOURCE_LINK
+  EXTERNAL_URL
+  INTERNAL_ROUTE
+}
+
+enum QrAccessAudience {
+  PUBLIC
+  AUTHENTICATED
+  SCHOOL_MEMBER
+  TEACHER_ONLY
+  STUDENT_ONLY
+  TEACHER_OR_STUDENT
+}
+
+enum QrRevisionReason {
+  CREATED
+  DESTINATION_CHANGED
+  ACTIVATED
+  PAUSED
+  RESUMED
+  ARCHIVED
+  RESTORED
+  EXPIRED
+  SUSPENDED
+  UNSUSPENDED
+  EXPIRATION_CHANGED
+  ROLLED_BACK
 }

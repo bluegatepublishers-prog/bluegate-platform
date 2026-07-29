@@ -2,16 +2,24 @@
 
 import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { UploadCloud } from "lucide-react";
+import { Link2, UploadCloud, X } from "lucide-react";
 import Image from "next/image";
-import { ResourceAudience, type ResourceType } from "@prisma/client";
+import { ResourceAudience, ResourceType } from "@prisma/client";
 import { validateDirectUpload } from "@/lib/storage/upload-policy";
 import { uploadFileToR2 } from "@/lib/storage/client-upload";
 import { RESOURCE_AUDIENCE_OPTIONS } from "@/lib/resource-audience-ui";
 import { formatFileSizeBytes, getResourceFileName } from "@/lib/resource-helpers";
 import type { ResourceFormOptions } from "@/lib/resource-form-data";
 
-const ACCEPTED_FILES = ".pdf,.ppt,.pptx,.doc,.docx,.zip,.mp4,.webm,.mov";
+const ACCEPTED_FILES =
+  ".pdf,.ppt,.pptx,.doc,.docx,.zip,.mp4,.webm,.mov,.mp3,.wav,.m4a,.ogg";
+
+type DuplicateMatch = {
+  id: string;
+  title: string;
+  originalFileName: string | null;
+  updatedAt: string;
+};
 
 interface ResourceFormData {
   id?: string;
@@ -45,6 +53,7 @@ export default function ResourceForm({
 }) {
   const router = useRouter();
   const fileInput = useRef<HTMLInputElement>(null);
+  const uploadAbort = useRef<AbortController | null>(null);
 
   const [saving, setSaving] = useState(false);
   const [dragging, setDragging] = useState(false);
@@ -52,6 +61,9 @@ export default function ResourceForm({
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [uploadMessage, setUploadMessage] = useState("");
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [retryFile, setRetryFile] = useState<File | null>(null);
+  const [duplicates, setDuplicates] = useState<DuplicateMatch[]>([]);
 
   const [form, setForm] = useState<ResourceFormData>({
     id: resource?.id,
@@ -68,7 +80,7 @@ export default function ResourceForm({
     fileUrl: resource?.fileUrl ?? "",
     thumbnail: resource?.thumbnail ?? null,
     featured: resource?.featured ?? false,
-    published: resource?.published ?? true,
+    published: resource?.published ?? false,
     originalFileName: resource?.originalFileName ?? null,
     mimeType: resource?.mimeType ?? null,
     fileSizeBytes: resource?.fileSizeBytes ?? null,
@@ -94,7 +106,11 @@ export default function ResourceForm({
     ? formatFileSizeBytes(Number(form.fileSizeBytes))
     : "";
 
-  async function upload(file: File, scope: "resource-file" | "resource-thumbnail") {
+  async function upload(
+    file: File,
+    scope: "resource-file" | "resource-thumbnail",
+    skipDuplicateCheck = false,
+  ) {
     setError("");
     setSuccessMessage("");
     setUploadMessage("");
@@ -107,11 +123,35 @@ export default function ResourceForm({
     }
 
     try {
+      if (scope === "resource-file" && !skipDuplicateCheck) {
+        const duplicateResponse = await fetch("/api/admin/resources/duplicates", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            originalFileName: file.name,
+            fileSizeBytes: file.size,
+          }),
+        });
+        const duplicatePayload = (await duplicateResponse.json().catch(() => ({
+          matches: [],
+        }))) as { matches?: DuplicateMatch[]; message?: string };
+        if (!duplicateResponse.ok) {
+          throw new Error(duplicatePayload.message || "Duplicate check failed.");
+        }
+        if (duplicatePayload.matches?.length) {
+          setPendingFile(file);
+          setDuplicates(duplicatePayload.matches);
+          return;
+        }
+      }
+      const controller = new AbortController();
+      uploadAbort.current = controller;
       const stored = await uploadFileToR2({
         file,
         scope,
         targetId: form.id,
         onProgress: (percentage) => setProgress(Math.max(1, percentage)),
+        signal: controller.signal,
       });
 
       if (scope === "resource-file") {
@@ -129,9 +169,19 @@ export default function ResourceForm({
 
       setUploadMessage("Upload complete.");
       setProgress(100);
-    } catch {
-      setError("The file could not be uploaded. Please try again.");
+      setPendingFile(null);
+      setDuplicates([]);
+      setRetryFile(null);
+    } catch (uploadError) {
+      setError(
+        uploadError instanceof DOMException && uploadError.name === "AbortError"
+          ? "Upload cancelled."
+          : "The file could not be uploaded. Please try again.",
+      );
+      if (scope === "resource-file") setRetryFile(file);
       setProgress(0);
+    } finally {
+      uploadAbort.current = null;
     }
   }
 
@@ -180,6 +230,17 @@ export default function ResourceForm({
     setError("");
     setSuccessMessage("");
 
+    if (form.type === "LINK") {
+      try {
+        const url = new URL(form.fileUrl);
+        if (url.protocol !== "https:") throw new Error();
+      } catch {
+        setSaving(false);
+        setError("External resources must use a valid HTTPS URL.");
+        return;
+      }
+    }
+
     const response = await fetch(
       resource ? `/api/admin/resources/${resource.id}` : "/api/admin/resources",
       {
@@ -209,6 +270,36 @@ export default function ResourceForm({
       onSubmit={submit}
       className="space-y-7 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8"
     >
+      {form.type === "LINK" ? (
+        <section className="rounded-2xl border border-blue-200 bg-blue-50 p-5">
+          <div className="flex items-center gap-2 font-bold text-blue-950">
+            <Link2 className="h-5 w-5" aria-hidden />
+            External resource
+          </div>
+          <label className="mt-4 block text-sm font-semibold text-slate-700">
+            HTTPS URL
+            <input
+              type="url"
+              required
+              placeholder="https://example.org/resource"
+              value={form.fileUrl}
+              onChange={(event) =>
+                setForm({
+                  ...form,
+                  fileUrl: event.target.value,
+                  originalFileName: null,
+                  mimeType: null,
+                  fileSizeBytes: null,
+                })
+              }
+              className="mt-2 w-full rounded-xl border px-4 py-3"
+            />
+          </label>
+          <p className="mt-2 text-sm text-blue-800">
+            Links open in a new tab. Only HTTPS addresses are accepted.
+          </p>
+        </section>
+      ) : null}
       <div
         onDragOver={(event) => {
           event.preventDefault();
@@ -221,7 +312,7 @@ export default function ResourceForm({
           const file = event.dataTransfer.files[0];
           if (file) upload(file, "resource-file");
         }}
-        className={`rounded-2xl border-2 border-dashed p-8 text-center ${
+        className={`${form.type === "LINK" ? "hidden" : ""} rounded-2xl border-2 border-dashed p-8 text-center ${
           dragging ? "border-blue-500 bg-blue-50" : "border-slate-300"
         }`}
       >
@@ -263,6 +354,13 @@ export default function ResourceForm({
               <div className="h-full bg-blue-600" style={{ width: `${progress}%` }} />
             </div>
             <p className="mt-1 text-sm">{progress}%</p>
+            <button
+              type="button"
+              onClick={() => uploadAbort.current?.abort()}
+              className="mt-2 inline-flex items-center gap-1 text-sm font-semibold text-red-700"
+            >
+              <X className="h-4 w-4" aria-hidden /> Cancel upload
+            </button>
           </div>
         ) : null}
 
@@ -275,7 +373,61 @@ export default function ResourceForm({
             {uploadMessage}
           </p>
         ) : null}
+        {retryFile && !isUploading ? (
+          <button
+            type="button"
+            onClick={() => void upload(retryFile, "resource-file", true)}
+            className="mt-3 rounded-lg border border-blue-200 bg-white px-4 py-2 text-sm font-semibold text-blue-700"
+          >
+            Retry upload
+          </button>
+        ) : null}
       </div>
+
+      {duplicates.length && pendingFile ? (
+        <section role="alert" className="rounded-2xl border border-amber-300 bg-amber-50 p-5">
+          <h2 className="font-bold text-amber-950">This file may already exist</h2>
+          <p className="mt-1 text-sm text-amber-900">
+            Reuse an existing resource when possible to preserve one usage record.
+          </p>
+          <ul className="mt-3 space-y-2">
+            {duplicates.map((match) => (
+              <li key={match.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-white p-3 text-sm">
+                <span>
+                  <strong>{match.title}</strong>
+                  {match.originalFileName ? ` · ${match.originalFileName}` : ""}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => router.push(`/admin/resources/${match.id}`)}
+                  className="font-semibold text-blue-700"
+                >
+                  Use existing
+                </button>
+              </li>
+            ))}
+          </ul>
+          <div className="mt-4 flex gap-3">
+            <button
+              type="button"
+              onClick={() => void upload(pendingFile, "resource-file", true)}
+              className="rounded-lg bg-amber-700 px-4 py-2 text-sm font-semibold text-white"
+            >
+              Upload anyway
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setPendingFile(null);
+                setDuplicates([]);
+              }}
+              className="rounded-lg border border-amber-300 px-4 py-2 text-sm font-semibold"
+            >
+              Cancel
+            </button>
+          </div>
+        </section>
+      ) : null}
 
       <div className="grid gap-5 sm:grid-cols-2">
         <Field
@@ -294,7 +446,7 @@ export default function ResourceForm({
             }
             className="mt-2 w-full rounded-xl border px-4 py-3"
           >
-            {["PDF", "PPT", "DOC", "ZIP", "VIDEO"].map((type) => (
+            {Object.values(ResourceType).map((type) => (
               <option key={type}>{type}</option>
             ))}
           </select>
@@ -505,6 +657,9 @@ function inferType(name: string): ResourceType {
   if (ext === "ppt" || ext === "pptx") return "PPT";
   if (ext === "doc" || ext === "docx") return "DOC";
   if (ext === "mp4" || ext === "webm" || ext === "mov") return "VIDEO";
+  if (ext === "mp3" || ext === "wav" || ext === "m4a" || ext === "ogg") {
+    return "AUDIO";
+  }
   if (ext === "zip") return "ZIP";
   return "PDF";
 }
