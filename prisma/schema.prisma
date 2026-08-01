@@ -223,6 +223,7 @@ model Teacher {
   remedialReviews             RemedialPlanReview[]
   schoolRequests              TeacherSchoolRequest[]
   schoolMemberships           SchoolStaffMembership[]
+  attendanceSessions          AttendanceSession[]
 
   @@index([schoolId])
   @@index([schoolId, status, active])
@@ -335,6 +336,8 @@ model School {
   accessSubscription      SchoolAccessSubscription?
   sectionChatRooms        SectionChatRoom[]
   academicPlannerItems    AcademicPlannerItem[]
+  attendanceSessions      AttendanceSession[]
+  attendancePolicy        SchoolAttendancePolicy?
 
   @@index([publisherId, status])
   @@index([publisherId])
@@ -581,6 +584,7 @@ model AcademicYear {
   reportCardSnapshots     ReportCardSnapshot[]
   sectionChatRooms        SectionChatRoom[]
   academicPlannerItems    AcademicPlannerItem[]
+  attendanceSessions      AttendanceSession[]
 
   @@unique([schoolId, name])
   @@index([schoolId, current, active])
@@ -631,6 +635,7 @@ model ClassSection {
   assignmentSubmissions AssignmentSubmission[]
   chatRoom              SectionChatRoom?
   academicPlannerItems  AcademicPlannerItem[]
+  attendanceSessions    AttendanceSession[]
 
   @@unique([schoolClassId, code])
   @@index([schoolClassId, active])
@@ -1015,6 +1020,7 @@ model StudentEnrollment {
   schoolClass         SchoolClass          @relation(fields: [schoolClassId], references: [id], onDelete: Restrict)
   section             ClassSection         @relation(fields: [sectionId], references: [id], onDelete: Restrict)
   reportCardSnapshots ReportCardSnapshot[]
+  attendanceRecords   AttendanceRecord[]
 
   @@index([studentId, academicYearId])
   @@index([sectionId, rollNumber])
@@ -1084,6 +1090,7 @@ model SectionSubject {
   classMaterials       ClassMaterial[]
   classroomAssignments ClassroomAssignment[]
   academicPlannerItems AcademicPlannerItem[]
+  attendanceSessions   AttendanceSession[]
 
   @@unique([sectionId, subjectId])
   @@index([sectionId, active, sortOrder])
@@ -1112,6 +1119,97 @@ model TeacherAssignment {
 
   @@index([schoolId, academicYearId, sectionId, active])
   @@index([teacherId, active])
+}
+
+model AttendanceSession {
+  id               String                @id @default(cuid())
+  schoolId         String
+  academicYearId   String
+  classSectionId   String
+  sectionSubjectId String?
+  teacherId        String
+  date             DateTime
+  period           String?
+  sessionType      AttendanceSessionType
+  submittedAt      DateTime?
+  submittedBy      String?
+  locked           Boolean               @default(false)
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+  school           School                @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  academicYear     AcademicYear          @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
+  classSection     ClassSection          @relation(fields: [classSectionId], references: [id], onDelete: Restrict)
+  sectionSubject   SectionSubject?       @relation(fields: [sectionSubjectId], references: [id], onDelete: SetNull)
+  teacher          Teacher               @relation(fields: [teacherId], references: [id], onDelete: Restrict)
+  records          AttendanceRecord[]
+
+  @@index([schoolId, academicYearId, date])
+  @@index([classSectionId, date])
+  @@index([teacherId, date])
+}
+
+model AttendanceRecord {
+  id                   String            @id @default(cuid())
+  attendanceSessionId  String
+  studentEnrollmentId  String
+  attendanceStatus     AttendanceStatus
+  checkInTime          DateTime?
+  remark               String?
+  markedBy             String
+  updatedBy            String
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+  attendanceSession    AttendanceSession @relation(fields: [attendanceSessionId], references: [id], onDelete: Restrict)
+  studentEnrollment    StudentEnrollment @relation(fields: [studentEnrollmentId], references: [id], onDelete: Restrict)
+  corrections          AttendanceCorrection[]
+
+  @@unique([attendanceSessionId, studentEnrollmentId])
+  @@index([studentEnrollmentId, attendanceStatus])
+}
+
+model AttendanceCorrection {
+  id                  String           @id @default(cuid())
+  attendanceRecordId  String
+  previousStatus      AttendanceStatus
+  newStatus           AttendanceStatus
+  reason              String
+  decisionStatus      AttendanceCorrectionDecision @default(PENDING)
+  reviewedAt          DateTime?
+  reviewedBy          String?
+  decisionNote        String?
+  approvedBy          String?
+  createdBy           String
+  createdAt           DateTime         @default(now())
+  attendanceRecord    AttendanceRecord @relation(fields: [attendanceRecordId], references: [id], onDelete: Restrict)
+
+  @@index([attendanceRecordId, createdAt])
+  @@index([approvedBy])
+  @@index([decisionStatus, createdAt])
+}
+
+model SchoolAttendancePolicy {
+  id                          String                 @id @default(cuid())
+  schoolId                    String                 @unique
+  attendanceMode              AttendanceMode         @default(DAILY)
+  lockBehavior                AttendanceLockBehavior @default(MANUAL)
+  lockHour                    Int                    @default(18)
+  correctionWindowDays        Int                    @default(7)
+  minimumAttendancePercentage Float                  @default(75)
+  lateThresholdMinutes        Int                    @default(10)
+  halfDayThresholdMinutes     Int                    @default(180)
+  allowTeacherDraftSaving     Boolean                @default(true)
+  requireRemarkAbsent         Boolean                @default(true)
+  requireRemarkLate           Boolean                @default(false)
+  requireRemarkHalfDay        Boolean                @default(false)
+  requireRemarkExcused        Boolean                @default(true)
+  workingDays                 Int[]                  @default([1, 2, 3, 4, 5])
+  excludeHolidays             Boolean                @default(true)
+  createdAt                   DateTime               @default(now())
+  updatedAt                   DateTime               @updatedAt
+  school                      School                 @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+
+  @@index([attendanceMode])
+  @@index([lockBehavior])
 }
 
 model Subject {
@@ -3242,6 +3340,39 @@ enum MentorActivityType {
   REMEDIAL_COMPLETION_RECOMMENDED
   STUDENT_AI_LAUNCHED
   SESSION_STATUS_CHANGED
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  LATE
+  EXCUSED
+  HALF_DAY
+  ON_LEAVE
+}
+
+enum AttendanceSessionType {
+  DAILY
+  PERIOD
+  ASSEMBLY
+  ACTIVITY
+  EXAM
+}
+
+enum AttendanceCorrectionDecision {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum AttendanceMode {
+  DAILY
+  PERIOD
+}
+
+enum AttendanceLockBehavior {
+  MANUAL
+  AUTO_AFTER_SUBMISSION
 }
 
 enum SchoolOnboardingStatus {

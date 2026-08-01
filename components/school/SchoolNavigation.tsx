@@ -16,6 +16,7 @@ const academics = [
   ["Classes & Sections", "/school-dashboard/academics?tab=classes", School],
   ["Subjects", "/school-dashboard/academics?tab=subjects", BookOpen],
   ["Teacher Assignments", "/school-dashboard/academics?tab=assignments", UserRoundCheck],
+  ["Attendance", "/school-dashboard/academics?tab=attendance", CalendarDays],
   ["Books & Resources", "/school-dashboard/academics?tab=content", BookOpen],
 ] as const;
 

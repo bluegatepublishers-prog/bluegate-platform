@@ -7,6 +7,7 @@ import {
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import {
+  requireMentorResourceEntitlementAccess,
   requireSchoolResourceEntitlementAccess,
   requireTeacherResourceEntitlementAccess,
   resolveResourceEntitlementForAuthenticatedUser,
@@ -95,6 +96,13 @@ async function findLiveDownloadUser(userId: string): Promise<LiveDownloadUser | 
           },
         },
       },
+      mentor: {
+        select: {
+          active: true,
+          publisherId: true,
+          publisher: { select: { active: true } },
+        },
+      },
     },
   });
   if (!user) return null;
@@ -127,6 +135,15 @@ async function findLiveDownloadUser(userId: string): Promise<LiveDownloadUser | 
       active: user.active,
       eligible: Boolean(user.student?.active && user.student.school.status === "APPROVED" && user.student.school.publisher?.active),
       publisherId: user.student?.school.publisherId ?? null,
+    };
+  }
+  if (user.role === UserRole.MENTOR) {
+    return {
+      id: user.id,
+      role: user.role,
+      active: user.active,
+      eligible: Boolean(user.mentor?.active && user.mentor.publisher?.active),
+      publisherId: user.mentor?.publisherId ?? null,
     };
   }
   return { id: user.id, role: user.role, active: user.active, eligible: false, publisherId: user.publisherId };
@@ -183,6 +200,10 @@ async function authorizeProtectedResource(
     return resolution.decision.allowed && resolution.resource
       ? { resource: protectedResource(resolution.resource), history: { kind: "STUDENT", actorId: identity.value.student.id } }
       : null;
+  }
+  if (user.role === UserRole.MENTOR) {
+    const access = await requireMentorResourceEntitlementAccess(user.id, resourceId);
+    return access ? { resource: protectedResource(access.resource), history: { kind: "MENTOR", actorId: access.mentor.id } } : null;
   }
   return null;
 }

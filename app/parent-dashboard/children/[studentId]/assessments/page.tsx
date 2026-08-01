@@ -1,0 +1,11 @@
+import { getParentChildPortalData } from "@/lib/parent-dashboard";
+
+function formatDate(value?: Date | null) {
+  return value ? value.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "Not scheduled";
+}
+
+export default async function ParentChildAssessmentsPage({ params }: { params: Promise<{ studentId: string }> }) {
+  const { studentId } = await params;
+  const data = await getParentChildPortalData(studentId);
+  return <section className="space-y-6"><div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm"><h2 className="text-xl font-bold text-slate-950">Upcoming assessments</h2><div className="mt-5 space-y-4">{data.upcomingAssessments.length ? data.upcomingAssessments.map((assessment) => <article key={assessment.id} className="rounded-2xl border border-slate-200 p-4"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-sm font-semibold text-amber-700">{assessment.subject ?? "Assessment"}</p><h3 className="mt-1 font-bold text-slate-950">{assessment.title}</h3></div><span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">{assessment.released ? "Result published" : "Upcoming"}</span></div><p className="mt-3 text-sm text-slate-600">{assessment.released ? `Score ${assessment.score == null ? "published" : `${Math.round(assessment.score)}%`}` : `Opens ${formatDate(assessment.opensAt)}`}</p></article>) : <p className="text-sm text-slate-500">No upcoming assessments are available.</p>}</div></div><div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm"><h2 className="text-xl font-bold text-slate-950">Published results</h2><div className="mt-5 space-y-4">{data.assessments.length ? data.assessments.map((assessment) => <article key={assessment.id} className="rounded-2xl bg-slate-50 p-4"><p className="text-sm font-semibold text-emerald-700">{assessment.title}</p><p className="mt-1 text-sm text-slate-600">{assessment.released ? `Published ${assessment.score == null ? "result" : `${Math.round(assessment.score)}%`}` : "Not released yet"}</p></article>) : <p className="text-sm text-slate-500">No published assessment results yet.</p>}</div></div></section>;
+}

@@ -132,6 +132,18 @@ export const SECURITY_AUDIT_ACTIONS = [
   "classroom.submission.attachment.open",
   "classroom.chat.moderate",
   "classroom.chat.pin",
+  "teacher.attendance.save_draft",
+  "teacher.attendance.submit",
+  "teacher.attendance.correction.request",
+  "school.attendance.dashboard.view",
+  "school.attendance.session.lock",
+  "school.attendance.session.lock_bulk_date",
+  "school.attendance.correction.approve",
+  "school.attendance.correction.reject",
+  "school.attendance.policy.update",
+  "school.attendance.report.read",
+  "school.attendance.report.export",
+  "publisher.attendance.report.read",
 ] as const;
 
 export type SecurityAuditAction = (typeof SECURITY_AUDIT_ACTIONS)[number];
@@ -170,7 +182,10 @@ export type SecurityAuditTargetType =
   | "AssignmentAttachment"
   | "AssignmentSubmission"
   | "SubmissionAttachment"
-  | "SectionChatMessage";
+  | "SectionChatMessage"
+  | "AttendanceSession"
+  | "AttendanceRecord"
+  | "AttendanceCorrection";
 
 export const SECURITY_AUDIT_REASON_CODES = [
   "AUTHORIZATION_DENIED",

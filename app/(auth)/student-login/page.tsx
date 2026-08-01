@@ -27,7 +27,7 @@ export default async function StudentLoginPage({
           redirectPath="/student-dashboard"
           title="Student Login"
           description="Use your email address or student login ID and password."
-          emailPlaceholder="student@school.com or student login ID"
+          identifierPlaceholder="student@school.com or student login ID"
           showDemo={false}
           showPublicLink
           initialError={

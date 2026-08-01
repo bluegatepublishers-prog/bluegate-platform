@@ -7,7 +7,7 @@ const RESOURCE_ID = /^[A-Za-z0-9_-]{1,191}$/;
 
 export type ProtectedDownloadRole = Extract<
   UserRole,
-  "ADMIN" | "TEACHER" | "SCHOOL" | "STUDENT" | "SUPER_ADMIN"
+  "ADMIN" | "TEACHER" | "SCHOOL" | "STUDENT" | "MENTOR" | "SUPER_ADMIN"
 >;
 
 export type ProtectedDownloadResult =
@@ -43,7 +43,7 @@ export interface ProtectedDownloadResource {
 
 export interface AuthorizedProtectedResource {
   resource: ProtectedDownloadResource;
-  history?: { kind: "TEACHER" | "STUDENT"; actorId: string };
+  history?: { kind: "TEACHER" | "STUDENT" | "MENTOR"; actorId: string };
 }
 
 export interface ProtectedDownloadAuditInput {

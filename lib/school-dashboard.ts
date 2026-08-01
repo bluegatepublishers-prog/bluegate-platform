@@ -50,10 +50,74 @@ export async function getSchoolHomeData() {
     prisma.student.findMany({ where: { schoolId: school.id }, select: { id: true, name: true, createdAt: true }, orderBy: { createdAt: "desc" }, take: 4 }),
     prisma.teacher.findMany({ where: { schoolId: school.id }, select: { id: true, user: { select: { name: true, createdAt: true } } }, orderBy: { user: { createdAt: "desc" } }, take: 4 }),
   ]);
+
+  let attendanceStats: {
+    percentage: number | null;
+    present: number;
+    absent: number;
+    pendingClasses: number;
+    pendingCorrections: number;
+  } = {
+    percentage: null,
+    present: 0,
+    absent: 0,
+    pendingClasses: 0,
+    pendingCorrections: 0,
+  };
+
+  if (yearId) {
+    const [todaySessions, pendingCorrectionsCount, sectionCount] = await prisma.$transaction([
+      prisma.attendanceSession.findMany({
+        where: {
+          schoolId: school.id,
+          academicYearId: yearId,
+          date: { gte: start, lt: end },
+          OR: [{ locked: true }, { submittedAt: { not: null } }],
+        },
+        include: { records: true },
+      }),
+      prisma.attendanceCorrection.count({
+        where: {
+          decisionStatus: "PENDING",
+          attendanceRecord: { attendanceSession: { schoolId: school.id, academicYearId: yearId } },
+        },
+      }),
+      prisma.classSection.count({
+        where: {
+          active: true,
+          schoolClass: { schoolId: school.id, academicYearId: yearId, active: true },
+        },
+      }),
+    ]);
+
+    const records = todaySessions.flatMap((session) => session.records);
+    const present = records.filter((row) => row.attendanceStatus === "PRESENT").length;
+    const absent = records.filter((row) => row.attendanceStatus === "ABSENT").length;
+    const weighted = records.reduce((sum, row) => sum + (row.attendanceStatus === "ABSENT" ? 0 : row.attendanceStatus === "HALF_DAY" ? 0.5 : 1), 0);
+    const percentage = records.length ? Number(((weighted / records.length) * 100).toFixed(1)) : null;
+
+    attendanceStats = {
+      percentage,
+      present,
+      absent,
+      pendingClasses: Math.max(0, sectionCount - new Set(todaySessions.map((session) => session.classSectionId)).size),
+      pendingCorrections: pendingCorrectionsCount,
+    };
+  }
   const scores = analytics.flatMap((item) => item.averageAssessment == null ? [] : [item.averageAssessment]);
   return {
     school, currentYear,
-    stats: { students, staff: Math.max(teachers, staff), classes, sections, attendance: null as number | null },
+    stats: {
+      students,
+      staff: Math.max(teachers, staff),
+      classes,
+      sections,
+      attendance: attendanceStats.percentage,
+      attendancePresent: attendanceStats.present,
+      attendanceAbsent: attendanceStats.absent,
+      pendingClasses: attendanceStats.pendingClasses,
+      pendingCorrections: attendanceStats.pendingCorrections,
+    },
     today: planner.filter((item) => item.currentDate < end && !["NOTICE", "HOLIDAY"].includes(item.type)).slice(0, 6),
     notices: planner.filter((item) => ["NOTICE", "HOLIDAY"].includes(item.type)).slice(0, 4),
     upcoming: planner.slice(0, 8),

@@ -14,7 +14,7 @@ async function prepare(
 ) {
   return prepareProtectedResourceDownload({
     resourceId: id,
-    allowedRoles: ["TEACHER", "ADMIN"],
+    allowedRoles: ["TEACHER", "ADMIN", "MENTOR"],
     disposition,
   });
 }

@@ -19,7 +19,7 @@ export default async function SchoolLoginPage({ searchParams }: { searchParams: 
     callbackUrl={typeof callbackUrl === "string" ? callbackUrl : undefined}
     title="School Login"
     description="Sign in as a school administrator or coordinator to access your School Dashboard."
-    emailPlaceholder="school@bluegatepublishers.com"
+    identifierPlaceholder="school@bluegatepublishers.com"
     showDemo={false}
     showPublicLink
   />;

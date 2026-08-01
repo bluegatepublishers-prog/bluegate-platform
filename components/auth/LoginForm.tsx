@@ -20,9 +20,14 @@ interface LoginFormProps {
   callbackUrl?: string;
   title?: string;
   description?: string;
-  emailPlaceholder?: string;
+  identifierLabel?: string;
+  identifierPlaceholder?: string;
+  identifierInputMode?: "text" | "email" | "tel";
   showDemo?: boolean;
   showPublicLink?: boolean;
+  showActivateLink?: boolean;
+  activateHref?: string;
+  activateLabel?: string;
   initialError?: string;
 }
 
@@ -32,9 +37,14 @@ export default function LoginForm({
   callbackUrl,
   title = "Teacher Login",
   description = "Sign in to access your Teacher Dashboard.",
-  emailPlaceholder = "teacher@school.com",
+  identifierLabel = "Email",
+  identifierPlaceholder = "teacher@school.com",
+  identifierInputMode = "email",
   showDemo = true,
   showPublicLink = false,
+  showActivateLink = false,
+  activateHref = "/parent-activate",
+  activateLabel = "Activate Account",
   initialError = "",
 }: LoginFormProps) {
   const router = useRouter();
@@ -45,7 +55,7 @@ export default function LoginForm({
 
   const [rememberMe, setRememberMe] = useState(true);
 
-  const [email, setEmail] = useState("");
+  const [identifier, setIdentifier] = useState("");
 
   const [password, setPassword] = useState("");
 
@@ -62,12 +72,12 @@ export default function LoginForm({
       const result =
   authProvider === "student-credentials"
     ? await signIn("student-credentials", {
-        loginId: email.trim(),
+        loginId: identifier.trim(),
         password,
         redirect: false,
       })
     : await signIn("credentials", {
-        email: email.trim(),
+        email: identifier.trim(),
         password,
         redirect: false,
       });
@@ -111,20 +121,20 @@ export default function LoginForm({
         >
           <div>
             <label className="mb-2 block font-medium">
-              Email
+              {identifierLabel}
             </label>
 
             <div className="relative">
               <Mail className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
 
               <input
-                type="text"
+                type={identifierInputMode}
                 required
-                value={email}
+                value={identifier}
                 onChange={(e) =>
-                  setEmail(e.target.value)
+                  setIdentifier(e.target.value)
                 }
-                placeholder={emailPlaceholder}
+                placeholder={identifierPlaceholder}
                 className="w-full rounded-2xl border border-slate-300 py-4 pl-12 pr-4 outline-none focus:border-blue-600"
               />
             </div>
@@ -180,12 +190,19 @@ export default function LoginForm({
               Remember me
             </label>
 
-            <Link
-              href="/forgot-password"
-              className="text-sm font-semibold text-blue-600"
-            >
-              Forgot Password?
-            </Link>
+            <div className="flex flex-col items-end gap-2 text-right">
+              <Link
+                href="/forgot-password"
+                className="text-sm font-semibold text-blue-600"
+              >
+                Forgot Password?
+              </Link>
+              {showActivateLink ? (
+                <Link href={activateHref} className="text-sm font-semibold text-blue-600">
+                  {activateLabel}
+                </Link>
+              ) : null}
+            </div>
           </div>
 
           {error && (

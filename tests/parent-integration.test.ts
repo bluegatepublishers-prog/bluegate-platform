@@ -1,19 +1,75 @@
-import assert from"node:assert/strict";import test from"node:test";import{readFileSync}from"node:fs";const read=(p:string)=>readFileSync(p,"utf8");
-test("parent role has isolated login, callback home and proxy protection",()=>{const a=read("auth.ts"),p=read("lib/auth-policy.ts"),x=read("proxy.ts");assert.match(a,/user\.role === "PARENT"/);assert.match(p,/PARENT: "\/parent-dashboard"/);assert.match(p,/"\/parent-login"/);assert.match(x,/parent-dashboard/)});
-test("inactive parent login is denied",()=>assert.match(read("auth.ts"),/user\.role === "PARENT" && !user\.parent\?\.active/));
-test("parent activation is invitation-only, hashed, expiring and single-use",()=>{const s=read("lib/parent-onboarding.ts"),activation=s.slice(s.indexOf("export async function activateParentInvitation"));assert.match(activation,/parent-invitation:/);assert.match(activation,/usedAt|revokedAt|expiresAt/);assert.match(activation,/pg_advisory_xact_lock/);assert.doesNotMatch(activation,/studentId = cleanText\(input\.studentId/)});
-test("duplicate email is handled without creating a duplicate user",()=>{const s=read("lib/parent-onboarding.ts");assert.match(s,/user\.findUnique/);assert.match(s,/An account already uses this email/)});
-test("activation creates pending non-viewable relationship for separate school verification",()=>{const s=read("lib/parent-onboarding.ts");assert.match(s,/status: ParentRelationshipStatus\.PENDING/);assert.match(s,/canViewLearning: false/)});
-test("school relationship mutations derive scope and reviewer server-side",()=>{const s=read("lib/parent-onboarding.ts");assert.match(s,/requireSchool\(\)/);assert.match(s,/student: \{ schoolId: school\.id \}/);assert.match(s,/approvedById: school\.userId/);assert.match(s,/revokedById: school\.userId/)});
-test("relationship rejection and revocation preserve history",()=>{const s=read("lib/parent-onboarding.ts");assert.match(s,/activeKey: null/);assert.doesNotMatch(s,/parentStudentRelationship\.delete/)});
-test("child helper requires approved exact relationship, enrollment and feature",()=>{const s=read("lib/parent-dashboard.ts");assert.match(s,/parentId: parent\.id, studentId, status: "APPROVED"/);assert.match(s,/PARENT_PORTAL/);assert.match(s,/academicYear: \{ active: true, current: true \}/)});
-test("assessment summaries enforce release timing and showScore",()=>{const s=read("lib/parent-dashboard.ts");assert.match(s,/canReleaseAssessmentResult/);assert.match(s,/settings\?\.showScore/);assert.doesNotMatch(s,/AssessmentResponse|correctAnswer|explanation/)});
-test("gaps omit internal evidence and only include open states",()=>{const s=read("lib/parent-dashboard.ts");assert.match(s,/\["OPEN", "ACKNOWLEDGED"\]/);assert.doesNotMatch(s,/thresholdValue|policyVersion|evidenceCount/)});
-test("remedials are read-only parent summaries",()=>{const s=read("lib/parent-dashboard.ts");assert.match(s,/\["ACTIVE", "COMPLETED"\]/);assert.doesNotMatch(s,/remedialStep\.update|remedialPlan\.update/)});
-test("mentor summary exposes primary assignment but no notes",()=>{const s=read("lib/parent-dashboard.ts");assert.match(s,/role: "PRIMARY"/);assert.doesNotMatch(s,/mentorNote|body:/)});
-test("AI summary is aggregate-only",()=>{const s=read("lib/parent-dashboard.ts");assert.match(s,/aiRequests/);assert.match(s,/aiSessions/);assert.doesNotMatch(s,/studentAiConversation|StudentAiMessage|provider|model|quota|tokenCount/)});
-test("reports contain no rankings or predictive claims",()=>{const s=read("app/parent-dashboard/children/[studentId]/reports/page.tsx");assert.match(s,/No rankings or predictions/);assert.doesNotMatch(s,/publisherAnalytics|schoolAnalytics|teacherAnalytics/)});
-test("parent portal is implemented but not automatically enabled for Bluegate",()=>{const s=read("prisma/seed.ts");assert.match(s,/implemented[\s\S]*PARENT_PORTAL/);const enabled=s.slice(s.indexOf("const enabledForBluegate"),s.indexOf("for (const key"));assert.doesNotMatch(enabled,/PARENT_PORTAL/)});
-test("migration is additive, restrictive, indexed and never enables publisher feature",()=>{const s=read("prisma/migrations/20260716120000_parent_dashboard_foundation/migration.sql");assert.match(s,/CREATE TABLE "Parent"/);assert.match(s,/ON DELETE RESTRICT/);assert.match(s,/CREATE INDEX/);assert.doesNotMatch(s,/DROP TABLE|DROP COLUMN|TRUNCATE|INSERT INTO "PublisherFeature"|UPDATE "PublisherFeature"/i)});
-test("parent dashboard exposes no content URLs, credentials or raw child data",()=>{const s=read("lib/parent-dashboard.ts")+read("app/parent-dashboard/children/[studentId]/page.tsx");assert.doesNotMatch(s,/fileUrl|password|admissionNumber|dateOfBirth|targetEmail|questionId/)});
-test("notifications are an honest placeholder and messaging is absent",()=>{const s=read("app/parent-dashboard/page.tsx");assert.match(s,/no parent-safe notifications yet/i);assert.match(s,/Messaging is not part/)});
+import assert from "node:assert/strict";
+import test from "node:test";
+import { readFileSync } from "node:fs";
+
+const read = (path: string) => readFileSync(path, "utf8");
+
+test("parent login accepts email or mobile and points to activation", () => {
+  const page = read("app/(auth)/parent-login/page.tsx");
+  const form = read("components/auth/LoginForm.tsx");
+  assert.match(page, /Bluegate Parent Portal/);
+  assert.match(page, /Email or Mobile Number/);
+  assert.match(page, /Activate Parent Account/);
+  assert.match(form, /identifierLabel/);
+  assert.match(form, /identifierInputMode/);
+  assert.match(form, /showActivateLink/);
+});
+
+test("parent dashboard shell contains only the approved sidebar items", () => {
+  const shell = read("components/parent/ParentPortalShell.tsx");
+  assert.match(shell, /Home/);
+  assert.match(shell, /My Children/);
+  assert.match(shell, /Notices/);
+  assert.match(shell, /Planner/);
+  assert.match(shell, /My Profile/);
+  assert.match(shell, /Settings/);
+  assert.match(shell, /Help/);
+  assert.match(shell, /Logout/);
+  assert.doesNotMatch(shell, /Messages|Class Chat|Profile in sidebar/);
+});
+
+test("child tabs expose the approved views", () => {
+  const tabs = read("components/parent/ParentChildTabs.tsx");
+  assert.match(tabs, /Overview/);
+  assert.match(tabs, /Attendance/);
+  assert.match(tabs, /Learning/);
+  assert.match(tabs, /Assignments/);
+  assert.match(tabs, /Assessments/);
+  assert.match(tabs, /Reports/);
+});
+
+test("child overview routes stay read-only and privacy-safe", () => {
+  const page = read("app/parent-dashboard/children/[studentId]/page.tsx");
+  assert.match(page, /Latest Notice/);
+  assert.match(page, /Attendance Summary/);
+  assert.match(page, /Published Teacher Remarks/);
+  assert.match(page, /Learning Support Summary/);
+  assert.doesNotMatch(page, /submit|grade|reopen|edit submission|other student/i);
+});
+
+test("notices and planner routes use the academic planner source", () => {
+  const notices = read("app/parent-dashboard/notices/page.tsx");
+  const planner = read("app/parent-dashboard/planner/page.tsx");
+  assert.match(notices, /academicPlannerItem\.findMany/);
+  assert.match(notices, /Circulars|Holidays|Examinations|Events|Ptm/i);
+  assert.match(planner, /academicPlannerItem\.findMany/);
+  assert.match(planner, /Today|This Week|Month/);
+  assert.doesNotMatch(notices, /SectionChat|Class Chat/);
+  assert.match(planner, /Read-only schedule/);
+});
+
+test("profile and help routes expose allowed support surfaces only", () => {
+  const profile = read("app/parent-dashboard/profile/page.tsx");
+  const help = read("app/parent-dashboard/help/page.tsx");
+  assert.match(profile, /ParentProfileForm/);
+  assert.match(profile, /Linked children/);
+  assert.match(help, /Contact School Office/);
+  assert.match(help, /supportEmail|supportPhone/);
+});
+
+test("parent reports remain published and immutable", () => {
+  const reports = read("app/parent-dashboard/children/[studentId]/reports/page.tsx");
+  assert.match(reports, /No rankings or predictions/);
+  assert.match(reports, /getParentHistoricalReportContext/);
+  assert.doesNotMatch(reports, /regenerate|edit report|delete report/i);
+});

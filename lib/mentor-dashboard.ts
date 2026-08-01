@@ -5,16 +5,23 @@ import { auth } from "@/auth";
 import { getEffectiveStudentPlan } from "@/lib/entitlements/student-plan";
 import { prisma } from "@/lib/prisma";
 import { isPublisherFeatureEnabled, requirePublisherFeature } from "@/lib/publisher-features";
+import { effectiveSchoolAccessStatus } from "@/lib/school-access-policy";
 import { canAccessMentorAssignment, learningTrend, validMentorNote } from "./mentor-policy";
 
 export class MentorAccessError extends Error {}
+
+function hasActiveMentorSchoolAccess(subscription: { plan: "FREE" | "PAID"; status: "ACTIVE" | "SUSPENDED" | "EXPIRED"; startsAt: Date | null; expiresAt: Date | null } | null | undefined) {
+  if (!subscription) return false;
+  if (subscription.plan !== "PAID") return false;
+  return effectiveSchoolAccessStatus(subscription) === "ACTIVE";
+}
 
 export async function requireMentor() {
   const session = await auth();
   if (!session?.user?.id || session.user.role !== "MENTOR") throw new MentorAccessError("Mentor access is unavailable.");
   const mentor = await prisma.mentor.findUnique({
     where: { userId: session.user.id },
-    include: { user: { select: { id: true, name: true, email: true } }, publisher: { select: { id: true, name: true, active: true } } },
+    include: { user: { select: { id: true, name: true, email: true, phone: true } }, publisher: { select: { id: true, name: true, active: true } } },
   });
   if (!mentor?.active || !mentor.publisher.active) throw new MentorAccessError("Mentor access is unavailable.");
   await requirePublisherFeature(mentor.publisherId, PlatformFeatureKey.TUTOR_PLATFORM);
@@ -26,12 +33,13 @@ async function loadOwnedAssignment(studentId: string) {
   const assignment = await prisma.mentorStudentAssignment.findFirst({
     where: { mentorId: mentor.id, studentId, status: "ACTIVE", academicYear: { active: true, current: true } },
     include: {
-      student: { select: { id: true, name: true, admissionNumber: true, schoolId: true, active: true, school: { select: { schoolName: true, publisherId: true } } } },
+      student: { select: { id: true, name: true, admissionNumber: true, schoolId: true, active: true, school: { select: { id: true, schoolName: true, status: true, publisherId: true, publisher: { select: { active: true } }, accessSubscription: { select: { plan: true, status: true, startsAt: true, expiresAt: true } } } } } },
       academicYear: { select: { id: true, name: true, active: true, current: true } },
     },
     orderBy: { startsAt: "desc" },
   });
   if (!assignment?.student.active || !assignment.academicYear.active || !assignment.academicYear.current) throw new MentorAccessError("This student is unavailable.");
+  if (assignment.student.school.status !== "APPROVED" || !assignment.student.school.publisher?.active || !hasActiveMentorSchoolAccess(assignment.student.school.accessSubscription)) throw new MentorAccessError("This student is unavailable.");
   const enrollment = await prisma.studentEnrollment.findFirst({
     where: { studentId, schoolId: assignment.schoolId, academicYearId: assignment.academicYearId, status: "ACTIVE", schoolClass: { active: true }, section: { active: true } },
     include: { schoolClass: { select: { name: true } }, section: { select: { name: true } } },
@@ -43,6 +51,10 @@ async function loadOwnedAssignment(studentId: string) {
   ]);
   if (!canAccessMentorAssignment({ status: assignment.status, startsAt: assignment.startsAt, endsAt: assignment.endsAt, assignmentPublisherId: assignment.publisherId, mentorPublisherId: mentor.publisherId, schoolPublisherId: assignment.student.school.publisherId, assignmentSchoolId: assignment.schoolId, studentSchoolId: assignment.student.schoolId, assignmentAcademicYearId: assignment.academicYearId, enrollmentAcademicYearId: enrollment.academicYearId, plan: effectivePlan.plan, mentorActive: mentor.active, publisherActive: mentor.publisher.active, mentorFeatureEnabled: featureEnabled })) throw new MentorAccessError("This student is unavailable.");
   return { mentor, assignment, enrollment, plan: effectivePlan.plan };
+}
+
+export async function getMentorStudentScope(studentId: string) {
+  return loadOwnedAssignment(studentId);
 }
 
 export async function getMentorDashboard() {
@@ -60,7 +72,14 @@ export async function getMentorDashboard() {
     prisma.mentorActivity.findMany({ where: { mentorId: mentor.id, assignmentId: { in: assignmentIds } }, include: { student: { select: { name: true } } }, orderBy: { createdAt: "desc" }, take: 8 }),
     prisma.mentorSession.findMany({ where: { mentorId: mentor.id, assignmentId: { in: assignmentIds }, status: "SCHEDULED", scheduledAt: { gte: new Date() } }, include: { student: { select: { name: true } } }, orderBy: { scheduledAt: "asc" }, take: 8 }),
   ]) : [0, 0, [], []];
-  return { mentor, assignments, openGaps, activeRemedials, recentActivity, upcomingSessions, unreadNotes: 0 };
+  const now = new Date();
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  const [sessionsThisMonth, recentNotes] = assignmentIds.length ? await Promise.all([
+    prisma.mentorSession.count({ where: { mentorId: mentor.id, assignmentId: { in: assignmentIds }, scheduledAt: { gte: monthStart, lt: monthEnd } } }),
+    prisma.mentorNote.findMany({ where: { mentorId: mentor.id, assignmentId: { in: assignmentIds } }, orderBy: { createdAt: "desc" }, take: 8, include: { student: { select: { name: true } } } }),
+  ]) : [0, []];
+  return { mentor, assignments, openGaps, activeRemedials, recentActivity, upcomingSessions, unreadNotes: 0, sessionsThisMonth, recentNotes };
 }
 
 export async function getAssignedStudents() {
@@ -71,7 +90,7 @@ export async function getAssignedStudents() {
 export async function getMentorStudentProfile(studentId: string) {
   const scope = await loadOwnedAssignment(studentId);
   const where = { studentId, academicYearId: scope.assignment.academicYearId };
-  const [analytics, subjects, chapters, timeline, gaps, remedials, notes, sessions] = await prisma.$transaction([
+  const [analytics, subjects, chapters, timeline, gaps, remedials, notes, sessions, assignments, assessments, latestReportCard] = await prisma.$transaction([
     prisma.studentAnalytics.findUnique({ where: { studentId_academicYearId: where } }),
     prisma.studentSubjectAnalytics.findMany({ where, include: { subject: { select: { name: true } } }, orderBy: { completionPercent: "desc" } }),
     prisma.studentChapterAnalytics.findMany({ where, include: { book: { select: { title: true } }, chapter: { select: { title: true, chapterNumber: true } } }, orderBy: { lastActivityAt: "desc" }, take: 30 }),
@@ -80,8 +99,11 @@ export async function getMentorStudentProfile(studentId: string) {
     prisma.remedialPlan.findMany({ where: { ...where, status: { in: ["ACTIVE", "COMPLETED"] } }, include: { gap: { include: { subject: { select: { name: true } }, chapter: { select: { title: true } } } }, steps: { select: { status: true } } }, orderBy: { createdAt: "desc" } }),
     prisma.mentorNote.findMany({ where: { assignmentId: scope.assignment.id }, orderBy: { createdAt: "desc" }, take: 100 }),
     prisma.mentorSession.findMany({ where: { assignmentId: scope.assignment.id }, orderBy: { scheduledAt: "desc" }, take: 30 }),
+    prisma.classroomAssignment.findMany({ where: { sectionId: scope.enrollment.sectionId, academicYearId: scope.assignment.academicYearId, status: { in: ["PUBLISHED", "CLOSED"] } }, include: { subject: { select: { name: true } }, submissions: { where: { studentId }, orderBy: { createdAt: "desc" }, take: 1 } }, orderBy: { dueAt: "desc" }, take: 50 }),
+    prisma.assessment.findMany({ where: { sectionId: scope.enrollment.sectionId, academicYearId: scope.assignment.academicYearId, status: { in: ["PUBLISHED", "CLOSED"] } }, include: { sectionSubject: { include: { subject: { select: { name: true } } } }, settings: true, attempts: { where: { studentId }, include: { result: true }, orderBy: { submittedAt: "desc" }, take: 2 } }, orderBy: { dueAt: "desc" }, take: 40 }),
+    prisma.reportCardSnapshot.findFirst({ where: { studentId, schoolId: scope.assignment.schoolId, academicYearId: scope.assignment.academicYearId }, orderBy: { issuedAt: "desc" } }),
   ]);
-  return { ...scope, analytics, subjects, chapters, timeline, gaps, remedials, notes, sessions };
+  return { ...scope, analytics, subjects, chapters, timeline, gaps, remedials, notes, sessions, assignments, assessments, latestReportCard };
 }
 
 export async function createMentorNote(input: { studentId: string; type: string; body: unknown }) {
@@ -93,6 +115,70 @@ export async function createMentorNote(input: { studentId: string; type: string;
     const note = await tx.mentorNote.create({ data: { assignmentId: scope.assignment.id, mentorId: scope.mentor.id, studentId: scope.assignment.studentId, publisherId: scope.assignment.publisherId, schoolId: scope.assignment.schoolId, academicYearId: scope.assignment.academicYearId, type: input.type as MentorNoteType, body } });
     await tx.mentorActivity.create({ data: { assignmentId: scope.assignment.id, mentorId: scope.mentor.id, studentId: scope.assignment.studentId, publisherId: scope.assignment.publisherId, schoolId: scope.assignment.schoolId, academicYearId: scope.assignment.academicYearId, actorUserId: scope.mentor.userId, type: MentorActivityType.NOTE_CREATED, targetType: "MENTOR_NOTE", targetId: note.id } });
   });
+}
+
+export async function scheduleMentorSession(input: { studentId: string; scheduledAt: Date; durationMinutes?: number; topic?: string }) {
+  const scope = await loadOwnedAssignment(input.studentId);
+  if (Number.isNaN(input.scheduledAt.getTime()) || input.scheduledAt <= new Date()) throw new MentorAccessError("Choose a future date and time for this session.");
+  if (input.durationMinutes != null && (input.durationMinutes < 10 || input.durationMinutes > 240)) throw new MentorAccessError("Session duration must be between 10 and 240 minutes.");
+  const topic = (input.topic ?? "Mentor session").trim().slice(0, 160) || "Mentor session";
+  return prisma.mentorSession.create({ data: { assignmentId: scope.assignment.id, mentorId: scope.mentor.id, studentId: scope.assignment.studentId, publisherId: scope.assignment.publisherId, schoolId: scope.assignment.schoolId, academicYearId: scope.assignment.academicYearId, status: "SCHEDULED", scheduledAt: input.scheduledAt, durationMinutes: input.durationMinutes ?? 45, topic, createdById: scope.mentor.userId } });
+}
+
+export async function completeMentorSession(input: { studentId: string; sessionId: string; summary?: string }) {
+  const scope = await loadOwnedAssignment(input.studentId);
+  const session = await prisma.mentorSession.findFirst({ where: { id: input.sessionId, assignmentId: scope.assignment.id, mentorId: scope.mentor.id } });
+  if (!session) throw new MentorAccessError("Session is unavailable.");
+  if (session.status !== "SCHEDULED") throw new MentorAccessError("Only upcoming sessions can be marked complete.");
+  await prisma.$transaction(async (tx) => {
+    await tx.mentorSession.update({ where: { id: session.id }, data: { status: "COMPLETED", completedAt: new Date() } });
+    if (input.summary?.trim()) {
+      await tx.mentorNote.create({ data: { assignmentId: scope.assignment.id, mentorId: scope.mentor.id, studentId: scope.assignment.studentId, publisherId: scope.assignment.publisherId, schoolId: scope.assignment.schoolId, academicYearId: scope.assignment.academicYearId, type: MentorNoteType.OBSERVATION, body: `Session summary (${session.scheduledAt.toLocaleDateString("en-IN")}): ${input.summary.trim().slice(0, 1800)}` } });
+    }
+    await tx.mentorActivity.create({ data: { assignmentId: scope.assignment.id, mentorId: scope.mentor.id, studentId: scope.assignment.studentId, publisherId: scope.assignment.publisherId, schoolId: scope.assignment.schoolId, academicYearId: scope.assignment.academicYearId, actorUserId: scope.mentor.userId, type: MentorActivityType.SESSION_STATUS_CHANGED, targetType: "MENTOR_SESSION", targetId: session.id } });
+  });
+}
+
+export async function cancelMentorSession(input: { studentId: string; sessionId: string; reason: string }) {
+  const scope = await loadOwnedAssignment(input.studentId);
+  const session = await prisma.mentorSession.findFirst({ where: { id: input.sessionId, assignmentId: scope.assignment.id, mentorId: scope.mentor.id } });
+  if (!session) throw new MentorAccessError("Session is unavailable.");
+  if (session.status !== "SCHEDULED") throw new MentorAccessError("Only upcoming sessions can be cancelled.");
+  const reason = input.reason.trim().replace(/\s+/g, " ");
+  if (reason.length < 5 || reason.length > 500) throw new MentorAccessError("Provide a short cancellation reason.");
+  await prisma.$transaction(async (tx) => {
+    await tx.mentorSession.update({ where: { id: session.id }, data: { status: "CANCELLED", cancelledAt: new Date() } });
+    await tx.mentorNote.create({ data: { assignmentId: scope.assignment.id, mentorId: scope.mentor.id, studentId: scope.assignment.studentId, publisherId: scope.assignment.publisherId, schoolId: scope.assignment.schoolId, academicYearId: scope.assignment.academicYearId, type: MentorNoteType.PRIVATE_NOTE, body: `Cancelled session note (${session.scheduledAt.toLocaleDateString("en-IN")}): ${reason}` } });
+    await tx.mentorActivity.create({ data: { assignmentId: scope.assignment.id, mentorId: scope.mentor.id, studentId: scope.assignment.studentId, publisherId: scope.assignment.publisherId, schoolId: scope.assignment.schoolId, academicYearId: scope.assignment.academicYearId, actorUserId: scope.mentor.userId, type: MentorActivityType.SESSION_STATUS_CHANGED, targetType: "MENTOR_SESSION", targetId: session.id } });
+  });
+}
+
+export async function reviseMentorNote(input: { studentId: string; noteId: string; type: string; body: string }) {
+  const scope = await loadOwnedAssignment(input.studentId);
+  const original = await prisma.mentorNote.findFirst({ where: { id: input.noteId, mentorId: scope.mentor.id, assignmentId: scope.assignment.id } });
+  if (!original) throw new MentorAccessError("Note is unavailable.");
+  if (!Object.values(MentorNoteType).includes(input.type as MentorNoteType)) throw new MentorAccessError("Choose a valid note type.");
+  const next = validMentorNote(input.body);
+  if (!next) throw new MentorAccessError("Write a note between 5 and 2,000 characters.");
+  await prisma.$transaction(async (tx) => {
+    await tx.mentorNote.create({ data: { assignmentId: scope.assignment.id, mentorId: scope.mentor.id, studentId: scope.assignment.studentId, publisherId: scope.assignment.publisherId, schoolId: scope.assignment.schoolId, academicYearId: scope.assignment.academicYearId, type: input.type as MentorNoteType, body: `Revision of note ${original.id}: ${next}` } });
+    await tx.mentorActivity.create({ data: { assignmentId: scope.assignment.id, mentorId: scope.mentor.id, studentId: scope.assignment.studentId, publisherId: scope.assignment.publisherId, schoolId: scope.assignment.schoolId, academicYearId: scope.assignment.academicYearId, actorUserId: scope.mentor.userId, type: MentorActivityType.NOTE_CREATED, targetType: "MENTOR_NOTE", targetId: original.id } });
+  });
+}
+
+export async function updateMentorProfile(input: { name: string; email: string; phone: string }) {
+  const mentor = await requireMentor();
+  const name = input.name.trim();
+  const email = input.email.trim().toLowerCase();
+  const phone = input.phone.trim();
+  if (name.length < 2 || name.length > 120) throw new MentorAccessError("Provide a valid name.");
+  if (!email || !email.includes("@")) throw new MentorAccessError("Provide a valid email address.");
+  if (phone && phone.length > 20) throw new MentorAccessError("Provide a valid phone number.");
+
+  const existing = await prisma.user.findFirst({ where: { email, id: { not: mentor.userId } }, select: { id: true } });
+  if (existing) throw new MentorAccessError("That email is already in use.");
+
+  await prisma.user.update({ where: { id: mentor.userId }, data: { name, email, phone: phone || null } });
 }
 
 export async function recordMentorRemedialReview(input: { studentId: string; planId: string; action: "REVIEW" | "RECOMMEND_COMPLETION" }) {

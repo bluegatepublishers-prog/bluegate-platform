@@ -35,8 +35,36 @@ export default async function AdminDashboardPage() {
     ["Inspection Requests", inspectionRequests, ClipboardCheck, "/admin/inspection-requests"],
   ] as const;
 
+  const workspaces = [
+    {
+      title: "Schools",
+      description: "Approvals, plans, and content access for every school.",
+      href: "/admin/schools",
+      value: `${pendingSchools} pending`,
+    },
+    {
+      title: "Library",
+      description: "Books, resources, QR center, and master data.",
+      href: "/admin/library",
+      value: `${books + resources} assets`,
+    },
+    {
+      title: "Requests",
+      description: "School onboarding and inspection queues.",
+      href: "/admin/requests",
+      value: `${inspectionRequests} new`,
+    },
+    {
+      title: "Reports",
+      description: "Publisher-wide adoption and learning analytics.",
+      href: "/admin/reports",
+      value: "Open analytics",
+    },
+  ] as const;
+
   return <main className="space-y-8">
     <header><p className="text-sm font-semibold uppercase tracking-[0.2em] text-blue-700">Publisher workspace</p><h1 className="mt-2 text-3xl font-bold text-slate-900">Dashboard</h1><p className="mt-2 text-slate-600">Approve schools and manage publisher content access.</p></header>
+    <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">{workspaces.map((workspace) => <Link key={workspace.href} href={workspace.href} className="rounded-2xl border bg-white p-5 shadow-sm transition hover:border-blue-300"><p className="text-xs font-bold uppercase tracking-[0.16em] text-blue-700">{workspace.value}</p><h2 className="mt-2 text-xl font-bold text-slate-900">{workspace.title}</h2><p className="mt-2 text-sm text-slate-600">{workspace.description}</p><p className="mt-4 text-sm font-semibold text-blue-700">Open workspace</p></Link>)}</section>
     <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{stats.map(([title, value, Icon, href]) => <Link key={title} href={href} className="rounded-2xl border bg-white p-5 shadow-sm transition hover:border-blue-300"><Icon className="h-6 w-6 text-blue-700"/><p className="mt-4 text-3xl font-bold">{value}</p><p className="mt-1 text-sm text-slate-600">{title}</p></Link>)}</section>
     <section className="grid gap-6 xl:grid-cols-3">
       <DashboardList title="Pending approvals" href="/admin/schools?view=pending" empty="No pending school approvals.">{recentPending.map((school) => <Link key={school.id} href={`/admin/schools/${school.id}`} className="block py-3"><strong className="block">{school.schoolName}</strong><span className="text-sm text-slate-500">{school.city}, {school.state}</span></Link>)}</DashboardList>

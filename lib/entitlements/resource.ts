@@ -19,6 +19,7 @@ import type {
   ResourceEntitlementRequest,
 } from "./types";
 import type { ResourceAccessRecord } from "@/lib/resource-access-service";
+import { effectiveSchoolAccessStatus } from "@/lib/school-access-policy";
 
 interface ResourceEntitlementResolution {
   decision: EntitlementDecision;
@@ -205,6 +206,106 @@ export async function resolveResourceEntitlementForAuthenticatedUser(
       : denied({ allowed: false, reason: "RECORD_NOT_FOUND" });
   }
 
+  if (user.role === "MENTOR") {
+    const mentor = await prisma.mentor.findUnique({
+      where: { userId: user.id },
+      select: {
+        id: true,
+        active: true,
+        publisherId: true,
+        publisher: { select: { active: true } },
+      },
+    });
+    if (!mentor?.active || !mentor.publisher?.active) {
+      return denied({ allowed: false, reason: "WRONG_ROLE" });
+    }
+    if (!(await isPublisherFeatureEnabled(mentor.publisherId, PlatformFeatureKey.RESOURCES))) {
+      return denied({ allowed: false, reason: "FEATURE_DISABLED" });
+    }
+
+    const assignments = await prisma.mentorStudentAssignment.findMany({
+      where: {
+        mentorId: mentor.id,
+        status: "ACTIVE",
+        academicYear: { active: true, current: true },
+        student: {
+          active: true,
+          school: {
+            status: "APPROVED",
+            publisherId: mentor.publisherId,
+            accessSubscription: { is: { plan: "PAID", status: "ACTIVE" } },
+          },
+        },
+      },
+      select: {
+        schoolId: true,
+        studentId: true,
+        academicYearId: true,
+      },
+      take: 200,
+    });
+
+    const schoolIds = [...new Set(assignments.map((assignment) => assignment.schoolId))];
+    if (!schoolIds.length) return denied({ allowed: false, reason: "NO_ENROLLMENT" });
+
+    const enrollments = await prisma.studentEnrollment.findMany({
+      where: {
+        OR: assignments.map((assignment) => ({
+          studentId: assignment.studentId,
+          academicYearId: assignment.academicYearId,
+          schoolId: assignment.schoolId,
+          status: EnrollmentStatus.ACTIVE,
+          schoolClass: { active: true },
+          section: { active: true },
+        })),
+      },
+      select: { sectionId: true },
+    });
+
+    const sectionIds = [...new Set(enrollments.map((enrollment) => enrollment.sectionId))];
+    if (!sectionIds.length) return denied({ allowed: false, reason: "NO_ENROLLMENT" });
+
+    const sectionSubjects = await prisma.sectionSubject.findMany({
+      where: { sectionId: { in: sectionIds }, active: true },
+      select: { id: true },
+    });
+
+    if (!sectionSubjects.length) return denied({ allowed: false, reason: "NO_ENROLLMENT" });
+
+    const schoolSubscriptions = await prisma.schoolAccessSubscription.findMany({
+      where: { schoolId: { in: schoolIds }, status: "ACTIVE", plan: "PAID" },
+      select: { schoolId: true, plan: true, status: true, startsAt: true, expiresAt: true },
+    });
+
+    if (!schoolSubscriptions.some((subscription) => effectiveSchoolAccessStatus(subscription) === "ACTIVE")) {
+      return denied({ allowed: false, reason: "SCHOOL_INACTIVE" });
+    }
+
+    const resource = await prisma.resource.findFirst({
+      where: {
+        id: request.resourceId,
+        publisherId: mentor.publisherId,
+        published: true,
+        archived: false,
+        audience: { in: [ResourceAudience.TEACHER_ONLY, ResourceAudience.BOTH] },
+        schoolEntitlements: { some: { schoolId: { in: schoolIds }, status: "ACTIVE" } },
+        sectionSubjects: { some: { id: { in: sectionSubjects.map((item) => item.id) } } },
+      },
+    });
+
+    return resource
+      ? {
+          decision: {
+            allowed: true,
+            reason: "ALLOWED",
+            source: "TEACHER_ASSIGNMENT",
+          },
+          resource,
+          actorId: mentor.id,
+        }
+      : denied({ allowed: false, reason: "RECORD_NOT_FOUND" });
+  }
+
   return denied({ allowed: false, reason: "WRONG_ROLE" });
 }
 
@@ -253,5 +354,18 @@ export async function requireSchoolResourceEntitlementAccess(
   );
   return resolution.decision.allowed && resolution.resource && resolution.actorId
     ? { school: { id: resolution.actorId }, resource: resolution.resource }
+    : null;
+}
+
+export async function requireMentorResourceEntitlementAccess(
+  userId: string,
+  resourceId: string,
+) {
+  const resolution = await resolveResourceEntitlementForAuthenticatedUser(
+    { id: userId, role: "MENTOR" },
+    { resourceId },
+  );
+  return resolution.decision.allowed && resolution.resource && resolution.actorId
+    ? { mentor: { id: resolution.actorId }, resource: resolution.resource }
     : null;
 }

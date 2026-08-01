@@ -1,4 +1,83 @@
 import Link from "next/link";
-import { getParentChildLearningSummary } from "@/lib/parent-dashboard";
-const metric=(label:string,value:string|number)=><div className="rounded-2xl bg-slate-50 p-4"><p className="text-sm text-slate-500">{label}</p><strong className="mt-1 block text-xl">{value}</strong></div>;
-export default async function ChildPage({params}:{params:Promise<{studentId:string}>}){const{student,enrollment,analytics,assessments,gaps,remedials,mentor,ai,plan,timeline}=await getParentChildLearningSummary((await params).studentId);return <main className="mx-auto max-w-7xl space-y-7 p-4 sm:p-6 lg:p-8"><header><Link className="font-bold text-blue-700" href="/parent-dashboard">← All children</Link><h1 className="mt-3 text-3xl font-bold">{student.name}</h1><p className="mt-2 text-slate-600">{student.school.schoolName} · {enrollment.schoolClass.name} {enrollment.section.name} · {enrollment.academicYear.name}</p><p className="mt-2 font-semibold text-blue-800">{plan.label} · {plan.sourceLabel}</p></header><section className="rounded-3xl border bg-white p-6 shadow-sm"><div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-xl font-bold">Learning overview</h2><Link className="font-bold text-blue-700" href={`/parent-dashboard/children/${student.id}/reports`}>View reports</Link></div><div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">{metric("Books started",analytics?.booksStarted??0)}{metric("Books completed",analytics?.booksCompleted??0)}{metric("Pages read",analytics?.pagesRead??0)}{metric("Revision completed",analytics?.revisionsCompleted??0)}{metric("Practice attempts",analytics?.practicesCompleted??0)}{metric("Average practice",analytics?.averagePractice==null?"Not available":`${Math.round(analytics.averagePractice)}%`)}{metric("Assessments completed",analytics?.assessmentsCompleted??0)}{metric("Learning streak",`${analytics?.currentStreak??0} days`)}</div></section><section className="grid gap-6 lg:grid-cols-2"><article className="rounded-3xl border bg-white p-6 shadow-sm"><h2 className="text-xl font-bold">Assessment summary</h2><div className="mt-4 space-y-3">{assessments.length?assessments.map(a=><div key={a.id} className="rounded-2xl bg-slate-50 p-4"><strong>{a.title}</strong><p className="text-sm text-slate-600">{a.released?(a.score==null?"Result released; score is hidden by the school.":`Released score: ${Math.round(a.score)}%`):"Result not released yet."}{a.subjectivePending?" Subjective review is still pending.":""}</p></div>):<p className="text-slate-600">No completed assessments yet.</p>}</div></article><article className="rounded-3xl border bg-white p-6 shadow-sm"><h2 className="text-xl font-bold">Learning support</h2><div className="mt-4 space-y-3">{gaps.length?gaps.map(g=><p key={g.id} className="rounded-2xl bg-amber-50 p-4 text-amber-950">{g.message} Teacher support is recommended.</p>):<p className="text-slate-600">No open support areas.</p>}</div></article></section><section className="grid gap-6 lg:grid-cols-2"><article className="rounded-3xl border bg-white p-6 shadow-sm"><h2 className="text-xl font-bold">Current learning support plans</h2><div className="mt-4 space-y-3">{remedials.length?remedials.map(r=><div key={r.id} className="rounded-2xl bg-slate-50 p-4"><strong>{r.area}</strong><p className="text-sm text-slate-600">{r.completed} of {r.total} steps completed · {r.status.toLowerCase()}{r.teacherReviewed?" · teacher reviewed":""}</p></div>):<p className="text-slate-600">No active learning support plan.</p>}</div></article><article className="rounded-3xl border bg-white p-6 shadow-sm"><h2 className="text-xl font-bold">Mentor and Learning Assistant</h2><p className="mt-3 text-slate-600">{mentor?`${mentor.name} · ${mentor.type.toLowerCase().replaceAll("_"," ")} · ${mentor.completedSessions} completed session(s). Upcoming sessions are not available yet.`:"No active primary mentor assigned."}</p><p className="mt-3 text-slate-600">Learning Assistant used for {ai.requests} successful request(s) across {ai.chapterCount} chapter(s). Conversation text, questions and answers are private.</p></article></section><section className="rounded-3xl border bg-white p-6 shadow-sm"><h2 className="text-xl font-bold">Recent learning</h2><div className="mt-4 space-y-3">{timeline.length?timeline.map((t,i)=><div key={`${t.occurredAt.toISOString()}-${i}`} className="rounded-2xl bg-slate-50 p-4"><strong>{t.title}</strong><p className="text-sm text-slate-600">{t.activityType.toLowerCase()} · {t.occurredAt.toLocaleDateString()}</p></div>):<p className="text-slate-600">No recent learning activity yet.</p>}</div></section></main>}
+
+import { getParentChildPortalData } from "@/lib/parent-dashboard";
+
+function formatDate(value?: Date | null) {
+  return value ? value.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "Not available";
+}
+
+export default async function ParentChildOverviewPage({ params }: { params: Promise<{ studentId: string }> }) {
+  const { studentId } = await params;
+  const data = await getParentChildPortalData(studentId);
+
+  return (
+    <div className="grid gap-6 xl:grid-cols-[minmax(0,1.3fr)_minmax(0,.95fr)]">
+      <section className="space-y-6">
+        <Card title="Child Identity">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <KeyValue label="Child" value={data.student.name} />
+            <KeyValue label="Class and section" value={`${data.enrollment.schoolClass.name} ${data.enrollment.section.name}`} />
+            <KeyValue label="School" value={data.student.school.schoolName} />
+            <KeyValue label="Class teacher" value={data.classTeacher ?? "Not assigned yet"} />
+          </div>
+        </Card>
+
+        <Card title="Attendance Summary">
+          <p className="text-slate-600">Attendance data is not available yet.</p>
+        </Card>
+
+        <Card title="Current Learning Status">
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="rounded-full bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700">{data.overallStatus}</span>
+            <p className="text-slate-600">Based on published learning activity, subject progress and school-approved records.</p>
+          </div>
+        </Card>
+
+        <Card title="Upcoming Work">
+          <div className="grid gap-4 md:grid-cols-2">
+            <ListColumn title="Assignments" items={data.upcomingAssignments.map((item) => `${item.title} · Due ${formatDate(item.dueAt)}`)} emptyLabel="No upcoming assignments" />
+            <ListColumn title="Assessments" items={data.upcomingAssessments.map((item) => `${item.title} · ${item.released ? "Result published" : `Opens ${formatDate(item.opensAt)}`}`)} emptyLabel="No upcoming assessments" />
+          </div>
+        </Card>
+      </section>
+
+      <section className="space-y-6">
+        <Card title="Published Teacher Remarks">
+          {data.latestFeedback ? <div className="rounded-2xl bg-slate-50 p-4"><p className="text-sm font-semibold text-blue-700">{data.latestFeedback.title}</p><p className="mt-2 text-slate-700">{data.latestFeedback.feedback}</p></div> : <p className="text-sm text-slate-500">No released remarks yet.</p>}
+        </Card>
+
+        <Card title="Latest Result">
+          {data.latestPublishedResult ? <div className="rounded-2xl bg-slate-50 p-4"><p className="text-sm font-semibold text-emerald-700">{data.latestPublishedResult.title}</p><p className="mt-2 text-slate-700">{data.latestPublishedResult.score == null ? "Result published" : `Score ${Math.round(data.latestPublishedResult.score)}%`}</p></div> : <p className="text-sm text-slate-500">No published result yet.</p>}
+        </Card>
+
+        <Card title="Latest Notice">
+          {data.latestNotice ? <div className="rounded-2xl bg-slate-50 p-4"><p className="text-sm font-semibold text-blue-700">{data.latestNotice.type}</p><p className="mt-2 font-semibold text-slate-950">{data.latestNotice.title}</p><p className="mt-1 text-sm text-slate-600">{data.latestNotice.description ?? "Published by the school."}</p></div> : <p className="text-sm text-slate-500">No applicable notice is available yet.</p>}
+        </Card>
+
+        <Card title="Learning Support Summary">
+          {data.gaps.length ? <div className="space-y-3">{data.gaps.slice(0, 4).map((gap) => <div key={gap.id} className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-900">{gap.message}</div>)}</div> : <p className="text-sm text-slate-500">No support items are visible right now.</p>}
+        </Card>
+
+        <Card title="School Details">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <KeyValue label="Academic year" value={data.enrollment.academicYear.name} />
+            <KeyValue label="Relationship" value={data.relationship.relationshipType.toLowerCase()} />
+          </div>
+          <div className="mt-4"><Link href={`/parent-dashboard/children/${data.student.id}/reports`} className="font-semibold text-blue-700">Open reports</Link></div>
+        </Card>
+      </section>
+    </div>
+  );
+}
+
+function Card({ title, children }: { title: string; children: React.ReactNode }) {
+  return <section className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm"><h2 className="text-xl font-bold text-slate-950">{title}</h2><div className="mt-5">{children}</div></section>;
+}
+
+function KeyValue({ label, value }: { label: string; value: string }) {
+  return <div className="rounded-2xl bg-slate-50 p-4"><p className="text-sm text-slate-500">{label}</p><p className="mt-1 font-semibold text-slate-950">{value}</p></div>;
+}
+
+function ListColumn({ title, items, emptyLabel }: { title: string; items: string[]; emptyLabel: string }) {
+  return <div><h3 className="font-semibold text-slate-950">{title}</h3><div className="mt-3 space-y-3">{items.length ? items.map((item) => <div key={item} className="rounded-2xl border border-slate-200 p-4 text-sm text-slate-700">{item}</div>) : <p className="text-sm text-slate-500">{emptyLabel}</p>}</div></div>;
+}

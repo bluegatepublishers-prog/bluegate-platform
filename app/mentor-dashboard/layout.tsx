@@ -1,10 +1,19 @@
 import type { ReactNode } from "react";
-import { MentorNavigation } from "@/components/mentor/MentorNavigation";
-import { requireMentor } from "@/lib/mentor-dashboard";
+import { MentorPortalShell } from "@/components/mentor/MentorPortalShell";
+import { MentorAccessError, requireMentor } from "@/lib/mentor-dashboard";
 
 export const dynamic = "force-dynamic";
 
 export default async function MentorDashboardLayout({ children }: { children: ReactNode }) {
-  const mentor = await requireMentor();
-  return <div className="flex min-h-screen bg-slate-100"><MentorNavigation/><div className="min-w-0 flex-1"><header className="flex items-center justify-between border-b bg-white px-4 py-4 sm:px-6 lg:px-8"><div><p className="font-bold">{mentor.user.name}</p><p className="text-sm text-slate-500">{mentor.publisher.name} · {mentor.type.replaceAll("_", " ")}</p></div></header><MentorNavigation mobile/>{children}</div></div>;
+  let mentor;
+  try {
+    mentor = await requireMentor();
+  } catch (error) {
+    if (error instanceof MentorAccessError) {
+      return <main className="grid min-h-screen place-items-center bg-slate-100 p-6"><section className="max-w-xl rounded-3xl border border-amber-200 bg-amber-50 p-8"><h1 className="text-2xl font-bold text-amber-950">Mentor access unavailable</h1><p className="mt-3 text-amber-900">{error.message}</p></section></main>;
+    }
+    throw error;
+  }
+
+  return <MentorPortalShell mentorName={mentor.user.name} mentorSubtitle={`${mentor.publisher.name} · ${mentor.type.replaceAll("_", " ")}`}>{children}</MentorPortalShell>;
 }

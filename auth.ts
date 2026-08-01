@@ -7,6 +7,7 @@ import { loadStudentIdentity } from "@/lib/student-identity";
 import { studentSessionClaims } from "@/lib/student-identity-service";
 import { isPublisherFeatureEnabled } from "@/lib/publisher-features";
 import { isCredentialRolePublisherInvariantValid } from "@/lib/role-publisher-policy";
+import { effectiveSchoolAccessStatus } from "@/lib/school-access-policy";
 import { PlatformFeatureKey } from "@prisma/client";
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
@@ -33,15 +34,23 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       },
 
       async authorize(credentials) {
-        const email = String(credentials?.email ?? "").trim().toLowerCase();
-        const password = credentials?.password as string;
+        const suppliedCredentials = credentials as Record<string, string | undefined> | undefined;
+        const identifier = String(suppliedCredentials?.email ?? suppliedCredentials?.identifier ?? "").trim();
+        const email = identifier.toLowerCase();
+        const password = suppliedCredentials?.password as string;
 
-        if (!email || !password) {
+        if (!identifier || !password) {
           return null;
         }
 
-        const user = await prisma.user.findUnique({
-          where: { email },
+        const user = await prisma.user.findFirst({
+          where: {
+            OR: [
+              { email: { equals: email, mode: "insensitive" } },
+              { phone: identifier },
+              { phone: identifier.replace(/[^0-9+]/g, "") },
+            ],
+          },
           include: {
             school: { select: { status: true, publisherId: true, publisher: { select: { active: true } } } },
             teacher: {
@@ -57,7 +66,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
               },
             },
             student: { select: { school: { select: { publisherId: true } } } },
-            mentor: { select: { active: true, publisherId: true, publisher: { select: { active: true } } } },
+            mentor: { select: { id: true, active: true, publisherId: true, publisher: { select: { active: true } } } },
             parent: { select: { active: true } },
             publisher: { select: { id: true, active: true } },
           },
@@ -106,7 +115,41 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         if (user.role === "SCHOOL" && (user.school?.status !== "APPROVED" || !user.school.publisher?.active)) return null;
         if (user.role === "TEACHER" && (!user.teacher?.active || user.teacher.status !== "APPROVED" || user.teacher.school?.status !== "APPROVED" || !user.teacher.school.publisher?.active || !user.teacher.schoolId || !user.teacher.schoolMemberships.some((membership) => membership.schoolId === user.teacher!.schoolId))) return null;
         if (user.role === "ADMIN" && !user.publisher?.active) return null;
-        if (user.role === "MENTOR" && (!user.mentor?.active || !user.mentor.publisher.active || user.publisherId !== user.mentor.publisherId || !(await isPublisherFeatureEnabled(user.mentor.publisherId, PlatformFeatureKey.TUTOR_PLATFORM)))) return null;
+        if (user.role === "MENTOR") {
+          if (!user.mentor?.active || !user.mentor.publisher.active || user.publisherId !== user.mentor.publisherId || !(await isPublisherFeatureEnabled(user.mentor.publisherId, PlatformFeatureKey.TUTOR_PLATFORM))) return null;
+          const activeAssignment = await prisma.mentorStudentAssignment.findFirst({
+            where: {
+              mentorId: user.mentor.id,
+              status: "ACTIVE",
+              academicYear: { active: true, current: true },
+              student: {
+                active: true,
+                school: {
+                  status: "APPROVED",
+                  publisher: { active: true },
+                  accessSubscription: {
+                    is: { plan: "PAID", status: "ACTIVE" },
+                  },
+                },
+              },
+            },
+            select: {
+              id: true,
+              student: {
+                select: {
+                  school: {
+                    select: {
+                      accessSubscription: {
+                        select: { plan: true, status: true, startsAt: true, expiresAt: true },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          });
+          if (!activeAssignment?.student.school.accessSubscription || effectiveSchoolAccessStatus(activeAssignment.student.school.accessSubscription) !== "ACTIVE") return null;
+        }
         if (user.role === "PARENT" && !user.parent?.active) return null;
 
         return {
