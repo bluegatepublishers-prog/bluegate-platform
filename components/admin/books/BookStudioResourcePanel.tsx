@@ -136,15 +136,20 @@ export default function BookStudioResourcePanel({
   );
 
   useEffect(() => {
-    setData(null);
-    setQuery("");
-    setSearchInput("");
-    setPage(1);
-    setSuccess("");
-    setError("");
-    setDialogOpen(false);
-    void load("", 1);
-    return () => requestRef.current?.abort();
+    const timer = window.setTimeout(() => {
+      setData(null);
+      setQuery("");
+      setSearchInput("");
+      setPage(1);
+      setSuccess("");
+      setError("");
+      setDialogOpen(false);
+      void load("", 1);
+    }, 0);
+    return () => {
+      window.clearTimeout(timer);
+      requestRef.current?.abort();
+    };
   }, [load]);
 
   useEffect(() => {

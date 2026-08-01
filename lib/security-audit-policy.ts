@@ -6,6 +6,18 @@ export const SECURITY_AUDIT_ACTIONS = [
   "publisher.book.create",
   "publisher.book.update",
   "publisher.book.delete",
+  "publisher.board.create",
+  "publisher.board.update",
+  "publisher.board.activate",
+  "publisher.board.deactivate",
+  "publisher.master_data_definition.create",
+  "publisher.master_data_definition.update",
+  "publisher.master_data_definition.activate",
+  "publisher.master_data_definition.deactivate",
+  "publisher.master_data_value.create",
+  "publisher.master_data_value.update",
+  "publisher.master_data_value.activate",
+  "publisher.master_data_value.deactivate",
   "publisher.curriculum.edition.create",
   "publisher.curriculum.edition.update",
   "publisher.curriculum.edition.archive",
@@ -124,6 +136,9 @@ export type SecurityAuditTargetType =
   | "Publisher"
   | "PublisherFeature"
   | "Book"
+  | "Board"
+  | "MasterDataDefinition"
+  | "MasterDataValue"
   | "BookEdition"
   | "BookUnit"
   | "BookChapter"

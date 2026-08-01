@@ -21,6 +21,7 @@ export interface BookFormData {
   edition: string;
   language: string;
   board: string;
+  boardId: string;
   price: number | "";
 
   binding: string;

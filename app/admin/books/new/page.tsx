@@ -18,6 +18,7 @@ export default function NewBookPage() {
   const [classes, setClasses] = useState<SelectOption[]>([]);
   const [subjects, setSubjects] = useState<SelectOption[]>([]);
   const [series, setSeries] = useState<SelectOption[]>([]);
+  const [boards, setBoards] = useState<SelectOption[]>([]);
 
   const [form, setForm] = useState<BookFormData>(
     createEmptyBookFormData
@@ -25,16 +26,18 @@ export default function NewBookPage() {
 
   useEffect(() => {
     async function loadData() {
-      const [classesRes, subjectsRes, seriesRes] =
+      const [classesRes, subjectsRes, seriesRes, boardsRes] =
         await Promise.all([
           fetch("/api/admin/master/classes"),
           fetch("/api/admin/master/subjects"),
           fetch("/api/admin/master/series"),
+          fetch("/api/admin/master/boards"),
         ]);
 
       setClasses(await classesRes.json());
       setSubjects(await subjectsRes.json());
       setSeries(await seriesRes.json());
+      setBoards(await boardsRes.json());
     }
 
     loadData();
@@ -100,6 +103,7 @@ export default function NewBookPage() {
         classes={classes}
         subjects={subjects}
         series={series}
+        boards={boards}
         loading={loading}
         onChange={onChange}
         onSubmit={onSubmit}

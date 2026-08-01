@@ -10,6 +10,7 @@ type InspectorBook = {
   classId: string;
   subjectId: string;
   seriesId: string;
+  boardId: string;
   isbn: string;
   published: boolean;
   featured: boolean;
@@ -29,11 +30,13 @@ export default function BookInspectorEditor({
   classes,
   subjects,
   series,
+  boards,
 }: {
   book: InspectorBook;
   classes: Option[];
   subjects: Option[];
   series: Option[];
+  boards: Option[];
 }) {
   const router = useRouter();
   const incoming = useMemo(() => editableValue(book), [book]);
@@ -43,15 +46,19 @@ export default function BookInspectorEditor({
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  useEffect(() => {
-    setBaseline(incoming);
-    setForm(incoming);
-    setError("");
-  }, [incoming]);
-
   const changes = useMemo(() => changedFields(baseline, form), [baseline, form]);
   const dirty = Object.keys(changes).length > 0;
   const titleError = form.title.trim() ? "" : "Title is required.";
+
+  useEffect(() => {
+    const warn = (event: BeforeUnloadEvent) => {
+      if (!dirty) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
 
   function update<K extends keyof EditableBook>(key: K, value: EditableBook[K]) {
     setForm((current) => ({ ...current, [key]: value }));
@@ -109,7 +116,7 @@ export default function BookInspectorEditor({
   }
 
   return (
-    <form onSubmit={save} className="mt-4 space-y-5" noValidate>
+    <form onSubmit={save} data-content-editor-dirty={dirty ? "true" : "false"} className="mt-4 space-y-5" noValidate>
       <InspectorSection title="Basic Information">
         <Field label="Title" error={titleError}>
           <input
@@ -180,6 +187,12 @@ export default function BookInspectorEditor({
             {series.map((option) => (
               <option key={option.id} value={option.id}>{option.name}</option>
             ))}
+          </select>
+        </Field>
+        <Field label="Board">
+          <select value={form.boardId} onChange={(event) => update("boardId", event.target.value)} className={inputClass()}>
+            <option value="">No normalized Board</option>
+            {boards.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}
           </select>
         </Field>
       </InspectorSection>
@@ -266,6 +279,7 @@ function editableValue(book: InspectorBook): EditableBook {
     classId: book.classId,
     subjectId: book.subjectId,
     seriesId: book.seriesId,
+    boardId: book.boardId,
     isbn: book.isbn,
     published: book.published,
     featured: book.featured,

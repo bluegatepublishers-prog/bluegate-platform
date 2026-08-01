@@ -18,12 +18,14 @@ import {
   ChartNoAxesCombined,
   ScanSearch,
   HardDrive,
+  QrCode,
 } from "lucide-react";
 
 const navigation = [
   { name: "Dashboard", href: "/admin", icon: LayoutDashboard },
   { name: "Books", href: "/admin/books", icon: BookOpen, section: "CONTENT" },
-  { name: "Resource Library", href: "/admin/resources", icon: FolderOpen },
+  { name: "Resources", href: "/admin/resources", icon: FolderOpen },
+  { name: "QR Codes", href: "/admin/qr", icon: QrCode },
   { name: "Reports", href: "/admin/reports", icon: ChartNoAxesCombined },
   { name: "Learning Gaps", href: "/admin/gaps", icon: ScanSearch },
   { name: "Remedial Learning", href: "/admin/remedials", icon: ChartNoAxesCombined },

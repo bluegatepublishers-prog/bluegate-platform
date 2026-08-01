@@ -28,6 +28,7 @@ export default function EditBookPage({
   const [classes, setClasses] = useState<SelectOption[]>([]);
   const [subjects, setSubjects] = useState<SelectOption[]>([]);
   const [series, setSeries] = useState<SelectOption[]>([]);
+  const [boards, setBoards] = useState<SelectOption[]>([]);
 
   const [form, setForm] = useState<BookFormData>(
     createEmptyBookFormData
@@ -49,7 +50,11 @@ export default function EditBookPage({
       setSubjects(await subjectsRes.json());
       setSeries(await seriesRes.json());
 
-      setForm(parseBookFormData(book));
+      const parsedBook = parseBookFormData(book);
+      const boardsRes = await fetch(`/api/admin/master/boards${parsedBook.boardId ? `?include=${encodeURIComponent(parsedBook.boardId)}` : ""}`);
+      setBoards(await boardsRes.json());
+
+      setForm(parsedBook);
     }
 
     loadData();
@@ -115,6 +120,7 @@ export default function EditBookPage({
         classes={classes}
         subjects={subjects}
         series={series}
+        boards={boards}
         loading={loading}
         onChange={onChange}
         onSubmit={onSubmit}

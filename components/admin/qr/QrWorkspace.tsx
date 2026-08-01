@@ -39,7 +39,7 @@ export default function QrWorkspace() {
   const [error, setError] = useState<string | null>(null);
   const [selectedDetail, setSelectedDetail] = useState<QrRecord | null>(null);
   const [inspectorLoading, setInspectorLoading] = useState(false);
-  const [wizardOpen, setWizardOpen] = useState(false);
+  const [wizardOpen, setWizardOpen] = useState(() => searchParams.get("create") === "1");
   const [downloadQr, setDownloadQr] = useState<QrRecord | null>(null);
   const [destinationQr, setDestinationQr] = useState<QrRecord | null>(null);
   const [historyQr, setHistoryQr] = useState<QrRecord | null>(null);
@@ -61,10 +61,20 @@ export default function QrWorkspace() {
       targetType: (searchParams.get("targetType") ??
         "") as QrFilterValues["targetType"],
     }),
-    [queryString, searchParams],
+    [searchParams],
   );
   const selectedId = searchParams.get("qrId");
   const page = Math.max(1, Number(searchParams.get("page") ?? "1") || 1);
+  const initialSelection = searchParams.get("create") === "1" && searchParams.get("bookId")
+    ? {
+        book: { id: searchParams.get("bookId")!, title: searchParams.get("bookTitle") ?? "Selected Book" },
+        target: {
+          type: (searchParams.get("targetType") ?? "BOOK") as QrRecord["targetType"],
+          id: searchParams.get("targetId") ?? searchParams.get("bookId")!,
+          title: searchParams.get("targetTitle") ?? "Selected content",
+        },
+      }
+    : null;
 
   const updateUrl = useCallback(
     (
@@ -89,6 +99,10 @@ export default function QrWorkspace() {
 
   useEffect(() => {
     const controller = new AbortController();
+    const stateTimer = window.setTimeout(() => {
+      setLoading(true);
+      setError(null);
+    }, 0);
     const request = new URLSearchParams({
       page: String(page),
       pageSize: "25",
@@ -99,8 +113,6 @@ export default function QrWorkspace() {
     if (filters.audience) request.set("audience", filters.audience);
     if (filters.targetType) request.set("targetType", filters.targetType);
 
-    setLoading(true);
-    setError(null);
     fetch(`/api/admin/qr-codes?${request.toString()}`, {
       signal: controller.signal,
       cache: "no-store",
@@ -135,7 +147,7 @@ export default function QrWorkspace() {
         if (!controller.signal.aborted) setLoading(false);
       });
 
-    return () => controller.abort();
+    return () => { window.clearTimeout(stateTimer); controller.abort(); };
   }, [
     filters.audience,
     filters.bookId,
@@ -150,18 +162,16 @@ export default function QrWorkspace() {
 
   useEffect(() => {
     if (!selectedId) {
-      setSelectedDetail(null);
-      setInspectorLoading(false);
-      return;
+      const timer = window.setTimeout(() => { setSelectedDetail(null); setInspectorLoading(false); }, 0);
+      return () => window.clearTimeout(timer);
     }
     if (selectedInPage) {
-      setSelectedDetail(selectedInPage);
-      setInspectorLoading(false);
-      return;
+      const timer = window.setTimeout(() => { setSelectedDetail(selectedInPage); setInspectorLoading(false); }, 0);
+      return () => window.clearTimeout(timer);
     }
 
     const controller = new AbortController();
-    setInspectorLoading(true);
+    const stateTimer = window.setTimeout(() => setInspectorLoading(true), 0);
     fetch(`/api/admin/qr-codes/${selectedId}`, {
       signal: controller.signal,
       cache: "no-store",
@@ -184,7 +194,7 @@ export default function QrWorkspace() {
       .finally(() => {
         if (!controller.signal.aborted) setInspectorLoading(false);
       });
-    return () => controller.abort();
+    return () => { window.clearTimeout(stateTimer); controller.abort(); };
   }, [selectedId, selectedInPage]);
 
   function applyFilters(next: QrFilterValues) {
@@ -325,6 +335,7 @@ export default function QrWorkspace() {
 
       <CreateQrWizard
         open={wizardOpen}
+        initialSelection={initialSelection}
         books={knownBooks}
         targets={wizardTargets}
         onClose={() => setWizardOpen(false)}

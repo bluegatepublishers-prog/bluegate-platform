@@ -34,6 +34,8 @@ export interface BookTableItem {
   featured: boolean;
   featuredOrder: number;
   published: boolean;
+  archived?: boolean;
+  board?: string | null;
   publicPreviewAvailable: boolean;
   fullBookAvailable: boolean;
   class: NamedEntity;

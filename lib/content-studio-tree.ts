@@ -1,0 +1,17 @@
+export type ContentNodeType="BOOK"|"PART"|"UNIT"|"CHAPTER"|"MODULE"|"TOPIC"|"FOLDER";
+export type VirtualFolderKind="outcomes"|"activities"|"exercises"|"questions"|"assessments"|"resources"|"qr";
+export type ContentTreeNode={key:string;id:string;type:ContentNodeType;title:string;archived?:boolean;folderKind?:VirtualFolderKind;chapterId?:string;count?:number;children:ContentTreeNode[]};
+type Item={id:string;title:string;archived:boolean};
+type Chapter=Item&{partId:string|null;unitId:string|null;sortOrder:number;counts:Record<VirtualFolderKind,number>};
+export type ContentTreeInput={book:{id:string;title:string};parts:Array<Item&{displayOrder:number}>;units:Array<Item&{partId:string|null;displayOrder:number}>;chapters:Chapter[];modules:Array<Item&{chapterId:string;displayOrder:number}>;topics:Array<Item&{chapterId:string;moduleId:string|null;displayOrder:number}>};
+const folders:Array<[VirtualFolderKind,string]>=[["outcomes","Learning Outcomes"],["activities","Activities"],["exercises","Exercises"],["questions","Questions"],["assessments","Assessments"],["resources","Resources"],["qr","QR Codes"]];
+const byOrder=<T extends Item&{displayOrder?:number;sortOrder?:number}>(items:T[])=>[...items].sort((a,b)=>(a.displayOrder??a.sortOrder??0)-(b.displayOrder??b.sortOrder??0)||a.title.localeCompare(b.title));
+export function buildContentStudioTree(input:ContentTreeInput):ContentTreeNode{
+  const topicNode=(topic:ContentTreeInput["topics"][number]):ContentTreeNode=>({key:`TOPIC:${topic.id}`,id:topic.id,type:"TOPIC",title:topic.title,archived:topic.archived,children:[]});
+  const moduleNode=(module:ContentTreeInput["modules"][number]):ContentTreeNode=>({key:`MODULE:${module.id}`,id:module.id,type:"MODULE",title:module.title,archived:module.archived,children:byOrder(input.topics.filter(topic=>topic.moduleId===module.id)).map(topicNode)});
+  const chapterNode=(chapter:Chapter):ContentTreeNode=>({key:`CHAPTER:${chapter.id}`,id:chapter.id,type:"CHAPTER",title:chapter.title,archived:chapter.archived,children:[...byOrder(input.modules.filter(module=>module.chapterId===chapter.id)).map(moduleNode),...byOrder(input.topics.filter(topic=>topic.chapterId===chapter.id&&!topic.moduleId)).map(topicNode),...folders.map(([folderKind,title])=>({key:`FOLDER:${chapter.id}:${folderKind}`,id:`${chapter.id}:${folderKind}`,type:"FOLDER" as const,title,folderKind,chapterId:chapter.id,count:chapter.counts[folderKind],children:[]}))]});
+  const unitNode=(unit:ContentTreeInput["units"][number]):ContentTreeNode=>({key:`UNIT:${unit.id}`,id:unit.id,type:"UNIT",title:unit.title,archived:unit.archived,children:byOrder(input.chapters.filter(chapter=>chapter.unitId===unit.id)).map(chapterNode)});
+  const partNode=(part:ContentTreeInput["parts"][number]):ContentTreeNode=>({key:`PART:${part.id}`,id:part.id,type:"PART",title:part.title,archived:part.archived,children:[...byOrder(input.units.filter(unit=>unit.partId===part.id)).map(unitNode),...byOrder(input.chapters.filter(chapter=>chapter.partId===part.id&&!chapter.unitId)).map(chapterNode)]});
+  return{key:`BOOK:${input.book.id}`,id:input.book.id,type:"BOOK",title:input.book.title,children:[...byOrder(input.parts).map(partNode),...byOrder(input.units.filter(unit=>!unit.partId)).map(unitNode),...byOrder(input.chapters.filter(chapter=>!chapter.partId&&!chapter.unitId)).map(chapterNode)]};
+}
+export function flattenContentTree(root:ContentTreeNode){const result:ContentTreeNode[]=[];const visit=(node:ContentTreeNode)=>{result.push(node);node.children.forEach(visit)};visit(root);return result}

@@ -20,7 +20,7 @@ export async function GET() {
   try {
     const books = await prisma.book.findMany({
       where: { publisherId: access.actor.publisherId },
-      include: { class: true, subject: true, series: true },
+      include: { class: true, subject: true, series: true, boardRecord: true },
       orderBy: { createdAt: "desc" },
     });
     return NextResponse.json(books.map((book) => ({ ...book, ...parseBookFormData(book) })));
@@ -46,6 +46,7 @@ export async function POST(request: NextRequest) {
       classId: form.classId,
       subjectId: form.subjectId,
       seriesId: form.seriesId || null,
+      boardId: form.boardId || null,
     });
     if (!relationsAllowed) return NextResponse.json({ message: "One or more selections are unavailable." }, { status: 400 });
 
@@ -59,10 +60,11 @@ export async function POST(request: NextRequest) {
       select: { id: true },
     })) return NextResponse.json({ message: "A book with this ISBN already exists." }, { status: 409 });
 
+    const selectedBoard = form.boardId ? await prisma.board.findFirst({ where: { id: form.boardId, publisherId: access.actor.publisherId, active: true }, select: { name: true } }) : null;
     const book = await prisma.$transaction(async (tx) => {
       const created = await tx.book.create({
-        data: { ...toBookPersistenceData(form), slug, publisherId: access.actor.publisherId },
-        include: { class: true, subject: true, series: true },
+        data: { ...toBookPersistenceData(form), board: selectedBoard?.name ?? null, slug, publisherId: access.actor.publisherId },
+        include: { class: true, subject: true, series: true, boardRecord: true },
       });
       await writeSecurityAuditEvent(tx, {
         actor: publisherAdminAuditActor(access.actor), action: "publisher.book.create",
