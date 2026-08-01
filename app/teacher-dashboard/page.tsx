@@ -1,99 +1,11 @@
 import Link from "next/link";
-import { Bell, BookOpen, Bookmark, Download, FolderOpen, School } from "lucide-react";
-
-import ResourceActions from "@/components/dashboard/ResourceActions";
-import { getTeacherDashboard } from "@/lib/teacher-dashboard";
+import { BookOpenCheck, CalendarDays, ClipboardCheck, TriangleAlert } from "lucide-react";
+import { getTeacherHomeData } from "@/lib/teacher-experience";
 
 export const dynamic = "force-dynamic";
-export const revalidate = 0;
 
-export const metadata = { title: "Teacher Dashboard | Bluegate Publishers" };
-
-export default async function TeacherDashboardPage() {
-  const data = await getTeacherDashboard();
-  const { teacher, stats, latestResources, recentDownloads, assignedClasses } = data;
-  const restrictedMessage =
-    data.status === "NO_ASSIGNMENTS"
-      ? "Your teaching assignment has not been configured yet. Please contact your school administrator."
-      : data.status === "NO_ENTITLEMENTS"
-        ? "No classes or subjects have been assigned to your account yet."
-        : data.status === "RESOURCES_DISABLED"
-          ? "Teacher resources are not currently enabled for your institution."
-          : null;
-
-  return (
-    <div className="space-y-8 p-4 sm:p-6 lg:p-8">
-      <section className="rounded-3xl bg-gradient-to-br from-blue-700 to-slate-900 p-7 text-white shadow-xl sm:p-10">
-        <p className="font-semibold text-blue-100">Welcome back</p>
-        <h1 className="mt-3 text-3xl font-bold sm:text-4xl">{teacher.user.name}</h1>
-        <p className="mt-4 flex items-center gap-2 text-blue-100"><School className="h-5 w-5" />{teacher.school?.schoolName ?? teacher.schoolName}</p>
-        <div className="mt-7 flex flex-wrap gap-3">
-          <Link href="/teacher-dashboard/resources" className="rounded-xl bg-white px-5 py-3 font-semibold text-blue-700">Browse resources</Link>
-          <Link href="/teacher-dashboard/downloads" className="rounded-xl border border-white/30 px-5 py-3 font-semibold">My downloads</Link>
-        </div>
-      </section>
-
-      {restrictedMessage ? (
-        <section className="rounded-3xl border border-amber-200 bg-amber-50 p-6 shadow-sm sm:p-8">
-          <h2 className="text-xl font-bold text-amber-900">Limited dashboard access</h2>
-          <p className="mt-2 text-amber-800">{restrictedMessage}</p>
-        </section>
-      ) : null}
-
-      <div className="grid gap-5 sm:grid-cols-3">
-        <Stat icon={Download} label="Downloads" value={stats.downloads} />
-        <Stat icon={Bookmark} label="Bookmarks" value={stats.bookmarks} />
-        <Stat icon={FolderOpen} label="Available resources" value={stats.resources} />
-      </div>
-
-      <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-        <div><h2 className="text-2xl font-bold text-slate-900">My Assigned Classes</h2><p className="mt-2 text-slate-600">Books and resources selected by your school for each class and subject.</p></div>
-        {assignedClasses.length ? <div className="mt-7 grid gap-5 xl:grid-cols-2">{assignedClasses.map((assignment) => <article key={assignment.id} className="rounded-2xl border border-slate-200 p-5">
-          <div className="flex flex-wrap justify-between gap-3"><div><p className="text-sm font-semibold text-blue-700">{assignment.academicYear.name}</p><h3 className="mt-1 text-xl font-bold">{assignment.schoolClass.name} · Section {assignment.section.name}</h3><p className="mt-1 text-slate-600">{assignment.subject?.name}</p></div><School className="h-7 w-7 text-blue-600"/></div>
-          <div className="mt-5 rounded-xl bg-slate-50 p-4"><p className="flex items-center gap-2 font-bold"><BookOpen className="h-5 w-5 text-blue-600"/>Approved Book</p>{assignment.content?.book ? <div className="mt-3"><p className="font-semibold">{assignment.content.book.title}</p><p className="text-sm text-slate-500">{assignment.content.book.series?.name ?? "Bluegate Publishers"} · Approved for {assignment.academicYear.name}</p><a href={`/api/books/${assignment.content.book.id}/full-pdf`} target="_blank" rel="noreferrer" className="mt-3 inline-flex font-semibold text-blue-700">Open full book</a></div> : <p className="mt-3 text-sm text-amber-700">Waiting for school book approval</p>}</div>
-          <div className="mt-4"><p className="flex items-center gap-2 font-bold"><FolderOpen className="h-5 w-5 text-blue-600"/>Assigned Resources</p>{assignment.content?.resources.length ? <div className="mt-3 space-y-2">{assignment.content.resources.map((resource) => <div key={resource.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-3"><div><p className="font-semibold">{resource.title}</p><p className="text-xs text-slate-500">{resource.type}</p></div><ResourceActions resourceId={resource.id}/></div>)}</div> : <p className="mt-3 text-sm text-slate-500">No Resources</p>}</div>
-        </article>)}</div> : <Empty text="No class or subject assignments are available yet."/>}
-      </section>
-
-      <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-        <div className="flex items-center justify-between gap-4">
-          <div><h2 className="text-2xl font-bold text-slate-900">Latest Resources</h2><p className="mt-2 text-slate-600">Recently added teaching material.</p></div>
-          <Link href="/teacher-dashboard/resources" className="font-semibold text-blue-700">View all</Link>
-        </div>
-        {latestResources.length ? (
-          <div className="mt-7 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
-            {latestResources.map((resource) => (
-              <article key={resource.id} className="rounded-2xl border border-slate-200 p-5">
-                <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">{resource.type}</span>
-                <h3 className="mt-4 font-bold text-slate-900">{resource.title}</h3>
-                <p className="mt-2 text-sm text-slate-500">{resource.classLevel} · {resource.subject}</p>
-                <ResourceActions resourceId={resource.id} />
-              </article>
-            ))}
-          </div>
-        ) : <Empty text="No resources are available yet." />}
-      </section>
-
-      <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-        <h2 className="text-2xl font-bold text-slate-900">Recent Downloads</h2>
-        {recentDownloads.length ? (
-          <div className="mt-6 overflow-x-auto"><table className="w-full min-w-[650px]"><thead><tr className="border-b text-left text-sm text-slate-500"><th className="pb-4">Resource</th><th className="pb-4">Subject</th><th className="pb-4">Type</th><th className="pb-4">Downloaded</th></tr></thead><tbody>{recentDownloads.map((item) => <tr key={item.id} className="border-b border-slate-100"><td className="py-4 font-semibold">{item.resource.title}</td><td>{item.resource.subject}</td><td>{item.resource.type}</td><td>{item.downloadedAt.toLocaleString("en-IN")}</td></tr>)}</tbody></table></div>
-        ) : <Empty text="Your download history is empty." />}
-      </section>
-
-      <section className="rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-sm">
-        <Bell className="mx-auto h-10 w-10 text-slate-300" /><h2 className="mt-4 text-xl font-bold">No notifications</h2><p className="mt-2 text-slate-500">You are all caught up.</p>
-      </section>
-
-      <section className="grid gap-4 sm:grid-cols-3">
-        <Quick href="/teacher-dashboard/resources" label="Browse Resources" />
-        <Quick href="/teacher-dashboard/bookmarks" label="View Bookmarks" />
-        <Quick href="/teacher-dashboard/profile" label="View Profile" />
-      </section>
-    </div>
-  );
-}
-
-function Stat({ icon: Icon, label, value }: { icon: typeof Download; label: string; value: number }) { return <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"><Icon className="h-8 w-8 text-blue-700" /><p className="mt-5 text-3xl font-bold">{value}</p><p className="mt-1 text-slate-600">{label}</p></div>; }
-function Empty({ text }: { text: string }) { return <p className="mt-6 rounded-2xl bg-slate-50 p-8 text-center text-slate-500">{text}</p>; }
-function Quick({ href, label }: { href: string; label: string }) { return <Link href={href} className="rounded-2xl border border-slate-200 bg-white p-5 font-semibold text-blue-700 shadow-sm transition hover:border-blue-300">{label} →</Link>; }
+export default async function TeacherDashboardPage() { const data = await getTeacherHomeData(); const today = new Date(); const todayPlans = data.plans.filter((item) => item.currentDate.toDateString() === today.toDateString()); const incomplete = data.plans.filter((item) => ["NOT_COMPLETED", "RESCHEDULED"].includes(item.status)).length; return <main className="space-y-6 p-4 sm:p-8"><section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><Metric icon={CalendarDays} label="Today’s Classes" value={todayPlans.length} tone="blue" /><Metric icon={ClipboardCheck} label="Assignments to Review" value={data.assignmentReview} tone="green" /><Metric icon={BookOpenCheck} label="Assessments to Grade" value={data.assessmentGrade} tone="purple" /><Metric icon={TriangleAlert} label="Incomplete Plan" value={incomplete} tone="amber" /></section><div className="grid gap-6 xl:grid-cols-[minmax(0,1.4fr)_minmax(320px,.7fr)]"><div className="space-y-6"><Panel title="Today’s Classes" action={<Link href="/teacher-dashboard/classes" className="text-sm font-semibold text-blue-600">View classes</Link>}>{todayPlans.length ? todayPlans.map((item) => <article key={item.id} className="grid gap-3 rounded-2xl border p-4 sm:grid-cols-[90px_1fr_auto] sm:items-center"><time className="font-bold text-blue-600">{item.currentDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</time><div><strong>{item.section?.schoolClass.name}-{item.section?.name} · {item.sectionSubject?.subject.name}</strong><p className="mt-1 text-sm text-slate-500">{item.title}</p></div>{item.sectionId && <Link href={`/teacher-dashboard/classes/${item.sectionId}${item.sectionSubjectId ? `?subject=${item.sectionSubjectId}` : ""}`} className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white">Open Class</Link>}</article>) : <Empty text="No classes are scheduled for today." />}</Panel><Panel title="Weekly Planner" action={<Link href="/teacher-dashboard/planner" className="text-sm font-semibold text-blue-600">View plan</Link>}>{data.plans.length ? data.plans.slice(0, 6).map((item) => <div key={item.id} className="flex items-center justify-between gap-4 rounded-2xl bg-slate-50 p-4"><div><strong>{item.title}</strong><p className="mt-1 text-sm text-slate-500">{item.sectionSubject?.subject.name} · {item.currentDate.toLocaleDateString("en-IN", { day: "numeric", month: "short" })}</p></div><span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-bold text-blue-700">{item.status.replaceAll("_", " ")}</span></div>) : <Empty text="No teaching items are planned this week." />}</Panel></div><aside className="space-y-6"><Panel title="Important Notice">{data.notice ? <article className="rounded-2xl bg-amber-50 p-4"><strong>{data.notice.title}</strong>{data.notice.description && <p className="mt-2 text-sm leading-6 text-slate-600">{data.notice.description}</p>}</article> : <Empty text="No important notice." />}</Panel><Panel title="My Tasks"><Task label="Assignments pending review" value={data.assignmentReview} /><Task label="Assessments to grade" value={data.assessmentGrade} /><Task label="Incomplete teaching items" value={incomplete} /></Panel><Panel title="Recent Messages" action={<Link href="/teacher-dashboard/messages" className="text-sm font-semibold text-blue-600">Open messages</Link>}>{data.messages.length ? data.messages.map((message) => <div key={message.id} className="rounded-2xl bg-blue-50 p-3"><div className="flex justify-between"><strong className="text-sm">{message.sender.name}</strong><time className="text-xs text-slate-400">{message.createdAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</time></div><p className="mt-1 line-clamp-2 text-sm text-slate-600">{message.text}</p><p className="mt-2 text-xs font-semibold text-blue-600">{message.room.section.schoolClass.name}-{message.room.section.name}</p></div>) : <Empty text="No recent class messages." />}</Panel></aside></div></main>; }
+function Metric({ icon: Icon, label, value, tone }: { icon: typeof CalendarDays; label: string; value: number; tone: string }) { return <article className="rounded-3xl border border-slate-100 bg-white p-5 shadow-sm"><span className={`grid h-11 w-11 place-items-center rounded-2xl ${tone === "green" ? "bg-emerald-50 text-emerald-600" : tone === "purple" ? "bg-violet-50 text-violet-600" : tone === "amber" ? "bg-amber-50 text-amber-600" : "bg-blue-50 text-blue-600"}`}><Icon className="h-5 w-5" /></span><p className="mt-4 text-3xl font-bold">{value}</p><p className="mt-1 text-sm text-slate-500">{label}</p></article>; }
+function Panel({ title, action, children }: { title: string; action?: React.ReactNode; children: React.ReactNode }) { return <section className="rounded-3xl border border-slate-100 bg-white p-6 shadow-sm"><div className="flex items-center justify-between gap-4"><h2 className="text-lg font-bold">{title}</h2>{action}</div><div className="mt-5 space-y-3">{children}</div></section>; }
+function Task({ label, value }: { label: string; value: number }) { return <div className="flex items-center justify-between rounded-2xl border p-4"><span className="text-sm font-medium">{label}</span><strong className="text-xl">{value}</strong></div>; }
+function Empty({ text }: { text: string }) { return <p className="rounded-2xl bg-slate-50 p-6 text-center text-sm text-slate-500">{text}</p>; }

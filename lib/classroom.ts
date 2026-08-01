@@ -39,6 +39,11 @@ export async function getTeacherClasses() {
     ],
   });
 
+  const sectionSubjects = await prisma.sectionSubject.findMany({
+    where: { active: true, sectionId: { in: [...new Set(assignments.map((item) => item.sectionId))] }, subjectId: { in: assignments.flatMap((item) => item.subjectId ? [item.subjectId] : []) } },
+    select: { id: true, sectionId: true, subjectId: true },
+  });
+
   const grouped = new Map<string, {
     sectionId: string;
     academicYearId: string;
@@ -48,7 +53,7 @@ export async function getTeacherClasses() {
     sectionName: string;
     studentCount: number;
     classTeacher: boolean;
-    subjects: Array<{ id: string; name: string }>;
+    subjects: Array<{ id: string; subjectId: string; name: string }>;
   }>();
   for (const assignment of assignments) {
     if (
@@ -67,8 +72,9 @@ export async function getTeacherClasses() {
       subjects: [],
     };
     if (assignment.type === TeacherAssignmentType.CLASS_TEACHER) row.classTeacher = true;
-    if (assignment.subject && !row.subjects.some((subject) => subject.id === assignment.subject!.id)) {
-      row.subjects.push({ id: assignment.subject.id, name: assignment.subject.name });
+    const sectionSubject = assignment.subjectId ? sectionSubjects.find((item) => item.sectionId === assignment.sectionId && item.subjectId === assignment.subjectId) : null;
+    if (assignment.subject && sectionSubject && !row.subjects.some((subject) => subject.id === sectionSubject.id)) {
+      row.subjects.push({ id: sectionSubject.id, subjectId: assignment.subject.id, name: assignment.subject.name });
     }
     grouped.set(assignment.sectionId, row);
   }
@@ -204,7 +210,14 @@ export async function getTeacherClassStudents(sectionId: string) {
     include: { student: true },
     orderBy: [{ rollNumber: "asc" }, { student: { name: "asc" } }],
   });
-  return { scope, enrollments };
+  const studentIds = enrollments.map((item) => item.studentId);
+  const [submissions, attempts, analytics, gaps] = await Promise.all([
+    prisma.assignmentSubmission.findMany({ where: { studentId: { in: studentIds }, schoolId: scope.schoolId, academicYearId: scope.academicYear.id, sectionId }, select: { studentId: true, status: true } }),
+    prisma.assessmentAttempt.findMany({ where: { studentId: { in: studentIds }, schoolId: scope.schoolId, academicYearId: scope.academicYear.id, assessment: { sectionId } }, select: { studentId: true, status: true, result: { select: { percentage: true } } } }),
+    prisma.studentAnalytics.findMany({ where: { studentId: { in: studentIds }, academicYearId: scope.academicYear.id }, select: { studentId: true, readingPercent: true, averagePractice: true, averageAssessment: true } }),
+    prisma.studentLearningGap.findMany({ where: { studentId: { in: studentIds }, schoolId: scope.schoolId, academicYearId: scope.academicYear.id, status: { not: "RESOLVED" } }, select: { studentId: true } }),
+  ]);
+  return { scope, enrollments, summaries: new Map(enrollments.map((enrollment) => { const studentSubmissions = submissions.filter((item) => item.studentId === enrollment.studentId); const studentAttempts = attempts.filter((item) => item.studentId === enrollment.studentId); const facts = analytics.find((item) => item.studentId === enrollment.studentId); return [enrollment.studentId, { assignmentsCompleted: studentSubmissions.filter((item) => ["SUBMITTED", "RESUBMITTED", "GRADED"].includes(item.status)).length, assignmentsTotal: studentSubmissions.length, assessmentsCompleted: studentAttempts.filter((item) => item.status === "GRADED" || item.status === "SUBMITTED").length, assessmentAverage: facts?.averageAssessment ?? null, learningProgress: facts?.readingPercent ?? facts?.averagePractice ?? null, gaps: gaps.filter((item) => item.studentId === enrollment.studentId).length }]; })) };
 }
 
 export async function getTeacherClassMaterials(sectionId: string) {

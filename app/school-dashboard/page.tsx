@@ -1,69 +1,20 @@
-import Image from "next/image";
 import Link from "next/link";
-import {
-	BookOpen,
-	BookOpenCheck,
-	CheckCircle2,
-	Circle,
-	GraduationCap,
-	School,
-	UserPlus,
-	UserRoundCheck,
-	Users,
-} from "lucide-react";
-import { getSchoolDashboard } from "@/lib/school-dashboard";
-import { schoolLogoPath } from "@/lib/storage/media-path";
-export const dynamic="force-dynamic";export const revalidate=0;
-export default async function SchoolDashboardPage(){
-	const { school, currentYear, stats, recentStudents, recentAssignments, checklist } = await getSchoolDashboard();
-	const logoUrl = schoolLogoPath(school.logoUrl);
-	const completed = checklist.filter((step) => step.complete).length;
-	const progressPercent = Math.round((completed / Math.max(1, checklist.length)) * 100);
-	return <main className="space-y-8 p-4 sm:p-6 lg:p-8">
-		<section className="flex flex-col gap-6 rounded-3xl bg-gradient-to-br from-blue-700 to-slate-900 p-8 text-white shadow-xl sm:flex-row sm:items-center">{logoUrl?<Image src={logoUrl} alt="School logo" width={112} height={112} className="h-28 w-28 rounded-2xl bg-white object-contain p-2"/>:<div className="flex h-28 w-28 items-center justify-center rounded-2xl bg-white/15 text-3xl font-bold">{initials(school.schoolName)}</div>}<div><p className="font-semibold text-blue-100">School / Institution Dashboard</p><h1 className="mt-2 text-3xl font-bold sm:text-4xl">{school.schoolName}</h1><p className="mt-3 text-blue-100">Current Academic Year: <strong>{currentYear?.name??"Not selected"}</strong></p></div></section>
+import { BarChart3, BookOpen, CalendarDays, GraduationCap, Megaphone, School, UserPlus, Users } from "lucide-react";
+import { getSchoolHomeData } from "@/lib/school-dashboard";
+export const dynamic = "force-dynamic"; export const revalidate = 0;
 
-		<section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-			<Stat icon={Users} label="Total Active Staff" value={stats.staff}/>
-			<Stat icon={GraduationCap} label="Total Active Students" value={stats.students}/>
-			<Stat icon={School} label="Total Active Classes" value={stats.classes}/>
-			<Stat icon={BookOpenCheck} label="Total Active Sections" value={stats.sections}/>
-			<Stat icon={UserRoundCheck} label="Pending Class Teachers" value={stats.pendingClassTeachers} warning/>
-			<Stat icon={UserRoundCheck} label="Pending Subject Teachers" value={stats.pendingSubjectTeachers} warning/>
-			<Stat icon={BookOpen} label="Available Resources" value={stats.resources}/>
-		</section>
-
-		<section className="rounded-3xl border bg-white p-6 shadow-sm">
-			<h2 className="text-2xl font-bold">Setup Checklist</h2>
-			<p className="mt-2 text-slate-600">Complete these steps to finish your school or institution setup.</p>
-			<div className="mt-4 rounded-2xl bg-slate-50 p-4">
-				<div className="flex items-center justify-between gap-3">
-					<p className="font-semibold text-slate-700">Setup progress</p>
-					<p className="text-sm font-bold text-blue-700">{progressPercent}%</p>
-				</div>
-				<div className="mt-3 h-2 rounded-full bg-slate-200">
-					<div className="h-2 rounded-full bg-blue-600" style={{ width: `${progressPercent}%` }} />
-				</div>
-			</div>
-			<div className="mt-5 grid gap-3 md:grid-cols-2">
-				{checklist.map((step) => <Link key={step.key} href={step.href} className="flex items-center justify-between rounded-2xl border px-4 py-3 hover:border-blue-300 hover:bg-blue-50"><div className="flex items-center gap-3">{step.complete?<CheckCircle2 className="h-5 w-5 text-green-600"/>:<Circle className="h-5 w-5 text-slate-400"/>}<span className="font-semibold text-slate-700">{step.label}</span></div><span className={`text-xs font-bold ${step.complete?"text-green-700":"text-amber-700"}`}>{step.complete?"Complete":"Pending"}</span></Link>)}
-			</div>
-			{checklist.some((step) => !step.complete) ? <div className="mt-5 flex flex-wrap gap-2">{checklist.filter((step) => !step.complete).slice(0, 3).map((step) => <Link key={`${step.key}-action`} href={step.href} className="rounded-xl border border-blue-200 px-4 py-2 text-sm font-semibold text-blue-700">Complete: {step.label}</Link>)}</div> : null}
-		</section>
-
-		<section className="grid gap-6 xl:grid-cols-2">
-			<div className="rounded-3xl border bg-white p-6 shadow-sm">
-				<h2 className="text-2xl font-bold">Recent Students</h2>
-				{recentStudents.length ? <ul className="mt-4 space-y-3">{recentStudents.map((student) => <li key={student.id} className="rounded-xl bg-slate-50 p-3"><p className="font-semibold">{student.name}</p><p className="text-sm text-slate-500">Admission {student.admissionNumber}</p></li>)}</ul> : <p className="mt-4 text-slate-500">No students have been added yet.</p>}
-			</div>
-			<div className="rounded-3xl border bg-white p-6 shadow-sm">
-				<h2 className="text-2xl font-bold">Recent Teacher Assignments</h2>
-				{recentAssignments.length ? <ul className="mt-4 space-y-3">{recentAssignments.map((assignment) => <li key={assignment.id} className="rounded-xl bg-slate-50 p-3"><p className="font-semibold">{assignment.teacher.user.name}</p><p className="text-sm text-slate-500">{assignment.schoolClass.name} - {assignment.section.name}{assignment.subject ? ` - ${assignment.subject.name}` : " - Class Teacher"}</p></li>)}</ul> : <p className="mt-4 text-slate-500">No assignments are active yet.</p>}
-			</div>
-		</section>
-
-		<section className="rounded-3xl border bg-white p-6 shadow-sm"><h2 className="text-2xl font-bold">Quick Actions</h2><div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-5"><Action href="/school-dashboard/teachers" label="Add Teacher" icon={UserPlus}/><Action href="/school-dashboard/students" label="Add Student" icon={GraduationCap}/><Action href="/school-dashboard/classes" label="Manage Classes" icon={School}/><Action href="/school-dashboard/teacher-assignments" label="Assign Teachers" icon={UserRoundCheck}/><Action href="/school-dashboard/profile" label="School / Institution Profile" icon={School}/></div></section>
-	</main>
+export default async function SchoolDashboardPage() {
+  const data = await getSchoolHomeData();
+  return <main className="space-y-6 p-4 sm:p-6 lg:p-8">
+    <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><Metric icon={GraduationCap} value={data.stats.students} label="Total Students" tone="blue"/><Metric icon={Users} value={data.stats.staff} label="Teachers & Staff" tone="green"/><Metric icon={School} value={`${data.stats.classes} / ${data.stats.sections}`} label="Classes / Sections" tone="purple"/><Metric icon={CalendarDays} value={data.stats.attendance == null ? "—" : `${data.stats.attendance}%`} label="Attendance Today" tone="amber" detail={data.stats.attendance == null ? "Attendance data not configured" : undefined}/></section>
+    <div className="grid gap-6 xl:grid-cols-[1.4fr_.75fr]"><div className="space-y-6"><div className="grid gap-6 lg:grid-cols-[1.15fr_.85fr]"><Panel title="Academic Performance" action="View reports" href="/school-dashboard/reports">{data.performance.measured ? <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">{[["Excellent",data.performance.excellent,"bg-emerald-50 text-emerald-700"],["Good",data.performance.good,"bg-blue-50 text-blue-700"],["Average",data.performance.average,"bg-amber-50 text-amber-700"],["Needs Support",data.performance.support,"bg-rose-50 text-rose-700"]].map(([label,value,tone])=><div key={String(label)} className={`rounded-2xl p-4 text-center ${tone}`}><strong className="text-2xl">{value}</strong><p className="mt-1 text-xs font-semibold">{label}</p></div>)}</div> : <Empty text="Performance appears after student assessment analytics are recorded."/>}</Panel><Panel title="Important Notices" action="View all" href="/school-dashboard/planner?view=notices">{data.notices.length ? data.notices.map(item=><div key={item.id} className="flex gap-3 border-b py-3 last:border-0"><Megaphone className="mt-1 h-5 w-5 text-rose-500"/><div><strong className="text-sm">{item.title}</strong><p className="mt-1 line-clamp-2 text-xs text-slate-500">{item.description || item.type}</p></div></div>) : <Empty text="No active notices."/>}</Panel></div>
+      <Panel title="Quick Access"><div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6"><Quick href="/school-dashboard/students" label="Add Student" icon={UserPlus}/><Quick href="/school-dashboard/teachers" label="Add Teacher" icon={Users}/><Quick href="/school-dashboard/people?tab=parents" label="Parents" icon={Users}/><Quick href="/school-dashboard/classes" label="Class / Section" icon={BookOpen}/><Quick href="/school-dashboard/planner?view=notices" label="Create Notice" icon={Megaphone}/><Quick href="/school-dashboard/reports" label="View Reports" icon={BarChart3}/></div></Panel>
+      <Panel title="At a Glance"><div className="grid gap-3 sm:grid-cols-3"><Small label="Current academic year" value={data.currentYear?.name ?? "Not selected"}/><Small label="Upcoming planner items" value={String(data.upcoming.length)}/><Small label="Measured performance" value={String(data.performance.measured)}/></div></Panel>
+    </div><aside className="space-y-6"><Panel title="Today’s Schedule" action="View planner" href="/school-dashboard/planner">{data.today.length ? data.today.map(item=><div key={item.id} className="grid grid-cols-[70px_1fr] gap-3 border-b py-3 last:border-0"><time className="text-sm font-semibold text-slate-500">{item.currentDate.toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}</time><div><strong className="text-sm">{item.sectionSubject?.subject.name ?? item.title}</strong><p className="mt-1 text-xs text-slate-500">{item.section ? `${item.section.schoolClass.name} - ${item.section.name}` : item.title}</p></div></div>) : <Empty text="No school events or classes are scheduled today."/>}</Panel><Panel title="Recent Activities">{data.activities.length ? data.activities.map(item=><div key={item.id} className="border-b py-3 last:border-0"><p className="text-sm">{item.text}</p><time className="mt-1 block text-xs text-slate-400">{item.at.toLocaleDateString("en-IN", {day:"numeric",month:"short",year:"numeric"})}</time></div>) : <Empty text="Recent school activity will appear here."/>}</Panel></aside></div>
+  </main>;
 }
-function Stat({icon:Icon,label,value,warning=false}:{icon:typeof Users;label:string;value:number;warning?:boolean}){return <div className={`rounded-3xl border bg-white p-6 shadow-sm ${warning&&value>0?"border-amber-300":""}`}><Icon className={`h-9 w-9 ${warning&&value>0?"text-amber-600":"text-blue-700"}`}/><p className="mt-5 text-3xl font-bold">{value}</p><p className="mt-1 text-slate-600">{label}</p></div>}
-function Action({href,label,icon:Icon}:{href:string;label:string;icon:typeof Users}){return <Link href={href} className="flex items-center gap-3 rounded-2xl border p-4 font-semibold text-slate-700 hover:border-blue-300 hover:bg-blue-50"><Icon className="h-5 w-5 text-blue-700"/>{label}</Link>}
-function initials(name:string){return name.split(/\s+/).filter(Boolean).slice(0,2).map(word=>word[0]?.toUpperCase()).join("")||"S"}
+function Metric({icon:Icon,value,label,tone,detail}:{icon:typeof Users;value:number|string;label:string;tone:string;detail?:string}){const colors:Record<string,string>={blue:"bg-blue-50 text-blue-600",green:"bg-emerald-50 text-emerald-600",purple:"bg-violet-50 text-violet-600",amber:"bg-amber-50 text-amber-600"};return <article className="flex items-center gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><span className={`grid h-14 w-14 place-items-center rounded-xl ${colors[tone]}`}><Icon/></span><div><strong className="text-2xl text-slate-950">{value}</strong><p className="text-sm font-medium text-slate-600">{label}</p>{detail&&<p className="text-xs text-slate-400">{detail}</p>}</div></article>}
+function Panel({title,children,action,href}:{title:string;children:React.ReactNode;action?:string;href?:string}){return <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="mb-4 flex items-center justify-between"><h2 className="font-bold text-slate-950">{title}</h2>{action&&href&&<Link href={href} className="text-xs font-semibold text-blue-600">{action}</Link>}</div>{children}</section>}
+function Quick({href,label,icon:Icon}:{href:string;label:string;icon:typeof Users}){return <Link href={href} className="flex min-h-24 flex-col items-center justify-center gap-2 rounded-xl bg-slate-50 p-3 text-center text-xs font-semibold hover:bg-blue-50 hover:text-blue-700"><Icon className="h-6 w-6 text-blue-600"/>{label}</Link>}
+function Small({label,value}:{label:string;value:string}){return <div className="rounded-xl bg-slate-50 p-4"><p className="text-xs text-slate-500">{label}</p><strong className="mt-1 block text-lg">{value}</strong></div>}
+function Empty({text}:{text:string}){return <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">{text}</p>}

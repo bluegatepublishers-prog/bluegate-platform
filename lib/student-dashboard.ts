@@ -8,6 +8,7 @@ import { getRoleDestination } from "@/lib/auth-policy";
 import { prisma } from "@/lib/prisma";
 import { loadStudentIdentity } from "@/lib/student-identity";
 import { isPublisherFeatureEnabled } from "@/lib/publisher-features";
+import { decideSchoolAccess } from "@/lib/school-access-policy";
 
 type StudentIdentity = Exclude<
   Awaited<ReturnType<typeof loadStudentIdentity>>,
@@ -28,7 +29,8 @@ export type StudentDashboardAccess =
   | { status: "NO_ENROLMENT"; shell: StudentShell }
   | { status: "NO_CLASS_OR_SECTION"; shell: StudentShell }
   | { status: "NO_ENTITLEMENTS"; identity: StudentIdentity }
-  | { status: "FEATURE_DISABLED"; identity: StudentIdentity };
+  | { status: "FEATURE_DISABLED"; identity: StudentIdentity }
+  | { status: "ACCESS_BLOCKED"; identity: StudentIdentity; message: string };
 
 async function resolveStudentShell(userId: string): Promise<StudentShell | null> {
   const student = await prisma.student.findUnique({
@@ -129,6 +131,17 @@ async function requireStudentDashboardAccessUncached(): Promise<StudentDashboard
     user.publisherId === identity.value.publisher.id &&
     user.academicYearId === identity.value.academicYear.id;
   if (!claimsMatch) redirect("/student-login?error=session_refresh_required");
+
+  const subscription = await prisma.schoolAccessSubscription.findUnique({
+    where: { schoolId: identity.value.school.id },
+    select: { plan: true, status: true, startsAt: true, expiresAt: true, publisherId: true },
+  });
+  const schoolAccess = subscription && subscription.publisherId === identity.value.publisher.id
+    ? decideSchoolAccess({ subscription, capability: "STUDENT_DASHBOARD", role: "STUDENT" })
+    : { allowed: false as const, message: "Student access is not configured for this school." };
+  if (!schoolAccess.allowed) {
+    return { status: "ACCESS_BLOCKED", identity: identity.value, message: schoolAccess.message };
+  }
 
   const resourcesEnabled = await isPublisherFeatureEnabled(
     identity.value.publisher.id,

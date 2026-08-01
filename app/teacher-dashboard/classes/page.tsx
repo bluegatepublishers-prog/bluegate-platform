@@ -10,11 +10,6 @@ export default async function TeacherClassesPage() {
   const [classes, teacher] = await Promise.all([getTeacherClasses(), requireTeacher()]);
   return (
     <main className="space-y-7 p-4 sm:p-6 lg:p-8">
-      <header>
-        <p className="font-bold text-blue-700">Teacher classroom</p>
-        <h1 className="mt-2 text-3xl font-bold sm:text-4xl">My Classes</h1>
-        <p className="mt-2 max-w-2xl text-slate-600">Only classes officially assigned by your school appear here.</p>
-      </header>
       {classes.length ? (
         <ClassesView classes={classes} userId={teacher.userId} />
       ) : (

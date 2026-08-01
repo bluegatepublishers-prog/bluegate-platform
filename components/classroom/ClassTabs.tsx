@@ -1,28 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 
-const tabs = [
-  ["Overview", ""],
-  ["Students", "/students"],
-  ["Class Materials", "/materials"],
-  ["Assignments", "/assignments"],
-  ["Announcements", "/announcements"],
-  ["Attendance", "/attendance"],
-  ["Analytics", "/analytics"],
-] as const;
+const tabs = [["Overview", ""], ["Teaching Plan", "/plan"], ["Students", "/students"], ["Assignments", "/assignments"], ["Assessments", "/assessments"], ["Materials", "/materials"], ["Progress", "/progress"], ["Class Chat", "/chat"]] as const;
 
-export default function ClassTabs({ sectionId, assignmentsEnabled }: { sectionId: string; assignmentsEnabled: boolean }) {
-  const pathname = usePathname();
-  const base = `/teacher-dashboard/classes/${sectionId}`;
-  return (
-    <nav aria-label="Classroom sections" className="grid gap-2 rounded-2xl border bg-white p-2 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-7">
-      {tabs.filter(([label]) => label !== "Assignments" || assignmentsEnabled).map(([label, suffix]) => {
-        const href = `${base}${suffix}`;
-        const active = suffix ? pathname.startsWith(href) : pathname === base;
-        return <Link key={label} href={href} className={`flex min-h-11 items-center justify-center rounded-xl px-3 py-2 text-center text-sm font-bold ${active ? "bg-blue-600 text-white" : "text-slate-700 hover:bg-slate-100"}`}>{label}</Link>;
-      })}
-    </nav>
-  );
-}
+export default function ClassTabs({ sectionId, assignmentsEnabled }: { sectionId: string; assignmentsEnabled: boolean }) { const pathname = usePathname(); const search = useSearchParams(); const subject = search.get("subject"); const base = `/teacher-dashboard/classes/${sectionId}`; return <nav aria-label="Classroom sections" className="flex gap-1 overflow-x-auto border-b bg-white px-2">{tabs.filter(([label]) => label !== "Assignments" || assignmentsEnabled).map(([label, suffix]) => { const href = `${base}${suffix}${subject ? `?subject=${subject}` : ""}`; const active = suffix ? pathname.startsWith(`${base}${suffix}`) : pathname === base; return <Link key={label} href={href} className={`shrink-0 border-b-2 px-4 py-4 text-sm font-semibold ${active ? "border-blue-600 text-blue-700" : "border-transparent text-slate-600 hover:text-blue-700"}`}>{label}</Link>; })}</nav>; }

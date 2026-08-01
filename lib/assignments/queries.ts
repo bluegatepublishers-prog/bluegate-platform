@@ -84,6 +84,7 @@ export async function getTeacherAssignments(sectionId: string) {
     scope,
     assignments: assignments.map((assignment) => ({
       id: assignment.id,
+      sectionSubjectId: assignment.sectionSubjectId,
       title: assignment.title,
       assignmentType: assignment.assignmentType,
       status: assignment.status,

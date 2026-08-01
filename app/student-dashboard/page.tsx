@@ -1,104 +1,18 @@
 import Link from "next/link";
-import { BookOpen, CalendarDays, GraduationCap, School, Sparkles } from "lucide-react";
-import StudentSubjectCard from "@/components/student/StudentSubjectCard";
-import StudentLibraryBookCard from "@/components/student/StudentLibraryBookCard";
-import { getPublisherBranding } from "@/lib/publisher-context";
+import { BookOpen, CalendarClock, ClipboardList, Megaphone } from "lucide-react";
+import StudentClassChat from "@/components/student/StudentClassChat";
 import { requireStudentDashboardAccess } from "@/lib/student-dashboard";
-import { getStudentSubjects } from "@/lib/student-subjects";
-import { getStudentBooks } from "@/lib/student-books";
-import { getStudentCompletedRevisions } from "@/lib/student-revision";
+import { getStudentClassroomData } from "@/lib/student-classroom-data";
 
 export default async function StudentDashboardPage() {
   const access = await requireStudentDashboardAccess();
-  const isReadyIdentity =
-    access.status === "READY" ||
-    access.status === "FEATURE_DISABLED" ||
-    access.status === "NO_ENTITLEMENTS";
-  const identity = isReadyIdentity ? access.identity : null;
-  const shell = isReadyIdentity
-    ? {
-        studentName: access.identity.student.name,
-        schoolName: access.identity.school.schoolName,
-        className: access.identity.enrollment.schoolClass.name,
-        sectionName: access.identity.enrollment.section.name,
-        academicYearName: access.identity.academicYear.name,
-      }
-    : access.shell;
-  const branding = await getPublisherBranding(
-    isReadyIdentity ? access.identity.publisher.id : access.shell.publisherId,
-  );
-  const subjects = access.status === "READY" ? await getStudentSubjects() : [];
-  const books = access.status === "READY" ? await getStudentBooks() : [];
-  const completedRevisions =
-    access.status === "READY" ? await getStudentCompletedRevisions() : [];
-  const restrictedMessage =
-    access.status === "NO_ENROLMENT"
-      ? "Your enrolment has not been completed yet. Please contact your school."
-      : access.status === "NO_CLASS_OR_SECTION"
-        ? "Your class and section have not been assigned yet."
-        : access.status === "NO_ENTITLEMENTS"
-          ? "Learning resources have not yet been assigned to your account."
-          : access.status === "FEATURE_DISABLED"
-            ? "This learning feature is not currently enabled for your institution."
-            : null;
-  const greeting = getGreeting(new Date());
-  return (
-    <main className="space-y-7 p-4 sm:p-6 lg:p-8">
-      <section className="overflow-hidden rounded-3xl p-7 text-white shadow-xl sm:p-10" style={{ background: `linear-gradient(135deg, ${branding.primaryColor}, ${branding.secondaryColor})` }}>
-        <div className="flex flex-col gap-8 xl:flex-row xl:items-end xl:justify-between">
-          <div>
-            <p className="font-semibold text-white/75">{greeting}</p>
-            <h1 className="mt-2 text-3xl font-bold sm:text-4xl">Welcome, {shell.studentName}</h1>
-            <div className="mt-5 flex flex-wrap gap-x-5 gap-y-2 text-sm text-white/85">
-              <span className="inline-flex items-center gap-2"><GraduationCap className="h-4 w-4" />{shell.className ? `${shell.className} · Section ${shell.sectionName ?? "-"}` : "Class assignment pending"}</span>
-              <span className="inline-flex items-center gap-2"><School className="h-4 w-4" />{shell.schoolName}</span>
-              <span className="inline-flex items-center gap-2"><CalendarDays className="h-4 w-4" />{shell.academicYearName ?? "Academic year pending"}</span>
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-3">
-            {identity ? <span className="rounded-full bg-white/15 px-4 py-2 text-sm font-bold ring-1 ring-white/25">{formatPlan(identity.effectivePlan.plan)}</span> : null}
-            {books.length && access.status === "READY" ? (
-              <Link href="/student-dashboard/books" className="rounded-xl bg-white px-5 py-3 font-bold text-slate-800">Continue Reading</Link>
-            ) : (
-              <button disabled className="rounded-xl bg-white px-5 py-3 font-bold text-slate-700 opacity-80">Continue Learning</button>
-            )}
-          </div>
-        </div>
-      </section>
-      {restrictedMessage ? (
-        <section className="rounded-3xl border border-amber-200 bg-amber-50 p-6 shadow-sm sm:p-8">
-          <h2 className="text-xl font-bold text-amber-900">Limited dashboard access</h2>
-          <p className="mt-2 text-amber-800">{restrictedMessage}</p>
-        </section>
-      ) : null}
-      <section>
-        <div className="flex flex-wrap items-end justify-between gap-4"><div><h2 className="text-2xl font-bold">My Books</h2><p className="mt-2 text-slate-600">Continue reading books approved for your current class.</p></div>{books.length > 0 && <Link href="/student-dashboard/books" className="rounded-xl border bg-white px-5 py-3 font-semibold text-slate-800">View All Books</Link>}</div>
-        {books.length ? <div className="mt-5 grid gap-5 sm:grid-cols-2 xl:grid-cols-4">{books.slice(0, 4).map((book) => <StudentLibraryBookCard key={book.id} book={book} />)}</div> : <div className="mt-5 rounded-3xl border bg-white p-10 text-center shadow-sm"><h3 className="text-xl font-bold">No approved books are available yet.</h3><p className="mt-2 text-slate-600">Your school will add books for your subjects.</p></div>}
-      </section>
-
-      {completedRevisions.length > 0 && <section><h2 className="text-2xl font-bold">Revision Completed</h2><p className="mt-2 text-slate-600">Your completed chapter revisions for the current academic year.</p><div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{completedRevisions.map((item) => <Link key={`${item.chapter.id}-${item.updatedAt.toISOString()}`} href={`/student-dashboard/books/${item.chapter.bookId}/chapters/${item.chapter.id}/revision`} className="rounded-3xl border bg-white p-5 shadow-sm"><p className="text-xs font-bold uppercase tracking-wide text-green-700">Revision Completed</p><h3 className="mt-2 font-bold">Chapter {item.chapter.chapterNumber}: {item.chapter.title}</h3><p className="mt-2 text-sm text-slate-500">{item.chapter.book.title}</p></Link>)}</div></section>}
-
-      <section id="today">
-        <div className="flex flex-wrap items-end justify-between gap-4"><div><h2 className="text-2xl font-bold">My Subjects</h2><p className="mt-2 text-slate-600">Approved books and student-ready resources for your class.</p></div>{subjects.length > 0 && <Link href="/student-dashboard/subjects" className="rounded-xl border bg-white px-5 py-3 font-semibold text-slate-800">View All Subjects</Link>}</div>
-        {subjects.length ? <div className="mt-5 grid gap-5 md:grid-cols-2 2xl:grid-cols-3">{subjects.slice(0, 6).map((subject) => <StudentSubjectCard key={subject.sectionSubjectId} subject={subject} />)}</div> : <div className="mt-5 rounded-3xl border bg-white p-10 text-center shadow-sm"><h3 className="text-xl font-bold">No subjects are available yet.</h3><p className="mt-2 text-slate-600">Your school will add subjects to your class.</p></div>}
-      </section>
-      <section className="grid gap-5 md:grid-cols-2">
-        <Placeholder icon={Sparkles} title="Today" description="There are no student learning activities scheduled in this phase." />
-        <Placeholder icon={CalendarDays} title="School Context" description={`${shell.className ?? "Class pending"}, Section ${shell.sectionName ?? "pending"} · ${shell.academicYearName ?? "Academic year pending"}`} />
-      </section>
-    </main>
-  );
+  if (access.status !== "READY") return <Blocked access={access} />;
+  const data = await getStudentClassroomData();
+  const resume = data.progress[0];
+  const resumeSubject = resume ? data.subjects.find((item) => item.book?.id === resume.bookId) : null;
+  return <main className="space-y-6 p-4 sm:p-8"><section><p className="font-medium text-blue-600">Welcome back, {data.identity.student.name.split(" ")[0]}</p><h1 className="mt-1 text-3xl font-bold text-slate-900">What will you learn today?</h1></section><div className="grid gap-6 xl:grid-cols-[minmax(0,1.5fr)_minmax(320px,.7fr)]"><div className="space-y-6"><section className="rounded-3xl bg-gradient-to-br from-blue-600 to-indigo-600 p-7 text-white shadow-lg"><p className="text-sm font-semibold text-blue-100">Continue learning</p>{resume && resumeSubject?.book ? <><h2 className="mt-3 text-2xl font-bold">{resumeSubject.book.title}</h2><p className="mt-2 text-blue-100">Last read page {resume.lastPage}</p>{resume.totalPages && <div className="mt-5 h-2 overflow-hidden rounded-full bg-white/20"><div className="h-full rounded-full bg-emerald-400" style={{ width: `${Math.min(100, Math.round(resume.lastPage / resume.totalPages * 100))}%` }} /></div>}<Link href={`/student-dashboard/books/${resume.bookId}`} className="mt-6 inline-flex rounded-2xl bg-emerald-500 px-5 py-3 font-bold text-white">▶ Resume learning</Link></> : <><h2 className="mt-3 text-2xl font-bold">Your next learning moment starts here.</h2><p className="mt-2 text-blue-100">Open a subject in My Class to begin. Progress appears after a real learning activity.</p><Link href="/student-dashboard/my-class" className="mt-6 inline-flex rounded-2xl bg-white px-5 py-3 font-bold text-blue-700">Explore My Class</Link></>}</section><div className="grid gap-4 sm:grid-cols-3"><InfoCard icon={ClipboardList} tone="blue" title="Assignments Due" value={String(data.assignments.length)} detail={data.assignments[0]?.title ?? "Nothing due"} href={data.assignments[0] ? `/student-dashboard/assignments/${data.assignments[0].id}` : undefined} /><InfoCard icon={CalendarClock} tone="amber" title="Upcoming Test" value={data.assessments[0]?.title ?? "No test"} detail={formatDate(data.assessments[0]?.opensAt ?? data.assessments[0]?.dueAt)} href={data.assessments[0] ? `/student-dashboard/assessments/${data.assessments[0].id}` : undefined} /><InfoCard icon={Megaphone} tone="purple" title="Announcement" value={data.announcement?.title ?? "No announcement"} detail={data.announcement?.description ?? "You are all caught up."} /></div><section className="rounded-3xl border border-slate-100 bg-white p-6 shadow-sm"><h2 className="text-xl font-bold">Learning progress</h2>{data.subjects.length ? <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{data.subjects.map((subject) => { const item = data.progress.find((progress) => progress.bookId === subject.book?.id); const value = item?.totalPages ? Math.min(100, Math.round(item.lastPage / item.totalPages * 100)) : 0; return <div key={subject.sectionSubjectId} className="flex items-center gap-3 rounded-2xl bg-slate-50 p-4"><span className="grid h-12 w-12 place-items-center rounded-full border-4 border-blue-200 font-bold text-blue-700">{value}%</span><strong>{subject.subjectName}</strong></div>; })}</div> : <p className="mt-4 text-slate-500">Your active subjects will appear here.</p>}</section></div><aside className="space-y-6"><section className="rounded-3xl border border-slate-100 bg-white p-6 shadow-sm"><h2 className="text-xl font-bold">Today’s classes</h2>{data.today.length ? <div className="mt-4 space-y-3">{data.today.map((item) => <div key={item.id} className="rounded-2xl bg-blue-50 p-4"><strong>{item.sectionSubject?.subject.name ?? item.title}</strong><p className="mt-1 text-sm text-slate-500">{item.currentDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</p></div>)}</div> : <p className="mt-4 text-sm text-slate-500">No classes are scheduled for today.</p>}<Link href="/student-dashboard/planner" className="mt-5 inline-flex font-semibold text-blue-600">View full schedule</Link></section><StudentClassChat compact /></aside></div></main>;
 }
 
-function Placeholder({ icon: Icon, title, description }: { icon: typeof BookOpen; title: string; description: string }) {
-  return <article className="rounded-3xl border bg-white p-6 shadow-sm"><Icon className="h-8 w-8 text-slate-400" /><h2 className="mt-5 text-xl font-bold">{title}</h2><p className="mt-3 text-slate-600">{description}</p></article>;
-}
-
-function getGreeting(now: Date) {
-  const hour = Number(new Intl.DateTimeFormat("en-IN", { hour: "numeric", hour12: false, timeZone: "Asia/Kolkata" }).format(now));
-  return hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
-}
-
-function formatPlan(plan: string) {
-  return plan.split("_").map((part) => part[0] + part.slice(1).toLowerCase()).join(" ");
-}
+function Blocked({ access }: { access: Awaited<ReturnType<typeof requireStudentDashboardAccess>> }) { const message = access.status === "ACCESS_BLOCKED" ? access.message : access.status === "NO_ENROLMENT" ? "Your active enrolment is not available." : access.status === "NO_CLASS_OR_SECTION" ? "Your class and section are not assigned." : access.status === "NO_ENTITLEMENTS" ? "Learning content has not been assigned yet." : "Student learning is not enabled for your school."; return <main className="p-8"><section className="mx-auto max-w-2xl rounded-3xl border border-amber-200 bg-amber-50 p-8"><h1 className="text-2xl font-bold text-amber-950">Student access unavailable</h1><p className="mt-3 text-amber-800">{message}</p></section></main>; }
+function InfoCard({ icon: Icon, title, value, detail, href }: { icon: typeof BookOpen; tone: string; title: string; value: string; detail: string; href?: string }) { const content = <><Icon className="h-7 w-7 text-blue-600" /><p className="mt-4 text-sm font-semibold text-slate-500">{title}</p><h2 className="mt-1 line-clamp-2 text-lg font-bold">{value}</h2><p className="mt-2 line-clamp-2 text-sm text-slate-500">{detail}</p></>; return href ? <Link href={href} className="rounded-3xl border border-slate-100 bg-white p-5 shadow-sm transition hover:-translate-y-0.5">{content}</Link> : <article className="rounded-3xl border border-slate-100 bg-white p-5 shadow-sm">{content}</article>; }
+function formatDate(value?: Date | null) { return value ? value.toLocaleDateString("en-IN", { day: "numeric", month: "short" }) : "No date scheduled"; }

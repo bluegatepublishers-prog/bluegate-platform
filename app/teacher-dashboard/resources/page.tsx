@@ -186,6 +186,7 @@ export default async function ResourcesPage({
                 className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"
               >
                 <div className="flex flex-wrap items-center gap-2">
+                  <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">Publisher Resource</span>
                   <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700">
                     {resource.type}
                   </span>

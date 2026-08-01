@@ -5,6 +5,9 @@ import { requireUser } from "@/lib/authz";
 import { prisma } from "@/lib/prisma";
 import { getTeacherResourceAccessState } from "@/lib/resource-audience";
 import { requireTeacherResourceEntitlementAccess } from "@/lib/entitlements/resource";
+import { decideSchoolAccess } from "@/lib/school-access-policy";
+
+export class TeacherAccessError extends Error {}
 
 export async function requireTeacher() {
   const user = await requireUser(["TEACHER"]);
@@ -26,11 +29,19 @@ export async function requireTeacher() {
   });
 
   if (!teacher || !teacher.schoolId || !teacher.schoolMemberships.some((membership) => membership.schoolId === teacher.schoolId)) notFound();
+  const subscription = await prisma.schoolAccessSubscription.findUnique({ where: { schoolId: teacher.schoolId } });
+  const decision = subscription && subscription.publisherId === teacher.school?.publisherId
+    ? decideSchoolAccess({ subscription, capability: "TEACHER_DASHBOARD", role: "TEACHER" })
+    : { allowed: false as const, message: "Teacher access is not configured for this school." };
+  if (!decision.allowed) throw new TeacherAccessError(decision.message);
   return teacher;
 }
 
 export async function getTeacherDashboard() {
   const teacher = await requireTeacher();
+  const schoolId = teacher.schoolId;
+  const publisherId = teacher.school?.publisherId;
+  if (!schoolId || !publisherId) notFound();
   const access = await getTeacherResourceAccessState(teacher.userId);
   if (access.status === "INVALID_SCOPE") notFound();
   if (access.status === "NO_ASSIGNMENTS" || access.status === "NO_ENTITLEMENTS" || access.status === "RESOURCES_DISABLED") {
@@ -111,13 +122,13 @@ export async function getTeacherDashboard() {
             where: {
               status: "APPROVED",
               active: true,
-              publisherId: teacher.school?.publisherId,
+              publisherId,
               book: {
                 archived: false,
                 schoolEntitlements: {
                   some: {
-                    schoolId: teacher.schoolId!,
-                    publisherId: teacher.school?.publisherId!,
+                    schoolId,
+                    publisherId,
                     status: "ACTIVE",
                   },
                 },
@@ -127,13 +138,13 @@ export async function getTeacherDashboard() {
           },
           resources: {
             where: {
-              publisherId: teacher.school?.publisherId,
+              publisherId,
               published: true,
               archived: false,
               schoolEntitlements: {
                 some: {
-                  schoolId: teacher.schoolId!,
-                  publisherId: teacher.school?.publisherId!,
+                  schoolId,
+                  publisherId,
                   status: "ACTIVE",
                 },
               },
@@ -145,8 +156,8 @@ export async function getTeacherDashboard() {
                       book: {
                         schoolEntitlements: {
                           some: {
-                            schoolId: teacher.schoolId!,
-                            publisherId: teacher.school?.publisherId!,
+                            schoolId,
+                            publisherId,
                             status: "ACTIVE",
                           },
                         },

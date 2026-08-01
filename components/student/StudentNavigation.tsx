@@ -1,97 +1,22 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
+import { CalendarDays, Home, Megaphone, School } from "lucide-react";
 import { usePathname } from "next/navigation";
-import {
-  Bell,
-  Bookmark,
-  BookOpen,
-  ClipboardCheck,
-  CircleUserRound,
-  FolderOpen,
-  ClipboardList,
-  Gauge,
-  ChartNoAxesCombined,
-  ScanSearch,
-  LibraryBig,
-} from "lucide-react";
 
-const items: ReadonlyArray<{
-  label: string;
-  href?: string;
-  icon: typeof Gauge;
-  available?: boolean;
-}> = [
-  { label: "Dashboard", href: "/student-dashboard", icon: Gauge, available: true },
-  { label: "Subjects", href: "/student-dashboard/subjects", icon: LibraryBig, available: true },
-  { label: "Books", href: "/student-dashboard/books", icon: BookOpen, available: true },
-  { label: "Assessments", href: "/student-dashboard/assessments", icon: ClipboardCheck, available: true },
-  { label: "Reports", href: "/student-dashboard/reports", icon: ChartNoAxesCombined, available: true },
-  { label: "Learning focus", href: "/student-dashboard/gaps", icon: ScanSearch, available: true },
-  { label: "My learning path", href: "/student-dashboard/remedials", icon: ChartNoAxesCombined, available: true },
-  { label: "Class Materials", href: "/student-dashboard/resources", icon: FolderOpen, available: true },
-  { label: "Assignments", href: "/student-dashboard/assignments", icon: ClipboardList, available: true },
-  { label: "Bookmarks", icon: Bookmark },
-  { label: "Notifications", icon: Bell },
-  { label: "Profile", href: "/student-dashboard/profile", icon: CircleUserRound, available: true },
-];
+export const STUDENT_NAV_ITEMS = [
+  { label: "Home", href: "/student-dashboard", icon: Home },
+  { label: "My Class", href: "/student-dashboard/my-class", icon: School },
+  { label: "Notices", href: "/student-dashboard/notices", icon: Megaphone },
+  { label: "Planner", href: "/student-dashboard/planner", icon: CalendarDays },
+] as const;
 
-export default function StudentNavigation({
-  mobile = false,
-  branding,
-  schoolName,
-  assignmentsEnabled,
-}: {
-  mobile?: boolean;
-  branding: { shortName: string; portalTitle: string; logoUrl: string | null; primaryColor: string };
-  schoolName: string;
-  assignmentsEnabled: boolean;
-}) {
+export default function StudentNavigation({ mobile = false }: { mobile?: boolean }) {
   const pathname = usePathname();
-  const links = items.filter((item) => item.label !== "Assignments" || assignmentsEnabled).map(({ label, href, icon: Icon, available }) => {
-    const active = href === "/student-dashboard" ? pathname === href : Boolean(href && pathname.startsWith(href));
-    const content = (
-      <>
-        <Icon className="h-5 w-5" />
-        <span>{label}</span>
-        {!available && <span className="ml-auto text-[10px] font-bold uppercase tracking-wide opacity-60">Soon</span>}
-      </>
-    );
-    const className = `flex shrink-0 items-center gap-3 rounded-xl px-4 py-3 font-semibold ${
-      active ? "text-white" : available ? "text-slate-700 hover:bg-slate-100" : "cursor-not-allowed text-slate-400"
-    }`;
-    return available && href ? (
-      <Link key={label} href={href} className={className} style={active ? { backgroundColor: branding.primaryColor } : undefined}>
-        {content}
-      </Link>
-    ) : (
-      <div key={label} aria-disabled="true" className={className} title="Coming in a future student learning phase">
-        {content}
-      </div>
-    );
+  const links = STUDENT_NAV_ITEMS.map(({ label, href, icon: Icon }) => {
+    const active = href === "/student-dashboard" ? pathname === href : pathname.startsWith(href);
+    return <Link key={href} href={href} className={`flex items-center justify-center gap-3 rounded-2xl px-4 py-3 font-semibold transition ${active ? "bg-blue-600 text-white shadow-sm" : "text-slate-600 hover:bg-blue-50 hover:text-blue-700"}`}><Icon className="h-5 w-5" /><span>{label}</span></Link>;
   });
-
-  if (mobile) return <nav aria-label="Student navigation" className="grid grid-cols-2 gap-2 border-b bg-white p-3 sm:grid-cols-3 lg:hidden">{links}</nav>;
-  return (
-    <aside className="sticky top-0 hidden h-screen w-72 shrink-0 flex-col border-r bg-white lg:flex">
-      <div className="border-b p-7">
-        <div className="flex items-center gap-3">
-          {branding.logoUrl ? (
-            <Image src={branding.logoUrl} alt={`${branding.shortName} logo`} width={48} height={48} className="h-12 w-12 object-contain" />
-          ) : (
-            <span className="flex h-12 w-12 items-center justify-center rounded-xl font-bold text-white" style={{ backgroundColor: branding.primaryColor }}>
-              {branding.shortName.slice(0, 2).toUpperCase()}
-            </span>
-          )}
-          <div className="min-w-0">
-            <p className="truncate font-bold">{branding.portalTitle}</p>
-            <p className="text-xs text-slate-500">Student Portal</p>
-          </div>
-        </div>
-        <p className="mt-5 truncate text-sm font-semibold">{schoolName}</p>
-      </div>
-      <nav aria-label="Student navigation" className="flex-1 space-y-2 overflow-y-auto p-5">{links}</nav>
-    </aside>
-  );
+  if (mobile) return <nav aria-label="Student navigation" className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 border-t bg-white/95 p-2 backdrop-blur lg:hidden">{links}</nav>;
+  return <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r border-slate-100 bg-white p-5 lg:flex"><nav aria-label="Student navigation" className="space-y-2 pt-8">{links}</nav><div className="mt-auto rounded-3xl bg-gradient-to-br from-blue-50 to-emerald-50 p-5 text-center"><div className="text-4xl" aria-hidden>📚🌱</div><p className="mt-3 text-sm font-medium leading-6 text-slate-600">Every day is a new chance to learn something amazing.</p></div></aside>;
 }

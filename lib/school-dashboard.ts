@@ -5,12 +5,108 @@ import { prisma } from "@/lib/prisma";
 import { getSchoolResourceScope } from "@/lib/resource-audience";
 import { buildSchoolSetupChecklist } from "@/lib/school-setup-checklist";
 import { isPublisherFeatureEnabled } from "@/lib/publisher-features";
+import { decideSchoolAccess } from "@/lib/school-access-policy";
+
+export class SchoolDashboardAccessError extends Error {}
 
 export async function requireSchool() {
   const user = await requireUser(["SCHOOL"]);
   const school = await prisma.school.findFirst({ where: { userId: user.id, status: "APPROVED", publisher: { active: true } }, include: { user: true } });
   if (!school) notFound();
+  const subscription = await prisma.schoolAccessSubscription.findUnique({
+    where: { schoolId: school.id },
+  });
+  const decision = subscription && subscription.publisherId === school.publisherId
+    ? decideSchoolAccess({ subscription, capability: "SCHOOL_DASHBOARD", role: "SCHOOL" })
+    : { allowed: false as const, message: "School access is not configured for this institution." };
+  if (!decision.allowed) throw new SchoolDashboardAccessError(decision.message);
   return school;
+}
+
+export async function getSchoolHomeData() {
+  const school = await requireSchool();
+  const currentYear = await prisma.academicYear.findFirst({
+    where: { schoolId: school.id, current: true, active: true },
+    select: { id: true, name: true },
+  });
+  const yearId = currentYear?.id ?? "";
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 1);
+
+  const [students, teachers, staff, classes, sections, planner, analytics, recentStudents, recentTeachers] = await prisma.$transaction([
+    prisma.student.count({ where: { schoolId: school.id, active: true } }),
+    prisma.teacher.count({ where: { schoolId: school.id, active: true } }),
+    prisma.schoolStaffMembership.count({ where: { schoolId: school.id, active: true, status: "ACTIVE" } }),
+    prisma.schoolClass.count({ where: { schoolId: school.id, academicYearId: yearId, active: true } }),
+    prisma.classSection.count({ where: { active: true, schoolClass: { schoolId: school.id, academicYearId: yearId, active: true } } }),
+    prisma.academicPlannerItem.findMany({
+      where: { schoolId: school.id, academicYearId: yearId, currentDate: { gte: start }, status: { notIn: ["CANCELLED", "SKIPPED"] } },
+      include: { section: { include: { schoolClass: { select: { name: true } } } }, sectionSubject: { include: { subject: { select: { name: true } } } } },
+      orderBy: { currentDate: "asc" }, take: 30,
+    }),
+    prisma.studentAnalytics.findMany({ where: { schoolId: school.id, academicYearId: yearId, averageAssessment: { not: null } }, select: { averageAssessment: true } }),
+    prisma.student.findMany({ where: { schoolId: school.id }, select: { id: true, name: true, createdAt: true }, orderBy: { createdAt: "desc" }, take: 4 }),
+    prisma.teacher.findMany({ where: { schoolId: school.id }, select: { id: true, user: { select: { name: true, createdAt: true } } }, orderBy: { user: { createdAt: "desc" } }, take: 4 }),
+  ]);
+  const scores = analytics.flatMap((item) => item.averageAssessment == null ? [] : [item.averageAssessment]);
+  return {
+    school, currentYear,
+    stats: { students, staff: Math.max(teachers, staff), classes, sections, attendance: null as number | null },
+    today: planner.filter((item) => item.currentDate < end && !["NOTICE", "HOLIDAY"].includes(item.type)).slice(0, 6),
+    notices: planner.filter((item) => ["NOTICE", "HOLIDAY"].includes(item.type)).slice(0, 4),
+    upcoming: planner.slice(0, 8),
+    performance: {
+      measured: scores.length,
+      excellent: scores.filter((score) => score >= 85).length,
+      good: scores.filter((score) => score >= 70 && score < 85).length,
+      average: scores.filter((score) => score >= 50 && score < 70).length,
+      support: scores.filter((score) => score < 50).length,
+    },
+    activities: [
+      ...recentStudents.map((item) => ({ id: `student-${item.id}`, text: `${item.name} joined the student directory`, at: item.createdAt })),
+      ...recentTeachers.map((item) => ({ id: `teacher-${item.id}`, text: `${item.user.name} joined the teaching team`, at: item.user.createdAt })),
+    ].sort((a, b) => b.at.getTime() - a.at.getTime()).slice(0, 6),
+  };
+}
+
+export async function getSchoolParents() {
+  const school = await requireSchool();
+  return prisma.parent.findMany({
+    where: { relationships: { some: { student: { schoolId: school.id } } } },
+    include: {
+      user: { select: { name: true, email: true, phone: true } },
+      relationships: { where: { student: { schoolId: school.id } }, include: { student: { select: { id: true, name: true, admissionNumber: true } } }, orderBy: { createdAt: "desc" } },
+    },
+    orderBy: { user: { name: "asc" } },
+  });
+}
+
+export async function getSchoolPlannerData() {
+  const school = await requireSchool();
+  const year = await prisma.academicYear.findFirst({ where: { schoolId: school.id, current: true, active: true }, select: { id: true, name: true } });
+  const items = year ? await prisma.academicPlannerItem.findMany({
+    where: { schoolId: school.id, academicYearId: year.id },
+    include: { reschedules: { orderBy: { createdAt: "desc" } }, section: { include: { schoolClass: { select: { name: true } } } } },
+    orderBy: { currentDate: "asc" }, take: 150,
+  }) : [];
+  return { school, year, items };
+}
+
+export async function getSchoolAcademicHub() {
+  const school = await requireSchool();
+  const years = await prisma.academicYear.findMany({ where: { schoolId: school.id }, select: { id: true, name: true, current: true, active: true, _count: { select: { classes: true, enrollments: true } } }, orderBy: { startDate: "desc" } });
+  const yearId = years.find((item) => item.current)?.id ?? years[0]?.id ?? "";
+  const [classes, subjects, assignments, books, resources] = await prisma.$transaction([
+    prisma.schoolClass.findMany({ where: { schoolId: school.id, academicYearId: yearId, active: true }, include: { sections: { where: { active: true }, select: { id: true, name: true } } }, orderBy: [{ sortOrder: "asc" }, { name: "asc" }] }),
+    prisma.sectionSubject.findMany({ where: { active: true, section: { active: true, schoolClass: { schoolId: school.id, academicYearId: yearId, active: true } } }, include: { subject: { select: { id: true, name: true } }, section: { include: { schoolClass: { select: { name: true } } } } }, orderBy: { subject: { name: "asc" } } }),
+    prisma.teacherAssignment.count({ where: { schoolId: school.id, academicYearId: yearId, active: true } }),
+    prisma.schoolBookAdoption.count({ where: { schoolId: school.id, active: true } }),
+    prisma.schoolResourceEntitlement.count({ where: { schoolId: school.id, status: "ACTIVE" } }),
+  ]);
+  const uniqueSubjects = [...new Map(subjects.map((item) => [item.subject.id, item.subject])).values()];
+  return { school, years, classes, subjects: uniqueSubjects, subjectLinks: subjects.length, assignments, books, resources };
 }
 
 export async function getSchoolDashboard() {
