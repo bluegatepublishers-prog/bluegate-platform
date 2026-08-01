@@ -22,6 +22,7 @@ const resourceLinks = read("lib/book-resource-links.ts");
 const bookPage = read("app/admin/schools/[id]/books/page.tsx");
 const resourcePage = read("app/admin/schools/[id]/resources/page.tsx");
 const structurePage = read("app/admin/books/[id]/structure/page.tsx");
+const contentStudioPage = read("app/admin/books/[id]/content/page.tsx");
 const auditPolicy = read("lib/security-audit-policy.ts");
 
 test("school book and resource entitlements are lifecycle records with tenant-safe uniqueness", () => {
@@ -116,9 +117,9 @@ test("existing chapters remain supported while optional top-level parts extend h
   assert.match(structureService, /type BookStructureNodeType = "PART" \| "UNIT" \| "CHAPTER" \| "MODULE" \| "TOPIC"/);
 });
 
-test("structure ordering, drag UI, moves, duplication, and archive lifecycle persist", () => {
-  assert.match(structurePage, /StructureReorderList/);
-  assert.match(structurePage, /draggable|Drag to reorder/);
+test("structure ordering, moves, duplication, and archive lifecycle persist behind the single Content Studio", () => {
+  assert.match(structurePage, /redirect/);
+  assert.match(contentStudioPage, /reorderContentNodeAction/);
   assert.match(structureService, /reorderBookStructureNodes/);
   assert.match(structureService, /moveBookStructureNode/);
   assert.match(structureService, /duplicateBookStructureNode/);

@@ -28,7 +28,7 @@ export async function GET(
   try {
     const book = await prisma.book.findFirst({
       where: { id, publisherId: access.actor.publisherId },
-      include: { class: true, subject: true, series: true },
+      include: { class: true, subject: true, series: true, boardRecord: true },
     });
     if (!book) return publisherAdminNotFound();
     return NextResponse.json({ ...book, ...parseBookFormData(book) });
@@ -67,6 +67,7 @@ export async function PUT(
         "classId",
         "subjectId",
         "seriesId",
+        "boardId",
         "isbn",
         "published",
         "featured",
@@ -86,7 +87,7 @@ export async function PUT(
     if (!form.title) return NextResponse.json({ message: "Book title is required." }, { status: 400 });
     if (!form.classId) return NextResponse.json({ message: "Please select a class." }, { status: 400 });
     if (!form.subjectId) return NextResponse.json({ message: "Please select a subject." }, { status: 400 });
-    const currentFiles = await prisma.book.findFirst({ where: { id, publisherId: access.actor.publisherId }, select: { coverImage: true, samplePdf: true, publicPreviewPdf: true, fullBookPdf: true } });
+    const currentFiles = await prisma.book.findFirst({ where: { id, publisherId: access.actor.publisherId }, select: { coverImage: true, samplePdf: true, publicPreviewPdf: true, fullBookPdf: true, boardId: true } });
     if (!currentFiles) {
       await recordTrustedDeniedAudit({ actor: publisherAdminAuditActor(access.actor), action: "publisher.book.update", targetType: "Book", reasonCode: "CROSS_TENANT_SCOPE", metadata: { scope: "publisher" } });
       return publisherAdminNotFound();
@@ -97,7 +98,11 @@ export async function PUT(
       classId: form.classId,
       subjectId: form.subjectId,
       seriesId: form.seriesId || null,
+      boardId: form.boardId || null,
+      allowInactiveBoardId: currentFiles.boardId,
     })) return NextResponse.json({ message: "One or more selections are unavailable." }, { status: 400 });
+
+    const selectedBoard = form.boardId ? await prisma.board.findFirst({ where: { id: form.boardId, publisherId: access.actor.publisherId }, select: { name: true } }) : null;
 
     const baseSlug = generateSlug(form.title);
     let slug = baseSlug;
@@ -120,7 +125,7 @@ export async function PUT(
           slug: true, coverImage: true, samplePdf: true, publicPreviewPdf: true,
           fullBookPdf: true, galleryImages: true, subtitle: true, description: true,
           edition: true, publisher: true, language: true, board: true, binding: true,
-          dimensions: true, featured: true, featuredOrder: true, published: true,
+          dimensions: true, featured: true, featuredOrder: true, published: true, boardId: true,
           publishedAt: true,
         },
       });
@@ -136,13 +141,13 @@ export async function PUT(
           edition: previous.edition,
           publisher: previous.publisher,
           language: previous.language,
-          board: previous.board,
+          board: selectedBoard?.name ?? (previous.boardId ? null : previous.board),
           binding: previous.binding,
           dimensions: previous.dimensions,
           slug,
           publishedAt: form.published ? previous.publishedAt ?? new Date() : null,
         },
-        include: { class: true, subject: true, series: true },
+        include: { class: true, subject: true, series: true, boardRecord: true },
       });
       const changedFiles = [
         previous.coverImage !== updated.coverImage,

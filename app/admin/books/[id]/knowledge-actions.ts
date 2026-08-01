@@ -390,6 +390,7 @@ export async function saveOutcome(bookId: string, formData: FormData) {
     throw error;
   }
   revalidatePath(`/admin/books/${bookId}/learning-outcomes`);
+  revalidatePath(`/admin/books/${bookId}/content`);
 }
 
 export async function deleteOutcome(bookId: string, id: string) {
@@ -408,6 +409,7 @@ export async function deleteOutcome(bookId: string, id: string) {
     throw error;
   }
   revalidatePath(`/admin/books/${bookId}/learning-outcomes`);
+  revalidatePath(`/admin/books/${bookId}/content`);
 }
 
 export async function moveOutcome(bookId: string, outcomeId: string, direction: -1 | 1) {
@@ -446,6 +448,7 @@ export async function moveOutcome(bookId: string, outcomeId: string, direction: 
     throw error;
   }
   revalidatePath(`/admin/books/${bookId}/learning-outcomes`);
+  revalidatePath(`/admin/books/${bookId}/content`);
 }
 
 export async function saveActivity(bookId: string, formData: FormData) {
@@ -492,6 +495,7 @@ export async function saveActivity(bookId: string, formData: FormData) {
     throw error;
   }
   revalidatePath(`/admin/books/${bookId}/activities`);
+  revalidatePath(`/admin/books/${bookId}/content`);
 }
 
 export async function deleteActivity(bookId: string, id: string) {
@@ -510,4 +514,5 @@ export async function deleteActivity(bookId: string, id: string) {
     throw error;
   }
   revalidatePath(`/admin/books/${bookId}/activities`);
+  revalidatePath(`/admin/books/${bookId}/content`);
 }

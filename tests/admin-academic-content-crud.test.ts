@@ -4,19 +4,19 @@ import test from "node:test";
 
 const read = (path: string) => readFileSync(path, "utf8");
 
-test("academic content manager route exists with chapter/question/topic/exercise entry points", () => {
+test("Content Studio route exposes hierarchy and virtual content entry points", () => {
   const page = read("app/admin/books/[id]/content/page.tsx");
-  assert.match(page, /Academic Content/);
-  assert.match(page, /\/chapters/);
-  assert.match(page, /\/questions/);
-  assert.match(page, /\/learning-outcomes/);
-  assert.match(page, /\/activities/);
+  assert.match(page, /Content Studio/);
+  assert.match(page, /Learning Outcomes/);
+  assert.match(page, /Activities/);
+  assert.match(page, /Exercises/);
+  assert.match(page, /Questions/);
 });
 
-test("book admin navigation exposes academic content area", () => {
-  const layout = read("app/admin/books/[id]/layout.tsx");
-  assert.match(layout, /Academic Content/);
-  assert.match(layout, /\/admin\/books\/\$\{id\}\/content/);
+test("book catalogue exposes one Manage Content entry", () => {
+  const table = read("components/admin/books/BookTable.tsx");
+  assert.match(table, /Manage Content/);
+  assert.match(table, /\/admin\/books\/\$\{book\.id\}\/content/);
 });
 
 test("knowledge actions validate content with zod and enforce publisher ownership", () => {

@@ -96,6 +96,9 @@ model Publisher {
   books                      Book[]
   resources                  Resource[]
   series                     BookSeries[]
+  boards                     Board[]
+  masterDataDefinitions      MasterDataDefinition[]
+  masterDataValues           MasterDataValue[]
   inspectionRequests         InspectionRequest[]
   bookAdoptions              SchoolBookAdoption[]
   studentAccessGrants        StudentAccessGrant[]
@@ -1017,6 +1020,61 @@ model BookSeries {
   @@index([publisherId])
 }
 
+model Board {
+  id           String   @id @default(cuid())
+  publisherId  String
+  name         String
+  code         String
+  description  String?
+  displayOrder Int      @default(0)
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  publisher    Publisher @relation(fields: [publisherId], references: [id], onDelete: Restrict)
+  books        Book[]    @relation("BookBoard")
+
+  @@unique([publisherId, name])
+  @@unique([publisherId, code])
+  @@index([publisherId, active, displayOrder])
+}
+
+model MasterDataDefinition {
+  id           String   @id @default(cuid())
+  publisherId  String
+  name         String
+  code         String
+  description  String?
+  displayOrder Int      @default(0)
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  publisher    Publisher @relation(fields: [publisherId], references: [id], onDelete: Restrict)
+  values       MasterDataValue[]
+
+  @@unique([publisherId, name])
+  @@unique([publisherId, code])
+  @@index([publisherId, active, displayOrder])
+}
+
+model MasterDataValue {
+  id           String   @id @default(cuid())
+  publisherId  String
+  definitionId String
+  name         String
+  code         String
+  description  String?
+  displayOrder Int      @default(0)
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  publisher    Publisher @relation(fields: [publisherId], references: [id], onDelete: Restrict)
+  definition   MasterDataDefinition @relation(fields: [definitionId], references: [id], onDelete: Restrict)
+
+  @@unique([definitionId, name])
+  @@unique([definitionId, code])
+  @@index([publisherId, definitionId, active, displayOrder])
+}
+
 model Book {
   id                      String                    @id @default(cuid())
   title                   String
@@ -1041,6 +1099,7 @@ model Book {
   classId                 String
   subjectId               String
   seriesId                String?
+  boardId                 String?
   aboutBook               String?
   binding                 String?
   board                   String?
@@ -1061,6 +1120,7 @@ model Book {
   keywords                String[]                  @default([])
   class                   Class                     @relation(fields: [classId], references: [id])
   series                  BookSeries?               @relation(fields: [seriesId], references: [id])
+  boardRecord             Board?                    @relation("BookBoard", fields: [boardId], references: [id], onDelete: Restrict)
   subject                 Subject                   @relation(fields: [subjectId], references: [id])
   chapters                BookChapter[]
   questions               BookQuestion[]
@@ -1093,6 +1153,7 @@ model Book {
 
   @@index([publisherId, published, archived])
   @@index([publisherId, published, featured, featuredOrder, updatedAt])
+  @@index([boardId])
 }
 
 model BookPart {

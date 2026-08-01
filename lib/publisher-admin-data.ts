@@ -49,8 +49,10 @@ export async function validatePublisherAdminBookRelations(input: {
   classId: string;
   subjectId: string;
   seriesId: string | null;
+  boardId: string | null;
+  allowInactiveBoardId?: string | null;
 }) {
-  const [bookClass, subject, series] = await Promise.all([
+  const [bookClass, subject, series, board] = await Promise.all([
     prisma.class.findFirst({ where: { id: input.classId, active: true }, select: { id: true } }),
     prisma.subject.findFirst({ where: { id: input.subjectId, active: true }, select: { id: true } }),
     input.seriesId
@@ -59,7 +61,17 @@ export async function validatePublisherAdminBookRelations(input: {
           select: { id: true },
         })
       : Promise.resolve(null),
+    input.boardId
+      ? prisma.board.findFirst({
+          where: {
+            id: input.boardId,
+            publisherId: input.publisherId,
+            OR: [{ active: true }, ...(input.allowInactiveBoardId === input.boardId ? [{ id: input.boardId }] : [])],
+          },
+          select: { id: true },
+        })
+      : Promise.resolve(null),
   ]);
 
-  return Boolean(bookClass && subject && (!input.seriesId || series));
+  return Boolean(bookClass && subject && (!input.seriesId || series) && (!input.boardId || board));
 }

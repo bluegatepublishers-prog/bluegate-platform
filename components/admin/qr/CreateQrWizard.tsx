@@ -23,6 +23,10 @@ type CreateQrWizardProps = {
   }>;
   onClose: () => void;
   onComplete: (qrCode: QrRecord) => void;
+  initialSelection?: {
+    book: { id: string; title: string };
+    target: { type: TargetType; id: string; title: string };
+  } | null;
 };
 
 type Pagination = {
@@ -159,6 +163,7 @@ export default function CreateQrWizard({
   open,
   onClose,
   onComplete,
+  initialSelection,
 }: CreateQrWizardProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [step, setStep] = useState(0);
@@ -205,16 +210,21 @@ export default function CreateQrWizard({
     if (!dialog) return;
     if (open && !dialog.open) {
       setStep(0);
-      setForm(initialState());
+      setForm({
+        ...initialState(),
+        bookId: initialSelection?.book.id ?? "",
+        targetType: initialSelection?.target.type ?? "BOOK",
+        targetId: initialSelection?.target.id ?? "",
+      });
       setError(null);
       setPending(false);
       setCreated(null);
       setCopied(false);
       setBookSearch("");
       setBookPage(1);
-      setSelectedBook(null);
+      setSelectedBook(initialSelection ? { id: initialSelection.book.id, title: initialSelection.book.title, subtitle: null, coverImage: null } : null);
       setHierarchy(null);
-      setSelectedTarget(null);
+      setSelectedTarget(initialSelection?.target.type === "BOOK" ? { id: initialSelection.target.id, type: "BOOK", title: initialSelection.target.title, subtitle: "Book", parentId: null, displayOrder: 0 } : null);
       setResourceSearch("");
       setResourcePage(1);
       setSelectedResource(null);
@@ -225,7 +235,19 @@ export default function CreateQrWizard({
     } else if (!open && dialog.open) {
       dialog.close();
     }
-  }, [open]);
+  }, [initialSelection, open]);
+
+  useEffect(() => {
+    if (!open || !initialSelection || !hierarchy) return;
+    const options = [hierarchy.book, ...hierarchy.parts, ...hierarchy.units, ...hierarchy.chapters, ...hierarchy.modules, ...hierarchy.topics];
+    const target = options.find((item) => item.type === initialSelection.target.type && item.id === initialSelection.target.id);
+    if (!target) return;
+    const timer = window.setTimeout(() => {
+      setSelectedTarget(target);
+      setForm((current) => ({ ...current, targetType: target.type, targetId: target.id }));
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [hierarchy, initialSelection, open]);
 
   useEffect(() => {
     if (!open) return;
@@ -267,12 +289,14 @@ export default function CreateQrWizard({
 
   useEffect(() => {
     if (!open || !selectedBook) {
-      setHierarchy(null);
-      return;
+      const timer = window.setTimeout(() => setHierarchy(null), 0);
+      return () => window.clearTimeout(timer);
     }
     const controller = new AbortController();
-    setHierarchyLoading(true);
-    setHierarchyError(null);
+    const stateTimer = window.setTimeout(() => {
+      setHierarchyLoading(true);
+      setHierarchyError(null);
+    }, 0);
     void (async () => {
       try {
         const query = new URLSearchParams({ bookId: selectedBook.id });
@@ -295,7 +319,7 @@ export default function CreateQrWizard({
         if (!controller.signal.aborted) setHierarchyLoading(false);
       }
     })();
-    return () => controller.abort();
+    return () => { window.clearTimeout(stateTimer); controller.abort(); };
   }, [form.targetType, open, selectedBook]);
 
   useEffect(() => {
