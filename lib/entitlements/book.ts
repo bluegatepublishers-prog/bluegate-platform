@@ -2,6 +2,7 @@ import "server-only";
 
 import { BookAdoptionStatus, EnrollmentStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { effectiveSchoolAccessStatus } from "@/lib/school-access-policy";
 import { SafeEntitlementError } from "./errors";
 import { decideBookEntitlement, type BookEntitlementFacts } from "./book-policy";
 import type {
@@ -27,6 +28,10 @@ const deniedFacts = (
   schoolEntitled: false,
   adoptionApproved: false,
 });
+
+function schoolAccessIsActive(school: { status: string; accessSubscription: { plan: "FREE" | "PAID"; status: "ACTIVE" | "SUSPENDED" | "EXPIRED"; startsAt: Date | null; expiresAt: Date | null } | null } | null | undefined) {
+  return Boolean(school?.status === "APPROVED" && school.accessSubscription && effectiveSchoolAccessStatus(school.accessSubscription) === "ACTIVE");
+}
 
 export async function getBookEntitlementForAuthenticatedUser(
   user: AuthenticatedEntitlementUser,
@@ -55,11 +60,11 @@ export async function getBookEntitlementForAuthenticatedUser(
   if (user.role === "SCHOOL") {
     const school = await prisma.school.findUnique({
       where: { userId: user.id },
-      include: { publisher: { select: { active: true } } },
+      include: { publisher: { select: { active: true } }, accessSubscription: true },
     });
     base.publisherActive = Boolean(school?.publisher?.active);
     base.samePublisher = school?.publisherId === book.publisherId;
-    base.schoolActive = school?.status === "APPROVED";
+    base.schoolActive = schoolAccessIsActive(school);
     if (!school) return decideBookEntitlement(base);
     base.schoolEntitled = Boolean(
       await prisma.schoolBookEntitlement.findFirst({
@@ -106,7 +111,7 @@ export async function getBookEntitlementForAuthenticatedUser(
     const teacher = await prisma.teacher.findUnique({
       where: { userId: user.id },
       include: {
-        school: { include: { publisher: { select: { active: true } } } },
+        school: { include: { publisher: { select: { active: true } }, accessSubscription: true } },
         schoolMemberships: {
           where: { active: true, status: "ACTIVE" },
           select: { schoolId: true },
@@ -115,7 +120,7 @@ export async function getBookEntitlementForAuthenticatedUser(
     });
     base.publisherActive = Boolean(teacher?.school?.publisher?.active);
     base.samePublisher = teacher?.school?.publisherId === book.publisherId;
-    base.schoolActive = teacher?.school?.status === "APPROVED";
+    base.schoolActive = schoolAccessIsActive(teacher?.school);
     if (!teacher?.active || !teacher.schoolId || !teacher.school?.publisherId) {
       return decideBookEntitlement(base);
     }
@@ -184,11 +189,11 @@ export async function getBookEntitlementForAuthenticatedUser(
   if (user.role === "STUDENT") {
     const student = await prisma.student.findUnique({
       where: { userId: user.id },
-      include: { school: { include: { publisher: { select: { active: true } } } } },
+      include: { school: { include: { publisher: { select: { active: true } }, accessSubscription: true } } },
     });
     base.publisherActive = Boolean(student?.school.publisher?.active);
     base.samePublisher = student?.school.publisherId === book.publisherId;
-    base.schoolActive = student?.school.status === "APPROVED";
+    base.schoolActive = schoolAccessIsActive(student?.school);
     if (!student?.active || !student.school.publisherId) {
       return decideBookEntitlement(base);
     }
@@ -256,13 +261,14 @@ export async function requireBookEntitlement(
 export async function getTeacherEntitledBookIds(userId: string) {
   const teacher = await prisma.teacher.findUnique({
     where: { userId },
-    include: { school: { include: { publisher: { select: { active: true } } } } },
+    include: { school: { include: { publisher: { select: { active: true } }, accessSubscription: true } } },
   });
   if (
     !teacher?.active ||
     !teacher.schoolId ||
     !teacher.school?.publisherId ||
-    !teacher.school.publisher?.active
+    !teacher.school.publisher?.active ||
+    !schoolAccessIsActive(teacher.school)
   ) {
     return [];
   }

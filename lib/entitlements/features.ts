@@ -2,6 +2,7 @@ import "server-only";
 
 import { EnrollmentStatus, PlatformFeatureKey } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { decideSchoolAccess, type SchoolCapability } from "@/lib/school-access-policy";
 import { isPublisherFeatureEnabled } from "@/lib/publisher-features";
 import { SafeEntitlementError } from "./errors";
 import { decidePremiumFeatureEntitlement } from "./features-policy";
@@ -39,7 +40,7 @@ export async function getPremiumFeatureEntitlementForAuthenticatedUser(
   if (user.role !== "STUDENT") return { allowed: false, reason: "WRONG_ROLE" };
   const student = await prisma.student.findUnique({
     where: { userId: user.id },
-    include: { school: { include: { publisher: { select: { active: true } } } } },
+    include: { school: { include: { publisher: { select: { active: true } }, accessSubscription: true } } },
   });
   if (!student?.active || !student.school.publisherId) {
     return { allowed: false, reason: "NO_ENROLLMENT" };
@@ -75,6 +76,25 @@ export async function getPremiumFeatureEntitlementForAuthenticatedUser(
     student.id,
     enrollment.academicYearId,
   );
+  const capability: SchoolCapability = request.feature === "STUDENT_AI"
+    ? "AI_TOOLS"
+    : request.feature === "ASSESSMENTS" || request.feature === "INTERACTIVE_QUIZZES"
+      ? "ASSESSMENTS"
+      : request.feature === "HOMEWORK" || request.feature === "ASSIGNMENTS"
+        ? "ASSIGNMENTS"
+        : ["REPORTS", "GAP_ANALYSIS", "PROGRESS_ANALYTICS"].includes(request.feature)
+          ? "ADVANCED_REPORTS"
+          : "STUDENT_DASHBOARD";
+  if (!student.school.accessSubscription) return { allowed: false, reason: "PREMIUM_REQUIRED" };
+  const schoolAccess = decideSchoolAccess({
+    subscription: student.school.accessSubscription,
+    capability,
+    role: "STUDENT",
+    publisherFeatureEnabled,
+  });
+  if (!schoolAccess.allowed) {
+    return { allowed: false, reason: schoolAccess.reason === "FEATURE_DISABLED" ? "FEATURE_DISABLED" : "PREMIUM_REQUIRED" };
+  }
   return decidePremiumFeatureEntitlement({
     plan: effectivePlan.plan,
     feature: request.feature,

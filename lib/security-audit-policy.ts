@@ -59,6 +59,7 @@ export const SECURITY_AUDIT_ACTIONS = [
   "publisher.school.restore",
   "publisher.school.permanent_delete.blocked",
   "publisher.school.status.set",
+  "publisher.school_access.update",
   "school.student.enrollment.close",
   "school.student.transfer",
   "school.teacher.membership.close",
@@ -155,6 +156,7 @@ export type SecurityAuditTargetType =
   | "SchoolBookAdoption"
   | "SchoolBookEntitlement"
   | "SchoolResourceEntitlement"
+  | "SchoolAccessSubscription"
   | "BookPart"
   | "BookFeatureDefinition"
   | "BookFeatureAssignment"

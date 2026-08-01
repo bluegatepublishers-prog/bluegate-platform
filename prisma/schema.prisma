@@ -133,6 +133,7 @@ model Publisher {
   assignmentSubmissions      AssignmentSubmission[]
   schoolBookEntitlements     SchoolBookEntitlement[]
   schoolResourceEntitlements SchoolResourceEntitlement[]
+  schoolAccessSubscriptions  SchoolAccessSubscription[]
   bookFeatureDefinitions     BookFeatureDefinition[]
   bookResourceLinks          BookResourceLink[]
   dynamicQrCodes             DynamicQrCode[]
@@ -327,6 +328,7 @@ model School {
   reportCardSnapshots     ReportCardSnapshot[]
   bookEntitlements        SchoolBookEntitlement[]
   resourceEntitlements    SchoolResourceEntitlement[]
+  accessSubscription      SchoolAccessSubscription?
 
   @@index([publisherId, status])
   @@index([publisherId])
@@ -347,6 +349,24 @@ model SchoolOnboardingReview {
 
   @@index([publisherId, createdAt])
   @@index([schoolId, createdAt])
+}
+
+model SchoolAccessSubscription {
+  id          String             @id @default(cuid())
+  schoolId    String             @unique
+  publisherId String
+  plan        SchoolAccessPlan   @default(FREE)
+  status      SchoolAccessStatus @default(ACTIVE)
+  startsAt    DateTime?
+  expiresAt   DateTime?
+  notes       String?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  school      School             @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  publisher   Publisher          @relation(fields: [publisherId], references: [id], onDelete: Restrict)
+
+  @@index([publisherId, plan, status])
+  @@index([publisherId, expiresAt])
 }
 
 model TeacherSchoolRequest {
@@ -3119,6 +3139,17 @@ enum SchoolOnboardingStatus {
   SUSPENDED
   REVOKED
   ARCHIVED
+}
+
+enum SchoolAccessPlan {
+  FREE
+  PAID
+}
+
+enum SchoolAccessStatus {
+  ACTIVE
+  SUSPENDED
+  EXPIRED
 }
 
 enum TeacherOnboardingStatus {

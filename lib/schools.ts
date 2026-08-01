@@ -35,15 +35,30 @@ export async function getSchoolCities() {
 export async function getSchools(filters: {
   query?: string;
   city?: string;
-  includeArchived?: boolean;
+  plan?: "FREE" | "PAID";
+  accessStatus?: "ACTIVE" | "SUSPENDED" | "EXPIRED";
+  view?: "pending" | "active" | "suspended" | "expired" | "all";
 } = {}) {
   if (!process.env.DATABASE_URL) return [];
   const actor = await requireLivePublisherAdmin();
 
   const where: Prisma.SchoolWhereInput = {
     publisherId: actor.publisherId,
-    ...(filters.includeArchived ? {} : { status: { not: "ARCHIVED" } }),
   };
+  const conditions: Prisma.SchoolWhereInput[] = [];
+
+  if (filters.view === "pending") conditions.push({ status: "PENDING" });
+  if (filters.view === "active") conditions.push({ accessSubscription: { is: { status: "ACTIVE", AND: [{ OR: [{ startsAt: null }, { startsAt: { lte: new Date() } }] }, { OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] }] } } });
+  if (filters.view === "suspended") conditions.push({ accessSubscription: { is: { status: "SUSPENDED" } } });
+  if (filters.view === "expired") conditions.push({ OR: [{ accessSubscription: { is: { status: "EXPIRED" } } }, { accessSubscription: { is: { expiresAt: { lte: new Date() } } } }] });
+  if (filters.plan || filters.accessStatus) {
+    conditions.push({ accessSubscription: {
+      is: {
+        ...(filters.plan ? { plan: filters.plan } : {}),
+        ...(filters.accessStatus ? { status: filters.accessStatus } : {}),
+      },
+    } });
+  }
 
   if (filters.city) {
     where.city = filters.city;
@@ -53,7 +68,7 @@ export async function getSchools(filters: {
     const query = filters.query.trim();
 
     if (query) {
-      where.OR = [
+      conditions.push({ OR: [
         {
           schoolName: {
             contains: query,
@@ -102,18 +117,22 @@ export async function getSchools(filters: {
             },
           },
         },
-      ];
+      ] });
     }
   }
+  if (conditions.length) where.AND = conditions;
 
   return prisma.school.findMany({
     where,
     include: {
       user: true,
+      accessSubscription: true,
       _count: {
         select: {
           staffMemberships: { where: { role: "TEACHER" } },
           studentEnrollments: { where: { status: "ACTIVE" } },
+          bookEntitlements: true,
+          resourceEntitlements: true,
         },
       },
     },
@@ -132,6 +151,7 @@ export async function getSchoolById(id: string) {
       where: { id, publisherId: actor.publisherId },
       include: {
         user: true,
+        accessSubscription: true,
         _count: {
           select: {
             staffMemberships: true,

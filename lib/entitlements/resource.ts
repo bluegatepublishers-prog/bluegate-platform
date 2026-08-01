@@ -6,6 +6,7 @@ import {
   ResourceAudience,
 } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { decideSchoolAccess } from "@/lib/school-access-policy";
 import { isPublisherFeatureEnabled } from "@/lib/publisher-features";
 import {
   requireSchoolResourceAccess,
@@ -29,6 +30,11 @@ const denied = (reason: EntitlementDecision & { allowed: false }) => ({
   decision: reason,
 });
 
+async function schoolCanUseAssignedResources(schoolId: string, role: "SCHOOL" | "TEACHER" | "STUDENT") {
+  const subscription = await prisma.schoolAccessSubscription.findUnique({ where: { schoolId } });
+  return Boolean(subscription && decideSchoolAccess({ subscription, capability: "RESOURCE_CONTENT", role, contentEntitled: true }).allowed);
+}
+
 export async function resolveResourceEntitlementForAuthenticatedUser(
   user: AuthenticatedEntitlementUser,
   request: ResourceEntitlementRequest,
@@ -40,6 +46,9 @@ export async function resolveResourceEntitlementForAuthenticatedUser(
 
   if (user.role === "TEACHER") {
     const access = await requireTeacherResourceAccess(user.id, request.resourceId);
+    if (access?.teacher.schoolId && !(await schoolCanUseAssignedResources(access.teacher.schoolId, "TEACHER"))) {
+      return denied({ allowed: false, reason: "SCHOOL_INACTIVE" });
+    }
     return access
       ? {
           decision: {
@@ -55,6 +64,9 @@ export async function resolveResourceEntitlementForAuthenticatedUser(
 
   if (user.role === "SCHOOL") {
     const access = await requireSchoolResourceAccess(user.id, request.resourceId);
+    if (access && !(await schoolCanUseAssignedResources(access.school.id, "SCHOOL"))) {
+      return denied({ allowed: false, reason: "SCHOOL_INACTIVE" });
+    }
     return access
       ? {
           decision: {
@@ -103,13 +115,16 @@ export async function resolveResourceEntitlementForAuthenticatedUser(
   if (user.role === "STUDENT") {
     const student = await prisma.student.findUnique({
       where: { userId: user.id },
-      include: { school: { include: { publisher: { select: { active: true } } } } },
+      include: { school: { include: { publisher: { select: { active: true } }, accessSubscription: true } } },
     });
     if (!student?.active || !student.school.publisherId) {
       return denied({ allowed: false, reason: "NO_ENROLLMENT" });
     }
     if (!student.school.publisher?.active) {
       return denied({ allowed: false, reason: "PUBLISHER_INACTIVE" });
+    }
+    if (!student.school.accessSubscription || !decideSchoolAccess({ subscription: student.school.accessSubscription, capability: "RESOURCE_CONTENT", role: "STUDENT", contentEntitled: true }).allowed) {
+      return denied({ allowed: false, reason: "SCHOOL_INACTIVE" });
     }
     if (
       !(await isPublisherFeatureEnabled(

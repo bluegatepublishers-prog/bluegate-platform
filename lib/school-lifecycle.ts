@@ -3,12 +3,15 @@ import "server-only";
 import { randomBytes } from "node:crypto";
 import {
   Prisma,
+  SchoolAccessPlan,
+  SchoolAccessStatus,
   SchoolOnboardingStatus,
   SecurityAuditOutcome,
 } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
 import { hashPassword } from "@/lib/password";
+import { syncSchoolAccessLifecycle } from "@/lib/school-access";
 import { requireLivePublisherAdmin } from "@/lib/publisher-admin-authorization";
 import {
   publisherAdminAuditActor,
@@ -18,6 +21,16 @@ import {
 export class SchoolLifecycleError extends Error {}
 
 export const SCHOOL_LIFECYCLE_TRANSITIONS = {
+  approve: {
+    from: [SchoolOnboardingStatus.PENDING],
+    to: SchoolOnboardingStatus.APPROVED,
+    action: "publisher.school.resume",
+  },
+  reject: {
+    from: [SchoolOnboardingStatus.PENDING],
+    to: SchoolOnboardingStatus.REJECTED,
+    action: "publisher.school.revoke",
+  },
   pause: {
     from: [SchoolOnboardingStatus.APPROVED],
     to: SchoolOnboardingStatus.PAUSED,
@@ -109,6 +122,12 @@ export async function createPublisherSchool(input: {
         status: SchoolOnboardingStatus.PAUSED,
       },
     });
+    await syncSchoolAccessLifecycle(tx, {
+      schoolId: school.id,
+      publisherId: actor.publisherId,
+      status: SchoolAccessStatus.SUSPENDED,
+      defaultPlan: SchoolAccessPlan.FREE,
+    });
     await writeSecurityAuditEvent(tx, {
       actor: publisherAdminAuditActor(actor),
       action: "publisher.school.create",
@@ -150,6 +169,17 @@ export async function transitionPublisherSchool(
       data: { status: transition.to },
     });
     if (updated.count !== 1) throw new SchoolLifecycleError("The school changed before this action completed.");
+
+    const accessStatus = transition.to === SchoolOnboardingStatus.APPROVED
+      ? SchoolAccessStatus.ACTIVE
+      : new Set<SchoolOnboardingStatus>([SchoolOnboardingStatus.REJECTED, SchoolOnboardingStatus.REVOKED, SchoolOnboardingStatus.ARCHIVED]).has(transition.to)
+        ? SchoolAccessStatus.EXPIRED
+        : SchoolAccessStatus.SUSPENDED;
+    await syncSchoolAccessLifecycle(tx, {
+      schoolId: school.id,
+      publisherId: actor.publisherId,
+      status: accessStatus,
+    });
 
     await tx.schoolOnboardingReview.create({
       data: {
