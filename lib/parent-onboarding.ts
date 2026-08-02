@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { hashPassword } from "@/lib/password";
 import { requireSchool } from "@/lib/school-dashboard";
 import { isPublisherFeatureEnabled } from "@/lib/publisher-features";
+import { isSchoolFeatureEnabled } from "@/lib/school-feature-entitlements";
 import { accountAuditActor, writeSecurityAuditEvent } from "@/lib/security-audit";
 import { cleanText, normalizeActivationCode, normalizeEmail, validEmail, validatePassword } from "./onboarding-policy";
 
@@ -23,6 +24,13 @@ export async function issueParentInvitation(input: Record<string, unknown>) {
   const school = await requireSchool();
   if (!school.publisherId) throw new ParentOnboardingError("Parent invitations are unavailable.");
   if (!await isPublisherFeatureEnabled(school.publisherId, PlatformFeatureKey.PARENT_PORTAL)) {
+    throw new ParentOnboardingError("Parent invitations are not enabled for this school.");
+  }
+  const subscription = await prisma.schoolAccessSubscription.findUnique({
+    where: { schoolId: school.id },
+    select: { featureConfig: true },
+  });
+  if (!isSchoolFeatureEnabled(subscription, "PARENT_PORTAL")) {
     throw new ParentOnboardingError("Parent invitations are not enabled for this school.");
   }
   const permissions = parentPermissionsFor(
@@ -55,6 +63,8 @@ export async function activateParentInvitation(input: Record<string, unknown>) {
     if (!invitation || invitation.usedAt || invitation.revokedAt || invitation.expiresAt <= now || invitation.targetEmail !== email || !invitation.student.active || invitation.student.schoolId !== invitation.schoolId || invitation.school.status !== "APPROVED" || !invitation.school.publisher?.active) throw new ParentOnboardingError(unavailable);
     const feature = await tx.publisherFeature.findFirst({ where: { publisherId: invitation.publisherId, enabled: true, feature: { key: PlatformFeatureKey.PARENT_PORTAL, active: true, implemented: true } }, select: { id: true } });
     if (!feature) throw new ParentOnboardingError(unavailable);
+    const schoolSubscription = await tx.schoolAccessSubscription.findUnique({ where: { schoolId: invitation.schoolId }, select: { featureConfig: true } });
+    if (!isSchoolFeatureEnabled(schoolSubscription, "PARENT_PORTAL")) throw new ParentOnboardingError(unavailable);
     const permissions = parentPermissionsFor(await tx.schoolPortalPermission.findUnique({ where: { schoolId: invitation.schoolId } }));
     if (!permissions.parentActivationAllowed) throw new ParentOnboardingError("Parent account activation is disabled by this school.");
     if (await tx.user.findUnique({ where: { email }, select: { id: true } })) throw new ParentOnboardingError("An account already uses this email. Ask the school to verify and link that account safely.");

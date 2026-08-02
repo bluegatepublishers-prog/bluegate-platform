@@ -22,6 +22,7 @@ import { accountAuditActor, writeSecurityAuditEvent } from "@/lib/security-audit
 import { sendConfiguredMail } from "@/lib/mail-runtime";
 import { isPublisherFeatureEnabled } from "@/lib/publisher-features";
 import { effectiveSchoolAccessStatus } from "@/lib/school-access-policy";
+import { isSchoolFeatureEnabled } from "@/lib/school-feature-entitlements";
 import { requireSchool } from "@/lib/school-dashboard";
 
 export class SchoolMentorError extends Error {}
@@ -36,7 +37,7 @@ function accountStatus(user: { active: boolean; emailVerifiedAt: Date | null; mu
 
 export async function getSchoolMentors() {
   const school = await requireSchool();
-  const [rows, featureEnabled] = await Promise.all([
+  const [rows, publisherFeatureEnabled, subscription] = await Promise.all([
     prisma.schoolStaffMembership.findMany({
       where: {
         schoolId: school.id,
@@ -68,6 +69,10 @@ export async function getSchoolMentors() {
     school.publisherId
       ? isPublisherFeatureEnabled(school.publisherId, PlatformFeatureKey.TUTOR_PLATFORM)
       : Promise.resolve(false),
+    prisma.schoolAccessSubscription.findUnique({
+      where: { schoolId: school.id },
+      select: { featureConfig: true },
+    }),
   ]);
 
   const latestByUser = new Map<string, (typeof rows)[number]>();
@@ -86,7 +91,11 @@ export async function getSchoolMentors() {
       assignedStudents: mentor._count.assignments,
     }];
   });
-  return { school, mentors, featureEnabled };
+  return {
+    school,
+    mentors,
+    featureEnabled: publisherFeatureEnabled && isSchoolFeatureEnabled(subscription, "MENTOR_PORTAL"),
+  };
 }
 
 export async function getSchoolMentor(mentorId: string) {
@@ -138,7 +147,7 @@ export async function getSchoolMentor(mentorId: string) {
   const mentor = membership?.user.mentor;
   if (!membership || !mentor) throw new SchoolMentorError("This mentor is unavailable.");
 
-  const [students, featureEnabled, subscription] = await Promise.all([
+  const [students, publisherFeatureEnabled, subscription] = await Promise.all([
     prisma.student.findMany({
       where: {
         schoolId: school.id,
@@ -158,10 +167,11 @@ export async function getSchoolMentor(mentorId: string) {
       orderBy: { name: "asc" },
     }),
     school.publisherId ? isPublisherFeatureEnabled(school.publisherId, PlatformFeatureKey.TUTOR_PLATFORM) : Promise.resolve(false),
-    prisma.schoolAccessSubscription.findUnique({ where: { schoolId: school.id } }),
+    prisma.schoolAccessSubscription.findUnique({ where: { schoolId: school.id }, select: { featureConfig: true, plan: true, status: true, startsAt: true, expiresAt: true } }),
   ]);
   const active = membership.active && membership.status === SchoolStaffMembershipStatus.ACTIVE && mentor.active;
   const paidSchoolAccess = Boolean(subscription?.plan === "PAID" && effectiveSchoolAccessStatus(subscription) === "ACTIVE");
+  const featureEnabled = publisherFeatureEnabled && isSchoolFeatureEnabled(subscription, "MENTOR_PORTAL");
   const loginReady = membership.user.active && Boolean(membership.user.emailVerifiedAt) && !membership.user.mustChangePassword && active && mentor.assignments.length > 0 && featureEnabled && paidSchoolAccess;
   const assignedIds = new Set(mentor.assignments.map((assignment) => assignment.studentId));
   return {
@@ -220,7 +230,13 @@ export async function createSchoolMentor(input: Record<string, unknown>) {
   if (!publisherId || !await isPublisherFeatureEnabled(publisherId, PlatformFeatureKey.TUTOR_PLATFORM)) {
     throw new SchoolMentorError("Mentor onboarding is not enabled for this school.");
   }
-  const permissions = mentorPermissionsFor(await prisma.schoolPortalPermission.findUnique({ where: { schoolId: school.id } }));
+  const [permissions, subscription] = await Promise.all([
+    mentorPermissionsFor(await prisma.schoolPortalPermission.findUnique({ where: { schoolId: school.id } })),
+    prisma.schoolAccessSubscription.findUnique({ where: { schoolId: school.id }, select: { featureConfig: true } }),
+  ]);
+  if (!isSchoolFeatureEnabled(subscription, "MENTOR_PORTAL")) {
+    throw new SchoolMentorError("Mentor onboarding is not enabled for this school.");
+  }
   if (!permissions.mentorActivationAllowed) {
     throw new SchoolMentorError("Mentor account activation is disabled by this school.");
   }
@@ -261,6 +277,7 @@ export async function createSchoolMentor(input: Record<string, unknown>) {
 export async function resendSchoolMentorActivation(mentorId: string) {
   const detail = await getSchoolMentor(mentorId);
   if (!detail.school.publisherId) throw new SchoolMentorError("Mentor activation is unavailable.");
+  if (!detail.featureEnabled) throw new SchoolMentorError("Mentor onboarding is not enabled for this school.");
   const permissions = mentorPermissionsFor(await prisma.schoolPortalPermission.findUnique({ where: { schoolId: detail.school.id } }));
   if (!permissions.mentorActivationAllowed) throw new SchoolMentorError("Mentor account activation is disabled by this school.");
   if (!detail.membership.active || detail.membership.status !== SchoolStaffMembershipStatus.ACTIVE) throw new SchoolMentorError("Activate this mentor before sending an account invitation.");
@@ -335,13 +352,14 @@ export async function activateSchoolMentorAccount(input: { reference?: string; t
     if (!challenge || challenge.consumedAt || challenge.revokedAt || !challenge.completionTokenHash || !challenge.completionExpiresAt || challenge.completionExpiresAt <= now || challenge.user.role !== UserRole.MENTOR || !challenge.user.mentor?.active || challenge.user.mentor.publisherId !== challenge.user.publisherId || !challenge.user.publisher?.active || challenge.user.staffMemberships.length === 0 || !securelyMatchesHash(challenge.completionTokenHash, actualTokenHash)) {
       return { ok: false as const, message: "This mentor invitation is invalid or has expired. Ask your school to send a new invitation." };
     }
-    const schoolIds = challenge.user.staffMemberships.map((membership) => membership.id);
     const activeMembership = await tx.schoolStaffMembership.findFirst({
       where: { userId: challenge.userId, active: true, status: SchoolStaffMembershipStatus.ACTIVE },
       select: { schoolId: true },
       orderBy: { joinedAt: "desc" },
     });
     if (!activeMembership) return { ok: false as const, message: "This mentor invitation is invalid or has expired. Ask your school to send a new invitation." };
+    const schoolSubscription = await tx.schoolAccessSubscription.findUnique({ where: { schoolId: activeMembership.schoolId }, select: { featureConfig: true } });
+    if (!isSchoolFeatureEnabled(schoolSubscription, "MENTOR_PORTAL")) return { ok: false as const, message: "This mentor invitation is invalid or has expired. Ask your school to send a new invitation." };
     const permissions = mentorPermissionsFor(await tx.schoolPortalPermission.findUnique({ where: { schoolId: activeMembership.schoolId } }));
     if (!permissions.mentorActivationAllowed) return { ok: false as const, message: "Mentor account activation is disabled by this school." };
     await tx.user.update({ where: { id: challenge.userId }, data: { password, emailVerifiedAt: now, mustChangePassword: false, active: true } });

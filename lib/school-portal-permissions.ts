@@ -1,12 +1,31 @@
 import "server-only";
 
-import { Prisma, SecurityAuditOutcome, UserRole } from "@prisma/client";
+import { Prisma, SecurityAuditOutcome, SchoolPortalPermission, UserRole } from "@prisma/client";
 
 import { requireSchool } from "@/lib/school-dashboard";
 import { prisma } from "@/lib/prisma";
 import { accountAuditActor, writeSecurityAuditEvent } from "@/lib/security-audit";
 
-export const SCHOOL_PORTAL_PERMISSION_DEFAULTS = {
+export type SchoolPortalPermissionFlags = {
+  parentLoginEnabled: boolean;
+  parentActivationAllowed: boolean;
+  parentPlannerVisibility: boolean;
+  parentAttendanceVisibility: boolean;
+  parentHomeworkVisibility: boolean;
+  parentTeacherMaterialVisibility: boolean;
+  parentAssessmentVisibility: boolean;
+  parentAnnouncementAcknowledgement: boolean;
+  mentorLoginEnabled: boolean;
+  mentorActivationAllowed: boolean;
+  mentorAssignedStudentVisibility: boolean;
+  mentorPlannerVisibility: boolean;
+  mentorAttendanceVisibility: boolean;
+  mentorAcademicProgressVisibility: boolean;
+  mentorPlanCreation: boolean;
+  mentorParentVisibleUpdates: boolean;
+};
+
+export const SCHOOL_PORTAL_PERMISSION_DEFAULTS: SchoolPortalPermissionFlags = {
   parentLoginEnabled: true,
   parentActivationAllowed: true,
   parentPlannerVisibility: true,
@@ -23,9 +42,15 @@ export const SCHOOL_PORTAL_PERMISSION_DEFAULTS = {
   mentorAcademicProgressVisibility: true,
   mentorPlanCreation: true,
   mentorParentVisibleUpdates: true,
-} as const;
+};
 
-export type SchoolPortalPermissionSnapshot = typeof SCHOOL_PORTAL_PERMISSION_DEFAULTS;
+export type SchoolPortalPermissionSnapshot = SchoolPortalPermissionFlags;
+
+export type SchoolPortalPermissionInput =
+  | SchoolPortalPermission
+  | (Partial<SchoolPortalPermissionFlags> & Record<string, unknown>)
+  | null
+  | undefined;
 
 export type SchoolPortalPermissionFormInput = {
   confirmDisablingPortalAccess?: boolean;
@@ -34,7 +59,7 @@ export type SchoolPortalPermissionFormInput = {
 const PERMISSION_FIELDS = Object.keys(SCHOOL_PORTAL_PERMISSION_DEFAULTS) as Array<keyof SchoolPortalPermissionSnapshot>;
 
 export function mergeSchoolPortalPermissionDefaults(
-  row: Partial<SchoolPortalPermissionSnapshot> | null | undefined,
+  row: SchoolPortalPermissionInput,
 ): SchoolPortalPermissionSnapshot {
   return { ...SCHOOL_PORTAL_PERMISSION_DEFAULTS, ...row };
 }
@@ -71,7 +96,8 @@ export async function getSchoolPortalPermissions() {
 
 export async function updateSchoolPortalPermissions(input: SchoolPortalPermissionFormInput) {
   const school = await requireSchool();
-  if (!school.publisherId) throw new Error("School portal permissions are unavailable for this school.");
+  const publisherId = school.publisherId;
+  if (!publisherId) throw new Error("School portal permissions are unavailable for this school.");
 
   if (
     input.confirmDisablingPortalAccess !== true &&
@@ -98,7 +124,7 @@ export async function updateSchoolPortalPermissions(input: SchoolPortalPermissio
       where: { schoolId: school.id },
       create: {
         schoolId: school.id,
-        publisherId: school.publisherId,
+        publisherId,
         ...nextValues,
       },
       update: nextValues,

@@ -6,10 +6,7 @@ import { verifyPassword } from "@/lib/password";
 import { loadStudentIdentity } from "@/lib/student-identity";
 import { studentSessionClaims } from "@/lib/student-identity-service";
 import { getMentorPortalLoginReadinessForUserId, getParentPortalLoginReadinessForUserId } from "@/lib/portal-access";
-import { isPublisherFeatureEnabled } from "@/lib/publisher-features";
 import { isCredentialRolePublisherInvariantValid } from "@/lib/role-publisher-policy";
-import { effectiveSchoolAccessStatus } from "@/lib/school-access-policy";
-import { PlatformFeatureKey } from "@prisma/client";
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   trustHost: true,

@@ -63,15 +63,15 @@ model User {
   revokedSchoolResources      SchoolResourceEntitlement[]  @relation("SchoolResourceEntitlementRevoker")
   restoredSchoolResources     SchoolResourceEntitlement[]  @relation("SchoolResourceEntitlementRestorer")
   archivedSchoolResources     SchoolResourceEntitlement[]  @relation("SchoolResourceEntitlementArchiver")
-  createdQrCodes              DynamicQrCode[]               @relation("QrCodeCreatedBy")
-  suspendedQrCodes            DynamicQrCode[]               @relation("QrCodeSuspendedBy")
-  createdQrDestinations       QrDestination[]                @relation("QrDestinationCreatedBy")
-  approvedQrDestinations      QrDestination[]                @relation("QrDestinationApprovedBy")
-  changedQrRedirectRevisions  QrRedirectRevision[]            @relation("QrRevisionChangedBy")
-  sentSectionChatMessages     SectionChatMessage[]             @relation("SectionChatSender")
-  pinnedSectionChatMessages   SectionChatMessage[]             @relation("SectionChatPinner")
+  createdQrCodes              DynamicQrCode[]              @relation("QrCodeCreatedBy")
+  suspendedQrCodes            DynamicQrCode[]              @relation("QrCodeSuspendedBy")
+  createdQrDestinations       QrDestination[]              @relation("QrDestinationCreatedBy")
+  approvedQrDestinations      QrDestination[]              @relation("QrDestinationApprovedBy")
+  changedQrRedirectRevisions  QrRedirectRevision[]         @relation("QrRevisionChangedBy")
+  sentSectionChatMessages     SectionChatMessage[]         @relation("SectionChatSender")
+  pinnedSectionChatMessages   SectionChatMessage[]         @relation("SectionChatPinner")
   sectionChatReadStates       SectionChatReadState[]
-  plannerReschedulesCreated   AcademicPlannerReschedule[]      @relation("PlannerRescheduleCreator")
+  plannerReschedulesCreated   AcademicPlannerReschedule[]  @relation("PlannerRescheduleCreator")
 
   @@index([publisherId, role])
   @@index([role, active])
@@ -141,6 +141,7 @@ model Publisher {
   bookFeatureDefinitions     BookFeatureDefinition[]
   bookResourceLinks          BookResourceLink[]
   dynamicQrCodes             DynamicQrCode[]
+  schoolPortalPermissions    SchoolPortalPermission[]
 }
 
 model FeatureDefinition {
@@ -370,6 +371,7 @@ model SchoolAccessSubscription {
   startsAt    DateTime?
   expiresAt   DateTime?
   notes       String?
+  featureConfig Json?
   createdAt   DateTime           @default(now())
   updatedAt   DateTime           @updatedAt
   school      School             @relation(fields: [schoolId], references: [id], onDelete: Restrict)
@@ -380,29 +382,29 @@ model SchoolAccessSubscription {
 }
 
 model SchoolPortalPermission {
-  id                                 String    @id @default(cuid())
-  schoolId                           String    @unique
-  publisherId                        String
-  parentLoginEnabled                 Boolean   @default(true)
-  parentActivationAllowed            Boolean   @default(true)
-  parentPlannerVisibility            Boolean   @default(true)
-  parentAttendanceVisibility         Boolean   @default(true)
-  parentHomeworkVisibility           Boolean   @default(true)
-  parentTeacherMaterialVisibility    Boolean   @default(true)
-  parentAssessmentVisibility         Boolean   @default(true)
-  parentAnnouncementAcknowledgement  Boolean   @default(true)
-  mentorLoginEnabled                 Boolean   @default(true)
-  mentorActivationAllowed            Boolean   @default(true)
-  mentorAssignedStudentVisibility    Boolean   @default(true)
-  mentorPlannerVisibility            Boolean   @default(true)
-  mentorAttendanceVisibility         Boolean   @default(true)
-  mentorAcademicProgressVisibility   Boolean   @default(true)
-  mentorPlanCreation                 Boolean   @default(true)
-  mentorParentVisibleUpdates         Boolean   @default(true)
-  createdAt                          DateTime  @default(now())
-  updatedAt                          DateTime  @updatedAt
-  school                             School    @relation(fields: [schoolId], references: [id], onDelete: Restrict)
-  publisher                          Publisher @relation(fields: [publisherId], references: [id], onDelete: Restrict)
+  id                                String    @id @default(cuid())
+  schoolId                          String    @unique
+  publisherId                       String
+  parentLoginEnabled                Boolean   @default(true)
+  parentActivationAllowed           Boolean   @default(true)
+  parentPlannerVisibility           Boolean   @default(true)
+  parentAttendanceVisibility        Boolean   @default(true)
+  parentHomeworkVisibility          Boolean   @default(true)
+  parentTeacherMaterialVisibility   Boolean   @default(true)
+  parentAssessmentVisibility        Boolean   @default(true)
+  parentAnnouncementAcknowledgement Boolean   @default(true)
+  mentorLoginEnabled                Boolean   @default(true)
+  mentorActivationAllowed           Boolean   @default(true)
+  mentorAssignedStudentVisibility   Boolean   @default(true)
+  mentorPlannerVisibility           Boolean   @default(true)
+  mentorAttendanceVisibility        Boolean   @default(true)
+  mentorAcademicProgressVisibility  Boolean   @default(true)
+  mentorPlanCreation                Boolean   @default(true)
+  mentorParentVisibleUpdates        Boolean   @default(true)
+  createdAt                         DateTime  @default(now())
+  updatedAt                         DateTime  @updatedAt
+  school                            School    @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  publisher                         Publisher @relation(fields: [publisherId], references: [id], onDelete: Restrict)
 
   @@index([publisherId, schoolId])
 }
@@ -424,22 +426,22 @@ model SectionChatRoom {
 }
 
 model SectionChatMessage {
-  id             String                   @id @default(cuid())
+  id             String                 @id @default(cuid())
   roomId         String
   senderUserId   String
   replyToId      String?
-  kind           SectionChatMessageKind   @default(MESSAGE)
+  kind           SectionChatMessageKind @default(MESSAGE)
   text           String
   pinnedAt       DateTime?
   pinnedByUserId String?
   deletedAt      DateTime?
-  createdAt      DateTime                 @default(now())
-  updatedAt      DateTime                 @updatedAt
-  room           SectionChatRoom          @relation(fields: [roomId], references: [id], onDelete: Restrict)
-  sender         User                     @relation("SectionChatSender", fields: [senderUserId], references: [id], onDelete: Restrict)
-  replyTo        SectionChatMessage?       @relation("SectionChatReplies", fields: [replyToId], references: [id], onDelete: SetNull)
-  replies        SectionChatMessage[]      @relation("SectionChatReplies")
-  pinnedBy       User?                    @relation("SectionChatPinner", fields: [pinnedByUserId], references: [id], onDelete: SetNull)
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+  room           SectionChatRoom        @relation(fields: [roomId], references: [id], onDelete: Restrict)
+  sender         User                   @relation("SectionChatSender", fields: [senderUserId], references: [id], onDelete: Restrict)
+  replyTo        SectionChatMessage?    @relation("SectionChatReplies", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies        SectionChatMessage[]   @relation("SectionChatReplies")
+  pinnedBy       User?                  @relation("SectionChatPinner", fields: [pinnedByUserId], references: [id], onDelete: SetNull)
 
   @@index([roomId, createdAt])
   @@index([roomId, pinnedAt])
@@ -461,7 +463,7 @@ model SectionChatReadState {
 }
 
 model AcademicPlannerItem {
-  id               String                     @id @default(cuid())
+  id               String                      @id @default(cuid())
   schoolId         String
   academicYearId   String
   sectionId        String?
@@ -469,21 +471,21 @@ model AcademicPlannerItem {
   assignmentId     String?
   assessmentId     String?
   type             AcademicPlannerItemType
-  status           AcademicPlannerItemStatus  @default(PLANNED)
+  status           AcademicPlannerItemStatus   @default(PLANNED)
   title            String
   description      String?
-  fixedDate        Boolean                    @default(false)
+  fixedDate        Boolean                     @default(false)
   originalDate     DateTime
   currentDate      DateTime
   completedAt      DateTime?
-  createdAt        DateTime                   @default(now())
-  updatedAt        DateTime                   @updatedAt
-  school           School                     @relation(fields: [schoolId], references: [id], onDelete: Restrict)
-  academicYear     AcademicYear               @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
-  section          ClassSection?              @relation(fields: [sectionId], references: [id], onDelete: Restrict)
-  sectionSubject   SectionSubject?            @relation(fields: [sectionSubjectId], references: [id], onDelete: Restrict)
-  assignment       ClassroomAssignment?       @relation(fields: [assignmentId], references: [id], onDelete: Restrict)
-  assessment       Assessment?                @relation(fields: [assessmentId], references: [id], onDelete: Restrict)
+  createdAt        DateTime                    @default(now())
+  updatedAt        DateTime                    @updatedAt
+  school           School                      @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  academicYear     AcademicYear                @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
+  section          ClassSection?               @relation(fields: [sectionId], references: [id], onDelete: Restrict)
+  sectionSubject   SectionSubject?             @relation(fields: [sectionSubjectId], references: [id], onDelete: Restrict)
+  assignment       ClassroomAssignment?        @relation(fields: [assignmentId], references: [id], onDelete: Restrict)
+  assessment       Assessment?                 @relation(fields: [assessmentId], references: [id], onDelete: Restrict)
   reschedules      AcademicPlannerReschedule[]
 
   @@index([schoolId, academicYearId, currentDate])
@@ -1178,38 +1180,38 @@ model AttendanceSession {
 }
 
 model AttendanceRecord {
-  id                   String            @id @default(cuid())
-  attendanceSessionId  String
-  studentEnrollmentId  String
-  attendanceStatus     AttendanceStatus
-  checkInTime          DateTime?
-  remark               String?
-  markedBy             String
-  updatedBy            String
-  createdAt            DateTime          @default(now())
-  updatedAt            DateTime          @updatedAt
-  attendanceSession    AttendanceSession @relation(fields: [attendanceSessionId], references: [id], onDelete: Restrict)
-  studentEnrollment    StudentEnrollment @relation(fields: [studentEnrollmentId], references: [id], onDelete: Restrict)
-  corrections          AttendanceCorrection[]
+  id                  String                 @id @default(cuid())
+  attendanceSessionId String
+  studentEnrollmentId String
+  attendanceStatus    AttendanceStatus
+  checkInTime         DateTime?
+  remark              String?
+  markedBy            String
+  updatedBy           String
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
+  attendanceSession   AttendanceSession      @relation(fields: [attendanceSessionId], references: [id], onDelete: Restrict)
+  studentEnrollment   StudentEnrollment      @relation(fields: [studentEnrollmentId], references: [id], onDelete: Restrict)
+  corrections         AttendanceCorrection[]
 
   @@unique([attendanceSessionId, studentEnrollmentId])
   @@index([studentEnrollmentId, attendanceStatus])
 }
 
 model AttendanceCorrection {
-  id                  String           @id @default(cuid())
-  attendanceRecordId  String
-  previousStatus      AttendanceStatus
-  newStatus           AttendanceStatus
-  reason              String
-  decisionStatus      AttendanceCorrectionDecision @default(PENDING)
-  reviewedAt          DateTime?
-  reviewedBy          String?
-  decisionNote        String?
-  approvedBy          String?
-  createdBy           String
-  createdAt           DateTime         @default(now())
-  attendanceRecord    AttendanceRecord @relation(fields: [attendanceRecordId], references: [id], onDelete: Restrict)
+  id                 String                       @id @default(cuid())
+  attendanceRecordId String
+  previousStatus     AttendanceStatus
+  newStatus          AttendanceStatus
+  reason             String
+  decisionStatus     AttendanceCorrectionDecision @default(PENDING)
+  reviewedAt         DateTime?
+  reviewedBy         String?
+  decisionNote       String?
+  approvedBy         String?
+  createdBy          String
+  createdAt          DateTime                     @default(now())
+  attendanceRecord   AttendanceRecord             @relation(fields: [attendanceRecordId], references: [id], onDelete: Restrict)
 
   @@index([attendanceRecordId, createdAt])
   @@index([approvedBy])
@@ -1279,15 +1281,15 @@ model BookSeries {
 }
 
 model Board {
-  id           String   @id @default(cuid())
+  id           String    @id @default(cuid())
   publisherId  String
   name         String
   code         String
   description  String?
-  displayOrder Int      @default(0)
-  active       Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  displayOrder Int       @default(0)
+  active       Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
   publisher    Publisher @relation(fields: [publisherId], references: [id], onDelete: Restrict)
   books        Book[]    @relation("BookBoard")
 
@@ -1297,16 +1299,16 @@ model Board {
 }
 
 model MasterDataDefinition {
-  id           String   @id @default(cuid())
+  id           String            @id @default(cuid())
   publisherId  String
   name         String
   code         String
   description  String?
-  displayOrder Int      @default(0)
-  active       Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  publisher    Publisher @relation(fields: [publisherId], references: [id], onDelete: Restrict)
+  displayOrder Int               @default(0)
+  active       Boolean           @default(true)
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  publisher    Publisher         @relation(fields: [publisherId], references: [id], onDelete: Restrict)
   values       MasterDataValue[]
 
   @@unique([publisherId, name])
@@ -1315,17 +1317,17 @@ model MasterDataDefinition {
 }
 
 model MasterDataValue {
-  id           String   @id @default(cuid())
+  id           String               @id @default(cuid())
   publisherId  String
   definitionId String
   name         String
   code         String
   description  String?
-  displayOrder Int      @default(0)
-  active       Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  publisher    Publisher @relation(fields: [publisherId], references: [id], onDelete: Restrict)
+  displayOrder Int                  @default(0)
+  active       Boolean              @default(true)
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+  publisher    Publisher            @relation(fields: [publisherId], references: [id], onDelete: Restrict)
   definition   MasterDataDefinition @relation(fields: [definitionId], references: [id], onDelete: Restrict)
 
   @@unique([definitionId, name])
@@ -2386,8 +2388,8 @@ model DynamicQrCode {
   moduleId             String?
   topicId              String?
   status               QrStatus              @default(DRAFT)
-  audience             QrAccessAudience       @default(PUBLIC)
-  currentDestinationId String?                @unique
+  audience             QrAccessAudience      @default(PUBLIC)
+  currentDestinationId String?               @unique
   qrEligible           Boolean               @default(true)
   activatesAt          DateTime?
   expiresAt            DateTime?
@@ -2396,19 +2398,19 @@ model DynamicQrCode {
   suspendedAt          DateTime?
   suspensionReason     String?
   archivedAt           DateTime?
-  createdAt            DateTime               @default(now())
-  updatedAt            DateTime               @updatedAt
-  publisher            Publisher              @relation(fields: [publisherId], references: [id], onDelete: Restrict)
-  book                 Book                   @relation(fields: [bookId], references: [id], onDelete: Restrict)
-  part                 BookPart?              @relation(fields: [partId], references: [id], onDelete: Restrict)
-  unit                 BookUnit?              @relation(fields: [unitId], references: [id], onDelete: Restrict)
-  chapter              BookChapter?           @relation(fields: [chapterId], references: [id], onDelete: Restrict)
-  module               BookModule?            @relation(fields: [moduleId], references: [id], onDelete: Restrict)
-  topic                BookTopic?             @relation(fields: [topicId], references: [id], onDelete: Restrict)
-  createdBy            User                   @relation("QrCodeCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
-  suspendedBy          User?                  @relation("QrCodeSuspendedBy", fields: [suspendedById], references: [id], onDelete: SetNull)
-  currentDestination   QrDestination?         @relation("CurrentQrDestination", fields: [currentDestinationId], references: [id], onDelete: SetNull)
-  destinations         QrDestination[]        @relation("QrDestinationOwner")
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  publisher            Publisher             @relation(fields: [publisherId], references: [id], onDelete: Restrict)
+  book                 Book                  @relation(fields: [bookId], references: [id], onDelete: Restrict)
+  part                 BookPart?             @relation(fields: [partId], references: [id], onDelete: Restrict)
+  unit                 BookUnit?             @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  chapter              BookChapter?          @relation(fields: [chapterId], references: [id], onDelete: Restrict)
+  module               BookModule?           @relation(fields: [moduleId], references: [id], onDelete: Restrict)
+  topic                BookTopic?            @relation(fields: [topicId], references: [id], onDelete: Restrict)
+  createdBy            User                  @relation("QrCodeCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  suspendedBy          User?                 @relation("QrCodeSuspendedBy", fields: [suspendedById], references: [id], onDelete: SetNull)
+  currentDestination   QrDestination?        @relation("CurrentQrDestination", fields: [currentDestinationId], references: [id], onDelete: SetNull)
+  destinations         QrDestination[]       @relation("QrDestinationOwner")
   redirectRevisions    QrRedirectRevision[]
 
   @@index([publisherId, status, updatedAt])
@@ -2423,7 +2425,7 @@ model DynamicQrCode {
 }
 
 model QrDestination {
-  id                   String             @id @default(cuid())
+  id                   String               @id @default(cuid())
   qrCodeId             String
   type                 QrDestinationType
   resourceId           String?
@@ -2431,22 +2433,22 @@ model QrDestination {
   validatedExternalUrl String?
   externalHost         String?
   internalRoute        String?
-  audience             QrAccessAudience   @default(PUBLIC)
-  active               Boolean            @default(true)
+  audience             QrAccessAudience     @default(PUBLIC)
+  active               Boolean              @default(true)
   metadata             Json?
   validatedAt          DateTime?
   externalApprovedAt   DateTime?
   externalApprovedById String?
   createdById          String
   deactivatedAt        DateTime?
-  createdAt            DateTime           @default(now())
-  updatedAt            DateTime           @updatedAt
-  qrCode               DynamicQrCode      @relation("QrDestinationOwner", fields: [qrCodeId], references: [id], onDelete: Restrict)
-  currentFor           DynamicQrCode?      @relation("CurrentQrDestination")
-  resource             Resource?           @relation(fields: [resourceId], references: [id], onDelete: Restrict)
-  bookResourceLink     BookResourceLink?   @relation(fields: [bookResourceLinkId], references: [id], onDelete: Restrict)
-  createdBy            User                @relation("QrDestinationCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
-  externalApprovedBy   User?               @relation("QrDestinationApprovedBy", fields: [externalApprovedById], references: [id], onDelete: SetNull)
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+  qrCode               DynamicQrCode        @relation("QrDestinationOwner", fields: [qrCodeId], references: [id], onDelete: Restrict)
+  currentFor           DynamicQrCode?       @relation("CurrentQrDestination")
+  resource             Resource?            @relation(fields: [resourceId], references: [id], onDelete: Restrict)
+  bookResourceLink     BookResourceLink?    @relation(fields: [bookResourceLinkId], references: [id], onDelete: Restrict)
+  createdBy            User                 @relation("QrDestinationCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  externalApprovedBy   User?                @relation("QrDestinationApprovedBy", fields: [externalApprovedById], references: [id], onDelete: SetNull)
   previousRevisions    QrRedirectRevision[] @relation("PreviousQrRevisionDestination")
   newRevisions         QrRedirectRevision[] @relation("NewQrRevisionDestination")
 

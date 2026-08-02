@@ -12,6 +12,7 @@ import {
 import { prisma } from "@/lib/prisma";
 import { isPublisherFeatureEnabled, requirePublisherFeature } from "@/lib/publisher-features";
 import { effectiveSchoolAccessStatus } from "@/lib/school-access-policy";
+import { isSchoolFeatureEnabled } from "@/lib/school-feature-entitlements";
 import { canAccessMentorAssignment, learningTrend, validMentorNote } from "./mentor-policy";
 
 export class MentorAccessError extends Error {}
@@ -28,7 +29,7 @@ export async function requireMentor() {
   if (!readiness.ok) throw new MentorAccessError(readiness.message);
   const mentor = await prisma.mentor.findUnique({
     where: { id: readiness.actor.mentor.id },
-    include: { user: { select: { id: true, name: true, email: true, phone: true } }, publisher: { select: { id: true, name: true, active: true } } },
+    include: { user: { select: { id: true, name: true, email: true, phone: true, active: true, publisherId: true } }, publisher: { select: { id: true, name: true, active: true } } },
   });
   if (!mentor) throw new MentorAccessError("Mentor access is unavailable.");
   await requirePublisherFeature(mentor.publisherId, PlatformFeatureKey.TUTOR_PLATFORM);
@@ -40,13 +41,13 @@ async function loadOwnedAssignment(studentId: string, options?: { surface?: Ment
   const assignment = await prisma.mentorStudentAssignment.findFirst({
     where: { mentorId: mentor.id, studentId, status: "ACTIVE", academicYear: { active: true, current: true } },
     include: {
-      student: { select: { id: true, name: true, admissionNumber: true, schoolId: true, active: true, school: { select: { id: true, schoolName: true, status: true, publisherId: true, publisher: { select: { active: true } }, accessSubscription: { select: { plan: true, status: true, startsAt: true, expiresAt: true } }, portalPermissions: true } } } },
+      student: { select: { id: true, name: true, admissionNumber: true, schoolId: true, active: true, school: { select: { id: true, schoolName: true, status: true, publisherId: true, publisher: { select: { active: true } }, accessSubscription: { select: { plan: true, status: true, startsAt: true, expiresAt: true, featureConfig: true } }, portalPermissions: true } } } },
       academicYear: { select: { id: true, name: true, active: true, current: true } },
     },
     orderBy: { startsAt: "desc" },
   });
   if (!assignment?.student.active || !assignment.academicYear.active || !assignment.academicYear.current) throw new MentorAccessError("This student is unavailable.");
-  if (assignment.student.school.status !== "APPROVED" || !assignment.student.school.publisher?.active || !hasActiveMentorSchoolAccess(assignment.student.school.accessSubscription)) throw new MentorAccessError("This student is unavailable.");
+  if (assignment.student.school.status !== "APPROVED" || !assignment.student.school.publisher?.active || !hasActiveMentorSchoolAccess(assignment.student.school.accessSubscription) || !isSchoolFeatureEnabled(assignment.student.school.accessSubscription, "MENTOR_PORTAL")) throw new MentorAccessError("This student is unavailable.");
   const permissions = mentorPermissionsFor(assignment.student.school.portalPermissions);
   if (!permissions.mentorLoginEnabled) throw new MentorAccessError("Mentor login is disabled by this school.");
   const enrollment = await prisma.studentEnrollment.findFirst({

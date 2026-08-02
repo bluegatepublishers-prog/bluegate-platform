@@ -3,7 +3,12 @@ import "server-only";
 import { PlatformFeatureKey, SchoolStaffMembershipStatus, UserRole } from "@prisma/client";
 
 import { effectiveSchoolAccessStatus } from "@/lib/school-access-policy";
-import { mergeSchoolPortalPermissionDefaults, SCHOOL_PORTAL_PERMISSION_DEFAULTS } from "@/lib/school-portal-permissions";
+import { isSchoolFeatureEnabled } from "@/lib/school-feature-entitlements";
+import {
+  mergeSchoolPortalPermissionDefaults,
+  SCHOOL_PORTAL_PERMISSION_DEFAULTS,
+  type SchoolPortalPermissionInput,
+} from "@/lib/school-portal-permissions";
 import { canAccessMentorAssignment } from "@/lib/mentor-policy";
 import { prisma } from "@/lib/prisma";
 
@@ -109,7 +114,7 @@ const mentorFeatureWhere = {
   feature: { key: PlatformFeatureKey.TUTOR_PLATFORM, active: true, implemented: true },
 };
 
-export function parentPermissionsFor(row: Partial<typeof SCHOOL_PORTAL_PERMISSION_DEFAULTS> | null | undefined): ParentPortalPermissions {
+export function parentPermissionsFor(row: SchoolPortalPermissionInput): ParentPortalPermissions {
   const merged = mergeSchoolPortalPermissionDefaults(row);
   return {
     parentLoginEnabled: merged.parentLoginEnabled,
@@ -124,7 +129,7 @@ export function parentPermissionsFor(row: Partial<typeof SCHOOL_PORTAL_PERMISSIO
   };
 }
 
-export function mentorPermissionsFor(row: Partial<typeof SCHOOL_PORTAL_PERMISSION_DEFAULTS> | null | undefined): MentorPortalPermissions {
+export function mentorPermissionsFor(row: SchoolPortalPermissionInput): MentorPortalPermissions {
   const merged = mergeSchoolPortalPermissionDefaults(row);
   return {
     mentorLoginEnabled: merged.mentorLoginEnabled,
@@ -171,7 +176,7 @@ export async function getParentPortalLoginReadinessForUserId(userId: string | nu
                   school: {
                     include: {
                       publisher: { select: { id: true, active: true, name: true } },
-                      accessSubscription: { select: { plan: true, status: true, startsAt: true, expiresAt: true } },
+                      accessSubscription: { select: { plan: true, status: true, startsAt: true, expiresAt: true, featureConfig: true } },
                       portalPermissions: true,
                     },
                   },
@@ -200,14 +205,13 @@ export async function getParentPortalLoginReadinessForUserId(userId: string | nu
   if (user.role !== UserRole.PARENT) {
     return { ok: false, category: "UNAUTHORIZED", code: "PARENT_ROLE_REQUIRED", message: "This account is not configured for the Parent Portal.", permissions: null, schoolId: null, publisherId: null };
   }
-  if (!user.active) {
-    return { ok: false, category: "ACCOUNT_NOT_READY", code: "PARENT_USER_INACTIVE", message: "Your account is inactive. Contact your school office.", permissions: null, schoolId: null, publisherId: null };
-  }
-  if (!user.parent?.active) {
+
+  const parentProfile = user.parent;
+  if (!parentProfile) {
     return { ok: false, category: "ACCOUNT_NOT_READY", code: "PARENT_PROFILE_INACTIVE", message: "Your parent profile is inactive. Contact your school office.", permissions: null, schoolId: null, publisherId: null };
   }
 
-  const relationships = user.parent.relationships;
+  const relationships = parentProfile.relationships;
   if (!relationships.length) {
     return { ok: false, category: "ACCOUNT_NOT_READY", code: "PARENT_RELATIONSHIP_INACTIVE", message: "No school-approved parent relationship is available yet.", permissions: null, schoolId: null, publisherId: null };
   }
@@ -225,17 +229,26 @@ export async function getParentPortalLoginReadinessForUserId(userId: string | nu
       ? Boolean(await prisma.publisherFeature.findFirst({ where: { publisherId, ...parentFeatureWhere }, select: { id: true } }))
       : false;
 
-    if (!permissions.parentLoginEnabled) {
-      return { ok: false, category: "FEATURE_DISABLED", code: "PARENT_PORTAL_DISABLED", message: "Parent login is disabled by this school.", permissions, schoolId, publisherId };
-    }
-    if (!publisherId || relationship.student.schoolId !== school.id) {
-      return { ok: false, category: "ACCOUNT_NOT_READY", code: "PARENT_OWNERSHIP_MISMATCH", message: "Parent access could not be verified for this school.", permissions, schoolId, publisherId };
-    }
     if (!featureEnabled || !publisher?.active || school.status !== "APPROVED") {
       return { ok: false, category: "FEATURE_DISABLED", code: "PARENT_PORTAL_FEATURE_DISABLED", message: "The Parent Portal is not enabled for this school.", permissions, schoolId, publisherId };
     }
     if (!schoolAccessActive) {
       return { ok: false, category: "SUBSCRIPTION_BLOCKED", code: "PARENT_SUBSCRIPTION_BLOCKED", message: "Parent access is blocked because this school's subscription is inactive.", permissions, schoolId, publisherId };
+    }
+    if (!isSchoolFeatureEnabled(school.accessSubscription, "PARENT_PORTAL")) {
+      return { ok: false, category: "FEATURE_DISABLED", code: "PARENT_PORTAL_DISABLED", message: "Parent portal access is disabled by this school.", permissions, schoolId, publisherId };
+    }
+    if (!permissions.parentLoginEnabled) {
+      return { ok: false, category: "FEATURE_DISABLED", code: "PARENT_PORTAL_DISABLED", message: "Parent login is disabled by this school.", permissions, schoolId, publisherId };
+    }
+    if (!user.active) {
+      return { ok: false, category: "ACCOUNT_NOT_READY", code: "PARENT_USER_INACTIVE", message: "Your account is inactive. Contact your school office.", permissions, schoolId, publisherId };
+    }
+    if (!parentProfile.active) {
+      return { ok: false, category: "ACCOUNT_NOT_READY", code: "PARENT_PROFILE_INACTIVE", message: "Your parent profile is inactive. Contact your school office.", permissions, schoolId, publisherId };
+    }
+    if (!publisherId || relationship.student.schoolId !== school.id) {
+      return { ok: false, category: "ACCOUNT_NOT_READY", code: "PARENT_OWNERSHIP_MISMATCH", message: "Parent access could not be verified for this school.", permissions, schoolId, publisherId };
     }
     if (relationship.status !== "APPROVED" || !relationship.canViewLearning) {
       continue;
@@ -252,7 +265,7 @@ export async function getParentPortalLoginReadinessForUserId(userId: string | nu
       category: "READY",
       actor: {
         user: { id: user.id, name: user.name, email: user.email, active: user.active },
-        parent: { id: user.parent.id, userId: user.parent.userId, active: user.parent.active, phone: user.parent.phone ?? null },
+        parent: { id: parentProfile.id, userId: parentProfile.userId, active: parentProfile.active, phone: parentProfile.phone ?? null },
       },
       permissions,
       schoolId,
@@ -292,7 +305,7 @@ export async function getMentorPortalLoginReadinessForUserId(userId: string | nu
                   school: {
                     include: {
                       publisher: { select: { id: true, active: true, name: true } },
-                      accessSubscription: { select: { plan: true, status: true, startsAt: true, expiresAt: true } },
+                      accessSubscription: { select: { plan: true, status: true, startsAt: true, expiresAt: true, featureConfig: true } },
                       portalPermissions: true,
                     },
                   },
@@ -325,25 +338,23 @@ export async function getMentorPortalLoginReadinessForUserId(userId: string | nu
   if (user.role !== UserRole.MENTOR) {
     return { ok: false, category: "UNAUTHORIZED", code: "MENTOR_ROLE_REQUIRED", message: "This account is not configured for the Mentor Portal.", permissions: null, schoolId: null, publisherId: null };
   }
-  if (!user.active) {
-    return { ok: false, category: "ACCOUNT_NOT_READY", code: "MENTOR_USER_INACTIVE", message: "Your account is inactive. Contact your school office.", permissions: null, schoolId: null, publisherId: null };
-  }
-  if (!user.mentor?.active || !user.publisher?.active || user.publisherId !== user.mentor?.publisherId) {
+  const mentorProfile = user.mentor;
+  if (!mentorProfile) {
     return { ok: false, category: "ACCOUNT_NOT_READY", code: "MENTOR_PROFILE_INACTIVE", message: "Your mentor profile is inactive. Contact your school office.", permissions: null, schoolId: null, publisherId: user.publisherId ?? null };
   }
 
   const featureEnabled = Boolean(await prisma.publisherFeature.findFirst({
-    where: { publisherId: user.mentor.publisherId, ...mentorFeatureWhere },
+    where: { publisherId: mentorProfile.publisherId, ...mentorFeatureWhere },
     select: { id: true },
   }));
 
   if (!featureEnabled) {
-    return { ok: false, category: "FEATURE_DISABLED", code: "MENTOR_PORTAL_FEATURE_DISABLED", message: "The Mentor Portal is not enabled by your publisher.", permissions: null, schoolId: null, publisherId: user.mentor.publisherId };
+    return { ok: false, category: "FEATURE_DISABLED", code: "MENTOR_PORTAL_FEATURE_DISABLED", message: "The Mentor Portal is not enabled by your publisher.", permissions: null, schoolId: null, publisherId: mentorProfile.publisherId };
   }
 
-  const assignments = user.mentor.assignments;
+  const assignments = mentorProfile.assignments;
   if (!assignments.length) {
-    return { ok: false, category: "ACCOUNT_NOT_READY", code: "MENTOR_ASSIGNMENT_INACTIVE", message: "No active mentor assignment is available yet.", permissions: null, schoolId: null, publisherId: user.mentor.publisherId };
+    return { ok: false, category: "ACCOUNT_NOT_READY", code: "MENTOR_ASSIGNMENT_INACTIVE", message: "No active mentor assignment is available yet.", permissions: null, schoolId: null, publisherId: mentorProfile.publisherId };
   }
 
   for (const assignment of assignments) {
@@ -359,17 +370,29 @@ export async function getMentorPortalLoginReadinessForUserId(userId: string | nu
     const hasMembership = user.staffMemberships.some((membership) => membership.schoolId === school.id);
     const enrollment = assignment.student.enrollments.find((row) => row.academicYearId === assignment.academicYearId) ?? null;
 
+    if (!featureEnabled) {
+      return { ok: false, category: "FEATURE_DISABLED", code: "MENTOR_PORTAL_FEATURE_DISABLED", message: "The Mentor Portal is not enabled by your publisher.", permissions: null, schoolId: null, publisherId: mentorProfile.publisherId };
+    }
+    if (!schoolAccessActive) {
+      return { ok: false, category: "SUBSCRIPTION_BLOCKED", code: "MENTOR_SUBSCRIPTION_BLOCKED", message: "Mentor access is blocked because this school's subscription is inactive.", permissions, schoolId, publisherId };
+    }
+    if (!isSchoolFeatureEnabled(school.accessSubscription, "MENTOR_PORTAL")) {
+      return { ok: false, category: "FEATURE_DISABLED", code: "MENTOR_PORTAL_DISABLED", message: "Mentor portal access is disabled by this school.", permissions, schoolId, publisherId };
+    }
     if (!permissions.mentorLoginEnabled) {
       return { ok: false, category: "FEATURE_DISABLED", code: "MENTOR_PORTAL_DISABLED", message: "Mentor login is disabled by this school.", permissions, schoolId, publisherId };
     }
-    if (!publisherId || assignment.publisherId !== user.mentor.publisherId || school.publisherId !== user.mentor.publisherId || assignment.schoolId !== school.id || assignment.student.schoolId !== school.id) {
+    if (!user.active) {
+      return { ok: false, category: "ACCOUNT_NOT_READY", code: "MENTOR_USER_INACTIVE", message: "Your account is inactive. Contact your school office.", permissions: null, schoolId: null, publisherId: null };
+    }
+    if (!mentorProfile.active || !user.publisher?.active || user.publisherId !== mentorProfile.publisherId) {
+      return { ok: false, category: "ACCOUNT_NOT_READY", code: "MENTOR_PROFILE_INACTIVE", message: "Your mentor profile is inactive. Contact your school office.", permissions: null, schoolId: null, publisherId: user.publisherId ?? null };
+    }
+    if (!publisherId || assignment.publisherId !== mentorProfile.publisherId || school.publisherId !== mentorProfile.publisherId || assignment.schoolId !== school.id || assignment.student.schoolId !== school.id) {
       return { ok: false, category: "ACCOUNT_NOT_READY", code: "MENTOR_OWNERSHIP_MISMATCH", message: "Mentor access could not be verified for this school.", permissions, schoolId, publisherId };
     }
     if (!hasMembership) {
       return { ok: false, category: "ACCOUNT_NOT_READY", code: "MENTOR_MEMBERSHIP_INACTIVE", message: "An active mentor school membership is required before sign-in.", permissions, schoolId, publisherId };
-    }
-    if (!schoolAccessActive) {
-      return { ok: false, category: "SUBSCRIPTION_BLOCKED", code: "MENTOR_SUBSCRIPTION_BLOCKED", message: "Mentor access is blocked because this school's subscription is inactive.", permissions, schoolId, publisherId };
     }
     if (!enrollment) {
       return { ok: false, category: "ACCOUNT_NOT_READY", code: "MENTOR_ENROLLMENT_INACTIVE", message: "No current student enrollment is available for this assignment.", permissions, schoolId, publisherId };
@@ -380,14 +403,14 @@ export async function getMentorPortalLoginReadinessForUserId(userId: string | nu
       startsAt: assignment.startsAt,
       endsAt: assignment.endsAt,
       assignmentPublisherId: assignment.publisherId,
-      mentorPublisherId: user.mentor.publisherId,
+      mentorPublisherId: mentorProfile.publisherId,
       schoolPublisherId: school.publisherId,
       assignmentSchoolId: assignment.schoolId,
       studentSchoolId: assignment.student.schoolId,
       assignmentAcademicYearId: assignment.academicYearId,
       enrollmentAcademicYearId: enrollment.academicYearId,
       plan: "INDIVIDUAL_PREMIUM_MENTOR",
-      mentorActive: user.mentor.active,
+      mentorActive: mentorProfile.active,
       publisherActive: user.publisher.active,
       mentorFeatureEnabled: featureEnabled,
     })) {
@@ -399,7 +422,7 @@ export async function getMentorPortalLoginReadinessForUserId(userId: string | nu
       category: "READY",
       actor: {
         user: { id: user.id, name: user.name, email: user.email, phone: user.phone ?? null, active: user.active, publisherId: user.publisherId ?? null },
-        mentor: { id: user.mentor.id, userId: user.mentor.userId, publisherId: user.mentor.publisherId, active: user.mentor.active, type: user.mentor.type },
+        mentor: { id: mentorProfile.id, userId: mentorProfile.userId, publisherId: mentorProfile.publisherId, active: mentorProfile.active, type: mentorProfile.type },
       },
       permissions,
       schoolId,

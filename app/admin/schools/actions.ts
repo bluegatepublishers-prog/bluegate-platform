@@ -11,6 +11,10 @@ import {
 } from "@/lib/school-lifecycle";
 import { redirect } from "next/navigation";
 import { updatePublisherSchoolAccess } from "@/lib/school-access";
+import {
+  updatePublisherSchoolFeatures,
+  type SchoolFeatureInput,
+} from "@/lib/school-feature-entitlements";
 
 function value(form: FormData, key: string) {
   return form.get(key);
@@ -44,6 +48,35 @@ export async function updateSchoolAccessAction(schoolId: string, form: FormData)
   revalidatePath("/admin");
   revalidatePath("/admin/schools");
   revalidatePath(`/admin/schools/${schoolId}`);
+}
+
+export type SchoolFeatureSaveState = {
+  ok: boolean;
+  message: string;
+  savedAt: string | null;
+};
+
+export async function updateSchoolFeatureEntitlementsAction(
+  schoolId: string,
+  _state: SchoolFeatureSaveState,
+  form: FormData,
+): Promise<SchoolFeatureSaveState> {
+  try {
+    const raw = String(form.get("featureConfigJson") ?? "");
+    const parsed = raw ? JSON.parse(raw) as SchoolFeatureInput : null;
+    await updatePublisherSchoolFeatures(schoolId, parsed);
+    revalidatePath("/admin");
+    revalidatePath("/admin/schools");
+    revalidatePath(`/admin/schools/${schoolId}`);
+    revalidatePath("/school-dashboard/settings");
+    return { ok: true, message: "Feature entitlements saved.", savedAt: new Date().toISOString() };
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : "Feature entitlements could not be saved.",
+      savedAt: null,
+    };
+  }
 }
 
 export async function updateSchoolProfileAction(schoolId: string, form: FormData) {
