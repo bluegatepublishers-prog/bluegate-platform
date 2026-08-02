@@ -1,4 +1,6 @@
+import Link from "next/link";
 import { getParentChildPortalData, getParentChildren } from "@/lib/parent-dashboard";
+import { getParentChildAttendanceExperience } from "@/lib/attendance";
 
 function formatDate(value?: Date | null) {
 	return value ? value.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "Not scheduled";
@@ -35,6 +37,7 @@ export default async function ParentDashboardPage({
 	}
 
 	const data = await getParentChildPortalData(selectedChild.student.id);
+	const attendance = await getParentChildAttendanceExperience({ studentId: selectedChild.student.id });
 	const childOptions = children.map((child) => ({ id: child.student.id, label: `${child.student.name} · ${child.enrollment.schoolClass.name} ${child.enrollment.section.name}` }));
 
 	return (
@@ -59,7 +62,14 @@ export default async function ParentDashboardPage({
 			</section>
 
 			<section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-				<MetricCard title="Attendance" value="Not available yet" detail="No attendance source is configured for this parent view." tone="slate" />
+				<MetricCard
+					title="Attendance"
+					value={attendance.empty ? "Not available yet" : `${attendance.summary.percentage.toFixed(1)}%`}
+					detail={attendance.empty ? "Attendance is not available yet." : `Today: ${attendance.today.label} · Present ${attendance.summary.present} · Absent ${attendance.summary.absent}`}
+					tone={attendance.empty ? "slate" : "blue"}
+					href={`/parent-dashboard/children/${selectedChild.student.id}/attendance`}
+					actionLabel="View Attendance"
+				/>
 				<MetricCard title="Assignments Due" value={String(data.upcomingAssignments.length)} detail={data.upcomingAssignments[0]?.title ?? "No assignments due"} tone="blue" />
 				<MetricCard title="Upcoming Assessments" value={String(data.upcomingAssessments.length)} detail={data.upcomingAssessments[0]?.title ?? "No upcoming assessments"} tone="amber" />
 				<MetricCard title="Latest Published Result" value={data.latestPublishedResult?.score == null ? "Published" : `${Math.round(data.latestPublishedResult.score)}%`} detail={data.latestPublishedResult?.title ?? "No published result yet"} tone="emerald" />
@@ -133,7 +143,7 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
 	return <section className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm"><h3 className="text-xl font-bold text-slate-950">{title}</h3><div className="mt-5">{children}</div></section>;
 }
 
-function MetricCard({ title, value, detail, tone }: { title: string; value: string; detail: string; tone: "slate" | "blue" | "amber" | "emerald" | "violet" }) {
+function MetricCard({ title, value, detail, tone, href, actionLabel }: { title: string; value: string; detail: string; tone: "slate" | "blue" | "amber" | "emerald" | "violet"; href?: string; actionLabel?: string }) {
 	const styles = {
 		slate: "bg-slate-50 text-slate-700",
 		blue: "bg-blue-50 text-blue-700",
@@ -141,7 +151,7 @@ function MetricCard({ title, value, detail, tone }: { title: string; value: stri
 		emerald: "bg-emerald-50 text-emerald-700",
 		violet: "bg-violet-50 text-violet-700",
 	};
-	return <article className="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm"><p className="text-sm font-semibold text-slate-500">{title}</p><strong className="mt-3 block text-2xl text-slate-950">{value}</strong><p className={`mt-3 inline-flex rounded-full px-3 py-1 text-sm font-semibold ${styles[tone]}`}>{detail}</p></article>;
+	return <article className="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm"><p className="text-sm font-semibold text-slate-500">{title}</p><strong className="mt-3 block text-2xl text-slate-950">{value}</strong><p className={`mt-3 inline-flex rounded-full px-3 py-1 text-sm font-semibold ${styles[tone]}`}>{detail}</p>{href && actionLabel ? <div className="mt-3"><Link href={href} className="text-sm font-semibold text-blue-700">{actionLabel}</Link></div> : null}</article>;
 }
 
 function KeyValue({ label, value }: { label: string; value: string }) {

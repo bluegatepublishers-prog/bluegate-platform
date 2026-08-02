@@ -6,13 +6,14 @@ export function canParentViewChild(input: {
   relationshipStatus: string;
   canViewLearning: boolean;
   schoolApproved: boolean;
+  schoolAccessActive: boolean;
   publisherActive: boolean;
   featureEnabled: boolean;
   relationshipStudentId: string;
   requestedStudentId: string;
 }) {
   return input.parentActive && input.studentActive && input.relationshipStatus === "APPROVED" &&
-    input.canViewLearning && input.schoolApproved && input.publisherActive && input.featureEnabled &&
+    input.canViewLearning && input.schoolApproved && input.schoolAccessActive && input.publisherActive && input.featureEnabled &&
     input.relationshipStudentId === input.requestedStudentId;
 }
 

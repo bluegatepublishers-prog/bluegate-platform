@@ -5,6 +5,7 @@ import { canReleaseAssessmentResult } from "@/lib/assessment-policy";
 import { getEffectiveStudentPlan } from "@/lib/entitlements/student-plan";
 import { prisma } from "@/lib/prisma";
 import { isPublisherFeatureEnabled } from "@/lib/publisher-features";
+import { effectiveSchoolAccessStatus } from "@/lib/school-access-policy";
 import { canParentViewChild, friendlyPlan, friendlyPlanSource, parentGapMessage } from "./parent-policy";
 
 export class ParentAccessError extends Error {}
@@ -21,11 +22,15 @@ export async function requireParentChildAccess(studentId: string) {
   const parent = await requireParent();
   const relationship = await prisma.parentStudentRelationship.findFirst({
     where: { parentId: parent.id, studentId, status: "APPROVED", canViewLearning: true },
-    include: { student: { include: { school: { include: { publisher: { select: { id: true, name: true, active: true } } } }, enrollments: { where: { status: "ACTIVE", academicYear: { active: true, current: true }, schoolClass: { active: true }, section: { active: true } }, include: { academicYear: true, schoolClass: true, section: true }, orderBy: { createdAt: "desc" }, take: 1 } } } },
+    include: { student: { include: { school: { include: { publisher: { select: { id: true, name: true, active: true } }, accessSubscription: { select: { plan: true, status: true, startsAt: true, expiresAt: true } } } }, enrollments: { where: { status: "ACTIVE", academicYear: { active: true, current: true }, schoolClass: { active: true }, section: { active: true } }, include: { academicYear: true, schoolClass: true, section: true }, orderBy: { createdAt: "desc" }, take: 1 } } } },
   });
   const enrollment = relationship?.student.enrollments[0], publisher = relationship?.student.school.publisher;
+  const schoolSubscription = relationship?.student.school.accessSubscription;
+  const schoolAccessActive = schoolSubscription
+    ? effectiveSchoolAccessStatus(schoolSubscription) === "ACTIVE"
+    : false;
   const featureEnabled = publisher ? await isPublisherFeatureEnabled(publisher.id, PlatformFeatureKey.PARENT_PORTAL) : false;
-  if (!relationship || !enrollment || !publisher || !canParentViewChild({ parentActive: parent.active, studentActive: relationship.student.active, relationshipStatus: relationship.status, canViewLearning: relationship.canViewLearning, schoolApproved: relationship.student.school.status === "APPROVED", publisherActive: publisher.active, featureEnabled, relationshipStudentId: relationship.studentId, requestedStudentId: studentId })) throw new ParentAccessError("This child is unavailable.");
+  if (!relationship || !enrollment || !publisher || !canParentViewChild({ parentActive: parent.active, studentActive: relationship.student.active, relationshipStatus: relationship.status, canViewLearning: relationship.canViewLearning, schoolApproved: relationship.student.school.status === "APPROVED", schoolAccessActive, publisherActive: publisher.active, featureEnabled, relationshipStudentId: relationship.studentId, requestedStudentId: studentId })) throw new ParentAccessError("This child is unavailable.");
   return { parent, relationship, student: relationship.student, enrollment, publisher };
 }
 
@@ -46,11 +51,11 @@ export async function getParentChildLearningSummary(studentId: string) {
     prisma.studentLearningGap.findMany({ where: { studentId, academicYearId: yearId, status: { in: ["OPEN", "ACKNOWLEDGED"] } }, include: { subject: { select: { name: true } }, chapter: { select: { title: true } } }, orderBy: { lastDetectedAt: "desc" }, take: 12 }),
     prisma.remedialPlan.findMany({ where: { studentId, academicYearId: yearId, status: { in: ["ACTIVE", "COMPLETED"] } }, include: { gap: { include: { subject: { select: { name: true } }, chapter: { select: { title: true } } } }, steps: { select: { status: true } } }, orderBy: { createdAt: "desc" }, take: 12 }),
     prisma.mentorStudentAssignment.findFirst({ where: { studentId, academicYearId: yearId, status: "ACTIVE", role: "PRIMARY", mentor: { active: true } }, include: { mentor: { include: { user: { select: { name: true } }, sessions: { where: { studentId, academicYearId: yearId, status: "COMPLETED" }, select: { id: true } } } } }, orderBy: { startsAt: "desc" } }),
-    prisma.assessmentAttempt.findMany({ where: { studentId, academicYearId: yearId, status: "SUBMITTED" }, include: { assessment: { include: { settings: true } }, result: true }, orderBy: { submittedAt: "desc" }, take: 12 }),
+    prisma.assessmentAttempt.findMany({ where: { studentId, academicYearId: yearId, status: { in: ["SUBMITTED", "PENDING_REVIEW", "GRADED"] } }, include: { assessment: { include: { settings: true } }, result: true }, orderBy: { submittedAt: "desc" }, take: 12 }),
     prisma.studentChapterAnalytics.count({ where: { studentId, academicYearId: yearId, aiRequests: { gt: 0 } } }),
     getEffectiveStudentPlan(studentId, yearId),
   ]);
-  const assessments = assessmentAttempts.map(attempt => { const settings = attempt.assessment.settings; const released = Boolean(settings && canReleaseAssessmentResult({ release: settings.resultRelease, dueAt: attempt.assessment.dueAt })); return { id: attempt.id, title: attempt.assessment.title, completedAt: attempt.submittedAt, released, score: released && settings?.showScore ? attempt.result?.percentage ?? null : null, subjectivePending: Boolean(attempt.result?.subjectivePending) }; });
+  const assessments = assessmentAttempts.map(attempt => { const settings = attempt.assessment.settings; const released = Boolean(attempt.result?.publishedAt && settings && canReleaseAssessmentResult({ release: settings.resultRelease, dueAt: attempt.assessment.dueAt })); return { id: attempt.id, title: attempt.assessment.title, completedAt: attempt.submittedAt, released, score: released && settings?.showScore ? attempt.result?.percentage ?? null : null, subjectivePending: Boolean(attempt.result?.subjectivePending) }; });
   return { ...scope, analytics, subjects, timeline, gaps: gaps.map(g => ({ id: g.id, message: parentGapMessage({ subject: g.subject?.name, chapter: g.chapter?.title }) })), remedials: remedials.map(r => ({ id: r.id, status: r.status, area: r.gap.chapter?.title ?? r.gap.subject?.name ?? "Learning support", completed: r.steps.filter(s => s.status === "COMPLETED").length, total: r.steps.length, teacherReviewed: Boolean(r.reviewedAt) })), mentor: mentor ? { name: mentor.mentor.user.name, type: mentor.mentor.type, status: mentor.status, completedSessions: mentor.mentor.sessions.length } : null, assessments, ai: { requests: analytics?.aiRequests ?? 0, sessions: analytics?.aiSessions ?? 0, chapterCount: aiChapters, recentUsageAt: timeline.find(t => t.activityType === "STUDENT_AI")?.occurredAt ?? null }, plan: { ...plan, label: friendlyPlan(plan.plan), sourceLabel: friendlyPlanSource(plan.source) }, notifications: [] as Array<never> };
 }
 
@@ -196,7 +201,11 @@ export async function getParentChildPortalData(studentId: string) {
     })),
     upcomingAssessments: assessments.map((assessment) => {
       const attempt = assessment.attempts[0];
-      const released = Boolean(attempt?.result?.publishedAt || assessment.publishedAt || assessment.settings?.resultRelease === "IMMEDIATE");
+      const released = Boolean(
+        attempt?.result?.publishedAt &&
+        assessment.settings &&
+        canReleaseAssessmentResult({ release: assessment.settings.resultRelease, dueAt: assessment.dueAt }),
+      );
       return {
         id: assessment.id,
         title: assessment.title,

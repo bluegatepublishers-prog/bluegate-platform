@@ -1442,6 +1442,507 @@ export async function getSchoolAttendanceReportSuite(input?: { date?: string; st
   };
 }
 
+type StudentAttendanceHistoryStatusFilter = AttendanceStatus | "ALL";
+type StudentAttendanceHistorySessionTypeFilter = AttendanceSessionType | "ALL";
+
+function monthBounds(monthKey?: string) {
+  if (monthKey && /^\d{4}-\d{2}$/.test(monthKey)) {
+    const [year, month] = monthKey.split("-").map((value) => Number(value));
+    const start = new Date(Date.UTC(year, month - 1, 1));
+    const end = new Date(Date.UTC(year, month, 1));
+    return { start, end, monthKey };
+  }
+  const now = new Date();
+  const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
+  return { start, end, monthKey: start.toISOString().slice(0, 7) };
+}
+
+function normalizeHistoryStatusFilter(value?: string): StudentAttendanceHistoryStatusFilter {
+  if (!value || value === "ALL") return "ALL";
+  return ATTENDANCE_STATUS_OPTIONS.includes(value as AttendanceStatus)
+    ? (value as AttendanceStatus)
+    : "ALL";
+}
+
+function normalizeHistorySessionTypeFilter(value?: string): StudentAttendanceHistorySessionTypeFilter {
+  if (!value || value === "ALL") return "ALL";
+  return ATTENDANCE_SESSION_TYPE_OPTIONS.includes(value as AttendanceSessionType)
+    ? (value as AttendanceSessionType)
+    : "ALL";
+}
+
+function friendlyAttendanceStatus(status: AttendanceStatus | "NOT_SUBMITTED" | "HOLIDAY" | "NO_ATTENDANCE" | "MIXED") {
+  const map = {
+    PRESENT: "Present",
+    ABSENT: "Absent",
+    LATE: "Late",
+    HALF_DAY: "Half Day",
+    ON_LEAVE: "On Leave",
+    EXCUSED: "Excused",
+    NOT_SUBMITTED: "Not Submitted",
+    HOLIDAY: "Holiday",
+    NO_ATTENDANCE: "No attendance submitted",
+    MIXED: "Mixed",
+  } as const;
+  return map[status];
+}
+
+function studentVisibleRemark(status: AttendanceStatus, remark: string | null) {
+  if (!remark) return null;
+  if (status === AttendanceStatus.ON_LEAVE || status === AttendanceStatus.EXCUSED) {
+    return remark;
+  }
+  return null;
+}
+
+function summaryStatusForDay(statuses: AttendanceStatus[]) {
+  if (!statuses.length) return "NOT_SUBMITTED" as const;
+  if (statuses.every((item) => item === AttendanceStatus.PRESENT)) return AttendanceStatus.PRESENT;
+  if (statuses.includes(AttendanceStatus.ABSENT)) {
+    return statuses.every((item) => item === AttendanceStatus.ABSENT)
+      ? AttendanceStatus.ABSENT
+      : "MIXED" as const;
+  }
+  if (statuses.every((item) => item === AttendanceStatus.LATE)) return AttendanceStatus.LATE;
+  if (statuses.includes(AttendanceStatus.HALF_DAY)) return AttendanceStatus.HALF_DAY;
+  if (statuses.includes(AttendanceStatus.ON_LEAVE)) return AttendanceStatus.ON_LEAVE;
+  if (statuses.includes(AttendanceStatus.EXCUSED)) return AttendanceStatus.EXCUSED;
+  return "MIXED" as const;
+}
+
+function monthLabel(date: Date) {
+  return date.toLocaleDateString("en-IN", { month: "short", year: "numeric", timeZone: "UTC" });
+}
+
+function buildCalendarDays(input: {
+  monthStart: Date;
+  monthEnd: Date;
+  today: Date;
+  holidays: Set<string>;
+  dailyMap: Map<string, { statuses: AttendanceStatus[]; sessionType: AttendanceSessionType; periods: Array<{ period: string | null; subject: string | null; status: AttendanceStatus; time: string | null; remark: string | null; }> }>;
+  workingDays: number[];
+}) {
+  const rows: Array<{
+    date: string;
+    day: number;
+    weekday: number;
+    inFuture: boolean;
+    isHoliday: boolean;
+    isWorkingDay: boolean;
+    status: AttendanceStatus | "NOT_SUBMITTED" | "HOLIDAY" | "NO_ATTENDANCE" | "MIXED";
+    statusLabel: string;
+    sessionType: AttendanceSessionType | null;
+    periods: Array<{ period: string | null; subject: string | null; status: AttendanceStatus; statusLabel: string; time: string | null; remark: string | null }>;
+  }> = [];
+
+  const end = new Date(input.monthEnd);
+  end.setUTCDate(end.getUTCDate() - 1);
+  const todayKey = dateKey(input.today);
+
+  for (let d = new Date(input.monthStart); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
+    const key = d.toISOString().slice(0, 10);
+    const weekdayRaw = d.getUTCDay();
+    const weekday = weekdayRaw === 0 ? 7 : weekdayRaw;
+    const isWorkingDay = input.workingDays.includes(weekday);
+    const isHoliday = input.holidays.has(key);
+    const inFuture = key > todayKey;
+    const daily = input.dailyMap.get(key);
+
+    let status: AttendanceStatus | "NOT_SUBMITTED" | "HOLIDAY" | "NO_ATTENDANCE" | "MIXED";
+    if (inFuture) status = "NO_ATTENDANCE";
+    else if (isHoliday) status = "HOLIDAY";
+    else if (!daily) status = isWorkingDay ? "NOT_SUBMITTED" : "NO_ATTENDANCE";
+    else status = summaryStatusForDay(daily.statuses);
+
+    rows.push({
+      date: key,
+      day: d.getUTCDate(),
+      weekday,
+      inFuture,
+      isHoliday,
+      isWorkingDay,
+      status,
+      statusLabel: friendlyAttendanceStatus(status),
+      sessionType: daily?.sessionType ?? null,
+      periods: (daily?.periods ?? []).map((row) => ({
+        ...row,
+        statusLabel: friendlyAttendanceStatus(row.status),
+      })),
+    });
+  }
+
+  return rows;
+}
+
+function requirementStatus(minimum: number, current: number) {
+  const delta = Number((current - minimum).toFixed(1));
+  if (current >= minimum + 15) {
+    return {
+      label: "Excellent",
+      message: "Your attendance is excellent. Keep it up.",
+      delta,
+    };
+  }
+  if (current >= minimum + 5) {
+    return {
+      label: "On Track",
+      message: "You are comfortably above your school requirement.",
+      delta,
+    };
+  }
+  if (current >= minimum) {
+    return {
+      label: "Close to Minimum",
+      message: `You are meeting the school requirement of ${minimum}%. Aim a little higher this month.`,
+      delta,
+    };
+  }
+  return {
+    label: "Below Minimum",
+    message: `Attendance is currently below the school's ${minimum}% requirement. Please contact the school office for guidance.`,
+    delta,
+  };
+}
+
+async function getEnrollmentAttendanceExperience(input: {
+  schoolId: string;
+  academicYearId: string;
+  sectionId: string;
+  enrollmentId: string;
+  studentName: string;
+  classSection: string;
+  academicYearName: string;
+  schoolName?: string;
+  month?: string;
+  status?: string;
+  sessionType?: string;
+  subject?: string;
+  page?: number;
+}) {
+  const policy = await getSchoolAttendancePolicyBySchoolId(input.schoolId);
+  const now = new Date();
+
+  const academicYearWindow = await prisma.academicYear.findUnique({
+    where: { id: input.academicYearId },
+    select: { startDate: true, endDate: true },
+  });
+  if (!academicYearWindow) throw new Error("Academic year not found for attendance.");
+
+  const enrollmentWindow = await prisma.studentEnrollment.findUnique({
+    where: { id: input.enrollmentId },
+    select: { joinedAt: true, leftAt: true },
+  });
+  if (!enrollmentWindow) throw new Error("Enrollment not found for attendance.");
+
+  const historyStatus = normalizeHistoryStatusFilter(input.status);
+  const historySessionType = normalizeHistorySessionTypeFilter(input.sessionType);
+  const month = monthBounds(input.month);
+
+  const academicStart = dayBounds(academicYearWindow.startDate).start;
+  const academicEndExclusive = dayBounds(academicYearWindow.endDate).end;
+  const enrollmentStart = dayBounds(enrollmentWindow.joinedAt).start;
+  const enrollmentEndExclusive = enrollmentWindow.leftAt ? dayBounds(enrollmentWindow.leftAt).end : academicEndExclusive;
+
+  const rangeStart = new Date(Math.max(month.start.getTime(), academicStart.getTime(), enrollmentStart.getTime()));
+  const rangeEnd = new Date(Math.min(month.end.getTime(), academicEndExclusive.getTime(), enrollmentEndExclusive.getTime(), dayBounds(now).end.getTime()));
+
+  if (rangeStart >= rangeEnd) {
+    return {
+      monthKey: month.monthKey,
+      studentName: input.studentName,
+      classSection: input.classSection,
+      schoolName: input.schoolName ?? null,
+      academicYear: input.academicYearName,
+      policy,
+      summary: { percentage: 0, present: 0, absent: 0, late: 0, halfDay: 0, onLeave: 0, excused: 0, total: 0 },
+      today: { date: dateKey(now), label: friendlyAttendanceStatus("NOT_SUBMITTED"), status: "NOT_SUBMITTED", sessionType: policy.attendanceMode === AttendanceMode.PERIOD ? AttendanceSessionType.PERIOD : AttendanceSessionType.DAILY, periods: [], remark: null, submitted: false },
+      calendar: [],
+      trend: [],
+      requirement: requirementStatus(policy.minimumAttendancePercentage, 0),
+      history: { items: [], page: 1, pageSize: 20, total: 0, totalPages: 0, filters: { status: historyStatus, sessionType: historySessionType, subject: input.subject?.trim() || "ALL" } },
+      subjects: [],
+      empty: true,
+    };
+  }
+
+  const holidayRows = await prisma.academicPlannerItem.findMany({
+    where: {
+      schoolId: input.schoolId,
+      academicYearId: input.academicYearId,
+      type: "HOLIDAY",
+      status: { not: "CANCELLED" },
+      currentDate: { gte: rangeStart, lt: rangeEnd },
+      OR: [{ sectionId: null }, { sectionId: input.sectionId }],
+    },
+    select: { currentDate: true },
+  });
+  const holidays = new Set(holidayRows.map((row) => dateKey(row.currentDate)));
+
+  const sessionWhere = {
+    schoolId: input.schoolId,
+    academicYearId: input.academicYearId,
+    classSectionId: input.sectionId,
+    date: { gte: rangeStart, lt: rangeEnd },
+    ...hasSubmittedOrLockedScope(),
+  };
+
+  const attendanceRows = await prisma.attendanceRecord.findMany({
+    where: {
+      studentEnrollmentId: input.enrollmentId,
+      attendanceSession: {
+        ...sessionWhere,
+        sessionType: historySessionType === "ALL" ? undefined : historySessionType,
+        sectionSubject: input.subject?.trim() && input.subject !== "ALL"
+          ? { subject: { name: input.subject.trim() } }
+          : undefined,
+      },
+      attendanceStatus: historyStatus === "ALL" ? undefined : historyStatus,
+    },
+    select: {
+      attendanceStatus: true,
+      remark: true,
+      attendanceSession: {
+        select: {
+          date: true,
+          sessionType: true,
+          period: true,
+          sectionSubject: { select: { subject: { select: { name: true } } } },
+          teacher: { select: { user: { select: { name: true } } } },
+        },
+      },
+    },
+    orderBy: [{ attendanceSession: { date: "desc" } }, { attendanceSession: { period: "asc" } }],
+  });
+
+  const subjects = [...new Set(attendanceRows.map((row) => row.attendanceSession.sectionSubject?.subject.name).filter((value): value is string => Boolean(value)))].sort();
+
+  const dailyMap = new Map<string, {
+    statuses: AttendanceStatus[];
+    sessionType: AttendanceSessionType;
+    periods: Array<{ period: string | null; subject: string | null; status: AttendanceStatus; time: string | null; remark: string | null }>;
+  }>();
+  for (const row of attendanceRows) {
+    const key = dateKey(row.attendanceSession.date);
+    const existing = dailyMap.get(key) ?? {
+      statuses: [],
+      sessionType: row.attendanceSession.sessionType,
+      periods: [],
+    };
+    existing.statuses.push(row.attendanceStatus);
+    existing.periods.push({
+      period: row.attendanceSession.period,
+      subject: row.attendanceSession.sectionSubject?.subject.name ?? null,
+      status: row.attendanceStatus,
+      time: row.attendanceSession.period,
+      remark: studentVisibleRemark(row.attendanceStatus, row.remark),
+    });
+    dailyMap.set(key, existing);
+  }
+
+  const eligibleDailyRows = [...dailyMap.entries()]
+    .filter(([day]) => !holidays.has(day))
+    .filter(([day]) => inWorkingDays(new Date(`${day}T00:00:00.000Z`).getUTCDay(), policy.workingDays))
+    .map(([day, details]) => ({
+      date: day,
+      status: summaryStatusForDay(details.statuses),
+      sessionType: details.sessionType,
+      periods: details.periods,
+    }));
+
+  const summaryStatuses = eligibleDailyRows
+    .filter((row) => ATTENDANCE_STATUS_OPTIONS.includes(row.status as AttendanceStatus))
+    .map((row) => row.status as AttendanceStatus);
+
+  const summary = {
+    present: summaryStatuses.filter((row) => row === AttendanceStatus.PRESENT).length,
+    absent: summaryStatuses.filter((row) => row === AttendanceStatus.ABSENT).length,
+    late: summaryStatuses.filter((row) => row === AttendanceStatus.LATE).length,
+    halfDay: summaryStatuses.filter((row) => row === AttendanceStatus.HALF_DAY).length,
+    onLeave: summaryStatuses.filter((row) => row === AttendanceStatus.ON_LEAVE).length,
+    excused: summaryStatuses.filter((row) => row === AttendanceStatus.EXCUSED).length,
+    total: summaryStatuses.length,
+    percentage: summaryStatuses.length
+      ? Number(((summaryStatuses.reduce((sum, row) => sum + statusWeight(row), 0) / summaryStatuses.length) * 100).toFixed(1))
+      : 0,
+  };
+
+  const todayKey = dateKey(now);
+  const todayDaily = dailyMap.get(todayKey);
+  const todayStatus = holidays.has(todayKey)
+    ? "HOLIDAY"
+    : todayDaily
+      ? summaryStatusForDay(todayDaily.statuses)
+      : "NOT_SUBMITTED";
+
+  const calendar = buildCalendarDays({
+    monthStart: month.start,
+    monthEnd: month.end,
+    today: now,
+    holidays,
+    dailyMap,
+    workingDays: policy.workingDays,
+  });
+
+  const trendStart = new Date(Math.max(academicStart.getTime(), enrollmentStart.getTime()));
+  const trendEnd = new Date(Math.min(academicEndExclusive.getTime(), enrollmentEndExclusive.getTime(), dayBounds(now).end.getTime()));
+  const trendRows: Array<{ monthKey: string; label: string; percentage: number; present: number; absent: number; late: number }> = [];
+
+  for (
+    let cursor = new Date(Date.UTC(trendStart.getUTCFullYear(), trendStart.getUTCMonth(), 1));
+    cursor < trendEnd;
+    cursor = new Date(Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth() + 1, 1))
+  ) {
+    const cursorEnd = new Date(Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth() + 1, 1));
+    const monthFrom = new Date(Math.max(cursor.getTime(), trendStart.getTime()));
+    const monthTo = new Date(Math.min(cursorEnd.getTime(), trendEnd.getTime()));
+    const monthKeyValue = cursor.toISOString().slice(0, 7);
+
+    const rows = await prisma.attendanceRecord.findMany({
+      where: {
+        studentEnrollmentId: input.enrollmentId,
+        attendanceSession: {
+          ...sessionWhere,
+          date: { gte: monthFrom, lt: monthTo },
+        },
+      },
+      select: {
+        attendanceStatus: true,
+        attendanceSession: { select: { date: true } },
+      },
+    });
+
+    const byDay = new Map<string, AttendanceStatus[]>();
+    for (const row of rows) {
+      const key = dateKey(row.attendanceSession.date);
+      if (holidays.has(key)) continue;
+      if (!inWorkingDays(new Date(`${key}T00:00:00.000Z`).getUTCDay(), policy.workingDays)) continue;
+      const list = byDay.get(key) ?? [];
+      list.push(row.attendanceStatus);
+      byDay.set(key, list);
+    }
+
+    const merged = [...byDay.entries()].map(([day, statuses]) => ({ date: day, status: summaryStatusForDay(statuses) }))
+      .filter((row) => ATTENDANCE_STATUS_OPTIONS.includes(row.status as AttendanceStatus))
+      .map((row) => row.status as AttendanceStatus);
+    const percentage = merged.length
+      ? Number(((merged.reduce((sum, row) => sum + statusWeight(row), 0) / merged.length) * 100).toFixed(1))
+      : 0;
+
+    trendRows.push({
+      monthKey: monthKeyValue,
+      label: monthLabel(cursor),
+      percentage,
+      present: merged.filter((row) => row === AttendanceStatus.PRESENT).length,
+      absent: merged.filter((row) => row === AttendanceStatus.ABSENT).length,
+      late: merged.filter((row) => row === AttendanceStatus.LATE).length,
+    });
+  }
+
+  const pageSize = 20;
+  const currentPage = Math.max(1, Math.floor(input.page ?? 1));
+  const historyTotal = attendanceRows.length;
+  const totalPages = Math.ceil(historyTotal / pageSize);
+  const historySlice = attendanceRows.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+
+  const requirement = requirementStatus(policy.minimumAttendancePercentage, summary.percentage);
+
+  return {
+    monthKey: month.monthKey,
+    studentName: input.studentName,
+    classSection: input.classSection,
+    schoolName: input.schoolName ?? null,
+    academicYear: input.academicYearName,
+    policy,
+    summary,
+    today: {
+      date: todayKey,
+      label: friendlyAttendanceStatus(todayStatus),
+      status: todayStatus,
+      sessionType: todayDaily?.sessionType ?? (policy.attendanceMode === AttendanceMode.PERIOD ? AttendanceSessionType.PERIOD : AttendanceSessionType.DAILY),
+      periods: (todayDaily?.periods ?? []).map((row) => ({ ...row, statusLabel: friendlyAttendanceStatus(row.status) })),
+      remark: todayDaily?.periods.find((row) => row.remark)?.remark ?? null,
+      submitted: Boolean(todayDaily),
+    },
+    calendar,
+    trend: trendRows,
+    requirement,
+    history: {
+      items: historySlice.map((row) => ({
+        date: dateKey(row.attendanceSession.date),
+        sessionType: row.attendanceSession.sessionType,
+        period: row.attendanceSession.period,
+        subject: row.attendanceSession.sectionSubject?.subject.name ?? null,
+        teacher: row.attendanceSession.teacher.user.name,
+        status: row.attendanceStatus,
+        statusLabel: friendlyAttendanceStatus(row.attendanceStatus),
+        remark: studentVisibleRemark(row.attendanceStatus, row.remark),
+      })),
+      page: currentPage,
+      pageSize,
+      total: historyTotal,
+      totalPages,
+      filters: {
+        status: historyStatus,
+        sessionType: historySessionType,
+        subject: input.subject?.trim() || "ALL",
+      },
+    },
+    subjects,
+    empty: summary.total === 0,
+  };
+}
+
+export async function getStudentAttendanceExperience(input?: {
+  month?: string;
+  status?: string;
+  sessionType?: string;
+  subject?: string;
+  page?: number;
+}) {
+  const identity = await requireStudent();
+  return getEnrollmentAttendanceExperience({
+    schoolId: identity.school.id,
+    academicYearId: identity.enrollment.academicYearId,
+    sectionId: identity.enrollment.sectionId,
+    enrollmentId: identity.enrollment.id,
+    studentName: identity.student.name,
+    classSection: `${identity.enrollment.schoolClass.name}-${identity.enrollment.section.name}`,
+    academicYearName: identity.academicYear.name,
+    month: input?.month,
+    status: input?.status,
+    sessionType: input?.sessionType,
+    subject: input?.subject,
+    page: input?.page,
+  });
+}
+
+export async function getParentChildAttendanceExperience(input: {
+  studentId: string;
+  month?: string;
+  status?: string;
+  sessionType?: string;
+  subject?: string;
+  page?: number;
+}) {
+  const scope = await requireParentChildAccess(input.studentId);
+  return getEnrollmentAttendanceExperience({
+    schoolId: scope.student.schoolId,
+    academicYearId: scope.enrollment.academicYearId,
+    sectionId: scope.enrollment.sectionId,
+    enrollmentId: scope.enrollment.id,
+    studentName: scope.student.name,
+    classSection: `${scope.enrollment.schoolClass.name}-${scope.enrollment.section.name}`,
+    academicYearName: scope.enrollment.academicYear.name,
+    schoolName: scope.student.school.schoolName,
+    month: input.month,
+    status: input.status,
+    sessionType: input.sessionType,
+    subject: input.subject,
+    page: input.page,
+  });
+}
+
 async function getEnrollmentMonthlyAttendance(enrollmentId: string, month?: string) {
   const now = new Date();
   const monthDate = month ? new Date(`${month}-01T00:00:00.000Z`) : new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));

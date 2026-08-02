@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { getParentChildAttendanceExperience } from "@/lib/attendance";
 import { getParentChildPortalData } from "@/lib/parent-dashboard";
 
 function formatDate(value?: Date | null) {
@@ -9,6 +10,7 @@ function formatDate(value?: Date | null) {
 export default async function ParentChildOverviewPage({ params }: { params: Promise<{ studentId: string }> }) {
   const { studentId } = await params;
   const data = await getParentChildPortalData(studentId);
+  const attendance = await getParentChildAttendanceExperience({ studentId });
 
   return (
     <div className="grid gap-6 xl:grid-cols-[minmax(0,1.3fr)_minmax(0,.95fr)]">
@@ -23,7 +25,17 @@ export default async function ParentChildOverviewPage({ params }: { params: Prom
         </Card>
 
         <Card title="Attendance Summary">
-          <p className="text-slate-600">Attendance data is not available yet.</p>
+          {attendance.empty ? (
+            <p className="text-slate-600">Attendance data is not available for this period.</p>
+          ) : (
+            <div className="grid gap-4 sm:grid-cols-3">
+              <KeyValue label="Current month" value={`${attendance.summary.percentage.toFixed(1)}%`} />
+              <KeyValue label="Today's status" value={attendance.today.label} />
+              <KeyValue label="Requirement" value={attendance.requirement.label} />
+            </div>
+          )}
+          <p className="mt-3 text-sm text-slate-600">For attendance questions, please contact the school office.</p>
+          <div className="mt-4"><Link href={`/parent-dashboard/children/${data.student.id}/attendance`} className="font-semibold text-blue-700">Open Attendance</Link></div>
         </Card>
 
         <Card title="Current Learning Status">

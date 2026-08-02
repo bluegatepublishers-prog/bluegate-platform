@@ -132,6 +132,22 @@ export const SECURITY_AUDIT_ACTIONS = [
   "classroom.submission.attachment.open",
   "classroom.chat.moderate",
   "classroom.chat.pin",
+  "classroom.assessment.create",
+  "classroom.assessment.update",
+  "classroom.assessment.publish",
+  "classroom.assessment.archive",
+  "classroom.assessment.restore",
+  "classroom.assessment.duplicate",
+  "classroom.assessment.grading.view",
+  "classroom.assessment.grading.save",
+  "classroom.assessment.grading.complete",
+  "classroom.assessment.grading.reopen",
+  "classroom.assessment.results.publish",
+  "classroom.assessment.analytics.view",
+  "classroom.assessment.analytics.process",
+  "classroom.assessment.analytics.retry",
+  "classroom.assessment.analytics.failed",
+  "school.assessment.analytics.view",
   "teacher.attendance.save_draft",
   "teacher.attendance.submit",
   "teacher.attendance.correction.request",
@@ -185,7 +201,10 @@ export type SecurityAuditTargetType =
   | "SectionChatMessage"
   | "AttendanceSession"
   | "AttendanceRecord"
-  | "AttendanceCorrection";
+  | "AttendanceCorrection"
+  | "Assessment"
+  | "AssessmentAttempt"
+  | "AssessmentResponse";
 
 export const SECURITY_AUDIT_REASON_CODES = [
   "AUTHORIZATION_DENIED",
@@ -212,6 +231,9 @@ const ALLOWED_METADATA_KEYS = new Set([
   "plan",
   "purpose",
   "scope",
+  "failureCategory",
+  "resultCount",
+  "attemptCount",
   "toStatus",
   "verified",
   "attempt",

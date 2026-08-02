@@ -1,17 +1,17 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import {
   CalendarDays,
   CheckCircle2,
-  CircleX,
   Clock3,
+  CircleX,
   Info,
   ShieldCheck,
   UserCheck,
 } from "lucide-react";
 
-import { getParentChildAttendanceExperience } from "@/lib/attendance";
-import { getParentChildren } from "@/lib/parent-dashboard";
+import { getStudentAttendanceExperience } from "@/lib/attendance";
+
+export const dynamic = "force-dynamic";
 
 type SearchParams = Promise<{
   month?: string;
@@ -19,7 +19,6 @@ type SearchParams = Promise<{
   sessionType?: string;
   subject?: string;
   page?: string;
-  childId?: string;
 }>;
 
 function asMonth(value?: string) {
@@ -48,48 +47,9 @@ function monthInputDefault() {
   return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
-function buildPageHref(input: {
-  studentId: string;
-  month?: string;
-  status: string;
-  sessionType: string;
-  subject: string;
-  page: number;
-}) {
-  const query = new URLSearchParams();
-  if (input.month) query.set("month", input.month);
-  query.set("status", input.status);
-  query.set("sessionType", input.sessionType);
-  query.set("subject", input.subject);
-  query.set("page", String(input.page));
-  return `/parent-dashboard/children/${input.studentId}/attendance?${query.toString()}`;
-}
-
-export default async function ParentChildAttendancePage({
-  params,
-  searchParams,
-}: {
-  params: Promise<{ studentId: string }>;
-  searchParams: SearchParams;
-}) {
-  const route = await params;
+export default async function StudentAttendancePage({ searchParams }: { searchParams: SearchParams }) {
   const query = await searchParams;
-  const { children } = await getParentChildren();
-
-  const childIds = new Set(children.map((child) => child.student.id));
-  const selectedChildFromQuery = query.childId && childIds.has(query.childId) ? query.childId : null;
-  if (selectedChildFromQuery && selectedChildFromQuery !== route.studentId) {
-    const paramsValue = new URLSearchParams();
-    if (query.month) paramsValue.set("month", query.month);
-    if (query.status) paramsValue.set("status", query.status);
-    if (query.sessionType) paramsValue.set("sessionType", query.sessionType);
-    if (query.subject) paramsValue.set("subject", query.subject);
-    if (query.page) paramsValue.set("page", query.page);
-    redirect(`/parent-dashboard/children/${selectedChildFromQuery}/attendance${paramsValue.size ? `?${paramsValue.toString()}` : ""}`);
-  }
-
-  const data = await getParentChildAttendanceExperience({
-    studentId: route.studentId,
+  const data = await getStudentAttendanceExperience({
     month: asMonth(query.month),
     status: query.status,
     sessionType: query.sessionType,
@@ -98,30 +58,18 @@ export default async function ParentChildAttendancePage({
   });
 
   return (
-    <section className="space-y-6">
-      <header className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
-        <Link href={`/parent-dashboard/children/${route.studentId}`} className="inline-flex items-center gap-2 text-sm font-semibold text-blue-700">
+    <main className="space-y-6 p-4 sm:p-6 lg:p-8">
+      <header className="space-y-3">
+        <Link href="/student-dashboard" className="inline-flex items-center gap-2 text-sm font-semibold text-blue-700">
           <span aria-hidden>←</span>
-          Back to Child Overview
+          Back to Dashboard
         </Link>
-        <div className="mt-4 flex flex-wrap items-start justify-between gap-3">
+        <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h2 className="text-2xl font-bold text-slate-950">Attendance</h2>
-            <p className="mt-1 text-sm text-slate-600">{data.studentName} · {data.classSection} · {data.schoolName ?? "School"} · {data.academicYear}</p>
+            <h1 className="text-3xl font-bold text-slate-900">Attendance</h1>
+            <p className="mt-1 text-sm text-slate-600">{data.studentName} · {data.classSection} · {data.academicYear}</p>
           </div>
-          <form className="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 shadow-sm">
-            {children.length > 1 ? (
-              <>
-                <label htmlFor="childId" className="text-sm font-semibold text-slate-600">Child</label>
-                <select id="childId" name="childId" defaultValue={route.studentId} className="rounded-lg border border-slate-300 px-2 py-1 text-sm">
-                  {children.map((child) => (
-                    <option key={child.student.id} value={child.student.id}>
-                      {child.student.name} · {child.enrollment.schoolClass.name} {child.enrollment.section.name}
-                    </option>
-                  ))}
-                </select>
-              </>
-            ) : null}
+          <form className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 shadow-sm">
             <label htmlFor="month" className="text-sm font-semibold text-slate-600">Month</label>
             <input id="month" name="month" type="month" defaultValue={data.monthKey || monthInputDefault()} className="rounded-lg border border-slate-300 px-2 py-1 text-sm" />
             <button type="submit" className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white">Load</button>
@@ -140,13 +88,13 @@ export default async function ParentChildAttendancePage({
       </section>
 
       {data.empty ? (
-        <p className="rounded-[2rem] border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm">
-          Attendance data is not available for this period.
+        <p className="rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm">
+          No attendance has been submitted for this period.
         </p>
       ) : null}
 
-      <section className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
-        <h3 className="text-lg font-bold text-slate-900">Today&apos;s Attendance</h3>
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <h2 className="text-lg font-bold text-slate-900">Today&apos;s Attendance</h2>
         <div className="mt-4 grid gap-3 md:grid-cols-[220px_1fr]">
           <div className={`rounded-xl border px-4 py-3 text-sm font-semibold ${toneForStatus(data.today.label)}`}>
             <p>{data.today.label}</p>
@@ -161,7 +109,8 @@ export default async function ParentChildAttendancePage({
                     <summary className="cursor-pointer text-sm font-semibold text-slate-800">
                       {row.subject ?? "Subject"} · {row.period ?? "Session"} · {row.statusLabel}
                     </summary>
-                    {row.remark ? <p className="mt-2 text-xs text-slate-600">Remark: {row.remark}</p> : null}
+                    <p className="mt-2 text-xs text-slate-600">Teacher submitted status: {row.statusLabel}</p>
+                    {row.remark ? <p className="mt-1 text-xs text-slate-600">Remark: {row.remark}</p> : null}
                   </details>
                 ))}
               </div>
@@ -172,8 +121,8 @@ export default async function ParentChildAttendancePage({
         </div>
       </section>
 
-      <section className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
-        <h3 className="text-lg font-bold text-slate-900">Attendance Calendar</h3>
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <h2 className="text-lg font-bold text-slate-900">Attendance Calendar</h2>
         <div className="mt-4 hidden grid-cols-7 gap-2 md:grid">
           {data.calendar.map((day) => (
             <article key={day.date} className={`rounded-xl border p-2 ${toneForStatus(day.statusLabel)}`} aria-label={`${day.date} ${day.statusLabel}`}>
@@ -202,8 +151,8 @@ export default async function ParentChildAttendancePage({
         </div>
       </section>
 
-      <section className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
-        <h3 className="text-lg font-bold text-slate-900">Monthly Trend</h3>
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <h2 className="text-lg font-bold text-slate-900">Monthly Trend</h2>
         <div className="mt-4 space-y-3">
           {data.trend.map((item) => (
             <article key={item.monthKey} className="rounded-xl border border-slate-200 p-3">
@@ -220,15 +169,15 @@ export default async function ParentChildAttendancePage({
         </div>
       </section>
 
-      <section className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
-        <h3 className="text-lg font-bold text-slate-900">Attendance Requirement</h3>
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <h2 className="text-lg font-bold text-slate-900">Attendance Requirement</h2>
         <div className="mt-3 grid gap-3 md:grid-cols-3">
           <article className="rounded-xl bg-slate-50 p-3">
             <p className="text-xs uppercase tracking-wide text-slate-500">School Requirement</p>
             <p className="mt-1 text-xl font-bold text-slate-900">{data.policy.minimumAttendancePercentage}%</p>
           </article>
           <article className="rounded-xl bg-slate-50 p-3">
-            <p className="text-xs uppercase tracking-wide text-slate-500">Current</p>
+            <p className="text-xs uppercase tracking-wide text-slate-500">Your Current</p>
             <p className="mt-1 text-xl font-bold text-blue-700">{data.summary.percentage.toFixed(1)}%</p>
           </article>
           <article className="rounded-xl bg-slate-50 p-3">
@@ -239,8 +188,8 @@ export default async function ParentChildAttendancePage({
         <p className="mt-3 rounded-xl bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-800">{data.requirement.label}: {data.requirement.message}</p>
       </section>
 
-      <section className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
-        <h3 className="text-lg font-bold text-slate-900">Attendance History</h3>
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <h2 className="text-lg font-bold text-slate-900">Attendance History</h2>
         <form className="mt-4 grid gap-3 lg:grid-cols-5">
           <input type="month" name="month" defaultValue={data.monthKey || monthInputDefault()} className="min-h-10 rounded-xl border border-slate-300 px-3 text-sm" />
           <select name="status" defaultValue={data.history.filters.status} className="min-h-10 rounded-xl border border-slate-300 px-3 text-sm">
@@ -280,25 +229,39 @@ export default async function ParentChildAttendancePage({
         {data.history.totalPages > 1 ? (
           <div className="mt-4 flex items-center justify-between">
             <Link
-              href={buildPageHref({ studentId: route.studentId, month: data.monthKey, status: data.history.filters.status, sessionType: data.history.filters.sessionType, subject: data.history.filters.subject, page: Math.max(1, data.history.page - 1) })}
+              href={buildPageHref({ month: data.monthKey, status: data.history.filters.status, sessionType: data.history.filters.sessionType, subject: data.history.filters.subject, page: Math.max(1, data.history.page - 1) })}
               className={`rounded-lg border px-3 py-1 text-sm ${data.history.page <= 1 ? "pointer-events-none opacity-40" : ""}`}
             >
               Previous
             </Link>
             <p className="text-xs text-slate-500">Page {data.history.page} of {data.history.totalPages}</p>
             <Link
-              href={buildPageHref({ studentId: route.studentId, month: data.monthKey, status: data.history.filters.status, sessionType: data.history.filters.sessionType, subject: data.history.filters.subject, page: Math.min(data.history.totalPages, data.history.page + 1) })}
+              href={buildPageHref({ month: data.monthKey, status: data.history.filters.status, sessionType: data.history.filters.sessionType, subject: data.history.filters.subject, page: Math.min(data.history.totalPages, data.history.page + 1) })}
               className={`rounded-lg border px-3 py-1 text-sm ${data.history.page >= data.history.totalPages ? "pointer-events-none opacity-40" : ""}`}
             >
               Next
             </Link>
           </div>
         ) : null}
-
-        <p className="mt-4 text-xs text-slate-500">For attendance questions, please contact the school office.</p>
       </section>
-    </section>
+    </main>
   );
+}
+
+function buildPageHref(input: {
+  month?: string;
+  status: string;
+  sessionType: string;
+  subject: string;
+  page: number;
+}) {
+  const query = new URLSearchParams();
+  if (input.month) query.set("month", input.month);
+  query.set("status", input.status);
+  query.set("sessionType", input.sessionType);
+  query.set("subject", input.subject);
+  query.set("page", String(input.page));
+  return `/student-dashboard/attendance?${query.toString()}`;
 }
 
 function Metric({
@@ -313,7 +276,7 @@ function Metric({
   tone: string;
 }) {
   return (
-    <article className="rounded-[1.75rem] border border-slate-200 bg-white p-3 shadow-sm">
+    <article className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
       <div className="flex items-center gap-2">
         <span className={`grid h-8 w-8 place-items-center rounded-lg ${tone}`}><Icon className="h-4 w-4" /></span>
         <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>

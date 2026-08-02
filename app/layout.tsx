@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Inter, Poppins } from "next/font/google";
+import type { CSSProperties, ReactNode } from "react";
 import "./globals.css";
 
 import AuthProvider from "@/components/providers/AuthProvider";
@@ -9,16 +9,10 @@ import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
 import PublicChrome from "@/components/layout/PublicChrome";
 
-const inter = Inter({
-  subsets: ["latin"],
-  variable: "--font-inter",
-});
-
-const poppins = Poppins({
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
-  variable: "--font-poppins",
-});
+const fontVariables = {
+  "--font-inter": "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif",
+  "--font-poppins": "Poppins, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif",
+} as CSSProperties;
 
 export const metadata: Metadata = {
   title: "Bluegate Publishers",
@@ -28,13 +22,11 @@ export const metadata: Metadata = {
 export default function RootLayout({
   children,
 }: Readonly<{
-  children: React.ReactNode;
+  children: ReactNode;
 }>) {
   return (
     <html lang="en">
-      <body
-        className={`${inter.variable} ${poppins.variable} min-h-screen bg-white`}
-      >
+      <body className="min-h-screen bg-white" style={fontVariables}>
         <AuthProvider>
           <PublicChrome>
             <TopBar />

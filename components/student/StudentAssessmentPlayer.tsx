@@ -19,6 +19,7 @@ type Question = {
 export default function StudentAssessmentPlayer({ attempt }: { attempt: { id: string; title: string; expiresAt: string | null; serverNow: string; questions: Question[] } }) {
   const router = useRouter();
   const [index, setIndex] = useState(0);
+  const [reviewMode, setReviewMode] = useState(false);
   const [answers, setAnswers] = useState<Record<string, unknown>>(() => Object.fromEntries(attempt.questions.map((question) => [question.assessmentQuestionId, question.answer])));
   const [dirtyId, setDirtyId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -58,6 +59,11 @@ export default function StudentAssessmentPlayer({ attempt }: { attempt: { id: st
     setDirtyId(question.assessmentQuestionId);
   }
 
+  function moveToQuestion(nextIndex: number) {
+    setReviewMode(false);
+    setIndex(nextIndex);
+  }
+
   const finish = useCallback(async (automatic = false) => {
     if (!automatic && !window.confirm(`Submit this assessment? ${attempt.questions.length - answeredCount} unanswered question(s) will be marked skipped.`)) return;
     if (dirtyId) await saveAnswer(dirtyId);
@@ -94,12 +100,43 @@ export default function StudentAssessmentPlayer({ attempt }: { attempt: { id: st
 
   if (!question) return <p>This assessment has no available questions.</p>;
   return <section className="rounded-3xl border bg-white p-5 shadow-sm sm:p-8">
-    <div className="flex flex-wrap items-center justify-between gap-3"><p className="font-bold text-indigo-700">Question {index + 1} of {attempt.questions.length}</p><div className="flex items-center gap-4 text-sm font-semibold text-slate-600"><span>{question.marks} {question.marks === 1 ? "mark" : "marks"}</span>{remainingMs !== null && <span className={remainingMs < 300_000 ? "inline-flex items-center gap-2 text-red-700" : "inline-flex items-center gap-2"}><Clock3 className="h-4 w-4" />{formatRemaining(remainingMs)}</span>}</div></div>
+    <div className="flex flex-wrap items-center justify-between gap-3"><p className="font-bold text-indigo-700">Question {index + 1} of {attempt.questions.length}</p><div className="flex items-center gap-4 text-sm font-semibold text-slate-600"><span>{reviewMode ? "Review mode" : `${question.marks} ${question.marks === 1 ? "mark" : "marks"}`}</span>{remainingMs !== null && <span className={remainingMs < 300_000 ? "inline-flex items-center gap-2 text-red-700" : "inline-flex items-center gap-2"}><Clock3 className="h-4 w-4" />{formatRemaining(remainingMs)}</span>}</div></div>
     <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full bg-indigo-600" style={{ width: `${((index + 1) / attempt.questions.length) * 100}%` }} /></div>
-    <h1 className="mt-7 text-2xl font-bold leading-9">{question.questionText}</h1>
-    <div className="mt-6"><AnswerControl question={question} value={answers[question.assessmentQuestionId]} onChange={setAnswer} /></div>
-    <div className="mt-5 flex items-center justify-between gap-4 text-sm"><p aria-live="polite" className={message ? "font-semibold text-red-700" : "text-slate-500"}>{message || (saving ? "Saving…" : dirtyId ? "Waiting to save…" : "Answer saved")}</p><p className="font-semibold text-slate-500">{answeredCount}/{attempt.questions.length} answered</p></div>
-    <div className="mt-8 flex flex-wrap justify-between gap-3"><button type="button" disabled={index === 0} onClick={() => setIndex((value) => value - 1)} className={navClass}><ChevronLeft className="h-5 w-5" />Previous</button>{index < attempt.questions.length - 1 ? <button type="button" onClick={() => setIndex((value) => value + 1)} className={navClass}>Next<ChevronRight className="h-5 w-5" /></button> : <button type="button" disabled={saving} onClick={() => void finish(false)} className="min-h-12 rounded-xl bg-green-700 px-6 py-3 font-bold text-white disabled:opacity-50">Submit Assessment</button>}</div>
+
+    {reviewMode ? (
+      <div className="mt-6 space-y-5">
+        <h2 className="text-2xl font-bold">Review your answers</h2>
+        <p className="text-sm text-slate-600">Unanswered questions will be marked as skipped.</p>
+        <div className="grid gap-3 sm:grid-cols-2">
+          {attempt.questions.map((item, itemIndex) => {
+            const answered = !emptyAnswer(answers[item.assessmentQuestionId]);
+            return (
+              <button
+                key={item.assessmentQuestionId}
+                type="button"
+                onClick={() => moveToQuestion(itemIndex)}
+                className={`rounded-2xl border p-4 text-left ${answered ? "border-emerald-300 bg-emerald-50" : "border-amber-300 bg-amber-50"}`}
+              >
+                <p className="font-semibold text-slate-900">Question {itemIndex + 1}</p>
+                <p className="mt-1 text-sm text-slate-600">{item.questionType.replaceAll("_", " ")}</p>
+                <p className="mt-2 text-sm font-semibold">{answered ? "Answered" : "Not answered"}</p>
+              </button>
+            );
+          })}
+        </div>
+        <div className="flex flex-wrap justify-between gap-3">
+          <button type="button" onClick={() => setReviewMode(false)} className={navClass}>Back to questions</button>
+          <button type="button" disabled={saving} onClick={() => void finish(false)} className="min-h-12 rounded-xl bg-green-700 px-6 py-3 font-bold text-white disabled:opacity-50">Submit Assessment</button>
+        </div>
+      </div>
+    ) : (
+      <>
+        <h1 className="mt-7 text-2xl font-bold leading-9">{question.questionText}</h1>
+        <div className="mt-6"><AnswerControl question={question} value={answers[question.assessmentQuestionId]} onChange={setAnswer} /></div>
+        <div className="mt-5 flex items-center justify-between gap-4 text-sm"><p aria-live="polite" className={message ? "font-semibold text-red-700" : "text-slate-500"}>{message || (saving ? "Saving…" : dirtyId ? "Waiting to save…" : "Answer saved")}</p><p className="font-semibold text-slate-500">{answeredCount}/{attempt.questions.length} answered</p></div>
+        <div className="mt-8 flex flex-wrap justify-between gap-3"><button type="button" disabled={index === 0} onClick={() => setIndex((value) => value - 1)} className={navClass}><ChevronLeft className="h-5 w-5" />Previous</button>{index < attempt.questions.length - 1 ? <button type="button" onClick={() => setIndex((value) => value + 1)} className={navClass}>Next<ChevronRight className="h-5 w-5" /></button> : <button type="button" disabled={saving} onClick={() => setReviewMode(true)} className="min-h-12 rounded-xl bg-indigo-700 px-6 py-3 font-bold text-white disabled:opacity-50">Review Answers</button>}</div>
+      </>
+    )}
   </section>;
 }
 
