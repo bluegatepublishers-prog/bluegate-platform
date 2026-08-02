@@ -15,7 +15,7 @@ import {
   requestAttendanceCorrectionAction,
   saveTeacherAttendanceDraftAction,
   submitTeacherAttendanceAction,
-} from "@/app/teacher-dashboard/classes/[sectionId]/attendance/actions";
+} from "@/app/teacher-dashboard/attendance/actions";
 
 type UiStatus = "PRESENT" | "ABSENT" | "LATE" | "HALF_DAY" | "ON_LEAVE" | "EXCUSED";
 
@@ -37,10 +37,12 @@ type SubjectOption = {
 };
 
 type Props = {
+  routeBase: string;
   sectionId: string;
   className: string;
   sectionName: string;
   teacherName: string;
+  attendanceMode: "DAILY" | "PERIOD";
   subjects: SubjectOption[];
   selectedSubjectId: string;
   date: string;
@@ -84,7 +86,7 @@ export default function TeacherAttendanceWorkspace(props: Props) {
   const [selectedSubjectId, setSelectedSubjectId] = useState(props.selectedSubjectId);
   const [date, setDate] = useState(toDateInput(props.date));
   const [period, setPeriod] = useState(props.period);
-  const [sessionType, setSessionType] = useState<Props["sessionType"]>(props.sessionType);
+  const [sessionType, setSessionType] = useState<Props["sessionType"]>(props.attendanceMode);
 
   const [rows, setRows] = useState<AttendanceRow[]>(props.rows);
   const [search, setSearch] = useState("");
@@ -160,7 +162,7 @@ export default function TeacherAttendanceWorkspace(props: Props) {
     query.set("date", date);
     query.set("sessionType", sessionType);
     if (period.trim()) query.set("period", period.trim());
-    router.push(`/teacher-dashboard/classes/${props.sectionId}/attendance?${query.toString()}`);
+    router.push(`${props.routeBase}?${query.toString()}`);
   }
 
   function updateRow(rowId: string, patch: Partial<AttendanceRow>) {
@@ -265,16 +267,16 @@ export default function TeacherAttendanceWorkspace(props: Props) {
         </label>
         <label className="text-sm font-semibold text-slate-700">Session Type
           <select value={sessionType} onChange={(event) => setSessionType(event.target.value as Props["sessionType"])} className="mt-1 min-h-11 w-full rounded-xl border bg-white px-3 py-2 font-normal">
-            <option value="DAILY">DAILY</option>
-            <option value="PERIOD">PERIOD</option>
-            <option value="ASSEMBLY">ASSEMBLY</option>
-            <option value="ACTIVITY">ACTIVITY</option>
-            <option value="EXAM">EXAM</option>
+            <option value={props.attendanceMode}>{props.attendanceMode}</option>
           </select>
         </label>
-        <label className="text-sm font-semibold text-slate-700">Period
-          <input value={period} onChange={(event) => setPeriod(event.target.value)} placeholder="Optional" className="mt-1 min-h-11 w-full rounded-xl border bg-white px-3 py-2 font-normal" />
-        </label>
+        {props.attendanceMode === "PERIOD" ? (
+          <label className="text-sm font-semibold text-slate-700">Period
+            <input value={period} onChange={(event) => setPeriod(event.target.value)} placeholder="Optional" className="mt-1 min-h-11 w-full rounded-xl border bg-white px-3 py-2 font-normal" />
+          </label>
+        ) : (
+          <div />
+        )}
         <div className="flex items-end">
           <button type="button" onClick={applyRouteFilters} className="min-h-11 w-full rounded-xl border bg-white px-4 py-2 text-sm font-bold text-slate-700">Load Session</button>
         </div>

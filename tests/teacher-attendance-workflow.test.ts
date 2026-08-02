@@ -89,3 +89,20 @@ test("15 performance with 100 students", () => {
   assert.match(source, /filtered\.slice\(startIndex, endIndex\)/);
   assert.match(source, /useMemo\(/);
 });
+
+test("16 teacher attendance route exists", () => {
+  const source = read("app/teacher-dashboard/attendance/page.tsx");
+  assert.match(source, /Teacher Attendance/);
+  assert.match(source, /view=mark/);
+  assert.match(source, /view=history/);
+  assert.match(source, /view=corrections/);
+});
+
+test("17 shared attendance actions reused", () => {
+  const componentSource = read("components/classroom/TeacherAttendanceWorkspace.tsx");
+  const actionSource = read("app/teacher-dashboard/attendance/actions.ts");
+  assert.match(componentSource, /app\/teacher-dashboard\/attendance\/actions/);
+  assert.match(actionSource, /saveTeacherAttendanceDraftAction/);
+  assert.match(actionSource, /submitTeacherAttendanceAction/);
+  assert.match(actionSource, /requestAttendanceCorrectionAction/);
+});

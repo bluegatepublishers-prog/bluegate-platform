@@ -6,12 +6,15 @@ import {
   AttendanceMode,
   AttendanceSessionType,
   AttendanceStatus,
+  PlatformFeatureKey,
   SecurityAuditOutcome,
   UserRole,
 } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
+import { getPlatformFeatureAvailability } from "@/lib/publisher-features";
 import { requireSchool } from "@/lib/school-dashboard";
+import { isSchoolFeatureEnabled } from "@/lib/school-feature-entitlements";
 import { requireTeacher } from "@/lib/teacher-dashboard";
 import { requireTeacherClass } from "@/lib/classroom";
 import { requireStudent } from "@/lib/student-dashboard";
@@ -23,6 +26,7 @@ import {
   publisherAdminAuditActor,
   writeSecurityAuditEvent,
 } from "@/lib/security-audit";
+import { effectiveSchoolAccessStatus } from "@/lib/school-access-policy";
 
 const DEFAULT_ATTENDANCE_POLICY = {
   attendanceMode: AttendanceMode.DAILY,
@@ -50,6 +54,13 @@ type AttendanceRecordInput = {
   remark?: string;
   checkInTime?: string;
 };
+
+export type TeacherAttendanceAccessState =
+  | { status: "READY"; teacherId: string; teacherUserId: string; schoolId: string; publisherId: string; academicYearId: string; attendanceMode: AttendanceMode; policy: Awaited<ReturnType<typeof getSchoolAttendancePolicyBySchoolId>>; assignmentCount: number }
+  | { status: "NO_ASSIGNMENTS"; teacherId: string; teacherUserId: string; schoolId: string; publisherId: string; academicYearId: string; attendanceMode: AttendanceMode; policy: Awaited<ReturnType<typeof getSchoolAttendancePolicyBySchoolId>>; assignmentCount: number }
+  | { status: "FEATURE_DISABLED"; message: string }
+  | { status: "SUBSCRIPTION_BLOCKED"; message: string }
+  | { status: "NO_ACADEMIC_YEAR"; message: string };
 
 function resolveAssignedSectionSubjectId(
   scope: Awaited<ReturnType<typeof requireTeacherClass>>,
@@ -152,6 +163,81 @@ async function currentAcademicYearId(schoolId: string) {
   return year?.id ?? null;
 }
 
+export async function getTeacherAttendanceAccessState() {
+  const teacher = await requireTeacher();
+  if (!teacher.schoolId || !teacher.school?.publisherId) {
+    return { status: "SUBSCRIPTION_BLOCKED", message: "Teacher attendance is not configured for this school." } as const;
+  }
+
+  const [platformAvailability, subscription, academicYearId, assignmentCount, policy] = await Promise.all([
+    getPlatformFeatureAvailability(),
+    prisma.schoolAccessSubscription.findUnique({
+      where: { schoolId: teacher.schoolId },
+      select: {
+        publisherId: true,
+        featureConfig: true,
+        plan: true,
+        status: true,
+        startsAt: true,
+        expiresAt: true,
+      },
+    }),
+    currentAcademicYearId(teacher.schoolId),
+    prisma.teacherAssignment.count({
+      where: {
+        teacherId: teacher.id,
+        schoolId: teacher.schoolId,
+        active: true,
+        academicYear: { active: true, current: true, schoolId: teacher.schoolId },
+        schoolClass: { active: true, schoolId: teacher.schoolId },
+        section: { active: true },
+      },
+    }),
+    getSchoolAttendancePolicyBySchoolId(teacher.schoolId),
+  ]);
+
+  if (!platformAvailability[PlatformFeatureKey.ATTENDANCE]) {
+    return { status: "FEATURE_DISABLED", message: "Attendance is unavailable at the platform level." } as const;
+  }
+  if (!subscription || subscription.publisherId !== teacher.school.publisherId) {
+    return { status: "SUBSCRIPTION_BLOCKED", message: "Attendance is not enabled for this school." } as const;
+  }
+  if (effectiveSchoolAccessStatus(subscription) !== "ACTIVE") {
+    return { status: "SUBSCRIPTION_BLOCKED", message: "School access is inactive." } as const;
+  }
+  if (!isSchoolFeatureEnabled(subscription, "ATTENDANCE")) {
+    return { status: "FEATURE_DISABLED", message: "This feature has been disabled by your publisher." } as const;
+  }
+  if (!academicYearId) {
+    return { status: "NO_ACADEMIC_YEAR", message: "Current academic year is not configured." } as const;
+  }
+  if (!assignmentCount) {
+    return {
+      status: "NO_ASSIGNMENTS",
+      teacherId: teacher.id,
+      teacherUserId: teacher.userId,
+      schoolId: teacher.schoolId,
+      publisherId: teacher.school.publisherId,
+      academicYearId,
+      attendanceMode: policy.attendanceMode,
+      policy,
+      assignmentCount,
+    } as const;
+  }
+
+  return {
+    status: "READY",
+    teacherId: teacher.id,
+    teacherUserId: teacher.userId,
+    schoolId: teacher.schoolId,
+    publisherId: teacher.school.publisherId,
+    academicYearId,
+    attendanceMode: policy.attendanceMode,
+    policy,
+    assignmentCount,
+  } as const;
+}
+
 async function findOrCreateTeacherSession(input: {
   schoolId: string;
   teacherId: string;
@@ -203,6 +289,10 @@ export async function getTeacherAttendanceWorkspace(input: {
   period?: string;
   sectionSubjectId?: string;
 }) {
+  const access = await getTeacherAttendanceAccessState();
+  if (access.status === "FEATURE_DISABLED" || access.status === "SUBSCRIPTION_BLOCKED" || access.status === "NO_ACADEMIC_YEAR") {
+    throw new Error(access.message);
+  }
   const scope = await requireTeacherClass(input.sectionId);
   const teacher = await requireTeacher();
   const policy = await getSchoolAttendancePolicyBySchoolId(scope.schoolId);

@@ -3,7 +3,7 @@ import "server-only";
 import { PlatformFeatureKey, Prisma, SecurityAuditOutcome } from "@prisma/client";
 
 import { requireLivePublisherAdmin } from "@/lib/publisher-admin-authorization";
-import { getPlatformFeatureAvailability, isPublisherFeatureEnabled } from "@/lib/publisher-features";
+import { getPlatformFeatureAvailability } from "@/lib/publisher-features";
 import { prisma } from "@/lib/prisma";
 import {
   publisherAdminAuditActor,
@@ -213,11 +213,23 @@ export async function updatePublisherSchoolFeatures(
     if (!input || !Object.prototype.hasOwnProperty.call(input, key)) continue;
     const enabled = Boolean(input[key]);
     if (enabled && current[key] !== enabled) {
-      const publisherFeature = PUBLISHER_FEATURE_BY_SCHOOL_FEATURE.get(key);
-      if (!publisherFeature || !(await isPublisherFeatureEnabled(actor.publisherId, publisherFeature))) {
-        throw new Error(`"${SCHOOL_FEATURE_DEFINITIONS.find((definition) => definition.key === key)?.label ?? key}" is disabled by the publisher.`);
-      }
-    }
+  const publisherFeature =
+    PUBLISHER_FEATURE_BY_SCHOOL_FEATURE.get(key);
+
+  const platformAvailability =
+    await getPlatformFeatureAvailability();
+
+  if (
+    !publisherFeature ||
+    !platformAvailability[publisherFeature]
+  ) {
+    throw new Error(
+      `"${SCHOOL_FEATURE_DEFINITIONS.find(
+        (definition) => definition.key === key,
+      )?.label ?? key}" is unavailable at the platform level.`,
+    );
+  }
+}
     next[key] = enabled;
   }
 

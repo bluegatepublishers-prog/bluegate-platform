@@ -32,10 +32,12 @@ export default async function TeacherClassAttendancePage({
 
 	return (
 		<TeacherAttendanceWorkspace
+			routeBase={`/teacher-dashboard/classes/${sectionId}/attendance`}
 			sectionId={sectionId}
 			className={data.scope.schoolClass.name}
 			sectionName={data.scope.section.name}
 			teacherName={data.scope.teacher.user.name}
+			attendanceMode={data.policy.attendanceMode}
 			subjects={data.scope.sectionSubjects.map((item) => ({ id: item.id, name: item.subject.name }))}
 			selectedSubjectId={selectedSubjectId}
 			date={data.session.date.toISOString()}
