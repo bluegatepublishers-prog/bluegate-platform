@@ -39,11 +39,15 @@ function parseDate(value: string | undefined, fallback: Date) {
   return Number.isNaN(parsed.getTime()) ? fallback : parsed;
 }
 
-function sessionStatus(session: { locked: boolean; submittedAt: Date | null; records: Array<{ id: string }> }) {
-  if (session.locked) return "LOCKED" as const;
-  if (session.submittedAt) return "SUBMITTED" as const;
-  if (session.records.length) return "DRAFT" as const;
-  return "NOT_STARTED" as const;
+function sessionStatus(session: {
+  locked: boolean;
+  submittedAt: Date | null;
+  records: unknown[];
+}) {
+  if (session.locked) return "LOCKED";
+  if (session.submittedAt) return "SUBMITTED";
+  if (session.records.length) return "DRAFT";
+  return "NOT_STARTED";
 }
 
 function statusLabel(status: string) {
@@ -227,14 +231,7 @@ export default async function TeacherAttendancePage({ searchParams }: { searchPa
           <TabLink active={view === "corrections"} href="/teacher-dashboard/attendance?view=corrections" icon={RefreshCw}>Corrections</TabLink>
         </div>
       </header>
-
-      {!attendanceVisible ? (
-        <BlockedState
-          title="Attendance is not ready yet"
-          message={access.status === "NO_ASSIGNMENTS" ? "You do not have any current attendance assignments." : "Attendance is not available for your school right now."}
-        />
-      ) : null}
-
+    
       {view === "today" ? (
         <section className="space-y-4 rounded-3xl border bg-white p-5 shadow-sm">
           <div className="flex items-center justify-between gap-3">
