@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { verifyPassword } from "@/lib/password";
 import { loadStudentIdentity } from "@/lib/student-identity";
 import { studentSessionClaims } from "@/lib/student-identity-service";
+import { getMentorPortalLoginReadinessForUserId, getParentPortalLoginReadinessForUserId } from "@/lib/portal-access";
 import { isPublisherFeatureEnabled } from "@/lib/publisher-features";
 import { isCredentialRolePublisherInvariantValid } from "@/lib/role-publisher-policy";
 import { effectiveSchoolAccessStatus } from "@/lib/school-access-policy";
@@ -116,41 +117,13 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         if (user.role === "TEACHER" && (!user.teacher?.active || user.teacher.status !== "APPROVED" || user.teacher.school?.status !== "APPROVED" || !user.teacher.school.publisher?.active || !user.teacher.schoolId || !user.teacher.schoolMemberships.some((membership) => membership.schoolId === user.teacher!.schoolId))) return null;
         if (user.role === "ADMIN" && !user.publisher?.active) return null;
         if (user.role === "MENTOR") {
-          if (!user.mentor?.active || !user.mentor.publisher.active || user.publisherId !== user.mentor.publisherId || !(await isPublisherFeatureEnabled(user.mentor.publisherId, PlatformFeatureKey.TUTOR_PLATFORM))) return null;
-          const activeAssignment = await prisma.mentorStudentAssignment.findFirst({
-            where: {
-              mentorId: user.mentor.id,
-              status: "ACTIVE",
-              academicYear: { active: true, current: true },
-              student: {
-                active: true,
-                school: {
-                  status: "APPROVED",
-                  publisher: { active: true },
-                  accessSubscription: {
-                    is: { plan: "PAID", status: "ACTIVE" },
-                  },
-                },
-              },
-            },
-            select: {
-              id: true,
-              student: {
-                select: {
-                  school: {
-                    select: {
-                      accessSubscription: {
-                        select: { plan: true, status: true, startsAt: true, expiresAt: true },
-                      },
-                    },
-                  },
-                },
-              },
-            },
-          });
-          if (!activeAssignment?.student.school.accessSubscription || effectiveSchoolAccessStatus(activeAssignment.student.school.accessSubscription) !== "ACTIVE") return null;
+          const readiness = await getMentorPortalLoginReadinessForUserId(user.id);
+          if (!readiness.ok) return null;
         }
-        if (user.role === "PARENT" && !user.parent?.active) return null;
+        if (user.role === "PARENT") {
+          const readiness = await getParentPortalLoginReadinessForUserId(user.id);
+          if (!readiness.ok) return null;
+        }
 
         return {
           id: user.id,

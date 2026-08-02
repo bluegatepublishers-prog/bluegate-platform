@@ -3,6 +3,12 @@ import { PlatformFeatureKey } from "@prisma/client";
 import { auth } from "@/auth";
 import { canReleaseAssessmentResult } from "@/lib/assessment-policy";
 import { getEffectiveStudentPlan } from "@/lib/entitlements/student-plan";
+import {
+  assertParentSurfacePermission,
+  getParentPortalLoginReadinessForUserId,
+  parentPermissionsFor,
+  type ParentPortalSurface,
+} from "@/lib/portal-access";
 import { prisma } from "@/lib/prisma";
 import { isPublisherFeatureEnabled } from "@/lib/publisher-features";
 import { effectiveSchoolAccessStatus } from "@/lib/school-access-policy";
@@ -12,26 +18,56 @@ export class ParentAccessError extends Error {}
 
 export async function requireParent() {
   const session = await auth();
-  if (!session?.user?.id || session.user.role !== "PARENT") throw new ParentAccessError("Parent access is unavailable.");
-  const parent = await prisma.parent.findUnique({ where: { userId: session.user.id }, include: { user: { select: { id: true, name: true, email: true } } } });
-  if (!parent?.active) throw new ParentAccessError("Parent access is unavailable.");
-  return parent;
+  const readiness = await getParentPortalLoginReadinessForUserId(session?.user?.id);
+  if (!readiness.ok) throw new ParentAccessError(readiness.message);
+  return {
+    id: readiness.actor.parent.id,
+    userId: readiness.actor.parent.userId,
+    active: readiness.actor.parent.active,
+    phone: readiness.actor.parent.phone,
+    user: readiness.actor.user,
+    permissions: readiness.permissions,
+  };
 }
 
-export async function requireParentChildAccess(studentId: string) {
+export async function requireParentChildAccess(studentId: string, options?: { surface?: ParentPortalSurface }) {
   const parent = await requireParent();
   const relationship = await prisma.parentStudentRelationship.findFirst({
     where: { parentId: parent.id, studentId, status: "APPROVED", canViewLearning: true },
-    include: { student: { include: { school: { include: { publisher: { select: { id: true, name: true, active: true } }, accessSubscription: { select: { plan: true, status: true, startsAt: true, expiresAt: true } } } }, enrollments: { where: { status: "ACTIVE", academicYear: { active: true, current: true }, schoolClass: { active: true }, section: { active: true } }, include: { academicYear: true, schoolClass: true, section: true }, orderBy: { createdAt: "desc" }, take: 1 } } } },
+    include: {
+      student: {
+        include: {
+          school: {
+            include: {
+              publisher: { select: { id: true, name: true, active: true } },
+              accessSubscription: { select: { plan: true, status: true, startsAt: true, expiresAt: true } },
+              portalPermissions: true,
+            },
+          },
+          enrollments: {
+            where: { status: "ACTIVE", academicYear: { active: true, current: true }, schoolClass: { active: true }, section: { active: true } },
+            include: { academicYear: true, schoolClass: true, section: true },
+            orderBy: { createdAt: "desc" },
+            take: 1,
+          },
+        },
+      },
+    },
   });
   const enrollment = relationship?.student.enrollments[0], publisher = relationship?.student.school.publisher;
   const schoolSubscription = relationship?.student.school.accessSubscription;
   const schoolAccessActive = schoolSubscription
     ? effectiveSchoolAccessStatus(schoolSubscription) === "ACTIVE"
     : false;
+  const permissions = relationship ? parentPermissionsFor(relationship.student.school.portalPermissions) : parent.permissions;
   const featureEnabled = publisher ? await isPublisherFeatureEnabled(publisher.id, PlatformFeatureKey.PARENT_PORTAL) : false;
   if (!relationship || !enrollment || !publisher || !canParentViewChild({ parentActive: parent.active, studentActive: relationship.student.active, relationshipStatus: relationship.status, canViewLearning: relationship.canViewLearning, schoolApproved: relationship.student.school.status === "APPROVED", schoolAccessActive, publisherActive: publisher.active, featureEnabled, relationshipStudentId: relationship.studentId, requestedStudentId: studentId })) throw new ParentAccessError("This child is unavailable.");
-  return { parent, relationship, student: relationship.student, enrollment, publisher };
+  if (!permissions.parentLoginEnabled) throw new ParentAccessError("Parent login is disabled by this school.");
+  if (options?.surface) {
+    const decision = assertParentSurfacePermission({ ok: true, category: "READY", actor: { user: parent.user, parent: { id: parent.id, userId: parent.userId, active: parent.active, phone: parent.phone } }, permissions, schoolId: relationship.student.schoolId, publisherId: publisher.id }, options.surface);
+    if (!decision.ok) throw new ParentAccessError(decision.message);
+  }
+  return { parent, relationship, student: relationship.student, enrollment, publisher, permissions };
 }
 
 export async function getParentChildren() {
@@ -50,7 +86,9 @@ export async function getParentChildLearningSummary(studentId: string) {
     prisma.learningTimeline.findMany({ where: { studentId, academicYearId: yearId }, select: { title: true, activityType: true, completed: true, scorePercent: true, occurredAt: true }, orderBy: { occurredAt: "desc" }, take: 12 }),
     prisma.studentLearningGap.findMany({ where: { studentId, academicYearId: yearId, status: { in: ["OPEN", "ACKNOWLEDGED"] } }, include: { subject: { select: { name: true } }, chapter: { select: { title: true } } }, orderBy: { lastDetectedAt: "desc" }, take: 12 }),
     prisma.remedialPlan.findMany({ where: { studentId, academicYearId: yearId, status: { in: ["ACTIVE", "COMPLETED"] } }, include: { gap: { include: { subject: { select: { name: true } }, chapter: { select: { title: true } } } }, steps: { select: { status: true } } }, orderBy: { createdAt: "desc" }, take: 12 }),
-    prisma.mentorStudentAssignment.findFirst({ where: { studentId, academicYearId: yearId, status: "ACTIVE", role: "PRIMARY", mentor: { active: true } }, include: { mentor: { include: { user: { select: { name: true } }, sessions: { where: { studentId, academicYearId: yearId, status: "COMPLETED" }, select: { id: true } } } } }, orderBy: { startsAt: "desc" } }),
+    scope.permissions.mentorParentVisibleUpdates
+      ? prisma.mentorStudentAssignment.findFirst({ where: { studentId, academicYearId: yearId, status: "ACTIVE", role: "PRIMARY", mentor: { active: true } }, include: { mentor: { include: { user: { select: { name: true } }, sessions: { where: { studentId, academicYearId: yearId, status: "COMPLETED" }, select: { id: true } } } } }, orderBy: { startsAt: "desc" } })
+      : Promise.resolve(null),
     prisma.assessmentAttempt.findMany({ where: { studentId, academicYearId: yearId, status: { in: ["SUBMITTED", "PENDING_REVIEW", "GRADED"] } }, include: { assessment: { include: { settings: true } }, result: true }, orderBy: { submittedAt: "desc" }, take: 12 }),
     prisma.studentChapterAnalytics.count({ where: { studentId, academicYearId: yearId, aiRequests: { gt: 0 } } }),
     getEffectiveStudentPlan(studentId, yearId),
@@ -72,7 +110,7 @@ export async function getParentChildPortalData(studentId: string) {
       select: { teacher: { select: { user: { select: { name: true } } } } },
       orderBy: { createdAt: "desc" },
     }),
-    prisma.classroomAssignment.findMany({
+    learning.permissions.parentHomeworkVisibility ? prisma.classroomAssignment.findMany({
       where: {
         schoolId: learning.student.schoolId,
         academicYearId: learning.enrollment.academicYearId,
@@ -91,8 +129,8 @@ export async function getParentChildPortalData(studentId: string) {
       },
       orderBy: [{ dueAt: "asc" }, { createdAt: "desc" }],
       take: 8,
-    }),
-    prisma.assessment.findMany({
+    }) : Promise.resolve([]),
+    learning.permissions.parentAssessmentVisibility ? prisma.assessment.findMany({
       where: {
         schoolId: learning.student.schoolId,
         academicYearId: learning.enrollment.academicYearId,
@@ -112,8 +150,8 @@ export async function getParentChildPortalData(studentId: string) {
       },
       orderBy: [{ dueAt: "asc" }, { opensAt: "asc" }],
       take: 8,
-    }),
-    prisma.academicPlannerItem.findMany({
+    }) : Promise.resolve([]),
+    learning.permissions.parentPlannerVisibility ? prisma.academicPlannerItem.findMany({
       where: {
         schoolId: learning.student.schoolId,
         academicYearId: learning.enrollment.academicYearId,
@@ -130,7 +168,7 @@ export async function getParentChildPortalData(studentId: string) {
       },
       orderBy: [{ currentDate: "asc" }, { createdAt: "desc" }],
       take: 12,
-    }),
+    }) : Promise.resolve([]),
     prisma.academicPlannerItem.findFirst({
       where: {
         schoolId: learning.student.schoolId,

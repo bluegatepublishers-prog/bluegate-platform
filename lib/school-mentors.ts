@@ -16,6 +16,7 @@ import { assignPrimaryMentor, revokeMentorAssignment } from "@/lib/mentor-assign
 import { generateResetCompletionToken, hashSecurityValue, securelyMatchesHash } from "@/lib/account-security-policy";
 import { cleanText, normalizeEmail, validEmail, validatePassword } from "@/lib/onboarding-policy";
 import { hashPassword } from "@/lib/password";
+import { mentorPermissionsFor } from "@/lib/portal-access";
 import { prisma } from "@/lib/prisma";
 import { accountAuditActor, writeSecurityAuditEvent } from "@/lib/security-audit";
 import { sendConfiguredMail } from "@/lib/mail-runtime";
@@ -219,6 +220,10 @@ export async function createSchoolMentor(input: Record<string, unknown>) {
   if (!publisherId || !await isPublisherFeatureEnabled(publisherId, PlatformFeatureKey.TUTOR_PLATFORM)) {
     throw new SchoolMentorError("Mentor onboarding is not enabled for this school.");
   }
+  const permissions = mentorPermissionsFor(await prisma.schoolPortalPermission.findUnique({ where: { schoolId: school.id } }));
+  if (!permissions.mentorActivationAllowed) {
+    throw new SchoolMentorError("Mentor account activation is disabled by this school.");
+  }
   const name = cleanText(input.name, 120);
   const email = normalizeEmail(input.email);
   const phone = cleanText(input.phone, 30);
@@ -255,6 +260,9 @@ export async function createSchoolMentor(input: Record<string, unknown>) {
 
 export async function resendSchoolMentorActivation(mentorId: string) {
   const detail = await getSchoolMentor(mentorId);
+  if (!detail.school.publisherId) throw new SchoolMentorError("Mentor activation is unavailable.");
+  const permissions = mentorPermissionsFor(await prisma.schoolPortalPermission.findUnique({ where: { schoolId: detail.school.id } }));
+  if (!permissions.mentorActivationAllowed) throw new SchoolMentorError("Mentor account activation is disabled by this school.");
   if (!detail.membership.active || detail.membership.status !== SchoolStaffMembershipStatus.ACTIVE) throw new SchoolMentorError("Activate this mentor before sending an account invitation.");
   if (detail.membership.user.emailVerifiedAt && !detail.membership.user.mustChangePassword) throw new SchoolMentorError("This mentor account is already ready for sign-in.");
   const sent = await issueActivation({ id: detail.membership.user.id, email: detail.membership.user.email }, detail.school.schoolName);
@@ -277,6 +285,14 @@ export async function setSchoolMentorActive(mentorId: string, active: boolean) {
     }
     const otherActiveMembership = await tx.schoolStaffMembership.findFirst({ where: { userId: detail.membership.userId, schoolId: { not: detail.school.id }, active: true, status: SchoolStaffMembershipStatus.ACTIVE }, select: { id: true } });
     await tx.mentor.update({ where: { id: mentorId }, data: { active: active || Boolean(otherActiveMembership) } });
+    await writeSecurityAuditEvent(tx, {
+      actor: accountAuditActor({ id: detail.school.userId, role: UserRole.SCHOOL, publisherId: detail.school.publisherId }),
+      action: active ? "school.mentor.activate" : "school.mentor.deactivate",
+      targetType: "User",
+      targetId: detail.membership.userId,
+      outcome: SecurityAuditOutcome.SUCCESS,
+      metadata: { enabled: active, scope: "mentor_account" },
+    });
   });
 }
 
@@ -319,6 +335,15 @@ export async function activateSchoolMentorAccount(input: { reference?: string; t
     if (!challenge || challenge.consumedAt || challenge.revokedAt || !challenge.completionTokenHash || !challenge.completionExpiresAt || challenge.completionExpiresAt <= now || challenge.user.role !== UserRole.MENTOR || !challenge.user.mentor?.active || challenge.user.mentor.publisherId !== challenge.user.publisherId || !challenge.user.publisher?.active || challenge.user.staffMemberships.length === 0 || !securelyMatchesHash(challenge.completionTokenHash, actualTokenHash)) {
       return { ok: false as const, message: "This mentor invitation is invalid or has expired. Ask your school to send a new invitation." };
     }
+    const schoolIds = challenge.user.staffMemberships.map((membership) => membership.id);
+    const activeMembership = await tx.schoolStaffMembership.findFirst({
+      where: { userId: challenge.userId, active: true, status: SchoolStaffMembershipStatus.ACTIVE },
+      select: { schoolId: true },
+      orderBy: { joinedAt: "desc" },
+    });
+    if (!activeMembership) return { ok: false as const, message: "This mentor invitation is invalid or has expired. Ask your school to send a new invitation." };
+    const permissions = mentorPermissionsFor(await tx.schoolPortalPermission.findUnique({ where: { schoolId: activeMembership.schoolId } }));
+    if (!permissions.mentorActivationAllowed) return { ok: false as const, message: "Mentor account activation is disabled by this school." };
     await tx.user.update({ where: { id: challenge.userId }, data: { password, emailVerifiedAt: now, mustChangePassword: false, active: true } });
     await tx.passwordResetChallenge.update({ where: { id: challenge.id }, data: { consumedAt: now, completionTokenHash: null, completionExpiresAt: null } });
     await tx.passwordResetChallenge.updateMany({ where: { userId: challenge.userId, id: { not: challenge.id }, consumedAt: null, revokedAt: null }, data: { revokedAt: now } });

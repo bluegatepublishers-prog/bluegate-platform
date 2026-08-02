@@ -3,6 +3,12 @@ import "server-only";
 import { MentorActivityType, MentorNoteType, PlatformFeatureKey, RemedialPlanStatus } from "@prisma/client";
 import { auth } from "@/auth";
 import { getEffectiveStudentPlan } from "@/lib/entitlements/student-plan";
+import {
+  assertMentorSurfacePermission,
+  getMentorPortalLoginReadinessForUserId,
+  mentorPermissionsFor,
+  type MentorPortalSurface,
+} from "@/lib/portal-access";
 import { prisma } from "@/lib/prisma";
 import { isPublisherFeatureEnabled, requirePublisherFeature } from "@/lib/publisher-features";
 import { effectiveSchoolAccessStatus } from "@/lib/school-access-policy";
@@ -18,28 +24,31 @@ function hasActiveMentorSchoolAccess(subscription: { plan: "FREE" | "PAID"; stat
 
 export async function requireMentor() {
   const session = await auth();
-  if (!session?.user?.id || session.user.role !== "MENTOR") throw new MentorAccessError("Mentor access is unavailable.");
+  const readiness = await getMentorPortalLoginReadinessForUserId(session?.user?.id);
+  if (!readiness.ok) throw new MentorAccessError(readiness.message);
   const mentor = await prisma.mentor.findUnique({
-    where: { userId: session.user.id },
+    where: { id: readiness.actor.mentor.id },
     include: { user: { select: { id: true, name: true, email: true, phone: true } }, publisher: { select: { id: true, name: true, active: true } } },
   });
-  if (!mentor?.active || !mentor.publisher.active) throw new MentorAccessError("Mentor access is unavailable.");
+  if (!mentor) throw new MentorAccessError("Mentor access is unavailable.");
   await requirePublisherFeature(mentor.publisherId, PlatformFeatureKey.TUTOR_PLATFORM);
-  return mentor;
+  return { ...mentor, permissions: readiness.permissions };
 }
 
-async function loadOwnedAssignment(studentId: string) {
+async function loadOwnedAssignment(studentId: string, options?: { surface?: MentorPortalSurface }) {
   const mentor = await requireMentor();
   const assignment = await prisma.mentorStudentAssignment.findFirst({
     where: { mentorId: mentor.id, studentId, status: "ACTIVE", academicYear: { active: true, current: true } },
     include: {
-      student: { select: { id: true, name: true, admissionNumber: true, schoolId: true, active: true, school: { select: { id: true, schoolName: true, status: true, publisherId: true, publisher: { select: { active: true } }, accessSubscription: { select: { plan: true, status: true, startsAt: true, expiresAt: true } } } } } },
+      student: { select: { id: true, name: true, admissionNumber: true, schoolId: true, active: true, school: { select: { id: true, schoolName: true, status: true, publisherId: true, publisher: { select: { active: true } }, accessSubscription: { select: { plan: true, status: true, startsAt: true, expiresAt: true } }, portalPermissions: true } } } },
       academicYear: { select: { id: true, name: true, active: true, current: true } },
     },
     orderBy: { startsAt: "desc" },
   });
   if (!assignment?.student.active || !assignment.academicYear.active || !assignment.academicYear.current) throw new MentorAccessError("This student is unavailable.");
   if (assignment.student.school.status !== "APPROVED" || !assignment.student.school.publisher?.active || !hasActiveMentorSchoolAccess(assignment.student.school.accessSubscription)) throw new MentorAccessError("This student is unavailable.");
+  const permissions = mentorPermissionsFor(assignment.student.school.portalPermissions);
+  if (!permissions.mentorLoginEnabled) throw new MentorAccessError("Mentor login is disabled by this school.");
   const enrollment = await prisma.studentEnrollment.findFirst({
     where: { studentId, schoolId: assignment.schoolId, academicYearId: assignment.academicYearId, status: "ACTIVE", schoolClass: { active: true }, section: { active: true } },
     include: { schoolClass: { select: { name: true } }, section: { select: { name: true } } },
@@ -50,11 +59,15 @@ async function loadOwnedAssignment(studentId: string) {
     isPublisherFeatureEnabled(mentor.publisherId, PlatformFeatureKey.TUTOR_PLATFORM),
   ]);
   if (!canAccessMentorAssignment({ status: assignment.status, startsAt: assignment.startsAt, endsAt: assignment.endsAt, assignmentPublisherId: assignment.publisherId, mentorPublisherId: mentor.publisherId, schoolPublisherId: assignment.student.school.publisherId, assignmentSchoolId: assignment.schoolId, studentSchoolId: assignment.student.schoolId, assignmentAcademicYearId: assignment.academicYearId, enrollmentAcademicYearId: enrollment.academicYearId, plan: effectivePlan.plan, mentorActive: mentor.active, publisherActive: mentor.publisher.active, mentorFeatureEnabled: featureEnabled })) throw new MentorAccessError("This student is unavailable.");
-  return { mentor, assignment, enrollment, plan: effectivePlan.plan };
+  if (options?.surface) {
+    const decision = assertMentorSurfacePermission({ ok: true, category: "READY", actor: { user: mentor.user, mentor: { id: mentor.id, userId: mentor.userId, publisherId: mentor.publisherId, active: mentor.active, type: mentor.type } }, permissions, schoolId: assignment.schoolId, publisherId: assignment.publisherId }, options.surface);
+    if (!decision.ok) throw new MentorAccessError(decision.message);
+  }
+  return { mentor, assignment, enrollment, plan: effectivePlan.plan, permissions };
 }
 
-export async function getMentorStudentScope(studentId: string) {
-  return loadOwnedAssignment(studentId);
+export async function getMentorStudentScope(studentId: string, options?: { surface?: MentorPortalSurface }) {
+  return loadOwnedAssignment(studentId, options);
 }
 
 export async function getMentorDashboard() {
@@ -79,16 +92,19 @@ export async function getMentorDashboard() {
     prisma.mentorSession.count({ where: { mentorId: mentor.id, assignmentId: { in: assignmentIds }, scheduledAt: { gte: monthStart, lt: monthEnd } } }),
     prisma.mentorNote.findMany({ where: { mentorId: mentor.id, assignmentId: { in: assignmentIds } }, orderBy: { createdAt: "desc" }, take: 8, include: { student: { select: { name: true } } } }),
   ]) : [0, []];
-  return { mentor, assignments, openGaps, activeRemedials, recentActivity, upcomingSessions, unreadNotes: 0, sessionsThisMonth, recentNotes };
+  return { mentor, permissions: mentor.permissions, assignments, openGaps, activeRemedials, recentActivity, upcomingSessions, unreadNotes: 0, sessionsThisMonth, recentNotes };
 }
 
 export async function getAssignedStudents() {
+  const mentor = await requireMentor();
+  const assignedStudents = assertMentorSurfacePermission({ ok: true, category: "READY", actor: { user: mentor.user, mentor: { id: mentor.id, userId: mentor.userId, publisherId: mentor.publisherId, active: mentor.active, type: mentor.type } }, permissions: mentor.permissions, schoolId: "", publisherId: mentor.publisherId }, "ASSIGNED_STUDENTS");
+  if (!assignedStudents.ok) throw new MentorAccessError(assignedStudents.message);
   const dashboard = await getMentorDashboard();
   return dashboard.assignments.map(({ assignment, enrollment }) => ({ id: assignment.student.id, name: assignment.student.name, admissionNumber: assignment.student.admissionNumber, school: assignment.student.school.schoolName, academicYear: assignment.academicYear.name, className: enrollment.schoolClass.name, sectionName: enrollment.section.name, role: assignment.role, source: assignment.source }));
 }
 
 export async function getMentorStudentProfile(studentId: string) {
-  const scope = await loadOwnedAssignment(studentId);
+  const scope = await loadOwnedAssignment(studentId, { surface: "ACADEMIC_PROGRESS" });
   const where = { studentId, academicYearId: scope.assignment.academicYearId };
   const [analytics, subjects, chapters, timeline, gaps, remedials, notes, sessions, assignments, assessments, latestReportCard] = await prisma.$transaction([
     prisma.studentAnalytics.findUnique({ where: { studentId_academicYearId: where } }),
@@ -182,7 +198,7 @@ export async function updateMentorProfile(input: { name: string; email: string; 
 }
 
 export async function recordMentorRemedialReview(input: { studentId: string; planId: string; action: "REVIEW" | "RECOMMEND_COMPLETION" }) {
-  const scope = await loadOwnedAssignment(input.studentId);
+  const scope = await loadOwnedAssignment(input.studentId, { surface: "MENTOR_PLAN_CREATION" });
   await requirePublisherFeature(scope.assignment.publisherId, PlatformFeatureKey.REMEDIALS);
   const plan = await prisma.remedialPlan.findFirst({ where: { id: input.planId, studentId: input.studentId, academicYearId: scope.assignment.academicYearId, publisherId: scope.assignment.publisherId, schoolId: scope.assignment.schoolId, status: { in: ["ACTIVE", "COMPLETED"] } }, select: { id: true } });
   if (!plan) throw new MentorAccessError("This learning path is unavailable.");
@@ -190,13 +206,16 @@ export async function recordMentorRemedialReview(input: { studentId: string; pla
 }
 
 export async function launchMentorStudentAi(studentId: string) {
-  const scope = await loadOwnedAssignment(studentId);
+  const scope = await loadOwnedAssignment(studentId, { surface: "ACADEMIC_PROGRESS" });
   await requirePublisherFeature(scope.assignment.publisherId, PlatformFeatureKey.STUDENT_AI);
   await prisma.mentorActivity.create({ data: { assignmentId: scope.assignment.id, mentorId: scope.mentor.id, studentId: scope.assignment.studentId, publisherId: scope.assignment.publisherId, schoolId: scope.assignment.schoolId, academicYearId: scope.assignment.academicYearId, actorUserId: scope.mentor.userId, type: MentorActivityType.STUDENT_AI_LAUNCHED, targetType: "STUDENT_AI_HANDOFF" } });
   return { launched: true as const };
 }
 
 export async function getMentorReport() {
+  const mentor = await requireMentor();
+  const progress = assertMentorSurfacePermission({ ok: true, category: "READY", actor: { user: mentor.user, mentor: { id: mentor.id, userId: mentor.userId, publisherId: mentor.publisherId, active: mentor.active, type: mentor.type } }, permissions: mentor.permissions, schoolId: "", publisherId: mentor.publisherId }, "ACADEMIC_PROGRESS");
+  if (!progress.ok) throw new MentorAccessError(progress.message);
   const students = await getAssignedStudents();
   const rows = await Promise.all(students.map(async (student) => {
     const profile = await getMentorStudentProfile(student.id);

@@ -334,6 +334,7 @@ model School {
   bookEntitlements        SchoolBookEntitlement[]
   resourceEntitlements    SchoolResourceEntitlement[]
   accessSubscription      SchoolAccessSubscription?
+  portalPermissions       SchoolPortalPermission?
   sectionChatRooms        SectionChatRoom[]
   academicPlannerItems    AcademicPlannerItem[]
   attendanceSessions      AttendanceSession[]
@@ -376,6 +377,34 @@ model SchoolAccessSubscription {
 
   @@index([publisherId, plan, status])
   @@index([publisherId, expiresAt])
+}
+
+model SchoolPortalPermission {
+  id                                 String    @id @default(cuid())
+  schoolId                           String    @unique
+  publisherId                        String
+  parentLoginEnabled                 Boolean   @default(true)
+  parentActivationAllowed            Boolean   @default(true)
+  parentPlannerVisibility            Boolean   @default(true)
+  parentAttendanceVisibility         Boolean   @default(true)
+  parentHomeworkVisibility           Boolean   @default(true)
+  parentTeacherMaterialVisibility    Boolean   @default(true)
+  parentAssessmentVisibility         Boolean   @default(true)
+  parentAnnouncementAcknowledgement  Boolean   @default(true)
+  mentorLoginEnabled                 Boolean   @default(true)
+  mentorActivationAllowed            Boolean   @default(true)
+  mentorAssignedStudentVisibility    Boolean   @default(true)
+  mentorPlannerVisibility            Boolean   @default(true)
+  mentorAttendanceVisibility         Boolean   @default(true)
+  mentorAcademicProgressVisibility   Boolean   @default(true)
+  mentorPlanCreation                 Boolean   @default(true)
+  mentorParentVisibleUpdates         Boolean   @default(true)
+  createdAt                          DateTime  @default(now())
+  updatedAt                          DateTime  @updatedAt
+  school                             School    @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  publisher                          Publisher @relation(fields: [publisherId], references: [id], onDelete: Restrict)
+
+  @@index([publisherId, schoolId])
 }
 
 model SectionChatRoom {
