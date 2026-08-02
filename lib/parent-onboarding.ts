@@ -4,7 +4,7 @@ import { ParentRelationshipStatus, ParentRelationshipType, PlatformFeatureKey, P
 import { prisma } from "@/lib/prisma";
 import { hashPassword } from "@/lib/password";
 import { requireSchool } from "@/lib/school-dashboard";
-import { requirePublisherFeature } from "@/lib/publisher-features";
+import { isPublisherFeatureEnabled } from "@/lib/publisher-features";
 import { cleanText, normalizeActivationCode, normalizeEmail, validEmail, validatePassword } from "./onboarding-policy";
 
 export class ParentOnboardingError extends Error {}
@@ -20,7 +20,9 @@ export function parentInvitationHash(code: unknown) {
 export async function issueParentInvitation(input: Record<string, unknown>) {
   const school = await requireSchool();
   if (!school.publisherId) throw new ParentOnboardingError("Parent invitations are unavailable.");
-  await requirePublisherFeature(school.publisherId, PlatformFeatureKey.PARENT_PORTAL);
+  if (!await isPublisherFeatureEnabled(school.publisherId, PlatformFeatureKey.PARENT_PORTAL)) {
+    throw new ParentOnboardingError("Parent invitations are not enabled for this school.");
+  }
   const studentId = cleanText(input.studentId, 64), targetEmail = normalizeEmail(input.email), targetPhone = cleanText(input.phone, 30);
   const relationshipType = cleanText(input.relationshipType, 20) as ParentRelationshipType;
   if (!studentId || !validEmail(targetEmail) || !Object.values(ParentRelationshipType).includes(relationshipType)) throw new ParentOnboardingError("Enter a valid email and relationship type.");

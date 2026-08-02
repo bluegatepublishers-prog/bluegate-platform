@@ -3,12 +3,13 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, BookOpen, CalendarDays, ChevronDown, GraduationCap, Home, Menu, School, UserRoundCheck, Users } from "lucide-react";
+import { BarChart3, BookOpen, CalendarDays, ChevronDown, GraduationCap, Home, Menu, School, UserRoundCheck, Users, UsersRound } from "lucide-react";
 
 const people = [
   ["Students", "/school-dashboard/people?tab=students", GraduationCap],
   ["Teachers", "/school-dashboard/people?tab=teachers", UserRoundCheck],
   ["Parents", "/school-dashboard/people?tab=parents", Users],
+  ["Mentors", "/school-dashboard/people/mentors", UsersRound],
   ["Staff", "/school-dashboard/people?tab=staff", Users],
 ] as const;
 const academics = [
