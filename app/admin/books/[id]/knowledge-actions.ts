@@ -6,6 +6,10 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 
 import { requireLivePublisherAdmin } from "@/lib/publisher-admin-authorization";
+import {
+  archiveActivityStudioRecord,
+  saveActivityStudioRecord,
+} from "@/lib/activity-studio";
 import { prisma } from "@/lib/prisma";
 import {
   publisherAdminAuditActor,
@@ -469,21 +473,24 @@ export async function saveActivity(bookId: string, formData: FormData) {
   });
   if (!parsed.success) throw new Error(parsed.error.issues[0]?.message ?? "Activity input is invalid.");
   const chapter = await prisma.bookChapter.findFirst({
-    where: { id: parsed.data.chapterId, bookId },
+    where: { id: parsed.data.chapterId, bookId, book: { publisherId: actor.publisherId } },
     select: { id: true },
   });
   if (!chapter) throw new Error("Chapter, title, objective, and instructions are required.");
 
   try {
+    await saveActivityStudioRecord({
+      actor,
+      bookId,
+      data: {
+        ...parsed.data,
+        activityType: "CLASSROOM_ACTIVITY",
+        audience: "BOTH",
+        active: true,
+        published: parsed.data.approved,
+      },
+    });
     await prisma.$transaction(async (tx) => {
-      if (parsed.data.id) {
-        await tx.chapterActivity.updateMany({
-          where: { id: parsed.data.id, chapter: { bookId } },
-          data: parsed.data,
-        });
-      } else {
-        await tx.chapterActivity.create({ data: parsed.data });
-      }
       await writeBookAudit(tx, actor, "publisher.book.update", bookId, ["book_content", "exercise"]);
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   } catch (error) {
@@ -501,8 +508,8 @@ export async function saveActivity(bookId: string, formData: FormData) {
 export async function deleteActivity(bookId: string, id: string) {
   const actor = await requireOwnedBookForAction(bookId, "publisher.book.delete");
   try {
+    await archiveActivityStudioRecord({ actor, bookId, activityId: id });
     await prisma.$transaction(async (tx) => {
-      await tx.chapterActivity.deleteMany({ where: { id, chapter: { bookId } } });
       await writeBookAudit(tx, actor, "publisher.book.delete", bookId, ["book_content", "exercise"]);
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   } catch (error) {

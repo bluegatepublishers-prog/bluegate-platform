@@ -251,6 +251,9 @@ const ALLOWED_METADATA_KEYS = new Set([
   "mismatchCount",
   "repairCount",
   "dependencyCount",
+  "releaseAction",
+  "releaseTargetType",
+  "releaseTargetId",
 ]);
 const SAFE_VALUE = /^[A-Za-z0-9_.:-]{1,120}$/;
 const SENSITIVE_KEY = /(password|token|secret|cookie|authorization|connection|prompt|response|email|url|body|hash|answer)/i;

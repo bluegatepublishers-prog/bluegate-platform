@@ -140,6 +140,12 @@ model Publisher {
   schoolAccessSubscriptions  SchoolAccessSubscription[]
   bookFeatureDefinitions     BookFeatureDefinition[]
   bookResourceLinks          BookResourceLink[]
+  contentSectionDefinitions  ContentSectionDefinition[]
+  contentReleases            ContentRelease[]
+  contentReleaseVersions     ContentReleaseVersion[]
+  worksheets                 PublisherWorksheet[]
+  vocabularyDefinitions      PublisherVocabulary[]
+  conceptDefinitions         PublisherConcept[]
   dynamicQrCodes             DynamicQrCode[]
   schoolPortalPermissions    SchoolPortalPermission[]
 }
@@ -225,6 +231,7 @@ model Teacher {
   schoolRequests              TeacherSchoolRequest[]
   schoolMemberships           SchoolStaffMembership[]
   attendanceSessions          AttendanceSession[]
+  reviewedPracticeResponses   StudentPracticeResponse[] @relation("StudentPracticeResponseReviewer")
 
   @@index([schoolId])
   @@index([schoolId, status, active])
@@ -1390,6 +1397,9 @@ model Book {
   modules                 BookModule[]
   topics                  BookTopic[]
   exercises               BookExercise[]
+  contentReleases         ContentRelease[]
+  contentReleaseVersions  ContentReleaseVersion[]
+  worksheets              PublisherWorksheet[]
   sectionSubjects         SectionSubject[]
   schoolAdoptions         SchoolBookAdoption[]
   studentProgress         StudentBookProgress[]
@@ -1409,6 +1419,9 @@ model Book {
   schoolEntitlements      SchoolBookEntitlement[]
   featureAssignments      BookFeatureAssignment[]
   resourceLinks           BookResourceLink[]
+  contentSectionDefinitions ContentSectionDefinition[]
+  vocabularyDefinitions   PublisherVocabulary[]
+  conceptDefinitions      PublisherConcept[]
   dynamicQrCodes          DynamicQrCode[]
 
   @@index([publisherId, published, archived])
@@ -1728,6 +1741,7 @@ model BookChapter {
   questions               BookQuestion[]
   learningOutcomes        ChapterLearningOutcome[]
   activities              ChapterActivity[]
+  worksheets              PublisherWorksheet[]
   studentRevisionProgress StudentRevisionProgress[]
   studentPracticeAttempts StudentPracticeAttempt[]
   studentAiConversations  StudentAiConversation[]
@@ -1787,6 +1801,7 @@ model BookModule {
   questions        BookQuestion[]
   learningOutcomes ChapterLearningOutcome[]
   activities       ChapterActivity[]
+  worksheets       PublisherWorksheet[]
   resources        Resource[]               @relation("ResourceBookModule")
   videoLessons     VideoLesson[]
   resourceLinks    BookResourceLink[]
@@ -1832,6 +1847,7 @@ model BookTopic {
   questions        BookQuestion[]
   learningOutcomes ChapterLearningOutcome[]
   activities       ChapterActivity[]
+  worksheets       PublisherWorksheet[]
   resources        Resource[]               @relation("ResourceBookTopic")
   videoLessons     VideoLesson[]
   resourceLinks    BookResourceLink[]
@@ -1868,7 +1884,10 @@ model BookExercise {
   module           BookModule?                @relation(fields: [moduleId], references: [id], onDelete: SetNull)
   topic            BookTopic?                 @relation(fields: [topicId], references: [id], onDelete: SetNull)
   questions        BookQuestion[]
+  questionGroups   BookExerciseQuestionGroup[]
+  practiceAttempts StudentPracticeAttempt[]
   activities       ChapterActivity[]
+  worksheets       PublisherWorksheet[]
   resources        Resource[]                 @relation("ResourceBookExercise")
   videoLessons     VideoLesson[]
 
@@ -1882,13 +1901,31 @@ model BookExercise {
   @@index([topicId, displayOrder])
 }
 
+model BookExerciseQuestionGroup {
+  id           String       @id @default(cuid())
+  exerciseId   String
+  title        String
+  instructions String?
+  sortOrder    Int          @default(0)
+  active       Boolean      @default(true)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  exercise     BookExercise @relation(fields: [exerciseId], references: [id], onDelete: Cascade)
+  questions    BookQuestion[]
+
+  @@index([exerciseId, active, sortOrder])
+}
+
 model BookQuestion {
   id                  String                    @id @default(cuid())
   bookId              String
   chapterId           String
   exerciseId          String?
+  exerciseGroupId     String?
   moduleId            String?
   topicId             String?
+  learningOutcomeId   String?
+  imageResourceId     String?
   questionType        String
   questionText        String
   options             Json?
@@ -1898,22 +1935,32 @@ model BookQuestion {
   difficulty          String                    @default("MEDIUM")
   bloomLevel          String?
   competency          String?
+  tags                String[]                  @default([])
+  displayOrder        Int                       @default(0)
+  archived            Boolean                   @default(false)
   approved            Boolean                   @default(false)
   createdAt           DateTime                  @default(now())
   updatedAt           DateTime                  @updatedAt
   book                Book                      @relation(fields: [bookId], references: [id], onDelete: Cascade)
   chapter             BookChapter               @relation(fields: [chapterId], references: [id], onDelete: Restrict)
   exercise            BookExercise?             @relation(fields: [exerciseId], references: [id], onDelete: SetNull)
+  exerciseGroup       BookExerciseQuestionGroup? @relation(fields: [exerciseGroupId], references: [id], onDelete: SetNull)
   module              BookModule?               @relation(fields: [moduleId], references: [id], onDelete: SetNull)
   topic               BookTopic?                @relation(fields: [topicId], references: [id], onDelete: SetNull)
+  learningOutcome     ChapterLearningOutcome?   @relation(fields: [learningOutcomeId], references: [id], onDelete: SetNull)
+  imageResource       Resource?                 @relation("QuestionImageResource", fields: [imageResourceId], references: [id], onDelete: SetNull)
   practiceResponses   StudentPracticeResponse[]
   assessmentQuestions AssessmentQuestion[]
 
   @@index([bookId, chapterId])
   @@index([exerciseId])
+  @@index([exerciseGroupId])
   @@index([moduleId])
   @@index([topicId])
+  @@index([learningOutcomeId])
+  @@index([imageResourceId])
   @@index([chapterId, exerciseId])
+  @@index([exerciseId, archived, displayOrder])
   @@index([questionType, difficulty, approved])
 }
 
@@ -1922,6 +1969,7 @@ model StudentPracticeAttempt {
   studentId      String
   bookId         String
   chapterId      String
+  exerciseId     String?
   academicYearId String
   status         PracticeAttemptStatus     @default(IN_PROGRESS)
   totalQuestions Int
@@ -1937,30 +1985,40 @@ model StudentPracticeAttempt {
   student        Student                   @relation(fields: [studentId], references: [id], onDelete: Restrict)
   book           Book                      @relation(fields: [bookId], references: [id], onDelete: Restrict)
   chapter        BookChapter               @relation(fields: [chapterId], references: [id], onDelete: Restrict)
+  exercise       BookExercise?             @relation(fields: [exerciseId], references: [id], onDelete: SetNull)
   academicYear   AcademicYear              @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
   responses      StudentPracticeResponse[]
 
   @@index([studentId, academicYearId, chapterId, createdAt])
   @@index([studentId, status, updatedAt])
   @@index([bookId, chapterId, status])
+  @@index([exerciseId])
+  @@index([studentId, academicYearId, exerciseId, status])
 }
 
 model StudentPracticeResponse {
-  id           String                 @id @default(cuid())
-  attemptId    String
-  questionId   String
-  answer       Json?
-  correct      Boolean?
-  marksAwarded Int?
-  answeredAt   DateTime?
-  createdAt    DateTime               @default(now())
-  updatedAt    DateTime               @updatedAt
-  attempt      StudentPracticeAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
-  question     BookQuestion           @relation(fields: [questionId], references: [id], onDelete: Restrict)
+  id                  String                 @id @default(cuid())
+  attemptId           String
+  questionId          String
+  answer              Json?
+  autoGraded          Boolean                @default(false)
+  correct             Boolean?
+  marksAwarded        Int?
+  reviewStatus        AssessmentReviewStatus @default(NOT_REQUIRED)
+  feedback            String?
+  answeredAt          DateTime?
+  reviewedByTeacherId String?
+  reviewedAt          DateTime?
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
+  attempt             StudentPracticeAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  question            BookQuestion           @relation(fields: [questionId], references: [id], onDelete: Restrict)
+  reviewedByTeacher   Teacher?               @relation("StudentPracticeResponseReviewer", fields: [reviewedByTeacherId], references: [id], onDelete: SetNull)
 
   @@unique([attemptId, questionId])
   @@index([questionId])
   @@index([attemptId, answeredAt])
+  @@index([reviewStatus, reviewedAt])
 }
 
 model Assessment {
@@ -2200,6 +2258,7 @@ model ChapterLearningOutcome {
   chapter    BookChapter @relation(fields: [chapterId], references: [id], onDelete: Restrict)
   module     BookModule? @relation(fields: [moduleId], references: [id], onDelete: SetNull)
   topic      BookTopic?  @relation(fields: [topicId], references: [id], onDelete: SetNull)
+  questions  BookQuestion[]
 
   @@index([chapterId, sortOrder])
   @@index([moduleId])
@@ -2213,14 +2272,32 @@ model ChapterActivity {
   topicId          String?
   exerciseId       String?
   title            String
+  activityType     PublisherActivityType @default(CLASSROOM_ACTIVITY)
+  shortDescription String?
   objective        String
   materials        String?
   durationMinutes  Int?
   groupType        String?
+  preparation      String?
   instructions     String
+  steps            Json?
+  observationPrompts Json?
+  reflectionPrompts Json?
   expectedLearning String?
   assessment       String?
   safetyNotes      String?
+  teacherGuidance  String?
+  studentInstructions String?
+  attachmentResourceIds Json?
+  imageResourceId  String?
+  videoResourceId  String?
+  diagramResourceId String?
+  audience         String        @default("BOTH")
+  difficulty       String?
+  active           Boolean       @default(true)
+  published        Boolean       @default(false)
+  archivedAt       DateTime?
+  sortOrder        Int           @default(0)
   approved         Boolean       @default(false)
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
@@ -2230,9 +2307,171 @@ model ChapterActivity {
   exercise         BookExercise? @relation(fields: [exerciseId], references: [id], onDelete: SetNull)
 
   @@index([chapterId, approved])
+  @@index([chapterId, active, published, sortOrder])
   @@index([moduleId])
   @@index([topicId])
   @@index([exerciseId])
+  @@index([archivedAt])
+}
+
+enum PublisherActivityType {
+  WARM_UP
+  THINK_AND_DISCUSS
+  PAIR_WORK
+  GROUP_WORK
+  CLASSROOM_ACTIVITY
+  EXPERIMENT
+  LAB_ACTIVITY
+  OBSERVATION
+  OUTDOOR_ACTIVITY
+  PROJECT
+  HOME_ACTIVITY
+  REFLECTION
+  ROLE_PLAY
+  RESEARCH
+  CREATIVE_TASK
+}
+
+model PublisherWorksheet {
+  id                     String                 @id @default(cuid())
+  publisherId            String
+  bookId                 String
+  chapterId              String
+  moduleId               String?
+  topicId                String?
+  exerciseId             String?
+  printableResourceId    String?
+  answerKeyResourceId    String?
+  supportingResourceIds  String[]               @default([])
+  title                  String
+  slug                   String
+  type                   PublisherWorksheetType @default(CLASSROOM)
+  instructions           String?
+  estimatedMinutes       Int?
+  difficulty             String?
+  audience               String                 @default("BOTH")
+  totalMarks             Int?
+  allowOnlineAttempt     Boolean                @default(false)
+  allowPrint             Boolean                @default(true)
+  showAnswersAfterSubmit Boolean                @default(false)
+  active                 Boolean                @default(true)
+  published              Boolean                @default(false)
+  sortOrder              Int                    @default(0)
+  archivedAt             DateTime?
+  createdAt              DateTime               @default(now())
+  updatedAt              DateTime               @updatedAt
+  publisher              Publisher              @relation(fields: [publisherId], references: [id], onDelete: Restrict)
+  book                   Book                   @relation(fields: [bookId], references: [id], onDelete: Restrict)
+  chapter                BookChapter            @relation(fields: [chapterId], references: [id], onDelete: Restrict)
+  module                 BookModule?            @relation(fields: [moduleId], references: [id], onDelete: SetNull)
+  topic                  BookTopic?             @relation(fields: [topicId], references: [id], onDelete: SetNull)
+  exercise               BookExercise?          @relation(fields: [exerciseId], references: [id], onDelete: SetNull)
+  printableResource      Resource?              @relation("WorksheetPrintableResource", fields: [printableResourceId], references: [id], onDelete: SetNull)
+  answerKeyResource      Resource?              @relation("WorksheetAnswerKeyResource", fields: [answerKeyResourceId], references: [id], onDelete: SetNull)
+
+  @@unique([publisherId, bookId, slug])
+  @@index([publisherId, bookId, active, published, sortOrder])
+  @@index([chapterId, active, published, sortOrder])
+  @@index([moduleId])
+  @@index([topicId])
+  @@index([exerciseId])
+  @@index([printableResourceId])
+  @@index([answerKeyResourceId])
+  @@index([archivedAt])
+}
+
+enum PublisherWorksheetType {
+  PRINTABLE
+  INTERACTIVE
+  REMEDIAL
+  CHALLENGE
+  HOME
+  CLASSROOM
+  REVISION
+  DIAGNOSTIC
+  ENRICHMENT
+}
+
+model ContentRelease {
+  id                  String                 @id @default(cuid())
+  publisherId         String
+  bookId              String?
+  targetType          ContentReleaseTargetType
+  targetId            String
+  lifecycle           ContentReleaseLifecycle @default(DRAFT)
+  currentVersionId    String?
+  latestVersionNumber Int                    @default(0)
+  draftChecksum       String?
+  lastValidatedAt     DateTime?
+  lastPublishedAt     DateTime?
+  unpublishedAt       DateTime?
+  archivedAt          DateTime?
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
+  publisher           Publisher              @relation(fields: [publisherId], references: [id], onDelete: Restrict)
+  book                Book?                  @relation(fields: [bookId], references: [id], onDelete: Restrict)
+  versions            ContentReleaseVersion[]
+
+  @@unique([publisherId, targetType, targetId])
+  @@index([publisherId, bookId, lifecycle])
+  @@index([targetType, targetId])
+  @@index([currentVersionId])
+}
+
+model ContentReleaseVersion {
+  id                String                  @id @default(cuid())
+  releaseId         String
+  publisherId       String
+  bookId            String?
+  targetType        ContentReleaseTargetType
+  targetId          String
+  versionNumber     Int
+  lifecycle         ContentReleaseLifecycle
+  snapshot          Json
+  dependencies      Json?
+  releaseNotes      String?
+  checksum          String
+  previousVersionId String?
+  createdById       String
+  approvedById      String?
+  publishedById     String?
+  createdAt         DateTime                @default(now())
+  approvedAt        DateTime?
+  publishedAt       DateTime?
+  rollbackFromId    String?
+  archivedAt        DateTime?
+  archiveReason     String?
+  publisher         Publisher               @relation(fields: [publisherId], references: [id], onDelete: Restrict)
+  book              Book?                   @relation(fields: [bookId], references: [id], onDelete: Restrict)
+  release           ContentRelease          @relation(fields: [releaseId], references: [id], onDelete: Cascade)
+
+  @@unique([releaseId, versionNumber])
+  @@index([publisherId, bookId, targetType])
+  @@index([targetType, targetId, versionNumber])
+  @@index([publishedAt])
+  @@index([previousVersionId])
+  @@index([rollbackFromId])
+}
+
+enum ContentReleaseLifecycle {
+  DRAFT
+  IN_REVIEW
+  APPROVED
+  PUBLISHED
+  ARCHIVED
+}
+
+enum ContentReleaseTargetType {
+  BOOK
+  CHAPTER
+  MODULE
+  TOPIC
+  ACTIVITY
+  WORKSHEET
+  EXERCISE
+  VOCABULARY
+  CONCEPT
+  SECTION
 }
 
 model BookFeatureDefinition {
@@ -2307,6 +2546,90 @@ model BookResourceLink {
   @@index([topicId, displayOrder])
 }
 
+model ContentSectionDefinition {
+  id                String                 @id @default(cuid())
+  publisherId       String
+  bookId            String?
+  code              String
+  label             String
+  icon              String
+  audience          ContentSectionAudience @default(BOTH)
+  allowedAssetKinds String[]               @default([])
+  visibleIn         String[]               @default(["ADMIN"])
+  sortOrder         Int                    @default(0)
+  active            Boolean                @default(true)
+  published         Boolean                @default(false)
+  archivedAt        DateTime?
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+  publisher         Publisher              @relation(fields: [publisherId], references: [id], onDelete: Restrict)
+  book              Book?                  @relation(fields: [bookId], references: [id], onDelete: Restrict)
+
+  @@unique([publisherId, bookId, code])
+  @@index([publisherId, bookId, active, sortOrder])
+  @@index([publisherId, active, sortOrder])
+  @@index([bookId, active, sortOrder])
+}
+
+model PublisherVocabulary {
+  id              String    @id @default(cuid())
+  publisherId     String
+  bookId          String?
+  term            String
+  slug            String
+  meaning         String
+  simpleMeaning   String?
+  pronunciation   String?
+  language        String    @default("en")
+  example         String?
+  imageResourceId String?
+  audioResourceId String?
+  difficulty      String?
+  tags            String[]  @default([])
+  active          Boolean   @default(true)
+  published       Boolean   @default(false)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  publisher       Publisher @relation(fields: [publisherId], references: [id], onDelete: Restrict)
+  book            Book?     @relation(fields: [bookId], references: [id], onDelete: Restrict)
+  imageResource   Resource? @relation("VocabularyImageResource", fields: [imageResourceId], references: [id], onDelete: SetNull)
+  audioResource   Resource? @relation("VocabularyAudioResource", fields: [audioResourceId], references: [id], onDelete: SetNull)
+
+  @@unique([publisherId, bookId, slug])
+  @@index([publisherId, bookId, active, published])
+  @@index([publisherId, slug])
+  @@index([bookId, active, published])
+}
+
+model PublisherConcept {
+  id                String    @id @default(cuid())
+  publisherId       String
+  bookId            String?
+  title             String
+  slug              String
+  definition        String
+  summary           String?
+  relatedTopics     String[]  @default([])
+  imageResourceId   String?
+  videoResourceId   String?
+  diagramResourceId String?
+  difficulty        String?
+  active            Boolean   @default(true)
+  published         Boolean   @default(false)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  publisher         Publisher @relation(fields: [publisherId], references: [id], onDelete: Restrict)
+  book              Book?     @relation(fields: [bookId], references: [id], onDelete: Restrict)
+  imageResource     Resource? @relation("ConceptImageResource", fields: [imageResourceId], references: [id], onDelete: SetNull)
+  videoResource     Resource? @relation("ConceptVideoResource", fields: [videoResourceId], references: [id], onDelete: SetNull)
+  diagramResource   Resource? @relation("ConceptDiagramResource", fields: [diagramResourceId], references: [id], onDelete: SetNull)
+
+  @@unique([publisherId, bookId, slug])
+  @@index([publisherId, bookId, active, published])
+  @@index([publisherId, slug])
+  @@index([bookId, active, published])
+}
+
 model Resource {
   id                      String                      @id @default(cuid())
   title                   String
@@ -2354,11 +2677,19 @@ model Resource {
   module                  BookModule?                 @relation("ResourceBookModule", fields: [moduleId], references: [id], onDelete: SetNull)
   topic                   BookTopic?                  @relation("ResourceBookTopic", fields: [topicId], references: [id], onDelete: SetNull)
   exercise                BookExercise?               @relation("ResourceBookExercise", fields: [exerciseId], references: [id], onDelete: SetNull)
+  vocabularyImages        PublisherVocabulary[]       @relation("VocabularyImageResource")
+  vocabularyAudio         PublisherVocabulary[]       @relation("VocabularyAudioResource")
+  conceptImages           PublisherConcept[]          @relation("ConceptImageResource")
+  conceptVideos           PublisherConcept[]          @relation("ConceptVideoResource")
+  conceptDiagrams         PublisherConcept[]          @relation("ConceptDiagramResource")
+  questionImages          BookQuestion[]              @relation("QuestionImageResource")
   remedialRecommendations RemedialRecommendation[]
   classMaterials          ClassMaterial[]
   assignmentAttachments   AssignmentAttachment[]
   schoolEntitlements      SchoolResourceEntitlement[]
   bookResourceLinks       BookResourceLink[]
+  printableWorksheets     PublisherWorksheet[]       @relation("WorksheetPrintableResource")
+  answerKeyWorksheets     PublisherWorksheet[]       @relation("WorksheetAnswerKeyResource")
   qrDestinations          QrDestination[]
 
   @@index([publisherId, published, archived])
@@ -3596,6 +3927,9 @@ enum PlatformFeatureKey {
 enum PracticeAttemptStatus {
   IN_PROGRESS
   SUBMITTED
+  AUTO_CHECKED
+  NEEDS_REVIEW
+  REVIEWED
   ABANDONED
 }
 
@@ -3695,6 +4029,12 @@ enum ResourceType {
 
 enum ResourceAudience {
   TEACHER_ONLY
+  STUDENT
+  BOTH
+}
+
+enum ContentSectionAudience {
+  TEACHER
   STUDENT
   BOTH
 }

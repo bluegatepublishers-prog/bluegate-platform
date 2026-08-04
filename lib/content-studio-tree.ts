@@ -1,10 +1,10 @@
 export type ContentNodeType="BOOK"|"PART"|"UNIT"|"CHAPTER"|"MODULE"|"TOPIC"|"FOLDER";
-export type VirtualFolderKind="outcomes"|"activities"|"exercises"|"questions"|"assessments"|"resources"|"qr";
+export type VirtualFolderKind="outcomes"|"activities"|"worksheets"|"exercises"|"questions"|"assessments"|"resources"|"qr";
 export type ContentTreeNode={key:string;id:string;type:ContentNodeType;title:string;archived?:boolean;folderKind?:VirtualFolderKind;chapterId?:string;count?:number;children:ContentTreeNode[]};
 type Item={id:string;title:string;archived:boolean};
 type Chapter=Item&{partId:string|null;unitId:string|null;sortOrder:number;counts:Record<VirtualFolderKind,number>};
 export type ContentTreeInput={book:{id:string;title:string};parts:Array<Item&{displayOrder:number}>;units:Array<Item&{partId:string|null;displayOrder:number}>;chapters:Chapter[];modules:Array<Item&{chapterId:string;displayOrder:number}>;topics:Array<Item&{chapterId:string;moduleId:string|null;displayOrder:number}>};
-const folders:Array<[VirtualFolderKind,string]>=[["outcomes","Learning Outcomes"],["activities","Activities"],["exercises","Exercises"],["questions","Questions"],["resources","Resources"],["qr","QR Codes"]];
+const folders:Array<[VirtualFolderKind,string]>=[["outcomes","Learning Outcomes"],["activities","Activities"],["worksheets","Worksheets"],["exercises","Exercises"],["questions","Questions"],["resources","Resources"],["qr","QR Codes"]];
 const byOrder=<T extends Item&{displayOrder?:number;sortOrder?:number}>(items:T[])=>[...items].sort((a,b)=>(a.displayOrder??a.sortOrder??0)-(b.displayOrder??b.sortOrder??0)||a.title.localeCompare(b.title));
 export function buildContentStudioTree(input:ContentTreeInput):ContentTreeNode{
   const topicNode=(topic:ContentTreeInput["topics"][number]):ContentTreeNode=>({key:`TOPIC:${topic.id}`,id:topic.id,type:"TOPIC",title:topic.title,archived:topic.archived,children:[]});
