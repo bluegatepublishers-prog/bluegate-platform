@@ -4,7 +4,8 @@ import Canvas from "@/components/admin/books/editor/Canvas";
 import PeriodTabs from "@/components/admin/books/editor/PeriodTabs";
 import TopActionBar from "@/components/admin/books/editor/TopActionBar";
 import WritingRibbon from "@/components/admin/books/editor/WritingRibbon";
-import Link from "next/link";
+import TextBlockEditor from "@/components/admin/books/editor/blocks/TextBlockEditor";
+import ImageBlockEditor from "@/components/admin/books/editor/blocks/ImageBlockEditor";
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import type { ClipboardEvent, KeyboardEvent, MouseEvent } from "react";
 import {
@@ -1791,7 +1792,6 @@ function BlockEditor({
   const shell = "group rounded-xl px-1 py-2 transition hover:bg-white/45";
   const actionButton =
     "rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700";
-  const safeImage = sanitizeUrl(isImageBlock(block) ? block.url : "");
   const collapsed = block.collapsed === true;
 
   return (
@@ -1913,78 +1913,29 @@ function BlockEditor({
           </div>
         ) : null}
 
-        {!collapsed && (block.type === "heading" || block.type === "subheading") ? (
-          <input
-            data-block-id={block.id}
-            value={block.text}
-            onChange={(event) => onUpdateText(event.target.value)}
-            onSelect={(event) => onTextSelect(event.currentTarget)}
-            onPaste={onTextPaste}
-            onContextMenu={(event) => openKnowledgeFromContext(event, onTextSelect, onOpenKnowledge)}
-            onKeyDown={(event) => onKeyDown(event, block, index, block.text)}
-            placeholder={block.type === "heading" ? "Heading" : "Subheading"}
-            className={`w-full border-none bg-transparent p-0 outline-none placeholder:text-slate-300 ${
-              block.type === "heading"
-                ? "text-4xl font-bold tracking-tight text-slate-950"
-                : "text-2xl font-semibold tracking-tight text-slate-900"
-            }`}
-          />
-        ) : null}
-
-        {!collapsed && block.type === "paragraph" ? (
-          <textarea
-            data-block-id={block.id}
-            value={block.text}
-            onChange={(event) => onUpdateText(event.target.value)}
-            onSelect={(event) => onTextSelect(event.currentTarget)}
-            onPaste={onTextPaste}
-            onContextMenu={(event) => openKnowledgeFromContext(event, onTextSelect, onOpenKnowledge)}
-            onKeyDown={(event) => onKeyDown(event, block, index, block.text)}
-            rows={4}
-            placeholder="Start writing..."
-            className="w-full resize-none border-none bg-transparent p-0 text-[1.05rem] leading-8 text-slate-800 outline-none placeholder:text-slate-300"
-          />
-        ) : null}
-
-        {!collapsed && block.type === "caption" ? (
-          <textarea
-            data-block-id={block.id}
-            value={block.text}
-            onChange={(event) => onUpdateText(event.target.value)}
-            onKeyDown={(event) => onKeyDown(event, block, index, block.text)}
-            rows={2}
-            placeholder="Caption"
-            className="w-full resize-none border-none bg-transparent p-0 text-sm leading-6 text-slate-500 outline-none placeholder:text-slate-300"
-          />
-        ) : null}
-
-        {!collapsed && (block.type === "quote" || block.type === "callout") ? (
-          <div
-            className={
-              block.type === "quote"
-                ? "border-l-4 border-slate-300 pl-5"
-                : "rounded-2xl bg-blue-50 px-5 py-4"
-            }
-          >
-            <textarea
-              data-block-id={block.id}
-              value={block.text}
-              onChange={(event) => onUpdateText(event.target.value)}
-              onSelect={(event) => onTextSelect(event.currentTarget)}
-              onContextMenu={(event) => openKnowledgeFromContext(event, onTextSelect, onOpenKnowledge)}
-              onKeyDown={(event) => onKeyDown(event, block, index, block.text)}
-              rows={4}
-              placeholder={block.type === "quote" ? "Quote" : "Callout"}
-              className="w-full resize-none border-none bg-transparent p-0 text-[1.05rem] leading-8 text-slate-800 outline-none placeholder:text-slate-300"
-            />
-            <input
-              value={block.attribution ?? ""}
-              onChange={(event) => onUpdatePatch({ attribution: event.target.value })}
-              placeholder="Attribution"
-              className="mt-3 w-full border-none bg-transparent p-0 text-sm font-semibold text-slate-500 outline-none placeholder:text-slate-300"
-            />
-          </div>
-        ) : null}
+        {isTextBlock(block) ? (
+  <TextBlockEditor
+    block={block}
+    index={index}
+    collapsed={collapsed}
+    onUpdateText={onUpdateText}
+    onUpdateAttribution={(value) =>
+      onUpdatePatch({
+        attribution: value || undefined,
+      })
+    }
+    onTextSelect={onTextSelect}
+    onTextPaste={onTextPaste}
+    onContextKnowledge={(event) =>
+      openKnowledgeFromContext(
+        event,
+        onTextSelect,
+        onOpenKnowledge,
+      )
+    }
+    onKeyDown={onKeyDown}
+  />
+) : null}
 
         {!collapsed && isTextBlock(block) && block.knowledgeReferences?.length ? (
           <KnowledgeReferenceBadges
@@ -2022,17 +1973,18 @@ function BlockEditor({
         ) : null}
 
         {!collapsed && isImageBlock(block) ? (
-          <ImageLikeEditor
-            bookId={bookId}
-            block={block}
-            safeImage={safeImage}
-            resources={resources}
-            onChooseResource={onChooseResource}
-            onClearImage={onClearImage}
-            onUpdatePatch={onUpdatePatch}
-            onKeyDown={(event, currentValue) => onKeyDown(event, block, index, currentValue)}
-          />
-        ) : null}
+  <ImageBlockEditor
+    bookId={bookId}
+    block={block}
+    resources={resources}
+    onChooseResource={onChooseResource}
+    onClearImage={onClearImage}
+    onUpdatePatch={onUpdatePatch}
+    onKeyDown={(event, currentValue) =>
+      onKeyDown(event, block, index, currentValue)
+    }
+  />
+) : null}
 
         {!collapsed && isImageGalleryBlock(block) ? (
           <ImageGalleryEditor block={block} resources={resources} onUpdatePatch={onUpdatePatch} />
@@ -2185,136 +2137,6 @@ function BlockEditor({
         </div>
       ) : null}
     </article>
-  );
-}
-
-function ImageLikeEditor({
-  bookId,
-  block,
-  safeImage,
-  resources,
-  onChooseResource,
-  onClearImage,
-  onUpdatePatch,
-  onKeyDown,
-}: {
-  bookId: string;
-  block: Extract<ContentBlock, { type: "image" | "diagram" }>;
-  safeImage: string;
-  resources: ResourceChoice[];
-  onChooseResource: (resourceId: string) => void;
-  onClearImage: () => void;
-  onUpdatePatch: (patch: Partial<ContentBlock>) => void;
-  onKeyDown: (event: KeyboardEvent<HTMLElement>, currentValue: string) => void;
-}) {
-  return (
-    <div className="space-y-4">
-      {safeImage ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={safeImage}
-          alt={block.alt || "Illustration"}
-          className="max-h-[28rem] w-full rounded-3xl object-contain"
-          loading="lazy"
-          referrerPolicy="no-referrer"
-        />
-      ) : (
-        <div className="flex min-h-64 items-center justify-center rounded-3xl border border-dashed border-slate-300 bg-slate-50 text-sm text-slate-500">
-          Add an image URL or choose a resource thumbnail
-        </div>
-      )}
-      <div className="grid gap-3 lg:grid-cols-3">
-        <label className="block text-sm font-semibold text-slate-700 lg:col-span-2">
-          Image URL
-          <input
-            data-block-id={block.id}
-            value={block.url}
-            onChange={(event) => onUpdatePatch({ url: event.target.value, resourceId: undefined })}
-            onKeyDown={(event) => onKeyDown(event, block.url)}
-            placeholder="https://..."
-            className={field}
-          />
-        </label>
-        <div className="space-y-2">
-          <label className="block text-sm font-semibold text-slate-700">
-            Resource
-            <select
-              value={block.resourceId ?? ""}
-              onChange={(event) => onChooseResource(event.target.value)}
-              className={field}
-            >
-              <option value="">Use a resource thumbnail</option>
-              {resources
-                .filter((resource) => sanitizeUrl(resource.thumbnail ?? "") || sanitizeUrl(resource.fileUrl ?? ""))
-                .map((resource) => (
-                  <option key={resource.id} value={resource.id}>
-                    {resource.title}
-                  </option>
-                ))}
-            </select>
-          </label>
-          <Link
-            href={`/admin/resources/new?returnTo=${encodeURIComponent(`/admin/books/${bookId}/content?selected=${encodeURIComponent(block.id)}`)}`}
-            className="inline-flex text-sm font-semibold text-blue-700"
-          >
-            Upload new resource
-          </Link>
-        </div>
-        <label className="block text-sm font-semibold text-slate-700">
-          Alt text
-          <input
-            value={block.alt}
-            onChange={(event) => onUpdatePatch({ alt: event.target.value })}
-            placeholder="Describe the image"
-            className={field}
-          />
-        </label>
-        <label className="block text-sm font-semibold text-slate-700">
-          Width
-          <select
-            value={block.width ?? "full"}
-            onChange={(event) =>
-              onUpdatePatch({ width: event.target.value as "full" | "wide" | "medium" })
-            }
-            className={field}
-          >
-            <option value="full">full</option>
-            <option value="wide">wide</option>
-            <option value="medium">medium</option>
-          </select>
-        </label>
-        <label className="block text-sm font-semibold text-slate-700">
-          Float
-          <select
-            value={block.float ?? "none"}
-            onChange={(event) =>
-              onUpdatePatch({ float: event.target.value as "none" | "left" | "right" })
-            }
-            className={field}
-          >
-            <option value="none">none</option>
-            <option value="left">left</option>
-            <option value="right">right</option>
-          </select>
-        </label>
-        <label className="block text-sm font-semibold text-slate-700 lg:col-span-2">
-          Caption
-          <input
-            value={block.caption ?? ""}
-            onChange={(event) => onUpdatePatch({ caption: event.target.value })}
-            placeholder="Optional caption"
-            className={field}
-          />
-        </label>
-        <button
-          type="button"
-          onClick={onClearImage}
-          className="self-end rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700"
-        >
-          Clear image
-        </button>
-      </div>
-    </div>
   );
 }
 
