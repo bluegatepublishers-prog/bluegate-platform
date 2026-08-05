@@ -1,8 +1,9 @@
 "use client";
 
+import Canvas from "@/components/admin/books/editor/Canvas";
+import PeriodTabs from "@/components/admin/books/editor/PeriodTabs";
 import TopActionBar from "@/components/admin/books/editor/TopActionBar";
 import WritingRibbon from "@/components/admin/books/editor/WritingRibbon";
-import PeriodTabs from "@/components/admin/books/editor/PeriodTabs";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import type { ClipboardEvent, KeyboardEvent, MouseEvent } from "react";
@@ -1399,113 +1400,138 @@ export default function ContentManuscriptEditor({
   onAddPeriod={addPeriod}
 />
 
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <div className="mx-auto flex w-full max-w-[76rem] flex-col gap-4 px-4 py-4 sm:px-6 sm:py-6">
-            <div className="mx-auto w-full max-w-[62rem] rounded-[2rem] bg-white px-6 py-7 shadow-sm ring-1 ring-slate-200 sm:px-8">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="min-h-7" aria-hidden="true" />
-                <span
-                  className={`rounded-full px-3 py-1 text-xs font-bold ${
-                    saveState === "saving"
-                      ? "bg-amber-100 text-amber-800"
-                      : saveState === "error"
-                        ? "bg-rose-100 text-rose-700"
-                        : dirty
-                          ? "bg-blue-100 text-blue-700"
-                          : "bg-emerald-100 text-emerald-700"
-                  }`}
-                >
-                  {saveState === "saving" ? "Saving" : dirty ? "Unsaved" : "Saved"}
-                </span>
-              </div>
+        <Canvas
+  title={title}
+  subtitle={subtitle}
+  description={description}
+  onTitleChange={(value) => {
+    setTitle(value);
+    setError("");
+  }}
+  onSubtitleChange={(value) => {
+    setSubtitle(value);
+    setError("");
+  }}
+  onDescriptionChange={(value) => {
+    setDescription(value);
+    setError("");
+  }}
+  saveState={saveState}
+  dirty={dirty}
+  error={error}
+  layout={contentDoc.layout}
+>
+  {contentDoc.blocks
+    .filter((block) => block.periodId === activePeriodId)
+    .map((block, index) => (
+      <BlockEditor
+        key={block.id}
+        bookId={bookId}
+        block={block}
+        index={index}
+        resources={resourceChoices}
+        assetOptions={assetLibrary}
+        mediaOptions={mediaLibrary}
+        sectionDefinitions={sectionDefinitions}
+        periods={contentDoc.periods}
+        resolvedAsset={
+          previewLinkedAssets[block.id] ?? null
+        }
+        resolvedMedia={
+          previewMedia[block.id] ?? null
+        }
+        menuOpen={menuAnchor === block.id}
+        onOpenMenu={openMenu}
+        onCloseMenu={closeMenu}
+        onInsertBefore={(type) =>
+          addBlock(type, block.id, true)
+        }
+        onInsertAfter={(type) =>
+          addBlock(type, block.id)
+        }
+        onUpdateText={(value) =>
+          updateText(block.id, value)
+        }
+        onTextSelect={(target) =>
+          captureTextSelection(block, target)
+        }
+        onTextPaste={(event) =>
+          handleTextPaste(event, block)
+        }
+        onOpenKnowledge={(selectionType) => {
+          if (!activeSelection) return;
 
-              <div className="mt-6 space-y-4">
-                <input
-                  value={title}
-                  onChange={(event) => {
-                    setTitle(event.target.value);
-                    setError("");
-                  }}
-                  className="w-full border-none bg-transparent p-0 text-4xl font-bold tracking-tight text-slate-950 outline-none placeholder:text-slate-300"
-                  placeholder="Untitled"
-                  aria-label="Title"
-                />
-                <input
-                  value={subtitle}
-                  onChange={(event) => {
-                    setSubtitle(event.target.value);
-                    setError("");
-                  }}
-                  className="w-full border-none bg-transparent p-0 text-lg text-slate-500 outline-none placeholder:text-slate-300"
-                  placeholder="Subtitle"
-                  aria-label="Subtitle"
-                />
-                <textarea
-                  value={description}
-                  onChange={(event) => {
-                    setDescription(event.target.value);
-                    setError("");
-                  }}
-                  rows={3}
-                  className="w-full resize-none border-none bg-transparent p-0 text-base leading-8 text-slate-700 outline-none placeholder:text-slate-400"
-                  placeholder="Write the opening guidance for this manuscript."
-                  aria-label="Lead text"
-                />
-              </div>
-
-            </div>
-
-            <div className={`mx-auto w-full max-w-[62rem] gap-4 ${contentDoc.layout === "double" ? "grid grid-cols-1 md:grid-cols-2" : "space-y-4"}`}>
-              {contentDoc.blocks.filter((block) => block.periodId === activePeriodId).map((block, index) => (
-                <BlockEditor
-                  key={block.id}
-                  bookId={bookId}
-                  block={block}
-                  index={index}
-                  resources={resourceChoices}
-                  assetOptions={assetLibrary}
-                  mediaOptions={mediaLibrary}
-                  sectionDefinitions={sectionDefinitions}
-                  periods={contentDoc.periods}
-                  resolvedAsset={previewLinkedAssets[block.id] ?? null}
-                  resolvedMedia={previewMedia[block.id] ?? null}
-                  menuOpen={menuAnchor === block.id}
-                  onOpenMenu={openMenu}
-                  onCloseMenu={closeMenu}
-                  onInsertBefore={(type) => addBlock(type, block.id, true)}
-                  onInsertAfter={(type) => addBlock(type, block.id)}
-                  onUpdateText={(value) => updateText(block.id, value)}
-                  onTextSelect={(target) => captureTextSelection(block, target)}
-                  onTextPaste={(event) => handleTextPaste(event, block)}
-                  onOpenKnowledge={(type, target) => {
-                    const selection = target
-                      ? readTextSelection(block, target)
-                      : activeSelection?.blockId === block.id ? activeSelection : null;
-                    if (selection) setKnowledgePopup({ ...selection, type });
-                  }}
-                  onRemoveKnowledge={(referenceId) => removeKnowledgeReference(block.id, referenceId)}
-                  resolvedKnowledge={knowledgeMap}
-                  onUpdatePatch={(patch) => updatePatch(block.id, patch)}
-                  onUpdateListItem={(itemIndex, value) => updateListItem(block.id, itemIndex, value)}
-                  onAddListItem={(itemIndex) => addListItem(block.id, itemIndex)}
-                  onChooseResource={(resourceId) => chooseResource(block.id, resourceId)}
-                  onClearImage={() => updatePatch(block.id, { url: "", resourceId: undefined, alt: "" })}
-                  onUpdateLinkedAsset={(patch) => updatePatch(block.id, patch)}
-                  onUpdateMedia={(patch) => updatePatch(block.id, patch)}
-                  onActivate={() => setActiveBlockId(block.id)}
-                  onMovePeriod={(periodId) => moveCurrentBlockToPeriod(block.id, periodId)}
-                  onKeyDown={handleTextKeyDown}
-                  onListKeyDown={handleListKeyDown}
-                  onDuplicate={() => duplicateCurrentBlock(block.id)}
-                  onDelete={() => deleteBlock(block.id, index)}
-                  onMoveUp={() => moveCurrentBlock(block.id, -1)}
-                  onMoveDown={() => moveCurrentBlock(block.id, 1)}
-                />
-              ))}
-            </div>
-
-          </div>
-        </div>
+          setKnowledgePopup({
+            ...activeSelection,
+            type: selectionType,
+          });
+        }}
+        onRemoveKnowledge={(referenceId) =>
+          removeKnowledgeReference(
+            block.id,
+            referenceId,
+          )
+        }
+        onUpdate={(patch) =>
+          updatePatch(block.id, patch)
+        }
+        onUpdateListItem={(itemIndex, value) =>
+          updateListItem(
+            block.id,
+            itemIndex,
+            value,
+          )
+        }
+        onAddListItem={(itemIndex) =>
+          addListItem(block.id, itemIndex)
+        }
+        onRemoveListItem={(itemIndex) =>
+          removeListItem(block.id, itemIndex)
+        }
+        onChooseResource={(resourceId) =>
+          chooseResource(block.id, resourceId)
+        }
+        onDelete={() =>
+          deleteBlock(block.id, index)
+        }
+        onDuplicate={() =>
+          duplicateCurrentBlock(block.id)
+        }
+        onMove={(direction) =>
+          moveCurrentBlock(block.id, direction)
+        }
+        onMoveToPeriod={(periodId) =>
+          moveCurrentBlockToPeriod(
+            block.id,
+            periodId,
+          )
+        }
+        onActivate={() =>
+          setActiveBlockId(block.id)
+        }
+        onKeyDown={(event, currentValue) =>
+          handleTextKeyDown(
+            event,
+            block,
+            index,
+            currentValue,
+          )
+        }
+        onListKeyDown={(
+          event,
+          itemIndex,
+          itemValue,
+        ) =>
+          handleListKeyDown(
+            event,
+            block,
+            itemIndex,
+            itemValue,
+          )
+        }
+      />
+    ))}
+</Canvas>
 
         <div className="border-t border-slate-200 bg-white/90 px-4 py-3 text-xs font-semibold text-slate-500">
           <div className="flex flex-wrap items-center gap-2">
