@@ -1,11 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import type { KeyboardEvent, MouseEvent } from "react";
 import {
-  BookOpenCheck,
+  Archive,
   ChevronDown,
+  BookOpenCheck,
   ChevronUp,
   CircleAlert,
   ClipboardList,
@@ -14,19 +15,30 @@ import {
   FileDown,
   FileText,
   GripVertical,
-  Link2,
+  MoreHorizontal,
   PlayCircle,
   Plus,
-  QrCode,
   Redo2,
   RotateCcw,
   Save,
+  Search,
   Slash,
   Trash2,
 } from "lucide-react";
+import { ResourceAudience, ResourceType } from "@prisma/client";
 
+import ActivityStudio from "@/components/admin/books/ActivityStudio";
 import ContentDocumentRenderer from "@/components/admin/books/ContentDocumentRenderer";
+import ContentReleasePanel from "@/components/admin/books/ContentReleasePanel";
+import ExerciseAuthoringStudio from "@/components/admin/books/ExerciseAuthoringStudio";
+import StudioBuilderDrawer from "@/components/admin/books/StudioBuilderDrawer";
+import WorksheetStudio from "@/components/admin/books/WorksheetStudio";
+import {
+  archiveContentNodeAction,
+  duplicateContentNodeAction,
+} from "@/app/admin/books/[id]/content/actions";
 import type { BookStructureNodeType } from "@/lib/book-structure-management";
+import type { ContentRenderMode } from "@/lib/content-audience";
 import type {
   KnowledgeDefinitionSummary,
   KnowledgeReference,
@@ -52,7 +64,10 @@ import {
   type ResolvedMediaBlock,
 } from "@/lib/content-media-types";
 import type { ResolvedActivityBlock } from "@/lib/activity-studio-types";
+import type { ActivityStudioRecord } from "@/lib/activity-studio-types";
+import type { ExerciseStudioData } from "@/lib/exercise-authoring-types";
 import type { ResolvedWorksheetBlock } from "@/lib/worksheet-studio-types";
+import type { WorksheetStudioRecord } from "@/lib/worksheet-studio-types";
 import {
   BLOCK_ALIGNMENTS,
   BLOCK_BACKGROUND_STYLES,
@@ -96,12 +111,18 @@ import {
   type LinkedAssetBlock,
   type MediaBlock,
 } from "@/lib/content-document";
+import type { ReleaseSummary } from "@/lib/content-release";
+import { uploadFileToR2 } from "@/lib/storage/client-upload";
 
 type ResourceChoice = {
   id: string;
   title: string;
   thumbnail: string | null;
   fileUrl: string | null;
+  type?: string | null;
+  mimeType?: string | null;
+  published?: boolean;
+  audience?: string | null;
 };
 
 type SaveState = "saved" | "dirty" | "saving" | "error";
@@ -117,6 +138,51 @@ type KnowledgePopupState = TextSelection & {
   type: KnowledgeReferenceType;
 };
 
+type ContentNodeSaveResult = {
+  savedAt: string;
+  nodeId: string;
+};
+
+type ActivityResourceOption = {
+  id: string;
+  title: string;
+  type: string;
+  audience: string;
+  published: boolean;
+};
+
+type WorksheetLookupData = {
+  modules: { id: string; title: string }[];
+  topics: { id: string; title: string; moduleId: string | null }[];
+  exercises: {
+    id: string;
+    title: string;
+    published: boolean;
+    marks: number | null;
+    _count: { questions: number };
+  }[];
+  resources: { id: string; title: string; type: string; audience: string; published: boolean }[];
+};
+
+type ExerciseLookupData = {
+  modules: { id: string; title: string }[];
+  topics: { id: string; title: string; moduleId: string | null }[];
+  outcomes: { id: string; outcome: string; moduleId: string | null; topicId: string | null }[];
+  resources: { id: string; title: string; type: string; fileUrl: string; thumbnail: string | null }[];
+};
+
+type ToolbarInsertKind =
+  | "image"
+  | "media"
+  | "activity"
+  | "worksheet"
+  | "exercise"
+  | "resource"
+  | "learningOutcome";
+
+type BuilderKind = "activity" | "worksheet" | "exercise";
+type PreviewSurfaceMode = "STUDENT" | "TEACHER" | "WHITEBOARD";
+
 const field =
   "mt-2 w-full rounded-[1.25rem] border border-transparent bg-white/80 px-4 py-3 text-sm text-slate-800 outline-none ring-1 ring-slate-200 transition placeholder:text-slate-400 focus:bg-white focus:ring-2 focus:ring-blue-200";
 const darkField =
@@ -129,7 +195,6 @@ const linkedAssetKinds: LinkedAssetKind[] = [
   "exercise",
   "resource",
   "learningOutcome",
-  "qr",
 ];
 
 const ALL_BLOCK_TYPES: ContentBlockType[] = [
@@ -162,6 +227,7 @@ const ALL_BLOCK_TYPES: ContentBlockType[] = [
 export default function ContentManuscriptEditor({
   bookId,
   nodeId,
+  chapterId,
   nodeType,
   nodeTitle,
   nodeSubtitle,
@@ -183,10 +249,38 @@ export default function ContentManuscriptEditor({
   resolvedKnowledge,
   searchKnowledgeAction,
   saveKnowledgeAction,
+  saveActivityAction,
+  duplicateActivityAction,
+  archiveActivityAction,
+  moveActivityAction,
+  saveWorksheetAction,
+  duplicateWorksheetAction,
+  archiveWorksheetAction,
+  moveWorksheetAction,
+  saveExerciseStudioAction,
+  saveExerciseGroupAction,
+  saveExerciseQuestionAction,
+  moveExerciseQuestionAction,
+  duplicateExerciseQuestionAction,
+  archiveExerciseQuestionAction,
+  archiveExerciseAction,
+  createWorksheetExerciseAction,
+  activityRows,
+  activityResources,
+  worksheetRows,
+  worksheetLookups,
+  exerciseRows,
+  exerciseLookups,
+  releaseSummary,
+  transitionReleaseAction,
+  rollbackReleaseAction,
+  bulkPublishAction,
+  previewBaseHref,
   saveAction,
 }: {
   bookId: string;
   nodeId: string;
+  chapterId: string | null;
   nodeType: BookStructureNodeType;
   nodeTitle: string;
   nodeSubtitle: string;
@@ -211,20 +305,56 @@ export default function ContentManuscriptEditor({
     type: KnowledgeReferenceType,
     data: FormData,
   ) => Promise<KnowledgeDefinitionSummary | undefined>;
-  saveAction: (data: FormData) => Promise<void>;
+  saveActivityAction: ((data: FormData) => Promise<string>) | null;
+  duplicateActivityAction: ((activityId: string) => Promise<void>) | null;
+  archiveActivityAction: ((activityId: string) => Promise<void>) | null;
+  moveActivityAction: ((activityId: string, direction: -1 | 1) => Promise<void>) | null;
+  saveWorksheetAction: ((data: FormData) => Promise<string>) | null;
+  duplicateWorksheetAction: ((worksheetId: string) => Promise<void>) | null;
+  archiveWorksheetAction: ((worksheetId: string) => Promise<void>) | null;
+  moveWorksheetAction: ((worksheetId: string, direction: -1 | 1) => Promise<void>) | null;
+  saveExerciseStudioAction: ((data: FormData) => Promise<string>) | null;
+  saveExerciseGroupAction: ((exerciseId: string, data: FormData) => Promise<void>) | null;
+  saveExerciseQuestionAction: ((exerciseId: string, data: FormData) => Promise<void>) | null;
+  moveExerciseQuestionAction: ((exerciseId: string, questionId: string, direction: -1 | 1) => Promise<void>) | null;
+  duplicateExerciseQuestionAction: ((exerciseId: string, questionId: string) => Promise<void>) | null;
+  archiveExerciseQuestionAction: ((exerciseId: string, questionId: string, archived: boolean) => Promise<void>) | null;
+  archiveExerciseAction: ((exerciseId: string, archived: boolean) => Promise<void>) | null;
+  createWorksheetExerciseAction: ((data: FormData) => Promise<string>) | null;
+  activityRows: ActivityStudioRecord[];
+  activityResources: ActivityResourceOption[];
+  worksheetRows: WorksheetStudioRecord[];
+  worksheetLookups: WorksheetLookupData | null;
+  exerciseRows: ExerciseStudioData[];
+  exerciseLookups: ExerciseLookupData | null;
+  releaseSummary: ReleaseSummary | null;
+  transitionReleaseAction: ((
+    action: "SUBMIT_REVIEW" | "RETURN_DRAFT" | "APPROVE" | "PUBLISH" | "UNPUBLISH" | "ARCHIVE" | "RESTORE",
+    form: FormData,
+  ) => Promise<void>) | null;
+  rollbackReleaseAction: ((versionId: string, form: FormData) => Promise<void>) | null;
+  bulkPublishAction: ((form: FormData) => Promise<void>) | null;
+  previewBaseHref: string;
+  saveAction: (data: FormData) => Promise<ContentNodeSaveResult>;
 }) {
   const [title, setTitle] = useState(nodeTitle);
   const [subtitle, setSubtitle] = useState(nodeSubtitle);
   const [description, setDescription] = useState(nodeDescription);
-  const [slug, setSlug] = useState(nodeSlug);
-  const [label, setLabel] = useState(nodeLabel);
-  const [estimatedMinutes, setEstimatedMinutes] = useState(
+  const [slug] = useState(nodeSlug);
+  const [label] = useState(nodeLabel);
+  const [estimatedMinutes] = useState(
     nodeEstimatedMinutes === null ? "" : String(nodeEstimatedMinutes),
   );
-  const [published, setPublished] = useState(nodePublished);
+  const [published] = useState(nodePublished);
   const [contentDoc, setContentDoc] = useState<ContentDocument>(() =>
     normalizeContentDocument(nodeContent),
   );
+  const [resourceChoices, setResourceChoices] = useState(resources);
+  const [assetLibrary, setAssetLibrary] = useState(assetOptions);
+  const [mediaLibrary, setMediaLibrary] = useState(mediaOptions);
+  const [activityLibraryRows] = useState(activityRows);
+  const [worksheetLibraryRows] = useState(worksheetRows);
+  const [exerciseLibraryRows] = useState(exerciseRows);
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const [saveMessage, setSaveMessage] = useState("All changes saved");
   const [error, setError] = useState("");
@@ -236,8 +366,22 @@ export default function ContentManuscriptEditor({
   const [knowledgePopup, setKnowledgePopup] = useState<KnowledgePopupState | null>(null);
   const [knowledgeMap, setKnowledgeMap] = useState(resolvedKnowledge);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewMode, setPreviewMode] = useState<PreviewSurfaceMode>("STUDENT");
+  const [previewMenuOpen, setPreviewMenuOpen] = useState(false);
+  const [moreMenuOpen, setMoreMenuOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [releasePanelOpen, setReleasePanelOpen] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
-  const [toolbarInsertType, setToolbarInsertType] = useState<ContentBlockType>("paragraph");
+  const [toolbarAddOpen, setToolbarAddOpen] = useState(false);
+  const [insertKind, setInsertKind] = useState<ToolbarInsertKind | null>(null);
+  const [builderKind, setBuilderKind] = useState<BuilderKind | null>(null);
+  const [builderTab, setBuilderTab] = useState<"existing" | "create">("existing");
+  const [insertAnchorId, setInsertAnchorId] = useState<string | null>(null);
+  const [insertStatus, setInsertStatus] = useState("");
+  const [insertError, setInsertError] = useState("");
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [isRunningInsert, startInsertTransition] = useTransition();
   const [baselineSnapshot, setBaselineSnapshot] = useState(() =>
     serializeSnapshot({
       title: nodeTitle,
@@ -364,11 +508,11 @@ export default function ContentManuscriptEditor({
     form.set("content", current);
 
     try {
-      await saveAction(form);
+      const result = await saveAction(form);
       setBaselineSnapshot(current);
       setSaveState("saved");
       setSaveMessage("Saved");
-      setLastSavedAt(new Date().toISOString());
+      setLastSavedAt(result.savedAt);
     } catch (cause) {
       setSaveState("error");
       setSaveMessage("Save failed");
@@ -425,11 +569,6 @@ export default function ContentManuscriptEditor({
       end,
       text: selectedText,
     };
-  }
-
-  function openKnowledgePopup(type: KnowledgeReferenceType) {
-    if (!activeSelection) return;
-    setKnowledgePopup({ ...activeSelection, type });
   }
 
   function addKnowledgeReference(selection: KnowledgePopupState, definition: KnowledgeDefinitionSummary) {
@@ -537,7 +676,7 @@ export default function ContentManuscriptEditor({
   }
 
   function chooseResource(blockId: string, resourceId: string) {
-    const resource = resources.find((item) => item.id === resourceId) ?? null;
+    const resource = resourceChoices.find((item) => item.id === resourceId) ?? null;
     if (!resource) {
       updatePatch(blockId, { url: "", resourceId: undefined, alt: "" });
       return;
@@ -551,6 +690,346 @@ export default function ContentManuscriptEditor({
       url,
       alt: resource.title,
     });
+  }
+
+  function clearInsertFeedback() {
+    setInsertStatus("");
+    setInsertError("");
+    setUploadProgress(0);
+  }
+
+  function openInsertSurface(kind: ToolbarInsertKind, anchorId = toolbarAnchorId) {
+    setToolbarAddOpen(false);
+    setBuilderKind(null);
+    setInsertKind(kind);
+    setInsertAnchorId(anchorId);
+    clearInsertFeedback();
+  }
+
+  function closeInsertSurface() {
+    setInsertKind(null);
+    clearInsertFeedback();
+  }
+
+  function openBuilderSurface(kind: BuilderKind, tab: "existing" | "create" = "existing") {
+    if (!canOpenScopedBuilders) return;
+    setToolbarAddOpen(false);
+    setInsertKind(null);
+    setBuilderKind(kind);
+    setBuilderTab(tab);
+    setInsertAnchorId(toolbarAnchorId);
+    clearInsertFeedback();
+  }
+
+  function closeBuilderSurface() {
+    setBuilderKind(null);
+    clearInsertFeedback();
+  }
+
+  function openPreview(mode: PreviewSurfaceMode) {
+    setPreviewMode(mode);
+    setPreviewMenuOpen(false);
+    setPreviewOpen(true);
+  }
+
+  function publishCurrentNode() {
+    if (!transitionReleaseAction) return;
+    const form = new FormData();
+    form.set("confirm", "on");
+    void transitionReleaseAction("PUBLISH", form);
+  }
+
+  function archiveCurrentNode() {
+    if (!confirm(`Archive this ${nodeType.toLowerCase()} from the publishing studio?`)) return;
+    void archiveContentNodeAction(bookId, nodeType, nodeId, true);
+  }
+
+  function duplicateCurrentNode() {
+    void duplicateContentNodeAction(bookId, nodeType, nodeId);
+  }
+
+  function focusSearchResult() {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return;
+    const matchingBlock = contentDoc.blocks.find((block) => blockContainsQuery(block, query));
+    if (!matchingBlock) {
+      setSaveMessage("No matching text found in this manuscript");
+      return;
+    }
+    const selector = `[data-block-id="${matchingBlock.id}"]`;
+    const element = globalThis.document.querySelector<HTMLElement>(selector);
+    element?.scrollIntoView({ behavior: "smooth", block: "center" });
+    element?.focus();
+    setSaveMessage("Jumped to the first matching block");
+  }
+
+  function exportManuscript() {
+    const lines = buildPlainTextExport({
+      title,
+      subtitle,
+      description,
+      content: contentDoc,
+    });
+    const blob = new Blob([lines], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = globalThis.document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${(title || nodeTitle || "manuscript").trim().replace(/[^a-z0-9]+/gi, "-").toLowerCase() || "manuscript"}.txt`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+    setMoreMenuOpen(false);
+  }
+
+  function printManuscript() {
+    setMoreMenuOpen(false);
+    globalThis.print();
+  }
+
+  function addBlockWithFactory(
+    anchorId: string,
+    factory: () => ContentBlock,
+    before = false,
+  ) {
+    const block = factory();
+    applyDocumentChange((current) =>
+      before ? insertBlockBefore(current, anchorId, block) : insertBlockAfter(current, anchorId, block),
+    );
+    setFocusTarget(block.id);
+    setSaveState("dirty");
+    setSaveMessage("Content updated");
+  }
+
+  function insertLinkedAssetOption(option: ContentStudioAssetOption, anchorId: string) {
+    addBlockWithFactory(anchorId, () => {
+      const block = createBlockByType("linkedAsset") as LinkedAssetBlock;
+      return {
+        ...block,
+        assetKind: option.assetKind,
+        label: option.defaultLabel,
+        targetType: option.targetType,
+        targetId: option.targetId,
+        audience: option.defaultAudience,
+        displayStyle: option.displayStyles[0],
+        openMode: option.openModes[0],
+        required: false,
+      };
+    });
+  }
+
+  function insertMediaOption(option: ContentStudioMediaOption, anchorId: string) {
+    addBlockWithFactory(anchorId, () => {
+      const block = createBlockByType("media") as MediaBlock;
+      return {
+        ...block,
+        mediaKind: option.mediaKind,
+        label: option.defaultLabel,
+        targetType: option.targetType,
+        targetId: option.targetId,
+        displayMode: "inline",
+        autoplay: false,
+        controls: true,
+        required: false,
+        audience: option.defaultAudience,
+      };
+    });
+  }
+
+  function insertImageResource(resource: ResourceChoice, anchorId: string) {
+    const safeUrl =
+      sanitizeUrl(resource.thumbnail ?? "") ||
+      sanitizeUrl(resource.fileUrl ?? "") ||
+      `/api/resources/${encodeURIComponent(resource.id)}/download`;
+    addBlockWithFactory(anchorId, () => {
+      const block = createBlockByType("image");
+      if (!isImageBlock(block)) return block;
+      return {
+        ...block,
+        resourceId: resource.id,
+        url: safeUrl,
+        alt: resource.title,
+        caption: "",
+      };
+    });
+  }
+
+  async function createPublisherResource(input: {
+    file: File;
+    scope: "resource-file";
+    title: string;
+    type: ResourceType;
+    audience: ResourceAudience;
+  }) {
+    const uploaded = await uploadFileToR2({
+      file: input.file,
+      scope: input.scope,
+      onProgress: (value) => setUploadProgress(value),
+    });
+    const response = await fetch("/api/admin/resources", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: input.title,
+        type: input.type,
+        audience: input.audience,
+        fileUrl: uploaded.objectKey,
+        thumbnail: "",
+        bookId,
+        published: false,
+        originalFileName: input.file.name,
+        mimeType: uploaded.contentType,
+        fileSizeBytes: String(uploaded.sizeBytes),
+      }),
+    });
+    const payload = (await response.json().catch(() => null)) as
+      | {
+          id?: string;
+          title?: string;
+          fileUrl?: string;
+          thumbnail?: string | null;
+          type?: string;
+          mimeType?: string | null;
+          published?: boolean;
+          audience?: string;
+          message?: string;
+        }
+      | null;
+    if (!response.ok || !payload?.id || !payload.title || !payload.fileUrl) {
+      throw new Error(payload?.message || "Unable to create resource.");
+    }
+    const nextResource: ResourceChoice = {
+      id: payload.id,
+      title: payload.title,
+      fileUrl: payload.fileUrl,
+      thumbnail: payload.thumbnail ?? null,
+      type: payload.type ?? input.type,
+      mimeType: payload.mimeType ?? input.file.type,
+      published: payload.published ?? false,
+      audience: payload.audience ?? input.audience,
+    };
+    setResourceChoices((current) => [nextResource, ...current.filter((item) => item.id !== nextResource.id)]);
+    return nextResource;
+  }
+
+  function insertResourceAsLinkedAsset(resource: ResourceChoice, anchorId: string) {
+    const option: ContentStudioAssetOption = {
+      assetKind:
+        resource.type === ResourceType.WORKSHEET
+          ? "worksheet"
+          : resource.type === ResourceType.VIDEO
+            ? "video"
+            : "resource",
+      targetType: "RESOURCE",
+      targetId: resource.id,
+      title: resource.title,
+      defaultLabel: resource.title,
+      sourceBadge: "Publisher Resource",
+      sourceDetail: resource.type ?? "RESOURCE",
+      scopeLabel: nodeType,
+      audienceOptions: ["TEACHER", "STUDENT"],
+      defaultAudience: ["TEACHER", "STUDENT"],
+      displayStyles: ["button", "inline", "callout"],
+      openModes: resource.type === ResourceType.VIDEO ? ["route"] : ["route", "download"],
+      teacherOnly: resource.audience === ResourceAudience.TEACHER_ONLY,
+      route: {
+        href: `/api/resources/${encodeURIComponent(resource.id)}/download`,
+        openMode: resource.type === ResourceType.VIDEO ? "route" : "download",
+      },
+    };
+    setAssetLibrary((current) => [option, ...current.filter((item) => linkedAssetKey(item.targetType, item.targetId) !== linkedAssetKey(option.targetType, option.targetId))]);
+    insertLinkedAssetOption(option, anchorId);
+  }
+
+  function insertResourceAsMedia(resource: ResourceChoice, anchorId: string, mediaKind: MediaBlock["mediaKind"]) {
+    const option: ContentStudioMediaOption = {
+      mediaKind,
+      targetType: "RESOURCE",
+      targetId: resource.id,
+      title: resource.title,
+      defaultLabel: resource.title,
+      sourceBadge: "Publisher Resource",
+      sourceDetail: resource.type ?? "RESOURCE",
+      scopeLabel: nodeType,
+      audienceOptions: ["TEACHER", "STUDENT"],
+      defaultAudience: ["TEACHER", "STUDENT"],
+      route: { href: `/api/resources/${encodeURIComponent(resource.id)}/download`, openMode: "route" },
+      posterRoute: null,
+      durationSeconds: null,
+      published: Boolean(resource.published),
+      teacherOnly: resource.audience === ResourceAudience.TEACHER_ONLY,
+    };
+    setMediaLibrary((current) => [option, ...current.filter((item) => mediaKey(item.targetType, item.targetId) !== mediaKey(option.targetType, option.targetId))]);
+    insertMediaOption(option, anchorId);
+  }
+
+  function insertCreatedStudioAsset(kind: BuilderKind, id: string, anchorId: string) {
+    if (kind === "activity") {
+      const option = assetLibrary.find((item) => item.targetType === "CHAPTER_ACTIVITY" && item.targetId === id);
+      if (option) {
+        insertLinkedAssetOption(option, anchorId);
+        return;
+      }
+      insertLinkedAssetOption(
+        {
+          assetKind: "activity",
+          targetType: "CHAPTER_ACTIVITY",
+          targetId: id,
+          title: "Activity",
+          defaultLabel: "Activity",
+          sourceBadge: "Activity",
+          sourceDetail: nodeType,
+          scopeLabel: nodeType,
+          audienceOptions: ["TEACHER", "STUDENT"],
+          defaultAudience: ["TEACHER", "STUDENT"],
+          displayStyles: ["button", "inline", "callout"],
+          openModes: ["route"],
+          teacherOnly: false,
+          route: null,
+        },
+        anchorId,
+      );
+      return;
+    }
+    if (kind === "worksheet") {
+      insertLinkedAssetOption(
+        {
+          assetKind: "worksheet",
+          targetType: "PUBLISHER_WORKSHEET",
+          targetId: id,
+          title: "Worksheet",
+          defaultLabel: "Worksheet",
+          sourceBadge: "Worksheet",
+          sourceDetail: nodeType,
+          scopeLabel: nodeType,
+          audienceOptions: ["TEACHER", "STUDENT"],
+          defaultAudience: ["TEACHER", "STUDENT"],
+          displayStyles: ["button", "inline", "callout"],
+          openModes: ["route"],
+          teacherOnly: false,
+          route: null,
+        },
+        anchorId,
+      );
+      return;
+    }
+    insertLinkedAssetOption(
+      {
+        assetKind: "exercise",
+        targetType: "BOOK_EXERCISE",
+        targetId: id,
+        title: "Exercise",
+        defaultLabel: "Exercise",
+        sourceBadge: "Exercise",
+        sourceDetail: nodeType,
+        scopeLabel: nodeType,
+        audienceOptions: ["TEACHER", "STUDENT"],
+        defaultAudience: ["TEACHER", "STUDENT"],
+        displayStyles: ["button", "inline", "callout"],
+        openModes: ["route"],
+        teacherOnly: false,
+        route: null,
+      },
+      anchorId,
+    );
   }
 
   function deleteBlock(blockId: string, fallbackIndex: number) {
@@ -637,11 +1116,12 @@ export default function ContentManuscriptEditor({
     }
   }
 
-  const previewLinkedAssets = buildLinkedAssetPreviewMap(contentDoc, assetOptions, resolvedAssets);
-  const previewMedia = buildMediaPreviewMap(contentDoc, mediaOptions, resolvedMedia);
+  const previewLinkedAssets = buildLinkedAssetPreviewMap(contentDoc, assetLibrary, resolvedAssets);
+  const previewMedia = buildMediaPreviewMap(contentDoc, mediaLibrary, resolvedMedia);
   const wordCount = countDocumentWords({ title, subtitle, description, content: contentDoc });
   const toolbarAnchorId =
     contentDoc.blocks[contentDoc.blocks.length - 1]?.id ?? contentDoc.blocks[0]?.id ?? "";
+  const canOpenScopedBuilders = Boolean(chapterId);
 
   return (
     <div
@@ -668,7 +1148,77 @@ export default function ContentManuscriptEditor({
     >
       <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[2rem] bg-[#fcfaf5] shadow-sm ring-1 ring-slate-200">
         <div className="border-b border-slate-200 bg-white/95 px-3 py-3 backdrop-blur sm:px-5">
-          <div className="flex items-center gap-2 overflow-x-auto">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="inline-flex items-center rounded-full bg-slate-950 px-3 py-2 text-sm font-semibold text-white">
+              {releaseSummary?.lifecycle === "PUBLISHED" ? "Published" : "Draft"}
+            </span>
+            <button
+              type="button"
+              title="Save"
+              aria-label="Save content"
+              disabled={!dirty || saveState === "saving"}
+              onClick={() => void saveDocument()}
+              className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 disabled:opacity-40"
+            >
+              <Save className="h-4 w-4" />
+              {saveState === "saving" ? "Saving..." : "Save"}
+            </button>
+            <div className="relative">
+              <button
+                type="button"
+                title="Open preview menu"
+                aria-label="Open preview menu"
+                aria-expanded={previewMenuOpen}
+                onClick={() => {
+                  setPreviewMenuOpen((current) => !current);
+                  setMoreMenuOpen(false);
+                }}
+                className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700"
+              >
+                <Eye className="h-4 w-4" />
+                Preview
+                <ChevronDown className="h-4 w-4" />
+              </button>
+              {previewMenuOpen ? (
+                <div className="absolute left-0 top-full z-20 mt-2 w-56 rounded-[1.25rem] border border-slate-200 bg-white p-2 shadow-xl">
+                  {[
+                    { key: "STUDENT", label: "Student View" },
+                    { key: "TEACHER", label: "Teacher View" },
+                    { key: "WHITEBOARD", label: "Whiteboard View" },
+                  ].map((item) => (
+                    <button
+                      key={item.key}
+                      type="button"
+                      onClick={() => openPreview(item.key as PreviewSurfaceMode)}
+                      className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                    >
+                      <span>{item.label}</span>
+                      {previewMode === item.key ? <span className="text-xs text-slate-400">Current</span> : null}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+            <button
+              type="button"
+              title="Publish"
+              aria-label="Publish content"
+              disabled={!transitionReleaseAction}
+              onClick={publishCurrentNode}
+              className="inline-flex shrink-0 items-center gap-2 rounded-xl bg-slate-950 px-3 py-2 text-sm font-semibold text-white disabled:opacity-40"
+            >
+              Publish
+            </button>
+            <button
+              type="button"
+              title="Delete"
+              aria-label="Archive current content node"
+              onClick={archiveCurrentNode}
+              className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700"
+            >
+              <Trash2 className="h-4 w-4" />
+              Delete
+            </button>
             <button
               type="button"
               title="Undo"
@@ -691,139 +1241,143 @@ export default function ContentManuscriptEditor({
               <Redo2 className="h-4 w-4" />
               Redo
             </button>
-            <span className="mx-1 hidden h-6 w-px bg-slate-200 sm:block" />
-            <label className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700">
-              <FileText className="h-4 w-4" />
-              <span className="sr-only">Block type</span>
-              <select
-                value={toolbarInsertType}
-                onChange={(event) => setToolbarInsertType(event.target.value as ContentBlockType)}
-                aria-label="Block type"
-                className="min-w-[8rem] border-none bg-transparent pr-6 text-sm font-semibold text-slate-700 outline-none"
-              >
-                <option value="paragraph">Paragraph</option>
-                <option value="heading">Heading</option>
-                <option value="subheading">Subheading</option>
-                <option value="bulletList">Bullet List</option>
-                <option value="numberedList">Numbered List</option>
-                <option value="quote">Quote</option>
-                <option value="divider">Divider</option>
-                <option value="linkedAsset">Linked Asset</option>
-                <option value="media">Media</option>
-              </select>
-            </label>
             <button
               type="button"
-              title="Insert selected block type"
-              aria-label="Insert selected block type"
-              onClick={() => addBlock(toolbarInsertType, toolbarAnchorId, false)}
+              title="Search manuscript"
+              aria-label="Search manuscript"
+              aria-expanded={searchOpen}
+              onClick={() => setSearchOpen((current) => !current)}
+              className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700"
+            >
+              <Search className="h-4 w-4" />
+              Search
+            </button>
+            <button
+              type="button"
+              title="Open insert menu"
+              aria-label="Open insert menu"
+              aria-expanded={toolbarAddOpen}
+              onClick={() => {
+                setToolbarAddOpen((current) => !current);
+                setPreviewMenuOpen(false);
+                setMoreMenuOpen(false);
+              }}
               className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700"
             >
               <Plus className="h-4 w-4" />
-              Add Block
+              Insert
+              <ChevronDown className="h-4 w-4" />
             </button>
-            <button
-              type="button"
-              title="Insert bullet list"
-              aria-label="Insert bullet list block"
-              onClick={() => addBlock("bulletList", toolbarAnchorId, false)}
-              className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700"
-            >
-              <ClipboardList className="h-4 w-4" />
-              Bullet List
-            </button>
-            <button
-              type="button"
-              title="Insert numbered list"
-              aria-label="Insert numbered list block"
-              onClick={() => addBlock("numberedList", toolbarAnchorId, false)}
-              className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700"
-            >
-              <ClipboardList className="h-4 w-4" />
-              Numbered
-            </button>
-            <button
-              type="button"
-              title="Insert quote"
-              aria-label="Insert quote block"
-              onClick={() => addBlock("quote", toolbarAnchorId, false)}
-              className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700"
-            >
-              <BookOpenCheck className="h-4 w-4" />
-              Quote
-            </button>
-            <button
-              type="button"
-              title="Open add block menu"
-              aria-label="Open add block menu"
-              onClick={() => openMenu(toolbarAnchorId)}
-              className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700"
-            >
-              <Slash className="h-4 w-4" />
-              More
-            </button>
-            <button
-              type="button"
-              title="Insert linked asset"
-              aria-label="Insert linked asset block"
-              onClick={() => addBlock("linkedAsset", toolbarAnchorId, false)}
-              className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700"
-            >
-              <Link2 className="h-4 w-4" />
-              Add Asset
-            </button>
-            <button
-              type="button"
-              title="Insert media"
-              aria-label="Insert media block"
-              onClick={() => addBlock("media", toolbarAnchorId, false)}
-              className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700"
-            >
-              <PlayCircle className="h-4 w-4" />
-              Add Media
-            </button>
-            <button
-              type="button"
-              title="Mark selected text as vocabulary"
-              aria-label="Mark selected text as vocabulary"
-              disabled={!activeSelection}
-              onClick={() => openKnowledgePopup("VOCABULARY")}
-              className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800 disabled:opacity-40"
-            >
-              Vocab
-            </button>
-            <button
-              type="button"
-              title="Mark selected text as concept"
-              aria-label="Mark selected text as concept"
-              disabled={!activeSelection}
-              onClick={() => openKnowledgePopup("CONCEPT")}
-              className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm font-semibold text-indigo-800 disabled:opacity-40"
-            >
-              Concept
-            </button>
-            <button
-              type="button"
-              title="Toggle preview"
-              aria-label={previewOpen ? "Hide preview" : "Show preview"}
-              aria-expanded={previewOpen}
-              onClick={() => setPreviewOpen((current) => !current)}
-              className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700"
-            >
-              <Eye className="h-4 w-4" />
-              Preview
-            </button>
-            <button
-              type="button"
-              title="Save"
-              aria-label="Save content"
-              onClick={() => void saveDocument()}
-              className="ml-auto inline-flex shrink-0 items-center gap-2 rounded-xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white"
-            >
-              <Save className="h-4 w-4" />
-              Save
-            </button>
+            <div className="relative">
+              <button
+                type="button"
+                title="Open more actions"
+                aria-label="Open more actions"
+                aria-expanded={moreMenuOpen}
+                onClick={() => {
+                  setMoreMenuOpen((current) => !current);
+                  setPreviewMenuOpen(false);
+                }}
+                className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700"
+              >
+                <MoreHorizontal className="h-4 w-4" />
+                More
+              </button>
+              {moreMenuOpen ? (
+                <div className="absolute right-0 top-full z-20 mt-2 w-56 rounded-[1.25rem] border border-slate-200 bg-white p-2 shadow-xl">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMoreMenuOpen(false);
+                      setReleasePanelOpen(true);
+                    }}
+                    className="flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                  >
+                    Version History
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMoreMenuOpen(false);
+                      setReleasePanelOpen(true);
+                    }}
+                    className="flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                  >
+                    Rollback
+                  </button>
+                  <button
+                    type="button"
+                    onClick={archiveCurrentNode}
+                    className="flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                  >
+                    <Archive className="mr-2 h-4 w-4" />
+                    Archive
+                  </button>
+                  <button
+                    type="button"
+                    onClick={duplicateCurrentNode}
+                    className="flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                  >
+                    <Copy className="mr-2 h-4 w-4" />
+                    Duplicate
+                  </button>
+                  <button
+                    type="button"
+                    onClick={exportManuscript}
+                    className="flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                  >
+                    <FileDown className="mr-2 h-4 w-4" />
+                    Export
+                  </button>
+                  <button
+                    type="button"
+                    onClick={printManuscript}
+                    className="flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                  >
+                    Print
+                  </button>
+                </div>
+              ) : null}
+            </div>
           </div>
+          {searchOpen ? (
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <input
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    focusSearchResult();
+                  }
+                }}
+                placeholder="Search titles, lead text, and manuscript blocks"
+                aria-label="Search manuscript text"
+                className="min-w-[16rem] flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-slate-300"
+              />
+              <button
+                type="button"
+                onClick={focusSearchResult}
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700"
+              >
+                Find
+              </button>
+            </div>
+          ) : null}
+          {toolbarAddOpen ? (
+            <div className="mt-3">
+              <UnifiedAddMenu
+                canOpenScopedBuilders={canOpenScopedBuilders}
+                onPick={(kind) => {
+                  if (kind === "activity" || kind === "worksheet" || kind === "exercise") {
+                    openBuilderSurface(kind, "existing");
+                    return;
+                  }
+                  openInsertSurface(kind);
+                }}
+              />
+            </div>
+          ) : null}
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto">
@@ -835,7 +1389,7 @@ export default function ContentManuscriptEditor({
                     {nodeType} Manuscript
                   </p>
                   <p className="mt-1 text-sm text-slate-500">
-                    {assetOptions.length} linked assets, {mediaOptions.length} media sources, {resources.length} image resources
+                    Write directly on the manuscript canvas. Insert media, teaching elements, and reusable study materials inline.
                   </p>
                 </div>
                 <span
@@ -887,29 +1441,6 @@ export default function ContentManuscriptEditor({
                 />
               </div>
 
-              <div className="mt-6 grid gap-3 rounded-[1.5rem] bg-[#f7f4ed] p-4 ring-1 ring-slate-200 sm:grid-cols-2 xl:grid-cols-4">
-                <label className="block text-sm font-semibold text-slate-700">
-                  Slug
-                  <input value={slug} onChange={(event) => setSlug(event.target.value)} className={field} />
-                </label>
-                <label className="block text-sm font-semibold text-slate-700">
-                  Label
-                  <input value={label} onChange={(event) => setLabel(event.target.value)} className={field} />
-                </label>
-                <label className="block text-sm font-semibold text-slate-700">
-                  Estimated Minutes
-                  <input
-                    value={estimatedMinutes}
-                    onChange={(event) => setEstimatedMinutes(event.target.value)}
-                    inputMode="numeric"
-                    className={field}
-                  />
-                </label>
-                <label className="flex items-center gap-3 rounded-[1.25rem] bg-white px-4 py-3 text-sm font-semibold text-slate-700 ring-1 ring-slate-200">
-                  <input checked={published} type="checkbox" onChange={(event) => setPublished(event.target.checked)} />
-                  Published
-                </label>
-              </div>
             </div>
 
             <div className="mx-auto w-full max-w-[62rem] space-y-4">
@@ -919,9 +1450,9 @@ export default function ContentManuscriptEditor({
                   bookId={bookId}
                   block={block}
                   index={index}
-                  resources={resources}
-                  assetOptions={assetOptions}
-                  mediaOptions={mediaOptions}
+                  resources={resourceChoices}
+                  assetOptions={assetLibrary}
+                  mediaOptions={mediaLibrary}
                   sectionDefinitions={sectionDefinitions}
                   resolvedAsset={previewLinkedAssets[block.id] ?? null}
                   resolvedMedia={previewMedia[block.id] ?? null}
@@ -958,34 +1489,6 @@ export default function ContentManuscriptEditor({
               ))}
             </div>
 
-            {previewOpen ? (
-              <section className="mx-auto w-full max-w-[62rem] rounded-[2rem] bg-white p-6 shadow-sm ring-1 ring-slate-200">
-                <div className="mb-4 flex items-center justify-between gap-3">
-                  <h2 className="text-sm font-bold uppercase tracking-[0.18em] text-slate-500">
-                    Read-only Preview
-                  </h2>
-                  <button
-                    type="button"
-                    onClick={() => setPreviewOpen(false)}
-                    className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700"
-                  >
-                    Hide Preview
-                  </button>
-                </div>
-                <div className="rounded-[1.75rem] bg-[#fcfaf5] p-6 ring-1 ring-slate-200">
-                  <ContentDocumentRenderer
-                    document={contentDoc}
-                    linkedAssets={previewLinkedAssets}
-                    activities={resolvedActivities}
-                    worksheets={resolvedWorksheets}
-                    media={previewMedia}
-                    sectionDefinitions={sectionDefinitions}
-                    knowledgeDefinitions={knowledgeMap}
-                    className="mx-auto max-w-[60rem]"
-                  />
-                </div>
-              </section>
-            ) : null}
           </div>
         </div>
 
@@ -1019,6 +1522,127 @@ export default function ContentManuscriptEditor({
           onClose={() => setKnowledgePopup(null)}
         />
       ) : null}
+      <DraftPreviewDrawer
+        open={previewOpen}
+        onClose={() => setPreviewOpen(false)}
+        mode={previewMode}
+        document={contentDoc}
+        linkedAssets={previewLinkedAssets}
+        activities={resolvedActivities}
+        worksheets={resolvedWorksheets}
+        media={previewMedia}
+        sectionDefinitions={sectionDefinitions}
+        knowledgeDefinitions={knowledgeMap}
+      />
+      <ReleaseHistoryDrawer
+        open={releasePanelOpen}
+        onClose={() => setReleasePanelOpen(false)}
+        summary={releaseSummary}
+        transitionAction={transitionReleaseAction}
+        rollbackAction={rollbackReleaseAction}
+        bulkPublishAction={bulkPublishAction}
+        previewBaseHref={previewBaseHref}
+      />
+      <InsertContentDrawer
+        open={insertKind !== null}
+        kind={insertKind}
+        resources={resourceChoices}
+        mediaOptions={mediaLibrary}
+        assetOptions={assetLibrary}
+        status={insertStatus}
+        error={insertError}
+        uploadProgress={uploadProgress}
+        busy={isRunningInsert}
+        onClose={closeInsertSurface}
+        onChooseImage={(resource) => {
+          if (!insertAnchorId) return;
+          insertImageResource(resource, insertAnchorId);
+          closeInsertSurface();
+        }}
+        onChooseAsset={(option) => {
+          if (!insertAnchorId) return;
+          insertLinkedAssetOption(option, insertAnchorId);
+          closeInsertSurface();
+        }}
+        onChooseMedia={(option) => {
+          if (!insertAnchorId) return;
+          insertMediaOption(option, insertAnchorId);
+          closeInsertSurface();
+        }}
+        onUploadResource={(input) =>
+          startInsertTransition(async () => {
+            try {
+              setInsertStatus("Uploading resource...");
+              setInsertError("");
+              const resource = await createPublisherResource({
+                file: input.file,
+                scope: "resource-file",
+                title: input.title,
+                type: input.type,
+                audience: input.audience,
+              });
+              if (!insertAnchorId) return;
+              if (insertKind === "media") {
+                insertResourceAsMedia(resource, insertAnchorId, input.type === ResourceType.AUDIO ? "audio" : input.type === ResourceType.INTERACTIVE ? "simulation" : "video");
+              } else {
+                insertResourceAsLinkedAsset(resource, insertAnchorId);
+              }
+              setInsertStatus("Inserted");
+              closeInsertSurface();
+            } catch (cause) {
+              setInsertStatus("");
+              setInsertError(cause instanceof Error ? cause.message : "Unable to insert resource.");
+            }
+          })
+        }
+      />
+      <BuilderStudioDrawer
+        open={builderKind !== null}
+        kind={builderKind}
+        tab={builderTab}
+        chapterId={chapterId}
+        activityRows={activityLibraryRows}
+        activityResources={activityResources}
+        worksheetRows={worksheetLibraryRows}
+        worksheetLookups={worksheetLookups}
+        exerciseRows={exerciseLibraryRows}
+        exerciseLookups={exerciseLookups}
+        saveActivityAction={saveActivityAction}
+        duplicateActivityAction={duplicateActivityAction}
+        archiveActivityAction={archiveActivityAction}
+        moveActivityAction={moveActivityAction}
+        saveWorksheetAction={saveWorksheetAction}
+        duplicateWorksheetAction={duplicateWorksheetAction}
+        archiveWorksheetAction={archiveWorksheetAction}
+        moveWorksheetAction={moveWorksheetAction}
+        saveExerciseAction={saveExerciseStudioAction}
+        saveExerciseGroupAction={saveExerciseGroupAction}
+        saveExerciseQuestionAction={saveExerciseQuestionAction}
+        moveExerciseQuestionAction={moveExerciseQuestionAction}
+        duplicateExerciseQuestionAction={duplicateExerciseQuestionAction}
+        archiveExerciseQuestionAction={archiveExerciseQuestionAction}
+        archiveExerciseAction={archiveExerciseAction}
+        createWorksheetExerciseAction={createWorksheetExerciseAction}
+        onClose={closeBuilderSurface}
+        onChangeTab={setBuilderTab}
+        onInsertExisting={(targetType, targetId) => {
+          if (!insertAnchorId) return;
+          const option = assetLibrary.find(
+            (entry) => entry.targetType === targetType && entry.targetId === targetId,
+          );
+          if (!option) {
+            setInsertError("This record is not available in the current content scope.");
+            return;
+          }
+          insertLinkedAssetOption(option, insertAnchorId);
+          closeBuilderSurface();
+        }}
+        onCreated={(kind, id) => {
+          if (!insertAnchorId) return;
+          insertCreatedStudioAsset(kind, id, insertAnchorId);
+          closeBuilderSurface();
+        }}
+      />
     </div>
   );
 }
@@ -2695,6 +3319,561 @@ function BlockInsertMenu({
   );
 }
 
+function UnifiedAddMenu({
+  canOpenScopedBuilders,
+  onPick,
+}: {
+  canOpenScopedBuilders: boolean;
+  onPick: (kind: ToolbarInsertKind) => void;
+}) {
+  const items: Array<{ kind: ToolbarInsertKind; label: string; disabled?: boolean }> = [
+    { kind: "image", label: "Image" },
+    { kind: "media", label: "Media" },
+    { kind: "activity", label: "Activity", disabled: !canOpenScopedBuilders },
+    { kind: "worksheet", label: "Worksheet", disabled: !canOpenScopedBuilders },
+    { kind: "exercise", label: "Exercise", disabled: !canOpenScopedBuilders },
+    { kind: "resource", label: "Resource" },
+    { kind: "learningOutcome", label: "Learning Outcome" },
+  ];
+
+  return (
+    <div className="rounded-[1.5rem] border border-slate-200 bg-white p-3 shadow-sm">
+      <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Add to manuscript</p>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+        {items.map((item) => (
+          <button
+            key={item.kind}
+            type="button"
+            disabled={item.disabled}
+            onClick={() => onPick(item.kind)}
+            className="rounded-xl border border-slate-200 px-3 py-2 text-left text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-45"
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DraftPreviewDrawer({
+  open,
+  onClose,
+  mode,
+  document,
+  linkedAssets,
+  activities,
+  worksheets,
+  media,
+  sectionDefinitions,
+  knowledgeDefinitions,
+}: {
+  open: boolean;
+  onClose: () => void;
+  mode: PreviewSurfaceMode;
+  document: ContentDocument;
+  linkedAssets: Record<string, ResolvedLinkedAsset | null>;
+  activities: Record<string, ResolvedActivityBlock>;
+  worksheets: Record<string, ResolvedWorksheetBlock>;
+  media: Record<string, ResolvedMediaBlock | null>;
+  sectionDefinitions: ContentSectionDefinitionSummary[];
+  knowledgeDefinitions: Record<string, KnowledgeDefinitionSummary | null>;
+}) {
+  return (
+    <StudioBuilderDrawer
+      open={open}
+      title={`${previewModeLabel(mode)} Preview`}
+      description="This preview renders the current unsaved manuscript draft without leaving the editor."
+      onClose={onClose}
+    >
+      <div className="rounded-[1.75rem] bg-white p-6 ring-1 ring-slate-200">
+        <ContentDocumentRenderer
+          document={document}
+          mode={mode === "WHITEBOARD" ? "ADMIN_PREVIEW" : (mode as ContentRenderMode)}
+          linkedAssets={linkedAssets}
+          activities={activities}
+          worksheets={worksheets}
+          media={media}
+          sectionDefinitions={sectionDefinitions}
+          knowledgeDefinitions={knowledgeDefinitions}
+          className="mx-auto max-w-[60rem]"
+        />
+      </div>
+    </StudioBuilderDrawer>
+  );
+}
+
+function ReleaseHistoryDrawer({
+  open,
+  onClose,
+  summary,
+  transitionAction,
+  rollbackAction,
+  bulkPublishAction,
+  previewBaseHref,
+}: {
+  open: boolean;
+  onClose: () => void;
+  summary: ReleaseSummary | null;
+  transitionAction: ((
+    action: "SUBMIT_REVIEW" | "RETURN_DRAFT" | "APPROVE" | "PUBLISH" | "UNPUBLISH" | "ARCHIVE" | "RESTORE",
+    form: FormData,
+  ) => Promise<void>) | null;
+  rollbackAction: ((versionId: string, form: FormData) => Promise<void>) | null;
+  bulkPublishAction: ((form: FormData) => Promise<void>) | null;
+  previewBaseHref: string;
+}) {
+  if (!open) return null;
+
+  return (
+    <StudioBuilderDrawer
+      open={open}
+      title="Publishing Controls"
+      description="Review lifecycle, validation, version history, and rollback for the selected manuscript node."
+      onClose={onClose}
+    >
+      {summary && transitionAction && rollbackAction ? (
+        <ContentReleasePanel
+          summary={summary}
+          transitionAction={transitionAction}
+          rollbackAction={rollbackAction}
+          bulkPublishAction={bulkPublishAction ?? undefined}
+          previewBaseHref={previewBaseHref}
+        />
+      ) : (
+        <div className="rounded-[1.5rem] bg-white p-5 text-sm text-slate-600 ring-1 ring-slate-200">
+          Publishing controls are not available for this node.
+        </div>
+      )}
+    </StudioBuilderDrawer>
+  );
+}
+
+function InsertContentDrawer({
+  open,
+  kind,
+  resources,
+  mediaOptions,
+  assetOptions,
+  status,
+  error,
+  uploadProgress,
+  busy,
+  onClose,
+  onChooseImage,
+  onChooseAsset,
+  onChooseMedia,
+  onUploadResource,
+}: {
+  open: boolean;
+  kind: ToolbarInsertKind | null;
+  resources: ResourceChoice[];
+  mediaOptions: ContentStudioMediaOption[];
+  assetOptions: ContentStudioAssetOption[];
+  status: string;
+  error: string;
+  uploadProgress: number;
+  busy: boolean;
+  onClose: () => void;
+  onChooseImage: (resource: ResourceChoice) => void;
+  onChooseAsset: (option: ContentStudioAssetOption) => void;
+  onChooseMedia: (option: ContentStudioMediaOption) => void;
+  onUploadResource: (input: {
+    file: File;
+    title: string;
+    type: ResourceType;
+    audience: ResourceAudience;
+  }) => void;
+}) {
+  if (!open || !kind) return null;
+
+  const imageChoices = resources.filter((resource) => resource.thumbnail || resource.fileUrl);
+  const linkedChoices = assetOptions.filter((option) => option.assetKind === kind);
+
+  return (
+    <StudioBuilderDrawer open={open} title={`Insert ${blockLabelForDrawer(kind)}`} onClose={onClose}>
+      <div className="space-y-5">
+        {kind === "image" ? (
+          <section className="rounded-[1.5rem] bg-white p-4 ring-1 ring-slate-200">
+            <p className="text-sm font-semibold text-slate-700">
+              Choose an existing publisher resource thumbnail or file to insert as an image.
+            </p>
+            <p className="mt-2 text-sm text-slate-500">
+              Direct image upload is limited by the current canonical Resource type set, so this drawer uses existing reusable publisher resources only.
+            </p>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              {imageChoices.map((resource) => (
+                <button
+                  key={resource.id}
+                  type="button"
+                  onClick={() => onChooseImage(resource)}
+                  className="rounded-[1.25rem] border border-slate-200 px-4 py-3 text-left hover:bg-slate-50"
+                >
+                  <p className="text-sm font-semibold text-slate-900">{resource.title}</p>
+                  <p className="mt-1 text-xs text-slate-500">{resource.type ?? "Resource"}</p>
+                </button>
+              ))}
+            </div>
+          </section>
+        ) : null}
+
+        {kind === "media" ? (
+          <>
+            <LibrarySection
+              title="Choose Existing Media"
+              items={mediaOptions.map((option) => ({
+                key: mediaKey(option.targetType, option.targetId),
+                title: option.title,
+                detail: `${mediaKindLabel(option.mediaKind)} · ${option.sourceBadge} · ${option.scopeLabel}`,
+                onChoose: () => onChooseMedia(option),
+              }))}
+            />
+            <ResourceUploadCard
+              title="Upload New Media"
+              allowedTypes={[ResourceType.VIDEO, ResourceType.AUDIO, ResourceType.INTERACTIVE]}
+              busy={busy}
+              status={status}
+              error={error}
+              uploadProgress={uploadProgress}
+              onSubmit={onUploadResource}
+            />
+          </>
+        ) : null}
+
+        {kind === "resource" ? (
+          <>
+            <LibrarySection
+              title="Choose Existing Resource"
+              items={linkedChoices.map((option) => ({
+                key: linkedAssetKey(option.targetType, option.targetId),
+                title: option.title,
+                detail: `${option.sourceBadge} · ${option.sourceDetail} · ${option.scopeLabel}`,
+                onChoose: () => onChooseAsset(option),
+              }))}
+            />
+            <ResourceUploadCard
+              title="Upload New Resource"
+              allowedTypes={[ResourceType.PDF, ResourceType.DOC, ResourceType.WORKSHEET, ResourceType.VIDEO, ResourceType.AUDIO, ResourceType.INTERACTIVE]}
+              busy={busy}
+              status={status}
+              error={error}
+              uploadProgress={uploadProgress}
+              onSubmit={onUploadResource}
+            />
+          </>
+        ) : null}
+
+        {kind !== "image" && kind !== "media" && kind !== "resource" ? (
+          <LibrarySection
+            title={`Choose Existing ${blockLabelForDrawer(kind)}`}
+            items={linkedChoices.map((option) => ({
+              key: linkedAssetKey(option.targetType, option.targetId),
+              title: option.title,
+              detail: `${option.sourceBadge} · ${option.sourceDetail} · ${option.scopeLabel}`,
+              onChoose: () => onChooseAsset(option),
+            }))}
+            emptyText={`No ${blockLabelForDrawer(kind).toLowerCase()} records are available in this scope.`}
+          />
+        ) : null}
+      </div>
+    </StudioBuilderDrawer>
+  );
+}
+
+function BuilderStudioDrawer({
+  open,
+  kind,
+  tab,
+  chapterId,
+  activityRows,
+  activityResources,
+  worksheetRows,
+  worksheetLookups,
+  exerciseRows,
+  exerciseLookups,
+  saveActivityAction,
+  duplicateActivityAction,
+  archiveActivityAction,
+  moveActivityAction,
+  saveWorksheetAction,
+  duplicateWorksheetAction,
+  archiveWorksheetAction,
+  moveWorksheetAction,
+  saveExerciseAction,
+  saveExerciseGroupAction,
+  saveExerciseQuestionAction,
+  moveExerciseQuestionAction,
+  duplicateExerciseQuestionAction,
+  archiveExerciseQuestionAction,
+  archiveExerciseAction,
+  createWorksheetExerciseAction,
+  onClose,
+  onChangeTab,
+  onInsertExisting,
+  onCreated,
+}: {
+  open: boolean;
+  kind: BuilderKind | null;
+  tab: "existing" | "create";
+  chapterId: string | null;
+  activityRows: ActivityStudioRecord[];
+  activityResources: ActivityResourceOption[];
+  worksheetRows: WorksheetStudioRecord[];
+  worksheetLookups: WorksheetLookupData | null;
+  exerciseRows: ExerciseStudioData[];
+  exerciseLookups: ExerciseLookupData | null;
+  saveActivityAction: ((data: FormData) => Promise<string>) | null;
+  duplicateActivityAction: ((activityId: string) => Promise<void>) | null;
+  archiveActivityAction: ((activityId: string) => Promise<void>) | null;
+  moveActivityAction: ((activityId: string, direction: -1 | 1) => Promise<void>) | null;
+  saveWorksheetAction: ((data: FormData) => Promise<string>) | null;
+  duplicateWorksheetAction: ((worksheetId: string) => Promise<void>) | null;
+  archiveWorksheetAction: ((worksheetId: string) => Promise<void>) | null;
+  moveWorksheetAction: ((worksheetId: string, direction: -1 | 1) => Promise<void>) | null;
+  saveExerciseAction: ((data: FormData) => Promise<string>) | null;
+  saveExerciseGroupAction: ((exerciseId: string, data: FormData) => Promise<void>) | null;
+  saveExerciseQuestionAction: ((exerciseId: string, data: FormData) => Promise<void>) | null;
+  moveExerciseQuestionAction: ((exerciseId: string, questionId: string, direction: -1 | 1) => Promise<void>) | null;
+  duplicateExerciseQuestionAction: ((exerciseId: string, questionId: string) => Promise<void>) | null;
+  archiveExerciseQuestionAction: ((exerciseId: string, questionId: string, archived: boolean) => Promise<void>) | null;
+  archiveExerciseAction: ((exerciseId: string, archived: boolean) => Promise<void>) | null;
+  createWorksheetExerciseAction: ((data: FormData) => Promise<string>) | null;
+  onClose: () => void;
+  onChangeTab: (tab: "existing" | "create") => void;
+  onInsertExisting: (targetType: string, targetId: string) => void;
+  onCreated: (kind: BuilderKind, id: string) => void;
+}) {
+  if (!open || !kind || !chapterId) return null;
+
+  return (
+    <StudioBuilderDrawer
+      open={open}
+      title={`${kind[0].toUpperCase()}${kind.slice(1)} Builder`}
+      description="Choose an existing reusable record or create a new one without leaving the manuscript."
+      onClose={onClose}
+    >
+      <div className="mb-4 flex gap-2">
+        <button
+          type="button"
+          onClick={() => onChangeTab("existing")}
+          className={`rounded-xl px-3 py-2 text-sm font-semibold ${tab === "existing" ? "bg-slate-950 text-white" : "bg-white text-slate-700 ring-1 ring-slate-200"}`}
+        >
+          Choose Existing
+        </button>
+        <button
+          type="button"
+          onClick={() => onChangeTab("create")}
+          className={`rounded-xl px-3 py-2 text-sm font-semibold ${tab === "create" ? "bg-slate-950 text-white" : "bg-white text-slate-700 ring-1 ring-slate-200"}`}
+        >
+          Create New
+        </button>
+      </div>
+
+      {tab === "existing" ? (
+        <LibrarySection
+          title={`Available ${kind}s`}
+          items={
+            kind === "activity"
+              ? activityRows.map((item) => ({
+                  key: item.id,
+                  title: item.title,
+                  detail: item.activityType,
+                  onChoose: () => onInsertExisting("CHAPTER_ACTIVITY", item.id),
+                }))
+              : kind === "worksheet"
+                ? worksheetRows.map((item) => ({
+                    key: item.id,
+                    title: item.title,
+                    detail: item.type,
+                    onChoose: () => onInsertExisting("PUBLISHER_WORKSHEET", item.id),
+                  }))
+                : exerciseRows.map((item) => ({
+                    key: item.id,
+                    title: item.title,
+                    detail: `${item.questions.length} questions`,
+                    onChoose: () => onInsertExisting("BOOK_EXERCISE", item.id),
+                  }))
+          }
+          emptyText={`No ${kind} records are available in this scope.`}
+        />
+      ) : null}
+
+      {tab === "create" && kind === "activity" && saveActivityAction && duplicateActivityAction && archiveActivityAction && moveActivityAction ? (
+        <div data-builder-dirty="true">
+          <ActivityStudio
+            chapterId={chapterId}
+            activities={activityRows}
+            resources={activityResources}
+            modules={worksheetLookups?.modules ?? []}
+            topics={worksheetLookups?.topics ?? []}
+            saveAction={saveActivityAction}
+            duplicateAction={duplicateActivityAction}
+            archiveAction={archiveActivityAction}
+            moveAction={moveActivityAction}
+            initialSelectedId="new"
+            onSaveComplete={(id) => onCreated("activity", id)}
+          />
+        </div>
+      ) : null}
+
+      {tab === "create" && kind === "worksheet" && saveWorksheetAction && duplicateWorksheetAction && archiveWorksheetAction && moveWorksheetAction && createWorksheetExerciseAction && worksheetLookups ? (
+        <div data-builder-dirty="true">
+          <WorksheetStudio
+            chapterId={chapterId}
+            worksheets={worksheetRows}
+            lookups={worksheetLookups}
+            saveAction={saveWorksheetAction}
+            duplicateAction={duplicateWorksheetAction}
+            archiveAction={archiveWorksheetAction}
+            moveAction={moveWorksheetAction}
+            createExerciseAction={createWorksheetExerciseAction}
+            initialSelectedId="new"
+            onSaveComplete={(id) => onCreated("worksheet", id)}
+          />
+        </div>
+      ) : null}
+
+      {tab === "create" && kind === "exercise" && saveExerciseAction && saveExerciseGroupAction && saveExerciseQuestionAction && moveExerciseQuestionAction && duplicateExerciseQuestionAction && archiveExerciseQuestionAction && archiveExerciseAction && exerciseLookups ? (
+        <div data-builder-dirty="true">
+          <ExerciseAuthoringStudio
+            exercises={exerciseRows}
+            lookups={exerciseLookups}
+            saveExerciseAction={saveExerciseAction}
+            saveGroupAction={saveExerciseGroupAction}
+            saveQuestionAction={saveExerciseQuestionAction}
+            moveQuestionAction={moveExerciseQuestionAction}
+            duplicateQuestionAction={duplicateExerciseQuestionAction}
+            archiveQuestionAction={archiveExerciseQuestionAction}
+            archiveExerciseAction={archiveExerciseAction}
+            initialExerciseId="new"
+            onSaveComplete={(id) => onCreated("exercise", id)}
+          />
+        </div>
+      ) : null}
+    </StudioBuilderDrawer>
+  );
+}
+
+function LibrarySection({
+  title,
+  items,
+  emptyText = "No matching items.",
+}: {
+  title: string;
+  items: { key: string; title: string; detail: string; onChoose: () => void }[];
+  emptyText?: string;
+}) {
+  return (
+    <section className="rounded-[1.5rem] bg-white p-4 ring-1 ring-slate-200">
+      <h3 className="text-sm font-bold text-slate-950">{title}</h3>
+      <div className="mt-4 space-y-3">
+        {items.map((item) => (
+          <button
+            key={item.key}
+            type="button"
+            onClick={item.onChoose}
+            className="w-full rounded-[1.25rem] border border-slate-200 px-4 py-3 text-left hover:bg-slate-50"
+          >
+            <p className="text-sm font-semibold text-slate-900">{item.title}</p>
+            <p className="mt-1 text-xs text-slate-500">{item.detail}</p>
+          </button>
+        ))}
+        {!items.length ? <p className="text-sm text-slate-500">{emptyText}</p> : null}
+      </div>
+    </section>
+  );
+}
+
+function ResourceUploadCard({
+  title,
+  allowedTypes,
+  busy,
+  status,
+  error,
+  uploadProgress,
+  onSubmit,
+}: {
+  title: string;
+  allowedTypes: ResourceType[];
+  busy: boolean;
+  status: string;
+  error: string;
+  uploadProgress: number;
+  onSubmit: (input: {
+    file: File;
+    title: string;
+    type: ResourceType;
+    audience: ResourceAudience;
+  }) => void;
+}) {
+  const [file, setFile] = useState<File | null>(null);
+  const [resourceTitle, setResourceTitle] = useState("");
+  const [resourceType, setResourceType] = useState<ResourceType>(allowedTypes[0] ?? ResourceType.PDF);
+  const [audience, setAudience] = useState<ResourceAudience>(ResourceAudience.BOTH);
+
+  return (
+    <section className="rounded-[1.5rem] bg-white p-4 ring-1 ring-slate-200">
+      <h3 className="text-sm font-bold text-slate-950">{title}</h3>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <label className="block text-sm font-semibold text-slate-700">
+          Title
+          <input value={resourceTitle} onChange={(event) => setResourceTitle(event.target.value)} className={field} />
+        </label>
+        <label className="block text-sm font-semibold text-slate-700">
+          Type
+          <select value={resourceType} onChange={(event) => setResourceType(event.target.value as ResourceType)} className={field}>
+            {allowedTypes.map((type) => (
+              <option key={type} value={type}>{type}</option>
+            ))}
+          </select>
+        </label>
+        <label className="block text-sm font-semibold text-slate-700">
+          Audience
+          <select value={audience} onChange={(event) => setAudience(event.target.value as ResourceAudience)} className={field}>
+            <option value={ResourceAudience.BOTH}>Both</option>
+            <option value={ResourceAudience.STUDENT}>Student</option>
+            <option value={ResourceAudience.TEACHER_ONLY}>Teacher Only</option>
+          </select>
+        </label>
+        <label className="block text-sm font-semibold text-slate-700">
+          File
+          <input type="file" onChange={(event) => setFile(event.target.files?.[0] ?? null)} className={field} />
+        </label>
+      </div>
+      {uploadProgress > 0 ? <p className="mt-3 text-sm font-semibold text-slate-500">Upload {uploadProgress}%</p> : null}
+      {status ? <p className="mt-3 text-sm font-semibold text-slate-500">{status}</p> : null}
+      {error ? <p className="mt-3 rounded-xl bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">{error}</p> : null}
+      <button
+        type="button"
+        disabled={!file || !resourceTitle.trim() || busy}
+        onClick={() => file && onSubmit({ file, title: resourceTitle.trim(), type: resourceType, audience })}
+        className="mt-4 rounded-xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white disabled:opacity-45"
+      >
+        {busy ? "Uploading..." : "Upload and Insert"}
+      </button>
+    </section>
+  );
+}
+
+function blockLabelForDrawer(kind: ToolbarInsertKind) {
+  switch (kind) {
+    case "image":
+      return "Image";
+    case "media":
+      return "Media";
+    case "activity":
+      return "Activity";
+    case "worksheet":
+      return "Worksheet";
+    case "exercise":
+      return "Exercise";
+    case "resource":
+      return "Resource";
+    case "learningOutcome":
+      return "Learning Outcome";
+  }
+}
+
 function buildLinkedAssetPreviewMap(
   document: ContentDocument,
   assetOptions: ContentStudioAssetOption[],
@@ -2747,6 +3926,62 @@ function countDocumentWords(input: {
     .trim()
     .split(/\s+/)
     .filter(Boolean).length;
+}
+
+function blockContainsQuery(block: ContentBlock, query: string) {
+  if (isTextBlock(block)) return block.text.toLowerCase().includes(query);
+  if (isListBlock(block)) return block.items.some((item) => item.toLowerCase().includes(query));
+  if (isFormulaBlock(block)) return block.expression.toLowerCase().includes(query);
+  if (isInfoBoxBlock(block) || isObservationBoxBlock(block)) return block.text.toLowerCase().includes(query);
+  if (isSequenceBlock(block)) {
+    return block.items.some(
+      (item) =>
+        item.title.toLowerCase().includes(query) ||
+        (item.description ?? "").toLowerCase().includes(query),
+    );
+  }
+  if (isTableBlock(block)) {
+    return block.rows.some((row) =>
+      row.cells.some((cell) => cell.text.toLowerCase().includes(query)),
+    );
+  }
+  if ("title" in block && typeof block.title === "string" && block.title.toLowerCase().includes(query)) {
+    return true;
+  }
+  return false;
+}
+
+function buildPlainTextExport(input: {
+  title: string;
+  subtitle: string;
+  description: string;
+  content: ContentDocument;
+}) {
+  const parts = [input.title, input.subtitle, input.description].filter(Boolean);
+  for (const block of input.content.blocks) {
+    if (isTextBlock(block)) parts.push(block.text);
+    if (isListBlock(block)) parts.push(...block.items.map((item) => `- ${item}`));
+    if (isFormulaBlock(block)) parts.push(block.expression);
+    if (isInfoBoxBlock(block) || isObservationBoxBlock(block)) parts.push(block.text);
+    if (isSequenceBlock(block)) {
+      for (const item of block.items) parts.push(item.title, item.description ?? "");
+    }
+    if (isTableBlock(block)) {
+      for (const row of block.rows) parts.push(row.cells.map((cell) => cell.text).join(" | "));
+    }
+  }
+  return parts.filter(Boolean).join("\n\n");
+}
+
+function previewModeLabel(mode: PreviewSurfaceMode) {
+  switch (mode) {
+    case "STUDENT":
+      return "Student View";
+    case "TEACHER":
+      return "Teacher View";
+    case "WHITEBOARD":
+      return "Whiteboard View";
+  }
 }
 
 function openKnowledgeFromContext(
@@ -2855,8 +4090,6 @@ function renderAssetIcon(kind: LinkedAssetKind) {
       return <BookOpenCheck className="h-4 w-4" />;
     case "learningOutcome":
       return <BookOpenCheck className="h-4 w-4" />;
-    case "qr":
-      return <QrCode className="h-4 w-4" />;
     case "resource":
     default:
       return <FileText className="h-4 w-4" />;
@@ -2873,8 +4106,6 @@ function defaultTargetTypeForKind(kind: LinkedAssetKind) {
       return "BOOK_EXERCISE";
     case "learningOutcome":
       return "CHAPTER_LEARNING_OUTCOME";
-    case "qr":
-      return "DYNAMIC_QR_CODE";
     case "worksheet":
       return "PUBLISHER_WORKSHEET";
     case "resource":

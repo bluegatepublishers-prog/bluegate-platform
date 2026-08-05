@@ -1,10 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import Link from "next/link";
+import { useState, useTransition } from "react";
 import type { ReactNode } from "react";
 import { ArrowDown, ArrowUp, ClipboardList, Copy, Plus, Save, Trash2 } from "lucide-react";
 
 import ContentReleasePanel from "@/components/admin/books/ContentReleasePanel";
+import StudioWorkspaceShell from "@/components/admin/books/StudioWorkspaceShell";
 import type { ReleaseSummary } from "@/lib/content-release";
 import {
   ACTIVITY_AUDIENCES,
@@ -57,13 +59,22 @@ export default function ActivityStudio({
   transitionReleaseAction,
   rollbackReleaseAction,
   previewBaseHref,
+  initialSelectedId,
+  onSaveComplete,
+  defaultModuleId,
+  defaultTopicId,
+  bookTitle,
+  chapterTitle,
+  moduleTitle,
+  topicTitle,
+  currentScopeLabel,
 }: {
   chapterId: string;
   activities: ActivityStudioRecord[];
   resources: ResourceOption[];
   modules: ScopeOption[];
   topics: TopicOption[];
-  saveAction: (data: FormData) => Promise<void>;
+  saveAction: (data: FormData) => Promise<string>;
   duplicateAction: (activityId: string) => Promise<void>;
   archiveAction: (activityId: string) => Promise<void>;
   moveAction: (activityId: string, direction: -1 | 1) => Promise<void>;
@@ -71,16 +82,43 @@ export default function ActivityStudio({
   transitionReleaseAction?: (activityId: string, action: ReleaseAction, data: FormData) => Promise<void>;
   rollbackReleaseAction?: (activityId: string, versionId: string, data: FormData) => Promise<void>;
   previewBaseHref?: string;
+  initialSelectedId?: string;
+  onSaveComplete?: (activityId: string) => void;
+  defaultModuleId?: string | null;
+  defaultTopicId?: string | null;
+  bookTitle?: string;
+  chapterTitle?: string;
+  moduleTitle?: string | null;
+  topicTitle?: string | null;
+  currentScopeLabel?: string;
 }) {
-  const [selectedId, setSelectedId] = useState(activities[0]?.id ?? "new");
+  const [selectedId, setSelectedId] = useState(initialSelectedId ?? activities[0]?.id ?? "new");
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const [isPending, startTransition] = useTransition();
   const selected = activities.find((activity) => activity.id === selectedId) ?? null;
-  const draft = selected ?? createDraft(chapterId, activities.length);
+  const draft = selected ?? createDraft(chapterId, activities.length, defaultModuleId ?? null, defaultTopicId ?? null);
   const relevant = relevantSections(draft.activityType);
   const formId = activityFormId(draft.id);
 
-  return (
-    <section className="grid min-h-[42rem] overflow-hidden rounded-[2rem] bg-[#f7f2e8] shadow-sm ring-1 ring-slate-200 xl:grid-cols-[18rem_minmax(0,1fr)_20rem]">
-      <aside className="border-b border-slate-200 bg-white/80 p-4 xl:border-b-0 xl:border-r">
+  function submit(formData: FormData) {
+    setMessage("Saving activity...");
+    setError("");
+    startTransition(async () => {
+      try {
+        const activityId = await saveAction(formData);
+        setSelectedId(activityId);
+        setMessage("Activity saved");
+        onSaveComplete?.(activityId);
+      } catch (cause) {
+        setMessage("");
+        setError(cause instanceof Error ? cause.message : "Unable to save activity.");
+      }
+    });
+  }
+
+  const outline = (
+    <div className="space-y-2">
         <div className="flex items-center justify-between gap-3">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-700">Activity Outline</p>
@@ -124,9 +162,11 @@ export default function ActivityStudio({
             </button>
           ))}
         </div>
-      </aside>
+    </div>
+  );
 
-      <form key={draft.id} id={formId} action={saveAction} className="min-w-0 space-y-6 p-5 sm:p-8">
+  const canvas = (
+      <form key={draft.id} id={formId} action={submit} className="min-w-0 space-y-6">
         <input type="hidden" name="id" value={selected?.id ?? ""} />
         <input type="hidden" name="sortOrder" value={draft.sortOrder} />
         <div className="mx-auto max-w-3xl rounded-[2rem] bg-[#fffdf7] p-6 shadow-sm ring-1 ring-slate-200 sm:p-9">
@@ -223,18 +263,33 @@ export default function ActivityStudio({
         </div>
 
         <div className="mx-auto flex max-w-3xl flex-wrap items-center justify-between gap-3">
-          <button type="submit" className="inline-flex rounded-full bg-emerald-700 px-5 py-3 text-sm font-bold text-white">
+          <button disabled={isPending} type="submit" className="inline-flex rounded-full bg-emerald-700 px-5 py-3 text-sm font-bold text-white disabled:opacity-60">
             <Save className="mr-2 h-4 w-4" />
-            Save activity
+            {isPending ? "Saving..." : "Save activity"}
           </button>
           <p className="text-sm text-slate-500">
             Insert this activity from the manuscript slash menu as a linked asset. The manuscript stores only the activity reference.
           </p>
         </div>
+        {message ? <p className="mx-auto max-w-3xl text-sm font-semibold text-slate-500">{message}</p> : null}
+        {error ? <p className="mx-auto max-w-3xl rounded-2xl bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{error}</p> : null}
       </form>
+  );
 
-      <aside className="border-t border-slate-200 bg-white/85 p-4 xl:border-l xl:border-t-0">
+  const inspector = (
         <div className="space-y-4">
+          <Inspector title="Scope">
+            <dl className="space-y-3 text-sm text-slate-600">
+              <Summary label="Book" value={bookTitle ?? "Current book"} />
+              <Summary label="Chapter" value={chapterTitle ?? "Current chapter"} />
+              <Summary label="Module" value={moduleTitle ?? "Chapter level"} />
+              <Summary label="Topic" value={topicTitle ?? "Not narrowed"} />
+              <Summary label="Current Scope" value={currentScopeLabel ?? "Chapter scope"} />
+              <Summary label="Audience" value={draft.audience} />
+              <Summary label="Publication" value={draft.published ? "Published" : "Draft"} />
+              <Summary label="Where Used" value={selected ? "Current content scope" : "New record"} />
+            </dl>
+          </Inspector>
           <ActivityInspector
             key={draft.id}
             draft={draft}
@@ -279,8 +334,45 @@ export default function ActivityStudio({
             </p>
           </Inspector>
         </div>
-      </aside>
-    </section>
+  );
+
+  return (
+    <StudioWorkspaceShell
+      storageKey={`bluegate:activity-studio:${chapterId}`}
+      title="Activity Studio"
+      leftLabel="Outline"
+      leftTitle="Activity Outline"
+      left={outline}
+      toolbar={
+        <div className="flex flex-wrap items-center gap-2">
+          <button form={formId} disabled={isPending} type="submit" className="inline-flex items-center gap-2 rounded-xl bg-emerald-700 px-3 py-2 text-sm font-bold text-white disabled:opacity-60">
+            <Save className="h-4 w-4" />
+            {isPending ? "Saving..." : "Save"}
+          </button>
+          {selected && previewBaseHref ? (
+            <Link href={`${previewBaseHref}/${selected.id}`} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700">
+              Preview
+            </Link>
+          ) : null}
+          <span className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700">
+            {activityTypeLabel(draft.activityType)}
+          </span>
+          <span className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700">
+            {draft.published ? "Published" : "Draft"}
+          </span>
+        </div>
+      }
+      canvas={canvas}
+      statusBar={
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <span>{currentScopeLabel ?? "Chapter scope"}</span>
+          <span>{message || (error ? "Error" : "Ready")}</span>
+        </div>
+      }
+      rightLabel="Inspector"
+      rightTitle="Activity Inspector"
+      right={inspector}
+    />
   );
 }
 
@@ -401,6 +493,15 @@ function ResourceSelect({
   );
 }
 
+function Summary({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">{label}</p>
+      <p className="mt-1 text-sm font-semibold text-slate-700">{value}</p>
+    </div>
+  );
+}
+
 function ActionForm({
   action,
   label,
@@ -457,12 +558,17 @@ function Badge({ label }: { label: string }) {
 const plainArea =
   "w-full resize-none border-none bg-transparent text-[1.05rem] leading-8 text-slate-800 outline-none placeholder:text-slate-300";
 
-function createDraft(chapterId: string, count: number): ActivityStudioRecord {
+function createDraft(
+  chapterId: string,
+  count: number,
+  defaultModuleId: string | null,
+  defaultTopicId: string | null,
+): ActivityStudioRecord {
   return {
     id: "new",
     chapterId,
-    moduleId: null,
-    topicId: null,
+    moduleId: defaultModuleId,
+    topicId: defaultTopicId,
     title: "",
     activityType: "CLASSROOM_ACTIVITY",
     shortDescription: null,

@@ -56,10 +56,13 @@ export async function loadActivityStudio(input: {
   publisherId: string;
   bookId: string;
   chapterId: string;
+  moduleId?: string | null;
+  topicId?: string | null;
 }) {
   const rows = await prisma.chapterActivity.findMany({
     where: {
       chapterId: input.chapterId,
+      ...(input.topicId ? { topicId: input.topicId } : input.moduleId ? { moduleId: input.moduleId, topicId: null } : {}),
       chapter: { bookId: input.bookId, book: { publisherId: input.publisherId } },
       archivedAt: null,
     },
@@ -72,6 +75,8 @@ export async function loadActivityResourceOptions(input: {
   publisherId: string;
   bookId: string;
   chapterId: string;
+  moduleId?: string | null;
+  topicId?: string | null;
 }) {
   const rows = await prisma.resource.findMany({
     where: {
@@ -255,12 +260,15 @@ export async function moveActivityStudioRecord(input: {
   actor: ActivityActor;
   bookId: string;
   chapterId: string;
+  moduleId?: string | null;
+  topicId?: string | null;
   activityId: string;
   direction: -1 | 1;
 }) {
   const rows = await prisma.chapterActivity.findMany({
     where: {
       chapterId: input.chapterId,
+      ...(input.topicId ? { topicId: input.topicId } : input.moduleId ? { moduleId: input.moduleId, topicId: null } : {}),
       chapter: { bookId: input.bookId, book: { publisherId: input.actor.publisherId } },
       archivedAt: null,
     },

@@ -1,5 +1,6 @@
 import StructuredContentRenderer from "@/components/content/StructuredContentRenderer";
 import type { ContentDocument } from "@/lib/content-document";
+import type { ContentRenderMode } from "@/lib/content-audience";
 import type { KnowledgeDefinitionSummary } from "@/lib/content-knowledge-types";
 import type {
   ContentSectionDefinitionSummary,
@@ -11,6 +12,7 @@ import type { ResolvedWorksheetBlock } from "@/lib/worksheet-studio-types";
 
 export default function ContentDocumentRenderer({
   document,
+  mode = "ADMIN_PREVIEW",
   className = "",
   linkedAssets = {},
   activities = {},
@@ -20,6 +22,7 @@ export default function ContentDocumentRenderer({
   knowledgeDefinitions = {},
 }: {
   document: ContentDocument;
+  mode?: ContentRenderMode;
   className?: string;
   linkedAssets?: Record<string, ResolvedLinkedAsset | null>;
   activities?: Record<string, ResolvedActivityBlock>;
@@ -31,7 +34,7 @@ export default function ContentDocumentRenderer({
   return (
     <StructuredContentRenderer
       document={document}
-      mode="ADMIN_PREVIEW"
+      mode={mode}
       className={className}
       linkedAssets={linkedAssets}
       activities={activities}

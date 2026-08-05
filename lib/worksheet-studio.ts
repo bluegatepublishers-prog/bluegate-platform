@@ -48,12 +48,15 @@ export async function loadWorksheetStudio(input: {
   publisherId: string;
   bookId: string;
   chapterId: string;
+  moduleId?: string | null;
+  topicId?: string | null;
 }) {
   const rows = await prisma.publisherWorksheet.findMany({
     where: {
       publisherId: input.publisherId,
       bookId: input.bookId,
       chapterId: input.chapterId,
+      ...(input.topicId ? { topicId: input.topicId } : input.moduleId ? { moduleId: input.moduleId, topicId: null } : {}),
       archivedAt: null,
     },
     orderBy: [{ sortOrder: "asc" }, { updatedAt: "desc" }, { id: "asc" }],
@@ -65,6 +68,8 @@ export async function loadWorksheetStudioLookups(input: {
   publisherId: string;
   bookId: string;
   chapterId: string;
+  moduleId?: string | null;
+  topicId?: string | null;
 }) {
   const [modules, topics, exercises, resources] = await Promise.all([
     prisma.bookModule.findMany({
@@ -78,7 +83,12 @@ export async function loadWorksheetStudioLookups(input: {
       orderBy: [{ displayOrder: "asc" }, { title: "asc" }],
     }),
     prisma.bookExercise.findMany({
-      where: { bookId: input.bookId, chapterId: input.chapterId, archived: false },
+      where: {
+        bookId: input.bookId,
+        chapterId: input.chapterId,
+        archived: false,
+        ...(input.topicId ? { topicId: input.topicId } : input.moduleId ? { moduleId: input.moduleId, topicId: null } : {}),
+      },
       select: { id: true, title: true, published: true, marks: true, _count: { select: { questions: true } } },
       orderBy: [{ displayOrder: "asc" }, { title: "asc" }],
     }),
@@ -238,11 +248,19 @@ export async function moveWorksheetStudioRecord(input: {
   actor: WorksheetActor;
   bookId: string;
   chapterId: string;
+  moduleId?: string | null;
+  topicId?: string | null;
   worksheetId: string;
   direction: -1 | 1;
 }) {
   const rows = await prisma.publisherWorksheet.findMany({
-    where: { publisherId: input.actor.publisherId, bookId: input.bookId, chapterId: input.chapterId, archivedAt: null },
+    where: {
+      publisherId: input.actor.publisherId,
+      bookId: input.bookId,
+      chapterId: input.chapterId,
+      ...(input.topicId ? { topicId: input.topicId } : input.moduleId ? { moduleId: input.moduleId, topicId: null } : {}),
+      archivedAt: null,
+    },
     select: { id: true, sortOrder: true },
     orderBy: [{ sortOrder: "asc" }, { updatedAt: "desc" }, { id: "asc" }],
   });

@@ -4,33 +4,36 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
-  Eye,
   Focus,
   PanelLeftClose,
   PanelLeftOpen,
-  PanelRightClose,
-  PanelRightOpen,
-  SquarePen,
   X,
 } from "lucide-react";
 
 import ContentStudioTree from "@/components/admin/books/ContentStudioTree";
-import type { ContentTreeNode, VirtualFolderKind } from "@/lib/content-studio-tree";
+import { flattenContentTree, type ContentTreeNode, type VirtualFolderKind } from "@/lib/content-studio-tree";
 
 const chapterTabs: Array<{ key: "overview" | VirtualFolderKind; label: string }> = [
   { key: "overview", label: "Overview" },
-  { key: "outcomes", label: "Outcomes" },
+  { key: "exercises", label: "Chapter-End Exercise" },
+  { key: "resources", label: "Resources" },
+  { key: "media", label: "Media" },
+];
+
+const scopedTabs: Array<{ key: "overview" | VirtualFolderKind; label: string }> = [
+  { key: "overview", label: "Manuscript" },
+  { key: "outcomes", label: "Learning Outcomes" },
   { key: "activities", label: "Activities" },
+  { key: "worksheets", label: "Worksheets" },
   { key: "exercises", label: "Exercises" },
   { key: "questions", label: "Questions" },
   { key: "resources", label: "Resources" },
-  { key: "qr", label: "QR Codes" },
+  { key: "media", label: "Media" },
 ];
 
 const HIERARCHY_WIDTH = 304;
-const INSPECTOR_WIDTH = 336;
 type ScreenMode = "mobile" | "tablet" | "desktop";
-type DrawerPane = "hierarchy" | "inspector" | null;
+type DrawerPane = "hierarchy" | null;
 
 export default function ContentStudioShell({
   bookId,
@@ -38,7 +41,6 @@ export default function ContentStudioShell({
   root,
   selectedKey,
   selectedTitle,
-  inspector,
   children,
 }: {
   bookId: string;
@@ -46,26 +48,41 @@ export default function ContentStudioShell({
   root: ContentTreeNode;
   selectedKey: string;
   selectedTitle: string;
-  inspector: ReactNode;
   children: ReactNode;
 }) {
-  const chapterState = useMemo(() => {
-    const parts = selectedKey.split(":");
-    const chapterId =
-      parts[0] === "CHAPTER" ? parts[1] : parts[0] === "FOLDER" ? parts[1] : null;
-    const activeTab = parts[0] === "FOLDER" ? parts[2] : "overview";
-    return { chapterId, activeTab };
-  }, [selectedKey]);
+  const scopeState = useMemo(() => {
+    const selectedNode = flattenContentTree(root).find((node) => node.key === selectedKey) ?? root;
+    if (selectedNode.type === "CHAPTER") {
+      return { scopeType: "CHAPTER" as const, chapterId: selectedNode.id, moduleId: null, topicId: null, activeTab: "overview" as const };
+    }
+    if (selectedNode.type === "MODULE") {
+      return { scopeType: "MODULE" as const, chapterId: selectedNode.chapterId ?? null, moduleId: selectedNode.id, topicId: null, activeTab: "overview" as const };
+    }
+    if (selectedNode.type === "TOPIC") {
+      return { scopeType: "TOPIC" as const, chapterId: selectedNode.chapterId ?? null, moduleId: selectedNode.moduleId ?? null, topicId: selectedNode.id, activeTab: "overview" as const };
+    }
+    if (selectedNode.type === "FOLDER") {
+      return {
+        scopeType: selectedNode.scopeType ?? "CHAPTER",
+        chapterId: selectedNode.chapterId ?? null,
+        moduleId: selectedNode.moduleId ?? null,
+        topicId: selectedNode.topicId ?? null,
+        activeTab: (selectedNode.folderKind ?? "resources") as VirtualFolderKind,
+      };
+    }
+    return { scopeType: null, chapterId: null, moduleId: null, topicId: null, activeTab: "overview" as const };
+  }, [root, selectedKey]);
+
+  const breadcrumb = useMemo(() => {
+    const path = findPath(root, selectedKey);
+    return path.length ? path.map((node) => node.title) : [bookTitle, selectedTitle];
+  }, [bookTitle, root, selectedKey, selectedTitle]);
 
   const hierarchyButtonRef = useRef<HTMLButtonElement | null>(null);
-  const inspectorButtonRef = useRef<HTMLButtonElement | null>(null);
   const focusButtonRef = useRef<HTMLButtonElement | null>(null);
   const [screenMode, setScreenMode] = useState<ScreenMode>(() => detectScreenMode());
   const [hierarchyOpen, setHierarchyOpen] = useState(() =>
     readStoredBoolean(`bluegate:studio:${bookId}:hierarchy`, true),
-  );
-  const [inspectorOpen, setInspectorOpen] = useState(() =>
-    readStoredBoolean(`bluegate:studio:${bookId}:inspector`, true),
   );
   const [focusMode, setFocusMode] = useState(false);
   const [overlayPane, setOverlayPane] = useState<DrawerPane>(null);
@@ -73,9 +90,8 @@ export default function ContentStudioShell({
   useEffect(() => {
     try {
       localStorage.setItem(`bluegate:studio:${bookId}:hierarchy`, String(hierarchyOpen));
-      localStorage.setItem(`bluegate:studio:${bookId}:inspector`, String(inspectorOpen));
     } catch {}
-  }, [bookId, hierarchyOpen, inspectorOpen]);
+  }, [bookId, hierarchyOpen]);
 
   useEffect(() => {
     const updateMode = () => {
@@ -98,7 +114,6 @@ export default function ContentStudioShell({
         const current = overlayPane;
         setOverlayPane(null);
         if (current === "hierarchy") hierarchyButtonRef.current?.focus();
-        if (current === "inspector") inspectorButtonRef.current?.focus();
         return;
       }
       if (focusMode) {
@@ -112,7 +127,6 @@ export default function ContentStudioShell({
   }, [focusMode, overlayPane]);
 
   const desktopDockHierarchy = !focusMode && screenMode === "desktop" && hierarchyOpen;
-  const desktopDockInspector = !focusMode && screenMode === "desktop" && inspectorOpen;
 
   function confirmDiscard(event: React.MouseEvent<HTMLAnchorElement>) {
     if (
@@ -132,15 +146,6 @@ export default function ContentStudioShell({
     setHierarchyOpen((current) => !current);
   }
 
-  function toggleInspector() {
-    if (screenMode === "mobile" || screenMode === "tablet") {
-      setOverlayPane((current) => (current === "inspector" ? null : "inspector"));
-      return;
-    }
-    if (focusMode) setFocusMode(false);
-    setInspectorOpen((current) => !current);
-  }
-
   function enableFocusMode() {
     setFocusMode(true);
     setOverlayPane(null);
@@ -155,9 +160,12 @@ export default function ContentStudioShell({
               Content Studio
             </p>
             <div className="mt-1 flex min-w-0 flex-wrap items-center gap-2 text-sm text-slate-500">
-              <span className="truncate font-semibold text-slate-900">{bookTitle}</span>
-              <span className="text-slate-300">/</span>
-              <span className="truncate">{selectedTitle}</span>
+              {breadcrumb.map((item, index) => (
+                <div key={`${item}-${index}`} className="flex min-w-0 items-center gap-2">
+                  {index > 0 ? <span className="text-slate-300">/</span> : null}
+                  <span className={`truncate ${index === 0 ? "font-semibold text-slate-900" : ""}`}>{item}</span>
+                </div>
+              ))}
             </div>
           </div>
 
@@ -166,11 +174,7 @@ export default function ContentStudioShell({
               ref={hierarchyButtonRef}
               type="button"
               aria-label={hierarchyOpen ? "Hide hierarchy" : "Show hierarchy"}
-              aria-expanded={
-                screenMode === "mobile" || screenMode === "tablet"
-                  ? overlayPane === "hierarchy"
-                  : desktopDockHierarchy
-              }
+              aria-expanded={screenMode === "mobile" || screenMode === "tablet" ? overlayPane === "hierarchy" : desktopDockHierarchy}
               onClick={toggleHierarchy}
               className={toolbarButton(
                 (screenMode === "mobile" || screenMode === "tablet"
@@ -196,55 +200,31 @@ export default function ContentStudioShell({
               <Focus className="h-4 w-4" />
               Focus Canvas
             </button>
-            <button
-              ref={inspectorButtonRef}
-              type="button"
-              aria-label={inspectorOpen ? "Hide inspector" : "Show inspector"}
-              aria-expanded={
-                screenMode === "mobile" || screenMode === "tablet"
-                  ? overlayPane === "inspector"
-                  : desktopDockInspector
-              }
-              onClick={toggleInspector}
-              className={toolbarButton(
-                (screenMode === "mobile" || screenMode === "tablet"
-                  ? overlayPane === "inspector"
-                  : desktopDockInspector) === true,
-              )}
-            >
-              {desktopDockInspector || overlayPane === "inspector" ? (
-                <PanelRightClose className="h-4 w-4" />
-              ) : (
-                <PanelRightOpen className="h-4 w-4" />
-              )}
-              Inspector
-            </button>
-            <Link
-              href={`/admin/books/${bookId}/preview`}
-              target="_blank"
-              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
-            >
-              <Eye className="h-4 w-4" />
-              Preview
-            </Link>
             <Link
               href={`/admin/books/${bookId}/edit`}
-              className="inline-flex items-center gap-2 rounded-xl bg-slate-950 px-3 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
+              className="inline-flex items-center rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
             >
-              <SquarePen className="h-4 w-4" />
               Book Settings
             </Link>
           </div>
         </div>
 
-        {chapterState.chapterId ? (
-          <nav aria-label="Chapter editor" className="mt-3 flex gap-2 overflow-x-auto pb-1">
-            {chapterTabs.map((tab) => {
-              const selected = chapterState.activeTab === tab.key;
+        {scopeState.chapterId ? (
+          <nav aria-label="Content scope navigation" className="mt-3 flex gap-2 overflow-x-auto pb-1">
+            {(scopeState.scopeType === "CHAPTER" ? chapterTabs : scopedTabs).map((tab) => {
+              const selected = scopeState.activeTab === tab.key;
               const target =
                 tab.key === "overview"
-                  ? `CHAPTER:${chapterState.chapterId}`
-                  : `FOLDER:${chapterState.chapterId}:${tab.key}`;
+                  ? scopeState.scopeType === "TOPIC"
+                    ? `TOPIC:${scopeState.topicId}`
+                    : scopeState.scopeType === "MODULE"
+                      ? `MODULE:${scopeState.moduleId}`
+                      : `CHAPTER:${scopeState.chapterId}`
+                  : scopeState.scopeType === "TOPIC"
+                    ? `FOLDER:TOPIC:${scopeState.topicId}:${tab.key}`
+                    : scopeState.scopeType === "MODULE"
+                      ? `FOLDER:MODULE:${scopeState.moduleId}:${tab.key}`
+                      : `FOLDER:${scopeState.chapterId}:${tab.key}`;
               return (
                 <Link
                   key={tab.key}
@@ -288,34 +268,11 @@ export default function ContentStudioShell({
 
         <main className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
           {!desktopDockHierarchy && screenMode === "desktop" ? (
-            <EdgeHandle side="left" label="Open hierarchy" onClick={toggleHierarchy} />
-          ) : null}
-          {!desktopDockInspector && screenMode === "desktop" ? (
-            <EdgeHandle side="right" label="Open inspector" onClick={toggleInspector} />
+            <EdgeHandle label="Open hierarchy" onClick={toggleHierarchy} />
           ) : null}
 
           <div className="min-h-0 flex-1 overflow-hidden p-3 sm:p-4 lg:p-5">{children}</div>
         </main>
-
-          <aside
-            className={`hidden shrink-0 overflow-hidden border-l border-slate-200 bg-white transition-[width] duration-200 lg:block ${
-              desktopDockInspector ? "pointer-events-auto" : "pointer-events-none"
-            }`}
-            style={{ width: desktopDockInspector ? INSPECTOR_WIDTH : 0 }}
-            aria-hidden={!desktopDockInspector}
-          >
-            <div className="flex h-full w-[336px] flex-col">
-              <PanelHeader
-                label="Inspector"
-                title="Contextual Details"
-                onClose={() => {
-                  setInspectorOpen(false);
-                  inspectorButtonRef.current?.focus();
-                }}
-              />
-              <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">{inspector}</div>
-            </div>
-          </aside>
 
         {(screenMode === "mobile" || screenMode === "tablet") && overlayPane ? (
           <div className="absolute inset-0 z-40 bg-slate-950/30 backdrop-blur-[2px]">
@@ -326,28 +283,21 @@ export default function ContentStudioShell({
               onClick={() => setOverlayPane(null)}
             />
             <div
-              className={`absolute inset-y-0 ${
-                overlayPane === "hierarchy" ? "left-0" : "right-0"
-              } flex h-full w-full max-w-full flex-col bg-white shadow-2xl ${
+              className={`absolute inset-y-0 left-0 flex h-full w-full max-w-full flex-col bg-white shadow-2xl ${
                 screenMode === "tablet" ? "sm:max-w-[26rem]" : ""
               }`}
             >
               <PanelHeader
-                label={overlayPane === "hierarchy" ? "Hierarchy" : "Inspector"}
-                title={overlayPane === "hierarchy" ? "Book Structure" : "Contextual Details"}
+                label="Hierarchy"
+                title="Book Structure"
                 onClose={() => {
                   const current = overlayPane;
                   setOverlayPane(null);
                   if (current === "hierarchy") hierarchyButtonRef.current?.focus();
-                  if (current === "inspector") inspectorButtonRef.current?.focus();
                 }}
                 overlay
               />
-              {overlayPane === "hierarchy" ? (
-                <ContentStudioTree bookId={bookId} root={root} selectedKey={selectedKey} />
-              ) : (
-                <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">{inspector}</div>
-              )}
+              <ContentStudioTree bookId={bookId} root={root} selectedKey={selectedKey} />
             </div>
           </div>
         ) : null}
@@ -379,18 +329,16 @@ function PanelHeader({
         aria-label={`Close ${label.toLowerCase()}`}
         className="rounded-lg border border-slate-200 p-2 text-slate-500 transition hover:bg-slate-50 hover:text-slate-900"
       >
-        {overlay ? <X className="h-4 w-4" /> : label === "Hierarchy" ? <PanelLeftClose className="h-4 w-4" /> : <PanelRightClose className="h-4 w-4" />}
+        {overlay ? <X className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
       </button>
     </div>
   );
 }
 
 function EdgeHandle({
-  side,
   label,
   onClick,
 }: {
-  side: "left" | "right";
   label: string;
   onClick: () => void;
 }) {
@@ -400,10 +348,10 @@ function EdgeHandle({
       aria-label={label}
       onClick={onClick}
       className={`absolute top-1/2 z-10 hidden -translate-y-1/2 rounded-full border border-slate-200 bg-white/95 px-2 py-4 text-slate-600 shadow-sm transition hover:bg-white xl:inline-flex ${
-        side === "left" ? "left-2" : "right-2"
+        "left-2"
       }`}
     >
-      {side === "left" ? <PanelLeftOpen className="h-4 w-4" /> : <PanelRightOpen className="h-4 w-4" />}
+      <PanelLeftOpen className="h-4 w-4" />
     </button>
   );
 }
@@ -432,4 +380,19 @@ function readStoredBoolean(key: string, fallback: boolean) {
   } catch {
     return fallback;
   }
+}
+
+function findPath(root: ContentTreeNode, key: string): ContentTreeNode[] {
+  const path: ContentTreeNode[] = [];
+  const visit = (node: ContentTreeNode): boolean => {
+    path.push(node);
+    if (node.key === key) return true;
+    for (const child of node.children) {
+      if (visit(child)) return true;
+    }
+    path.pop();
+    return false;
+  };
+  visit(root);
+  return path;
 }

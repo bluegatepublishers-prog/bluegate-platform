@@ -83,9 +83,24 @@ export async function assertExerciseScope(input: {
   if (!exercise) throw new Error("Exercise not found.");
 }
 
-export async function loadExerciseStudio(bookId: string, chapterId: string) {
+export async function loadExerciseStudio(
+  bookId: string,
+  chapterId: string,
+  options?: { moduleId?: string | null; topicId?: string | null; chapterEndOnly?: boolean },
+) {
   return prisma.bookExercise.findMany({
-    where: { bookId, chapterId, archived: false },
+    where: {
+      bookId,
+      chapterId,
+      archived: false,
+      ...(options?.chapterEndOnly
+        ? { moduleId: null, topicId: null }
+        : options?.topicId
+          ? { topicId: options.topicId }
+          : options?.moduleId
+            ? { moduleId: options.moduleId, topicId: null }
+            : {}),
+    },
     select: exerciseStudioSelect,
     orderBy: [{ displayOrder: "asc" }, { createdAt: "asc" }],
   });
@@ -95,6 +110,8 @@ export async function loadExerciseStudioLookups(input: {
   publisherId: string;
   bookId: string;
   chapterId: string;
+  moduleId?: string | null;
+  topicId?: string | null;
 }) {
   const [modules, topics, outcomes, resources] = await Promise.all([
     prisma.bookModule.findMany({
@@ -108,7 +125,10 @@ export async function loadExerciseStudioLookups(input: {
       orderBy: [{ displayOrder: "asc" }, { title: "asc" }],
     }),
     prisma.chapterLearningOutcome.findMany({
-      where: { chapterId: input.chapterId },
+      where: {
+        chapterId: input.chapterId,
+        ...(input.topicId ? { topicId: input.topicId } : input.moduleId ? { moduleId: input.moduleId, topicId: null } : {}),
+      },
       select: { id: true, outcome: true, moduleId: true, topicId: true },
       orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
     }),

@@ -307,6 +307,10 @@ export async function saveContentNodeAction(
     partKind: preserved.partKind,
   });
   refresh(bookId);
+  return {
+    savedAt: new Date().toISOString(),
+    nodeId: id,
+  };
 }
 
 export async function changeContentReleaseAction(
@@ -403,7 +407,7 @@ export async function saveActivityStudioAction(bookId: string, chapterId: string
   const difficulty = rawDifficulty
     ? oneOf(rawDifficulty, ACTIVITY_DIFFICULTIES, "MODERATE")
     : null;
-  await saveActivityStudioRecord({
+  const activityId = await saveActivityStudioRecord({
     actor: { userId: actor.userId, publisherId: actor.publisherId },
     bookId,
     data: {
@@ -442,6 +446,7 @@ export async function saveActivityStudioAction(bookId: string, chapterId: string
   await recordActivityStudioAudit(actor, bookId, "publisher.book.update", ["book_content", "activity"]);
   refresh(bookId);
   revalidatePath(`/admin/books/${bookId}/activities`);
+  return activityId;
 }
 
 export async function archiveActivityStudioAction(bookId: string, activityId: string) {
@@ -473,6 +478,8 @@ export async function duplicateActivityStudioAction(bookId: string, activityId: 
 export async function moveActivityStudioAction(
   bookId: string,
   chapterId: string,
+  moduleId: string | null,
+  topicId: string | null,
   activityId: string,
   direction: -1 | 1,
 ) {
@@ -482,6 +489,8 @@ export async function moveActivityStudioAction(
     actor: { userId: actor.userId, publisherId: actor.publisherId },
     bookId,
     chapterId,
+    moduleId,
+    topicId,
     activityId,
     direction,
   });
@@ -497,7 +506,7 @@ export async function saveWorksheetStudioAction(bookId: string, chapterId: strin
   const audience = oneOf(text(form, "audience", 20), WORKSHEET_AUDIENCES, "BOTH");
   const rawDifficulty = text(form, "difficulty", 40);
   const difficulty = rawDifficulty ? oneOf(rawDifficulty, WORKSHEET_DIFFICULTIES, "MODERATE") : null;
-  await saveWorksheetStudioRecord({
+  const worksheetId = await saveWorksheetStudioRecord({
     actor: { userId: actor.userId, publisherId: actor.publisherId },
     bookId,
     data: {
@@ -527,6 +536,7 @@ export async function saveWorksheetStudioAction(bookId: string, chapterId: strin
   });
   await recordActivityStudioAudit(actor, bookId, "publisher.book.update", ["book_content", "worksheet"]);
   refresh(bookId);
+  return worksheetId;
 }
 
 export async function archiveWorksheetStudioAction(bookId: string, worksheetId: string) {
@@ -545,10 +555,25 @@ export async function duplicateWorksheetStudioAction(bookId: string, worksheetId
   refresh(bookId);
 }
 
-export async function moveWorksheetStudioAction(bookId: string, chapterId: string, worksheetId: string, direction: -1 | 1) {
+export async function moveWorksheetStudioAction(
+  bookId: string,
+  chapterId: string,
+  moduleId: string | null,
+  topicId: string | null,
+  worksheetId: string,
+  direction: -1 | 1,
+) {
   const actor = await requireLivePublisherAdmin();
   await requireOwnedBook(bookId, actor.publisherId);
-  await moveWorksheetStudioRecord({ actor: { userId: actor.userId, publisherId: actor.publisherId }, bookId, chapterId, worksheetId, direction });
+  await moveWorksheetStudioRecord({
+    actor: { userId: actor.userId, publisherId: actor.publisherId },
+    bookId,
+    chapterId,
+    moduleId,
+    topicId,
+    worksheetId,
+    direction,
+  });
   await recordActivityStudioAudit(actor, bookId, "publisher.book.update", ["book_content", "worksheet", "reorder"]);
   refresh(bookId);
 }
@@ -556,7 +581,7 @@ export async function moveWorksheetStudioAction(bookId: string, chapterId: strin
 export async function createWorksheetExerciseAction(bookId: string, chapterId: string, form: FormData) {
   const actor = await requireLivePublisherAdmin();
   await requireOwnedBook(bookId, actor.publisherId);
-  await createWorksheetExercise({
+  const exerciseId = await createWorksheetExercise({
     actor: { userId: actor.userId, publisherId: actor.publisherId },
     bookId,
     chapterId,
@@ -566,6 +591,7 @@ export async function createWorksheetExerciseAction(bookId: string, chapterId: s
   });
   await recordActivityStudioAudit(actor, bookId, "publisher.book.update", ["book_content", "worksheet", "exercise"]);
   refresh(bookId);
+  return exerciseId;
 }
 
 export async function saveContentSectionDefinitionAction(bookId: string, form: FormData) {
@@ -1209,7 +1235,7 @@ export async function saveExerciseStudioExerciseAction(
   }
 
   const instructionsText = text(form, "instructions", 12000);
-  await prisma.$transaction(async (tx) => {
+  const exerciseId = await prisma.$transaction(async (tx) => {
     const data = {
       title,
       type,
@@ -1236,8 +1262,10 @@ export async function saveExerciseStudioExerciseAction(
       outcome: SecurityAuditOutcome.SUCCESS,
       metadata: { changedFields: ["exerciseStudio"] },
     });
+    return exercise.id;
   });
   refresh(bookId);
+  return exerciseId;
 }
 
 export async function saveExerciseQuestionGroupAction(

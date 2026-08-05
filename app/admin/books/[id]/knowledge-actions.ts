@@ -71,6 +71,8 @@ const questionSchema = z.object({
 const outcomeSchema = z.object({
   id: z.string().trim().optional(),
   chapterId: z.string().trim().min(1),
+  moduleId: z.string().trim().nullable().optional(),
+  topicId: z.string().trim().nullable().optional(),
   outcome: z.string().trim().min(1),
   bloomLevel: z.string().trim().nullable(),
   competency: z.string().trim().nullable(),
@@ -361,6 +363,8 @@ export async function saveOutcome(bookId: string, formData: FormData) {
   const parsed = outcomeSchema.safeParse({
     id: text(formData, "id") || undefined,
     chapterId: text(formData, "chapterId"),
+    moduleId: asOptional(text(formData, "moduleId")),
+    topicId: asOptional(text(formData, "topicId")),
     outcome: text(formData, "outcome"),
     bloomLevel: asOptional(text(formData, "bloomLevel")),
     competency: asOptional(text(formData, "competency")),
@@ -372,6 +376,25 @@ export async function saveOutcome(bookId: string, formData: FormData) {
     select: { id: true },
   });
   if (!chapter) throw new Error("Valid chapter and outcome are required.");
+  if (parsed.data.moduleId) {
+    const moduleNode = await prisma.bookModule.findFirst({
+      where: { id: parsed.data.moduleId, bookId, chapterId: parsed.data.chapterId },
+      select: { id: true },
+    });
+    if (!moduleNode) throw new Error("Module scope is invalid.");
+  }
+  if (parsed.data.topicId) {
+    const topicNode = await prisma.bookTopic.findFirst({
+      where: {
+        id: parsed.data.topicId,
+        bookId,
+        chapterId: parsed.data.chapterId,
+        ...(parsed.data.moduleId ? { moduleId: parsed.data.moduleId } : {}),
+      },
+      select: { id: true },
+    });
+    if (!topicNode) throw new Error("Topic scope is invalid.");
+  }
 
   try {
     await prisma.$transaction(async (tx) => {

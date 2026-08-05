@@ -134,6 +134,7 @@ export default async function ContentStudioPage({
         questions: chapter._count.questions,
         assessments: chapter._count.assessments,
         resources: chapter._count.resourceLinks,
+        media: chapter._count.resourceLinks,
         qr: chapter._count.dynamicQrCodes,
       },
     })),
@@ -152,16 +153,6 @@ export default async function ContentStudioPage({
         root={root}
         selectedKey={selected.key}
         selectedTitle={selected.title}
-        inspector={
-          <InspectorPanel
-            studio={studio}
-            selected={selected}
-            userId={actor.userId}
-            publisherId={actor.publisherId}
-            sectionDefinitions={sectionDefinitions}
-            knowledgeDefinitions={knowledgeDefinitions}
-          />
-        }
       >
         <SelectedCanvas
           studio={studio}
@@ -308,6 +299,15 @@ async function SelectedCanvas({
     selected.type as BookStructureNodeType,
     selected.id,
   );
+  const releaseTarget = releaseTargetForNode(selected.type as BookStructureNodeType);
+  const releaseSummary = releaseTarget
+    ? await loadReleaseSummary({
+        actor: { userId, publisherId },
+        bookId,
+        targetType: releaseTarget,
+        targetId: selected.id,
+      })
+    : null;
   const resources = await loadEditorResources(publisherId);
   const assetOptions = await loadLinkedAssetOptions(scope);
   const mediaOptions = await loadContentStudioMediaOptions(scope);
@@ -340,10 +340,34 @@ async function SelectedCanvas({
     scope,
     normalizedDocument,
   );
+  let activityRows: Awaited<ReturnType<typeof loadActivityStudio>> = [];
+  let activityResources: Awaited<ReturnType<typeof loadActivityResourceOptions>> = [];
+  let worksheetRows: Awaited<ReturnType<typeof loadWorksheetStudio>> = [];
+  let worksheetLookups: Awaited<ReturnType<typeof loadWorksheetStudioLookups>> | null = null;
+  let exerciseRows: Awaited<ReturnType<typeof loadExerciseStudio>> = [];
+  let exerciseLookups: Awaited<ReturnType<typeof loadExerciseStudioLookups>> | null = null;
+  if (scope.chapterId) {
+    [
+      activityRows,
+      activityResources,
+      worksheetRows,
+      worksheetLookups,
+      exerciseRows,
+      exerciseLookups,
+    ] = await Promise.all([
+      loadActivityStudio({ publisherId, bookId, chapterId: scope.chapterId }),
+      loadActivityResourceOptions({ publisherId, bookId, chapterId: scope.chapterId }),
+      loadWorksheetStudio({ publisherId, bookId, chapterId: scope.chapterId }),
+      loadWorksheetStudioLookups({ publisherId, bookId, chapterId: scope.chapterId }),
+      loadExerciseStudio(bookId, scope.chapterId),
+      loadExerciseStudioLookups({ publisherId, bookId, chapterId: scope.chapterId }),
+    ]);
+  }
   return (
     <NodeCanvas
       bookId={bookId}
       selected={selected}
+      scope={scope}
       record={record}
       resources={resources}
       assetOptions={assetOptions}
@@ -355,6 +379,13 @@ async function SelectedCanvas({
       sectionDefinitions={sectionDefinitions}
       knowledgeDefinitions={knowledgeDefinitions}
       resolvedKnowledge={resolvedKnowledge}
+      activityRows={activityRows}
+      activityResources={activityResources}
+      worksheetRows={worksheetRows}
+      worksheetLookups={worksheetLookups}
+      exerciseRows={exerciseRows}
+      exerciseLookups={exerciseLookups}
+      releaseSummary={releaseSummary}
     />
   );
 }
@@ -403,6 +434,7 @@ function BookCanvas({ studio, bookId }: { studio: BookPageData; bookId: string }
 async function NodeCanvas({
   bookId,
   selected,
+  scope,
   record,
   resources,
   assetOptions,
@@ -414,9 +446,17 @@ async function NodeCanvas({
   sectionDefinitions,
   knowledgeDefinitions,
   resolvedKnowledge,
+  activityRows,
+  activityResources,
+  worksheetRows,
+  worksheetLookups,
+  exerciseRows,
+  exerciseLookups,
+  releaseSummary,
 }: {
   bookId: string;
   selected: ContentTreeNode;
+  scope: Awaited<ReturnType<typeof getContentNodeScope>>;
   record: Awaited<ReturnType<typeof loadNode>>;
   resources: Awaited<ReturnType<typeof loadEditorResources>>;
   assetOptions: Awaited<ReturnType<typeof loadLinkedAssetOptions>>;
@@ -428,6 +468,13 @@ async function NodeCanvas({
   sectionDefinitions: Awaited<ReturnType<typeof loadContentSectionDefinitions>>;
   knowledgeDefinitions: Awaited<ReturnType<typeof searchKnowledgeDefinitions>>;
   resolvedKnowledge: Awaited<ReturnType<typeof resolveKnowledgeDefinitionsForDocument>>;
+  activityRows: Awaited<ReturnType<typeof loadActivityStudio>>;
+  activityResources: Awaited<ReturnType<typeof loadActivityResourceOptions>>;
+  worksheetRows: Awaited<ReturnType<typeof loadWorksheetStudio>>;
+  worksheetLookups: Awaited<ReturnType<typeof loadWorksheetStudioLookups>> | null;
+  exerciseRows: Awaited<ReturnType<typeof loadExerciseStudio>>;
+  exerciseLookups: Awaited<ReturnType<typeof loadExerciseStudioLookups>> | null;
+  releaseSummary: Awaited<ReturnType<typeof loadReleaseSummary>> | null;
 }) {
   if (!record) return null;
   return (
@@ -435,6 +482,7 @@ async function NodeCanvas({
       bookId={bookId}
       nodeId={selected.id}
       nodeType={selected.type as BookStructureNodeType}
+      chapterId={scope.chapterId}
       nodeTitle={record.title}
       nodeSubtitle={record.subtitle ?? ""}
       nodeDescription={record.description ?? ""}
@@ -455,6 +503,89 @@ async function NodeCanvas({
       resolvedKnowledge={resolvedKnowledge}
       searchKnowledgeAction={searchKnowledgeDefinitionsAction.bind(null, bookId)}
       saveKnowledgeAction={saveKnowledgeDefinitionAction.bind(null, bookId)}
+      saveActivityAction={
+        scope.chapterId ? saveActivityStudioAction.bind(null, bookId, scope.chapterId) : null
+      }
+      duplicateActivityAction={scope.chapterId ? duplicateActivityStudioAction.bind(null, bookId) : null}
+      archiveActivityAction={scope.chapterId ? archiveActivityStudioAction.bind(null, bookId) : null}
+      moveActivityAction={
+        scope.chapterId
+          ? (activityId, direction) =>
+              moveActivityStudioAction(
+                bookId,
+                scope.chapterId!,
+                scope.moduleId ?? null,
+                scope.topicId ?? null,
+                activityId,
+                direction,
+              )
+          : null
+      }
+      saveWorksheetAction={
+        scope.chapterId ? saveWorksheetStudioAction.bind(null, bookId, scope.chapterId) : null
+      }
+      duplicateWorksheetAction={scope.chapterId ? duplicateWorksheetStudioAction.bind(null, bookId) : null}
+      archiveWorksheetAction={scope.chapterId ? archiveWorksheetStudioAction.bind(null, bookId) : null}
+      moveWorksheetAction={
+        scope.chapterId
+          ? (worksheetId, direction) =>
+              moveWorksheetStudioAction(
+                bookId,
+                scope.chapterId!,
+                scope.moduleId ?? null,
+                scope.topicId ?? null,
+                worksheetId,
+                direction,
+              )
+          : null
+      }
+      saveExerciseStudioAction={
+        scope.chapterId ? saveExerciseStudioExerciseAction.bind(null, bookId, scope.chapterId) : null
+      }
+      saveExerciseGroupAction={
+        scope.chapterId ? saveExerciseQuestionGroupAction.bind(null, bookId, scope.chapterId) : null
+      }
+      saveExerciseQuestionAction={
+        scope.chapterId ? saveExerciseQuestionAction.bind(null, bookId, scope.chapterId) : null
+      }
+      moveExerciseQuestionAction={
+        scope.chapterId ? moveExerciseQuestionAction.bind(null, bookId, scope.chapterId) : null
+      }
+      duplicateExerciseQuestionAction={
+        scope.chapterId ? duplicateExerciseQuestionAction.bind(null, bookId, scope.chapterId) : null
+      }
+      archiveExerciseQuestionAction={
+        scope.chapterId ? archiveExerciseQuestionAction.bind(null, bookId, scope.chapterId) : null
+      }
+      archiveExerciseAction={
+        scope.chapterId ? archiveExerciseAction.bind(null, bookId, scope.chapterId) : null
+      }
+      createWorksheetExerciseAction={
+        scope.chapterId ? createWorksheetExerciseAction.bind(null, bookId, scope.chapterId) : null
+      }
+      activityRows={activityRows}
+      activityResources={activityResources}
+      worksheetRows={worksheetRows}
+      worksheetLookups={worksheetLookups}
+      exerciseRows={exerciseRows}
+      exerciseLookups={exerciseLookups}
+      releaseSummary={releaseSummary}
+      transitionReleaseAction={
+        releaseSummary
+          ? changeContentReleaseAction.bind(null, bookId, releaseSummary.targetType, selected.id)
+          : null
+      }
+      rollbackReleaseAction={
+        releaseSummary
+          ? rollbackContentReleaseAction.bind(null, bookId, releaseSummary.targetType, selected.id)
+          : null
+      }
+      bulkPublishAction={
+        releaseSummary?.targetType === "CHAPTER"
+          ? bulkPublishContentReleaseAction.bind(null, bookId, "CHAPTER", selected.id)
+          : null
+      }
+      previewBaseHref={`/admin/books/${bookId}/content/releases`}
       saveAction={saveContentNodeAction.bind(
         null,
         bookId,
@@ -536,6 +667,42 @@ export async function ChapterKnowledge({
   );
 }
 
+type FolderScopeDetails = {
+  scopeType: "CHAPTER" | "MODULE" | "TOPIC";
+  chapter: { id: string; title: string; chapterNumber: number } | null;
+  module: { id: string; title: string } | null;
+  topic: { id: string; title: string } | null;
+};
+
+function resolveFolderScope(studio: BookPageData, folder: ContentTreeNode): FolderScopeDetails {
+  const chapter = folder.chapterId
+    ? studio.chapters.find((item) => item.id === folder.chapterId) ?? null
+    : null;
+  const moduleNode = folder.moduleId
+    ? studio.modules.find((item) => item.id === folder.moduleId) ?? null
+    : null;
+  const topic = folder.topicId
+    ? studio.topics.find((item) => item.id === folder.topicId) ?? null
+    : null;
+  return {
+    scopeType: folder.scopeType ?? "CHAPTER",
+    chapter: chapter
+      ? { id: chapter.id, title: chapter.title, chapterNumber: chapter.chapterNumber }
+      : null,
+    module: moduleNode ? { id: moduleNode.id, title: moduleNode.title } : null,
+    topic: topic ? { id: topic.id, title: topic.title } : null,
+  };
+}
+
+function scopePathLabel(scope: FolderScopeDetails) {
+  const parts = [
+    scope.chapter ? `Chapter ${scope.chapter.chapterNumber}` : null,
+    scope.module ? `Module: ${scope.module.title}` : null,
+    scope.topic ? `Topic: ${scope.topic.title}` : null,
+  ].filter(Boolean);
+  return parts.join(" / ") || "Book scope";
+}
+
 async function FolderCanvas({
   studio,
   bookId,
@@ -554,20 +721,32 @@ async function FolderCanvas({
   const chapterId = folder.chapterId;
   const kind = folder.folderKind;
   if (!chapterId || !kind) return <Empty text="This workspace area is unavailable." />;
-  const chapter = await prisma.bookChapter.findFirst({
-    where: { id: chapterId, bookId },
-    select: { id: true, title: true, chapterNumber: true },
-  });
+  const scope = resolveFolderScope(studio, folder);
+  const chapter = scope.chapter;
   if (!chapter) return <Empty text="Chapter not found." />;
+  const moduleId = scope.module?.id ?? null;
+  const topicId = scope.topic?.id ?? null;
+  const isChapterLevelScope = scope.scopeType === "CHAPTER";
 
   if (kind === "outcomes") {
     const rows = await prisma.chapterLearningOutcome.findMany({
-      where: { chapterId },
+      where: {
+        chapterId,
+        ...(topicId ? { topicId } : moduleId ? { moduleId, topicId: null } : {}),
+      },
       orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
     });
     return (
-      <FolderShell title="Learning Outcomes" chapter={chapter}>
-        <OutcomeForm action={saveOutcome.bind(null, bookId)} chapterId={chapterId} />
+      <FolderShell
+        title={isChapterLevelScope ? "Chapter-Level Outcomes" : "Learning Outcomes"}
+        scope={scope}
+      >
+        <OutcomeForm
+          action={saveOutcome.bind(null, bookId)}
+          chapterId={chapterId}
+          moduleId={moduleId}
+          topicId={topicId}
+        />
         <div className="space-y-4">
           {rows.map((row) => (
             <ContentEditorForm
@@ -578,6 +757,8 @@ async function FolderCanvas({
             >
               <input type="hidden" name="id" value={row.id} />
               <input type="hidden" name="chapterId" value={chapterId} />
+              <input type="hidden" name="moduleId" value={row.moduleId ?? moduleId ?? ""} />
+              <input type="hidden" name="topicId" value={row.topicId ?? topicId ?? ""} />
               <Field label="Outcome">
                 <textarea
                   name="outcome"
@@ -619,8 +800,8 @@ async function FolderCanvas({
 
   if (kind === "activities") {
     const [rows, resourceOptions] = await Promise.all([
-      loadActivityStudio({ publisherId, bookId, chapterId }),
-      loadActivityResourceOptions({ publisherId, bookId, chapterId }),
+      loadActivityStudio({ publisherId, bookId, chapterId, moduleId, topicId }),
+      loadActivityResourceOptions({ publisherId, bookId, chapterId, moduleId, topicId }),
     ]);
     const releaseSummaries = await loadReleaseSummaryMap(
       { userId, publisherId },
@@ -635,17 +816,27 @@ async function FolderCanvas({
       .filter((topic) => topic.chapterId === chapterId && !topic.archived)
       .map((topic) => ({ id: topic.id, title: topic.title, moduleId: topic.moduleId }));
     return (
-      <FolderShell title="Activities" chapter={chapter}>
+      <FolderShell
+        title={isChapterLevelScope ? "Chapter-Level Activities" : "Activities"}
+        scope={scope}
+      >
         <ActivityStudio
           chapterId={chapterId}
           activities={rows}
           resources={resourceOptions}
           modules={modules}
           topics={topics}
+          defaultModuleId={moduleId}
+          defaultTopicId={topicId}
+          bookTitle={studio.title}
+          chapterTitle={chapter.title}
+          moduleTitle={scope.module?.title ?? null}
+          topicTitle={scope.topic?.title ?? null}
+          currentScopeLabel={scopePathLabel(scope)}
           saveAction={saveActivityStudioAction.bind(null, bookId, chapterId)}
           duplicateAction={duplicateActivityStudioAction.bind(null, bookId)}
           archiveAction={archiveActivityStudioAction.bind(null, bookId)}
-          moveAction={moveActivityStudioAction.bind(null, bookId, chapterId)}
+          moveAction={moveActivityStudioAction.bind(null, bookId, chapterId, moduleId, topicId)}
           releaseSummaries={releaseSummaries}
           transitionReleaseAction={changeContentReleaseAction.bind(null, bookId, "ACTIVITY")}
           rollbackReleaseAction={rollbackContentReleaseAction.bind(null, bookId, "ACTIVITY")}
@@ -657,8 +848,8 @@ async function FolderCanvas({
 
   if (kind === "worksheets") {
     const [rows, lookups] = await Promise.all([
-      loadWorksheetStudio({ publisherId, bookId, chapterId }),
-      loadWorksheetStudioLookups({ publisherId, bookId, chapterId }),
+      loadWorksheetStudio({ publisherId, bookId, chapterId, moduleId, topicId }),
+      loadWorksheetStudioLookups({ publisherId, bookId, chapterId, moduleId, topicId }),
     ]);
     const releaseSummaries = await loadReleaseSummaryMap(
       { userId, publisherId },
@@ -667,15 +858,25 @@ async function FolderCanvas({
       rows.map((row) => row.id),
     );
     return (
-      <FolderShell title="Worksheets" chapter={chapter}>
+      <FolderShell
+        title={isChapterLevelScope ? "Chapter-Level Worksheets" : "Worksheets"}
+        scope={scope}
+      >
         <WorksheetStudio
           chapterId={chapterId}
           worksheets={rows}
           lookups={lookups}
+          defaultModuleId={moduleId}
+          defaultTopicId={topicId}
+          bookTitle={studio.title}
+          chapterTitle={chapter.title}
+          moduleTitle={scope.module?.title ?? null}
+          topicTitle={scope.topic?.title ?? null}
+          currentScopeLabel={scopePathLabel(scope)}
           saveAction={saveWorksheetStudioAction.bind(null, bookId, chapterId)}
           duplicateAction={duplicateWorksheetStudioAction.bind(null, bookId)}
           archiveAction={archiveWorksheetStudioAction.bind(null, bookId)}
-          moveAction={moveWorksheetStudioAction.bind(null, bookId, chapterId)}
+          moveAction={moveWorksheetStudioAction.bind(null, bookId, chapterId, moduleId, topicId)}
           createExerciseAction={createWorksheetExerciseAction.bind(null, bookId, chapterId)}
           releaseSummaries={releaseSummaries}
           transitionReleaseAction={changeContentReleaseAction.bind(null, bookId, "WORKSHEET")}
@@ -688,8 +889,8 @@ async function FolderCanvas({
 
   if (kind === "exercises") {
     const [rows, lookups] = await Promise.all([
-      loadExerciseStudio(bookId, chapterId),
-      loadExerciseStudioLookups({ publisherId, bookId, chapterId }),
+      loadExerciseStudio(bookId, chapterId, { moduleId, topicId, chapterEndOnly: isChapterLevelScope }),
+      loadExerciseStudioLookups({ publisherId, bookId, chapterId, moduleId, topicId }),
     ]);
     const releaseSummaries = await loadReleaseSummaryMap(
       { userId, publisherId },
@@ -698,10 +899,20 @@ async function FolderCanvas({
       rows.map((row) => row.id),
     );
     return (
-      <FolderShell title="Exercises" chapter={chapter}>
+      <FolderShell
+        title={isChapterLevelScope ? "Chapter-End Exercise" : "Exercises"}
+        scope={scope}
+      >
         <ExerciseAuthoringStudio
           exercises={rows}
           lookups={lookups}
+          defaultModuleId={isChapterLevelScope ? null : moduleId}
+          defaultTopicId={isChapterLevelScope ? null : topicId}
+          bookTitle={studio.title}
+          chapterTitle={chapter.title}
+          moduleTitle={scope.module?.title ?? null}
+          topicTitle={scope.topic?.title ?? null}
+          currentScopeLabel={scopePathLabel(scope)}
           saveExerciseAction={saveExerciseStudioExerciseAction.bind(null, bookId, chapterId)}
           saveGroupAction={saveExerciseQuestionGroupAction.bind(null, bookId, chapterId)}
           saveQuestionAction={saveExerciseQuestionAction.bind(null, bookId, chapterId)}
@@ -723,27 +934,36 @@ async function FolderCanvas({
       <QuestionsPanel
         bookId={bookId}
         chapterId={chapterId}
+        moduleId={moduleId}
+        topicId={topicId}
         chapterNumber={chapter.chapterNumber}
         chapterTitle={chapter.title}
+        moduleTitle={scope.module?.title ?? null}
+        topicTitle={scope.topic?.title ?? null}
         query={query}
       />
     );
   }
 
-  if (kind === "resources") {
+  if (kind === "resources" || kind === "media") {
     return (
-      <FolderShell title="Resources" chapter={chapter}>
+      <FolderShell
+        title={kind === "media" ? (isChapterLevelScope ? "Chapter Media" : "Media") : isChapterLevelScope ? "Chapter Resources" : "Resources"}
+        scope={scope}
+      >
         <section className="rounded-[1.75rem] bg-white p-6 shadow-sm ring-1 ring-slate-200">
-          <h3 className="text-lg font-bold text-slate-950">Resource Attachments</h3>
+          <h3 className="text-lg font-bold text-slate-950">
+            {kind === "media" ? "Media Attachments" : "Resource Attachments"}
+          </h3>
           <p className="mt-2 text-sm text-slate-600">
-            Manage reusable resource links for this chapter from the Inspector panel without leaving the workspace.
+            Manage reusable {kind === "media" ? "media" : "resource"} links for this {scope.scopeType.toLowerCase()} scope from the Inspector panel without leaving the workspace.
           </p>
           <div className="mt-5 flex flex-wrap gap-3">
             <Link
               href={`/admin/resources/new?returnTo=${encodeURIComponent(`/admin/books/${bookId}/content?selected=${folder.key}`)}`}
               className="rounded-xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white"
             >
-              Upload New Resource
+              {kind === "media" ? "Upload New Media" : "Upload New Resource"}
             </Link>
             <Link
               href="/admin/resources"
@@ -763,19 +983,24 @@ async function FolderCanvas({
         bookId,
         chapterId,
         publisherId,
+        ...(moduleId ? { moduleId } : { moduleId: null }),
+        ...(topicId ? { topicId } : { topicId: null }),
       },
       include: { currentDestination: { select: { type: true } } },
       orderBy: { updatedAt: "desc" },
       take: 25,
     });
     return (
-      <FolderShell title="QR Codes" chapter={chapter}>
+      <FolderShell
+        title={isChapterLevelScope ? "Chapter QR Codes" : "QR Codes"}
+        scope={scope}
+      >
         <section className="space-y-4">
             <Link
-              href={`/admin/qr?create=1&bookId=${bookId}&targetType=CHAPTER&targetId=${chapterId}&bookTitle=${encodeURIComponent(studio.title)}&targetTitle=${encodeURIComponent(chapter.title)}`}
+              href={`/admin/qr?create=1&bookId=${bookId}&targetType=${topicId ? "TOPIC" : moduleId ? "MODULE" : "CHAPTER"}&targetId=${encodeURIComponent(topicId ?? moduleId ?? chapterId)}&bookTitle=${encodeURIComponent(studio.title)}&targetTitle=${encodeURIComponent(topicId ? scope.topic?.title ?? chapter.title : moduleId ? scope.module?.title ?? chapter.title : chapter.title)}`}
               className="inline-flex rounded-xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white"
             >
-            Create QR For This Chapter
+            Create QR For This Scope
           </Link>
           {scopedRows.map((row) => (
             <article key={row.id} className="rounded-[1.75rem] bg-white p-6 shadow-sm ring-1 ring-slate-200">
@@ -804,7 +1029,7 @@ async function FolderCanvas({
   }
 
   return (
-    <FolderShell title="Assessments" chapter={chapter}>
+    <FolderShell title="Assessments" scope={scope}>
       <Empty text="Publisher assessment content is not wired into this sprint workspace." />
     </FolderShell>
   );
@@ -813,14 +1038,22 @@ async function FolderCanvas({
 async function QuestionsPanel({
   bookId,
   chapterId,
+  moduleId,
+  topicId,
   chapterNumber,
   chapterTitle,
+  moduleTitle,
+  topicTitle,
   query,
 }: {
   bookId: string;
   chapterId: string;
+  moduleId: string | null;
+  topicId: string | null;
   chapterNumber: number;
   chapterTitle: string;
+  moduleTitle: string | null;
+  topicTitle: string | null;
   query: Params;
 }) {
   const page = Math.max(1, Number(query.page) || 1);
@@ -828,6 +1061,7 @@ async function QuestionsPanel({
   const where: Prisma.BookQuestionWhereInput = {
     bookId,
     chapterId,
+    ...(topicId ? { topicId } : moduleId ? { moduleId, topicId: null } : {}),
     questionText: query.q ? { contains: query.q, mode: "insensitive" } : undefined,
     questionType: query.type || undefined,
     difficulty: query.difficulty || undefined,
@@ -846,10 +1080,28 @@ async function QuestionsPanel({
   ]);
 
   return (
-    <FolderShell title="Questions" chapter={{ id: chapterId, title: chapterTitle, chapterNumber }}>
+    <FolderShell
+      title={topicId || moduleId ? "Questions" : "Chapter-Level Questions"}
+      scope={{
+        scopeType: topicId ? "TOPIC" : moduleId ? "MODULE" : "CHAPTER",
+        chapter: { id: chapterId, title: chapterTitle, chapterNumber },
+        module: moduleId && moduleTitle ? { id: moduleId, title: moduleTitle } : null,
+        topic: topicId && topicTitle ? { id: topicId, title: topicTitle } : null,
+      }}
+    >
       <section className="space-y-4 rounded-[1.75rem] bg-white p-6 shadow-sm ring-1 ring-slate-200">
         <form className="grid gap-3 xl:grid-cols-6">
-          <input type="hidden" name="selected" value={`FOLDER:${chapterId}:questions`} />
+          <input
+            type="hidden"
+            name="selected"
+            value={
+              topicId
+                ? `FOLDER:TOPIC:${topicId}:questions`
+                : moduleId
+                  ? `FOLDER:MODULE:${moduleId}:questions`
+                  : `FOLDER:${chapterId}:questions`
+            }
+          />
           <input name="q" defaultValue={query.q} placeholder="Search questions" className={field} />
           <input name="type" defaultValue={query.type} placeholder="Question type" className={field} />
           <input name="difficulty" defaultValue={query.difficulty} placeholder="Difficulty" className={field} />
@@ -867,7 +1119,10 @@ async function QuestionsPanel({
           </div>
         </form>
         <div className="flex justify-end">
-          <Link href={`/admin/books/${bookId}/questions/new?chapterId=${chapterId}`} className="rounded-xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white">
+          <Link
+            href={`/admin/books/${bookId}/questions/new?chapterId=${chapterId}${moduleId ? `&moduleId=${encodeURIComponent(moduleId)}` : ""}${topicId ? `&topicId=${encodeURIComponent(topicId)}` : ""}`}
+            className="rounded-xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white"
+          >
             Add Question
           </Link>
         </div>
@@ -888,8 +1143,8 @@ async function QuestionsPanel({
         <div className="flex justify-between text-sm text-slate-500">
           <span>{total} questions · Page {page} of {Math.max(1, Math.ceil(total / take))}</span>
           <div className="flex gap-2">
-            {page > 1 ? <PageLink query={query} chapterId={chapterId} page={page - 1} label="Previous" /> : null}
-            {page * take < total ? <PageLink query={query} chapterId={chapterId} page={page + 1} label="Next" /> : null}
+            {page > 1 ? <PageLink query={query} chapterId={chapterId} moduleId={moduleId} topicId={topicId} page={page - 1} label="Previous" /> : null}
+            {page * take < total ? <PageLink query={query} chapterId={chapterId} moduleId={moduleId} topicId={topicId} page={page + 1} label="Next" /> : null}
           </div>
         </div>
       </section>
@@ -1200,6 +1455,8 @@ async function InspectorPanel({
   );
 }
 
+void InspectorPanel;
+
 function InspectorSummary({
   selected,
   studio,
@@ -1321,21 +1578,25 @@ async function loadEditorResources(publisherId: string) {
 
 function FolderShell({
   title,
-  chapter,
+  scope,
   children,
 }: {
   title: string;
-  chapter: { id: string; title: string; chapterNumber: number };
+  scope: FolderScopeDetails;
   children: React.ReactNode;
 }) {
   return (
     <div className="mx-auto max-w-5xl space-y-6">
       <section className="rounded-[2rem] bg-white p-8 shadow-sm ring-1 ring-slate-200 sm:p-10">
         <p className="text-xs font-bold uppercase tracking-[0.18em] text-blue-700">
-          Chapter {chapter.chapterNumber}
+          {scope.scopeType === "TOPIC"
+            ? "Topic Scope"
+            : scope.scopeType === "MODULE"
+              ? "Module Scope"
+              : "Chapter Scope"}
         </p>
         <h2 className="mt-3 text-3xl font-bold tracking-tight text-slate-950">{title}</h2>
-        <p className="mt-2 text-sm text-slate-500">{chapter.title}</p>
+        <p className="mt-2 text-sm text-slate-500">{scopePathLabel(scope)}</p>
       </section>
       {children}
     </div>
@@ -1345,9 +1606,13 @@ function FolderShell({
 function OutcomeForm({
   action,
   chapterId,
+  moduleId,
+  topicId,
 }: {
   action: (data: FormData) => Promise<void>;
   chapterId: string;
+  moduleId: string | null;
+  topicId: string | null;
 }) {
   return (
     <ContentEditorForm
@@ -1356,6 +1621,8 @@ function OutcomeForm({
       className="space-y-5 rounded-[1.75rem] bg-white p-6 shadow-sm ring-1 ring-slate-200"
     >
       <input type="hidden" name="chapterId" value={chapterId} />
+      <input type="hidden" name="moduleId" value={moduleId ?? ""} />
+      <input type="hidden" name="topicId" value={topicId ?? ""} />
       <Field label="New Outcome">
         <textarea name="outcome" rows={4} required className={field} />
       </Field>
@@ -1377,16 +1644,28 @@ function OutcomeForm({
 function PageLink({
   query,
   chapterId,
+  moduleId,
+  topicId,
   page,
   label,
 }: {
   query: Params;
   chapterId: string;
+  moduleId: string | null;
+  topicId: string | null;
   page: number;
   label: string;
 }) {
   const params = new URLSearchParams(
-    Object.entries({ ...query, selected: `FOLDER:${chapterId}:questions`, page: String(page) }).filter(
+    Object.entries({
+      ...query,
+      selected: topicId
+        ? `FOLDER:TOPIC:${topicId}:questions`
+        : moduleId
+          ? `FOLDER:MODULE:${moduleId}:questions`
+          : `FOLDER:${chapterId}:questions`,
+      page: String(page),
+    }).filter(
       (entry): entry is [string, string] => Boolean(entry[1]),
     ),
   );
