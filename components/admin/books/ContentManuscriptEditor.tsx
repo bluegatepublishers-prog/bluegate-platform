@@ -6,18 +6,16 @@ import TopActionBar from "@/components/admin/books/editor/TopActionBar";
 import WritingRibbon from "@/components/admin/books/editor/WritingRibbon";
 import TextBlockEditor from "@/components/admin/books/editor/blocks/TextBlockEditor";
 import ImageBlockEditor from "@/components/admin/books/editor/blocks/ImageBlockEditor";
+import TableBlockEditor from "@/components/admin/books/editor/blocks/TableBlockEditor";
+import MediaBlockEditor from "@/components/admin/books/editor/blocks/MediaBlockEditor";
+import LinkedAssetEditor from "@/components/admin/books/editor/blocks/LinkedAssetEditor";
+import ListBlockEditor from "@/components/admin/books/editor/blocks/ListBlockEditor";
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import type { ClipboardEvent, KeyboardEvent, MouseEvent } from "react";
 import {
-  BookOpenCheck,
   ChevronDown,
   ChevronUp,
-  CircleAlert,
-  ClipboardList,
   Copy,
-  FileDown,
-  FileText,
-  PlayCircle,
   Slash,
   Trash2,
 } from "lucide-react";
@@ -42,23 +40,18 @@ import type {
 } from "@/lib/content-knowledge-types";
 import { knowledgeReferenceTypeLabel } from "@/lib/content-knowledge-types";
 import {
-  linkedAssetAudienceLabel,
-  linkedAssetDisplayStyleLabel,
   linkedAssetKey,
-  linkedAssetKindLabel,
-  linkedAssetOpenModeLabel,
   type ContentSectionDefinitionSummary,
   type ContentStudioAssetOption,
-  type LinkedAssetKind,
   type ResolvedLinkedAsset,
 } from "@/lib/content-linked-asset-types";
 import {
-  mediaDisplayModeLabel,
   mediaKey,
   mediaKindLabel,
   type ContentStudioMediaOption,
   type ResolvedMediaBlock,
 } from "@/lib/content-media-types";
+
 import type { ResolvedActivityBlock } from "@/lib/activity-studio-types";
 import type { ActivityStudioRecord } from "@/lib/activity-studio-types";
 import type { ExerciseStudioData } from "@/lib/exercise-authoring-types";
@@ -70,15 +63,12 @@ import {
   BLOCK_BORDER_STYLES,
   FORMULA_DISPLAY_MODES,
   INFO_BOX_VARIANTS,
-  MEDIA_DISPLAY_MODES,
-  MEDIA_KINDS,
   blockLabel,
   addContentPeriod,
   createBlockByType,
   createTextBlock,
   defaultNextBlockType,
   duplicateBlock,
-  filterSectionsForAssetKind,
   insertBlockAfter,
   insertBlockBefore,
   isFormulaBlock,
@@ -193,17 +183,6 @@ type PreviewSurfaceMode = "STUDENT" | "TEACHER" | "WHITEBOARD";
 
 const field =
   "mt-2 w-full rounded-[1.25rem] border border-transparent bg-white/80 px-4 py-3 text-sm text-slate-800 outline-none ring-1 ring-slate-200 transition placeholder:text-slate-400 focus:bg-white focus:ring-2 focus:ring-blue-200";
-const darkField =
-  "mt-2 w-full rounded-[1.25rem] border border-white/10 bg-white/10 px-4 py-3 text-sm text-white outline-none transition placeholder:text-slate-400 focus:border-white/25 focus:bg-white/15";
-
-const linkedAssetKinds: LinkedAssetKind[] = [
-  "video",
-  "worksheet",
-  "activity",
-  "exercise",
-  "resource",
-  "learningOutcome",
-];
 
 const ALL_BLOCK_TYPES: ContentBlockType[] = [
   "heading",
@@ -1467,15 +1446,19 @@ export default function ContentManuscriptEditor({
             type: selectionType,
           });
         }}
-        onRemoveKnowledge={(referenceId) =>
+                onRemoveKnowledge={(referenceId) =>
           removeKnowledgeReference(
             block.id,
             referenceId,
           )
         }
-        onUpdate={(patch) =>
+
+        resolvedKnowledge={knowledgeMap}
+
+        onUpdatePatch={(patch) =>
           updatePatch(block.id, patch)
         }
+
         onUpdateListItem={(itemIndex, value) =>
           updateListItem(
             block.id,
@@ -1483,55 +1466,90 @@ export default function ContentManuscriptEditor({
             value,
           )
         }
+
         onAddListItem={(itemIndex) =>
           addListItem(block.id, itemIndex)
         }
-        onRemoveListItem={(itemIndex) =>
-          removeListItem(block.id, itemIndex)
-        }
+
         onChooseResource={(resourceId) =>
-          chooseResource(block.id, resourceId)
+          chooseResource(
+            block.id,
+            resourceId,
+          )
         }
-        onDelete={() =>
-          deleteBlock(block.id, index)
+
+        onClearImage={() =>
+          updatePatch(block.id, {
+            url: "",
+            resourceId: undefined,
+            alt: "",
+          })
         }
-        onDuplicate={() =>
-          duplicateCurrentBlock(block.id)
+
+        onUpdateLinkedAsset={(patch) =>
+          updatePatch(block.id, patch)
         }
-        onMove={(direction) =>
-          moveCurrentBlock(block.id, direction)
+
+        onUpdateMedia={(patch) =>
+          updatePatch(block.id, patch)
         }
-        onMoveToPeriod={(periodId) =>
+
+        onActivate={() =>
+          setActiveBlockId(block.id)
+        }
+
+        onMovePeriod={(periodId) =>
           moveCurrentBlockToPeriod(
             block.id,
             periodId,
           )
         }
-        onActivate={() =>
-          setActiveBlockId(block.id)
+
+        onDuplicate={() =>
+          duplicateCurrentBlock(block.id)
         }
-        onKeyDown={(event, currentValue) =>
+
+        onDelete={() =>
+          deleteBlock(block.id, index)
+        }
+
+        onMoveUp={() =>
+          moveCurrentBlock(block.id, -1)
+        }
+
+        onMoveDown={() =>
+          moveCurrentBlock(block.id, 1)
+        }
+
+        onKeyDown={(
+          event,
+          currentBlock,
+          currentIndex,
+          currentValue,
+        ) =>
           handleTextKeyDown(
             event,
-            block,
-            index,
+            currentBlock,
+            currentIndex,
             currentValue,
           )
         }
-        onListKeyDown={(
+
+                onListKeyDown={(
           event,
+          currentBlock,
           itemIndex,
           itemValue,
         ) =>
           handleListKeyDown(
             event,
-            block,
+            currentBlock,
             itemIndex,
             itemValue,
           )
         }
       />
-    ))}
+      ))}
 </Canvas>
 
         <div className="border-t border-slate-200 bg-white/90 px-4 py-3 text-xs font-semibold text-slate-500">
@@ -1945,32 +1963,15 @@ function BlockEditor({
           />
         ) : null}
 
-        {!collapsed && isListBlock(block) ? (
-          <div className="space-y-2">
-            {block.items.map((item, itemIndex) => (
-              <div key={`${block.id}-${itemIndex}`} className="flex items-start gap-3">
-                <span className="mt-2 text-sm font-bold text-slate-400">
-                  {block.type === "numberedList" ? `${itemIndex + 1}.` : "*"}
-                </span>
-                <input
-                  data-block-id={itemIndex === 0 ? block.id : undefined}
-                  value={item}
-                  onChange={(event) => onUpdateListItem(itemIndex, event.target.value)}
-                  onKeyDown={(event) => onListKeyDown(event, block, itemIndex, item)}
-                  placeholder="List item"
-                  className="w-full border-none bg-transparent p-0 text-[1.05rem] leading-8 text-slate-800 outline-none placeholder:text-slate-300"
-                />
-              </div>
-            ))}
-            <button
-              type="button"
-              onClick={() => onAddListItem(block.items.length - 1)}
-              className="text-sm font-semibold text-blue-700"
-            >
-              Add item
-            </button>
-          </div>
-        ) : null}
+        {isListBlock(block) ? (
+  <ListBlockEditor
+    block={block}
+    collapsed={collapsed}
+    onUpdateListItem={onUpdateListItem}
+    onAddListItem={onAddListItem}
+    onListKeyDown={onListKeyDown}
+  />
+) : null}
 
         {!collapsed && isImageBlock(block) ? (
   <ImageBlockEditor
@@ -2237,82 +2238,6 @@ function ImageGalleryEditor({
   );
 }
 
-function TableBlockEditor({
-  block,
-  onUpdatePatch,
-}: {
-  block: Extract<ContentBlock, { type: "table" | "comparisonTable" }>;
-  onUpdatePatch: (patch: Partial<ContentBlock>) => void;
-}) {
-  function updateCell(rowId: string, cellId: string, value: string) {
-    onUpdatePatch({
-      rows: block.rows.map((row) =>
-        row.id === rowId
-          ? { ...row, cells: row.cells.map((cell) => (cell.id === cellId ? { ...cell, text: value } : cell)) }
-          : row,
-      ),
-    });
-  }
-  function addRow() {
-    const columns = block.rows[0]?.cells.length ?? 2;
-    onUpdatePatch({
-      rows: [
-        ...block.rows,
-        {
-          id: `row_${Date.now().toString(36)}`,
-          cells: Array.from({ length: columns }, (_, columnIndex) => ({
-            id: `cell_${columnIndex}_${Math.random().toString(36).slice(2, 8)}`,
-            text: "",
-          })),
-        },
-      ],
-    });
-  }
-  function addColumn() {
-    onUpdatePatch({
-      rows: block.rows.map((row) => ({
-        ...row,
-        cells: [...row.cells, { id: `cell_${Math.random().toString(36).slice(2, 8)}`, text: "" }],
-      })),
-    });
-  }
-  return (
-    <div className="space-y-4">
-      <label className="inline-flex items-center gap-2 rounded-full bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700 ring-1 ring-slate-200">
-        <input
-          type="checkbox"
-          checked={block.headerRow !== false}
-          onChange={(event) => onUpdatePatch({ headerRow: event.target.checked })}
-        />
-        Header row
-      </label>
-      <div className="space-y-2 overflow-x-auto">
-        {block.rows.map((row) => (
-          <div key={row.id} className="grid min-w-[32rem] gap-2" style={{ gridTemplateColumns: `repeat(${row.cells.length}, minmax(0, 1fr))` }}>
-            {row.cells.map((cell) => (
-              <input
-                key={cell.id}
-                value={cell.text}
-                onChange={(event) => updateCell(row.id, cell.id, event.target.value)}
-                className={field}
-                placeholder="Cell"
-              />
-            ))}
-          </div>
-        ))}
-      </div>
-      <div className="flex flex-wrap gap-2">
-        <button type="button" onClick={addRow} className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700">
-          Add row
-        </button>
-        <button type="button" onClick={addColumn} className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700">
-          Add column
-        </button>
-      </div>
-    </div>
-  );
-}
-
 function SequenceBlockEditor({
   block,
   onUpdatePatch,
@@ -2365,540 +2290,6 @@ function SequenceBlockEditor({
       <button type="button" onClick={addItem} className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700">
         Add item
       </button>
-    </div>
-  );
-}
-
-function MediaBlockEditor({
-  block,
-  mediaOptions,
-  resources,
-  sectionDefinitions,
-  resolvedMedia,
-  onUpdate,
-}: {
-  block: MediaBlock;
-  mediaOptions: ContentStudioMediaOption[];
-  resources: ResourceChoice[];
-  sectionDefinitions: ContentSectionDefinitionSummary[];
-  resolvedMedia: ResolvedMediaBlock | null;
-  onUpdate: (patch: Partial<MediaBlock>) => void;
-}) {
-  const [pickerOpen, setPickerOpen] = useState(!block.targetId);
-  const [search, setSearch] = useState("");
-  const validSections = sectionDefinitions.filter((section) => {
-    if (section.archived || !section.active) return false;
-    if (!section.allowedAssetKinds.length) return true;
-    return section.allowedAssetKinds.includes(block.mediaKind === "video" ? "video" : "resource");
-  });
-  const kindOptions = mediaOptions.filter((option) => option.mediaKind === block.mediaKind);
-  const filtered = kindOptions.filter((option) => {
-    const query = search.trim().toLowerCase();
-    if (!query) return true;
-    return (
-      option.title.toLowerCase().includes(query) ||
-      option.sourceBadge.toLowerCase().includes(query) ||
-      option.sourceDetail.toLowerCase().includes(query) ||
-      option.scopeLabel.toLowerCase().includes(query)
-    );
-  });
-  const activeMedia = resolveMediaForBlock(block, mediaOptions, resolvedMedia);
-  const audienceOptions = activeMedia?.audienceOptions ?? ["TEACHER", "STUDENT"];
-  const broken = Boolean(block.targetId) && !activeMedia;
-
-  return (
-    <div className="space-y-4 rounded-[1.5rem] bg-slate-950 p-4 text-white ring-1 ring-slate-900">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1.5 text-xs font-bold uppercase tracking-[0.14em] text-slate-200 ring-1 ring-white/10">
-          <PlayCircle className="h-4 w-4" />
-          {mediaKindLabel(block.mediaKind)}
-        </span>
-        {activeMedia ? (
-          <span className="rounded-full bg-white/10 px-3 py-1.5 text-xs font-semibold text-slate-200 ring-1 ring-white/10">
-            {activeMedia.sourceBadge}
-          </span>
-        ) : null}
-        {broken ? (
-          <span className="inline-flex items-center gap-1 rounded-full bg-rose-500/20 px-3 py-1.5 text-xs font-semibold text-rose-100">
-            <CircleAlert className="h-3.5 w-3.5" />
-            Broken media
-          </span>
-        ) : null}
-      </div>
-
-      <div className="flex flex-wrap gap-2">
-        {MEDIA_KINDS.map((kind) => (
-          <button
-            key={kind}
-            type="button"
-            onClick={() =>
-              onUpdate({
-                mediaKind: kind,
-                targetType: kind === "video" ? block.targetType : "RESOURCE",
-                targetId: "",
-                label: mediaKindLabel(kind),
-                audience: ["TEACHER", "STUDENT"],
-                sectionDefinitionId: undefined,
-              })
-            }
-            className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
-              block.mediaKind === kind
-                ? "bg-white text-slate-950"
-                : "border border-white/15 bg-white/5 text-slate-200"
-            }`}
-          >
-            {mediaKindLabel(kind)}
-          </button>
-        ))}
-      </div>
-
-      <div className="grid gap-3 lg:grid-cols-3">
-        <label className="block text-sm font-semibold text-slate-200 lg:col-span-2">
-          Label
-          <input
-            data-block-id={block.id}
-            value={block.label}
-            onChange={(event) => onUpdate({ label: event.target.value })}
-            placeholder="Media label"
-            className={darkField}
-          />
-        </label>
-        <label className="block text-sm font-semibold text-slate-200">
-          Display
-          <select
-            value={block.displayMode}
-            onChange={(event) =>
-              onUpdate({ displayMode: event.target.value as MediaBlock["displayMode"] })
-            }
-            className={darkField}
-          >
-            {MEDIA_DISPLAY_MODES.map((mode) => (
-              <option key={mode} value={mode}>
-                {mediaDisplayModeLabel(mode)}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="block text-sm font-semibold text-slate-200 lg:col-span-2">
-          Caption
-          <input
-            value={block.caption ?? ""}
-            onChange={(event) => onUpdate({ caption: event.target.value || undefined })}
-            placeholder="Optional caption"
-            className={darkField}
-          />
-        </label>
-        <label className="block text-sm font-semibold text-slate-200">
-          Section
-          <select
-            value={block.sectionDefinitionId ?? ""}
-            onChange={(event) => onUpdate({ sectionDefinitionId: event.target.value || undefined })}
-            className={darkField}
-          >
-            <option value="">No section label</option>
-            {validSections.map((section) => (
-              <option key={section.id} value={section.id}>
-                {section.label}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
-
-      <div className="grid gap-3 lg:grid-cols-3">
-        <label className="block text-sm font-semibold text-slate-200">
-          Poster Resource
-          <select
-            value={block.posterResourceId ?? ""}
-            onChange={(event) => onUpdate({ posterResourceId: event.target.value || undefined })}
-            className={darkField}
-          >
-            <option value="">Use source thumbnail</option>
-            {resources.map((resource) => (
-              <option key={resource.id} value={resource.id}>
-                {resource.title}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="flex items-center gap-3 rounded-[1.25rem] bg-white/10 px-4 py-3 text-sm font-semibold text-slate-200 ring-1 ring-white/10">
-          <input
-            checked={block.controls}
-            type="checkbox"
-            onChange={(event) => onUpdate({ controls: event.target.checked })}
-          />
-          Controls
-        </label>
-        <label className="flex items-center gap-3 rounded-[1.25rem] bg-white/10 px-4 py-3 text-sm font-semibold text-slate-200 ring-1 ring-white/10">
-          <input
-            checked={block.required}
-            type="checkbox"
-            onChange={(event) => onUpdate({ required: event.target.checked })}
-          />
-          Required
-        </label>
-      </div>
-
-      <div className="rounded-[1.25rem] bg-white/10 p-4 ring-1 ring-white/10">
-        <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Audience</p>
-        <div className="mt-2 flex flex-wrap gap-2">
-          {audienceOptions.map((audience) => {
-            const active = block.audience.includes(audience);
-            return (
-              <button
-                key={audience}
-                type="button"
-                onClick={() => {
-                  const next = active
-                    ? block.audience.filter((entry) => entry !== audience)
-                    : [...block.audience, audience];
-                  onUpdate({ audience: next.length ? next : [audience] });
-                }}
-                className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
-                  active ? "bg-white text-slate-950" : "border border-white/15 text-slate-200"
-                }`}
-              >
-                {linkedAssetAudienceLabel(audience)}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      <div className="rounded-[1.25rem] bg-white/10 p-4 ring-1 ring-white/10">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Source</p>
-            <p className="mt-1 text-sm font-semibold text-white">
-              {activeMedia?.title || "No media selected"}
-            </p>
-            <p className="mt-1 text-xs text-slate-300">
-              {activeMedia
-                ? `${activeMedia.sourceBadge} - ${activeMedia.sourceDetail} - ${activeMedia.scopeLabel}${activeMedia.published ? "" : " - Draft"}`
-                : "Choose an existing publisher-owned media source for this manuscript position."}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => setPickerOpen((current) => !current)}
-            className="rounded-full border border-white/15 px-3 py-2 text-xs font-semibold text-slate-100"
-          >
-            {pickerOpen ? "Hide picker" : "Choose media"}
-          </button>
-        </div>
-
-        {pickerOpen ? (
-          <div className="mt-4 space-y-3">
-            <input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder={`Search ${mediaKindLabel(block.mediaKind).toLowerCase()} sources`}
-              className={darkField}
-            />
-            <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
-              {filtered.map((option) => (
-                <button
-                  key={mediaKey(option.targetType, option.targetId)}
-                  type="button"
-                  onClick={() => {
-                    onUpdate({
-                      mediaKind: option.mediaKind,
-                      targetType: option.targetType,
-                      targetId: option.targetId,
-                      label: option.defaultLabel,
-                      audience: option.defaultAudience,
-                    });
-                    setPickerOpen(false);
-                    setSearch("");
-                  }}
-                  className="w-full rounded-[1.25rem] border border-white/10 bg-white/5 px-4 py-3 text-left transition hover:border-white/25 hover:bg-white/10"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-semibold text-white">{option.title}</p>
-                      <p className="mt-1 text-xs text-slate-300">
-                        {option.sourceBadge} - {option.sourceDetail} - {option.scopeLabel}
-                      </p>
-                    </div>
-                    {!option.published ? (
-                      <span className="rounded-full bg-amber-300 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-amber-950">
-                        Draft
-                      </span>
-                    ) : null}
-                  </div>
-                </button>
-              ))}
-              {!filtered.length ? (
-                <div className="rounded-[1.25rem] border border-dashed border-white/20 px-4 py-6 text-sm text-slate-300">
-                  No matching media in the current book scope.
-                </div>
-              ) : null}
-            </div>
-          </div>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
-function LinkedAssetEditor({
-  block,
-  assetOptions,
-  sectionDefinitions,
-  resolvedAsset,
-  onUpdate,
-}: {
-  block: LinkedAssetBlock;
-  assetOptions: ContentStudioAssetOption[];
-  sectionDefinitions: ContentSectionDefinitionSummary[];
-  resolvedAsset: ResolvedLinkedAsset | null;
-  onUpdate: (patch: Partial<LinkedAssetBlock>) => void;
-}) {
-  const [pickerOpen, setPickerOpen] = useState(!block.targetId);
-  const [search, setSearch] = useState("");
-  const validSections = filterSectionsForAssetKind(sectionDefinitions, block.assetKind);
-  const activeSection =
-    sectionDefinitions.find((section) => section.id === block.sectionDefinitionId) ?? null;
-  const kindOptions = assetOptions.filter((option) => {
-    if (option.assetKind !== block.assetKind) return false;
-    if (!activeSection?.allowedAssetKinds.length) return true;
-    return activeSection.allowedAssetKinds.includes(option.assetKind);
-  });
-  const filtered = kindOptions.filter((option) => {
-    const query = search.trim().toLowerCase();
-    if (!query) return true;
-    return (
-      option.title.toLowerCase().includes(query) ||
-      option.sourceBadge.toLowerCase().includes(query) ||
-      option.scopeLabel.toLowerCase().includes(query)
-    );
-  });
-  const activeAsset = resolveAssetForBlock(block, assetOptions, resolvedAsset);
-  const audienceOptions = activeAsset?.audienceOptions ?? ["TEACHER", "STUDENT"];
-  const openModes = activeAsset?.openModes ?? ["route"];
-  const broken = Boolean(block.targetId) && !activeAsset;
-
-  return (
-    <div className="space-y-4 rounded-[1.5rem] bg-[#faf7f0] p-4 ring-1 ring-slate-200">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1.5 text-xs font-bold uppercase tracking-[0.14em] text-slate-500 ring-1 ring-slate-200">
-          {renderAssetIcon(block.assetKind)}
-          {linkedAssetKindLabel(block.assetKind)}
-        </span>
-        {activeAsset ? (
-          <span className="rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 ring-1 ring-slate-200">
-            {activeAsset.sourceBadge}
-          </span>
-        ) : null}
-        {broken ? (
-          <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-3 py-1.5 text-xs font-semibold text-rose-700">
-            <CircleAlert className="h-3.5 w-3.5" />
-            Broken link
-          </span>
-        ) : null}
-      </div>
-
-      <div className="flex flex-wrap gap-2">
-        {linkedAssetKinds.map((kind) => (
-          <button
-            key={kind}
-            type="button"
-            onClick={() =>
-              onUpdate({
-                assetKind: kind,
-                targetType: defaultTargetTypeForKind(kind),
-                targetId: "",
-                label: linkedAssetKindLabel(kind),
-                audience: ["TEACHER", "STUDENT"],
-                openMode: "route",
-                sectionDefinitionId: undefined,
-              } as Partial<LinkedAssetBlock>)
-            }
-            className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
-              block.assetKind === kind
-                ? "bg-slate-950 text-white"
-                : "border border-slate-200 bg-white text-slate-700"
-            }`}
-          >
-            {linkedAssetKindLabel(kind)}
-          </button>
-        ))}
-      </div>
-
-      <div className="grid gap-3 lg:grid-cols-3">
-        <label className="block text-sm font-semibold text-slate-700 lg:col-span-2">
-          Label
-          <input
-            data-block-id={block.id}
-            value={block.label}
-            onChange={(event) => onUpdate({ label: event.target.value })}
-            placeholder="Asset label"
-            className={field}
-          />
-        </label>
-        <label className="block text-sm font-semibold text-slate-700">
-          Display style
-          <select
-            value={block.displayStyle}
-            onChange={(event) =>
-              onUpdate({ displayStyle: event.target.value as LinkedAssetBlock["displayStyle"] })
-            }
-            className={field}
-          >
-            {["button", "inline", "callout"].map((style) => (
-              <option key={style} value={style}>
-                {linkedAssetDisplayStyleLabel(style as LinkedAssetBlock["displayStyle"])}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="block text-sm font-semibold text-slate-700">
-          Section
-          <select
-            value={block.sectionDefinitionId ?? ""}
-            onChange={(event) =>
-              onUpdate({ sectionDefinitionId: event.target.value || undefined })
-            }
-            className={field}
-          >
-            <option value="">No section label</option>
-            {validSections.map((section) => (
-              <option key={section.id} value={section.id}>
-                {section.label}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
-
-      <div className="grid gap-3 lg:grid-cols-3">
-        <label className="block text-sm font-semibold text-slate-700">
-          Open mode
-          <select
-            value={block.openMode}
-            onChange={(event) =>
-              onUpdate({ openMode: event.target.value as LinkedAssetBlock["openMode"] })
-            }
-            className={field}
-          >
-            {openModes.map((mode) => (
-              <option key={mode} value={mode}>
-                {linkedAssetOpenModeLabel(mode)}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="flex items-center gap-3 rounded-[1.25rem] bg-white px-4 py-3 text-sm font-semibold text-slate-700 ring-1 ring-slate-200">
-          <input
-            checked={block.required}
-            type="checkbox"
-            onChange={(event) => onUpdate({ required: event.target.checked })}
-          />
-          Required
-        </label>
-        <div className="rounded-[1.25rem] bg-white px-4 py-3 ring-1 ring-slate-200">
-          <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Audience</p>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {audienceOptions.map((audience) => {
-              const active = block.audience.includes(audience);
-              return (
-                <button
-                  key={audience}
-                  type="button"
-                  onClick={() => {
-                    const next = active
-                      ? block.audience.filter((entry) => entry !== audience)
-                      : [...block.audience, audience];
-                    onUpdate({ audience: next.length ? next : [audience] });
-                  }}
-                  className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
-                    active ? "bg-slate-950 text-white" : "border border-slate-200 text-slate-700"
-                  }`}
-                >
-                  {linkedAssetAudienceLabel(audience)}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-
-      <div className="rounded-[1.25rem] bg-white p-4 ring-1 ring-slate-200">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Source</p>
-            <p className="mt-1 text-sm font-semibold text-slate-900">
-              {activeAsset?.title || "No asset selected"}
-            </p>
-            <p className="mt-1 text-xs text-slate-500">
-              {activeAsset
-                ? `${activeAsset.sourceBadge} · ${activeAsset.scopeLabel}${activeAsset.teacherOnly ? " · Teacher only" : ""}`
-                : "Choose an existing publisher-owned asset for this position."}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => setPickerOpen((current) => !current)}
-            className="rounded-full border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700"
-          >
-            {pickerOpen ? "Hide picker" : "Choose asset"}
-          </button>
-        </div>
-
-        {pickerOpen ? (
-          <div className="mt-4 space-y-3">
-            <input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder={`Search ${linkedAssetKindLabel(block.assetKind).toLowerCase()} sources`}
-              className={field}
-            />
-            <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
-              {filtered.map((option) => (
-                <button
-                  key={linkedAssetKey(option.targetType, option.targetId)}
-                  type="button"
-                  onClick={() => {
-                    onUpdate({
-                      assetKind: option.assetKind,
-                      targetType: option.targetType,
-                      targetId: option.targetId,
-                      label: option.defaultLabel,
-                      audience: option.defaultAudience,
-                      displayStyle: block.displayStyle,
-                      openMode: option.openModes.includes(block.openMode)
-                        ? block.openMode
-                        : option.openModes[0],
-                    });
-                    setPickerOpen(false);
-                    setSearch("");
-                  }}
-                  className="w-full rounded-[1.25rem] border border-slate-200 bg-white px-4 py-3 text-left transition hover:border-slate-300 hover:bg-slate-50"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-semibold text-slate-900">{option.title}</p>
-                      <p className="mt-1 text-xs text-slate-500">
-                        {option.sourceBadge} · {option.sourceDetail} · {option.scopeLabel}
-                      </p>
-                    </div>
-                    {option.teacherOnly ? (
-                      <span className="rounded-full bg-amber-100 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-amber-800">
-                        Teacher
-                      </span>
-                    ) : null}
-                  </div>
-                </button>
-              ))}
-              {!filtered.length ? (
-                <div className="rounded-[1.25rem] border border-dashed border-slate-300 px-4 py-6 text-sm text-slate-500">
-                  No matching assets for this kind in the current book scope.
-                </div>
-              ) : null}
-            </div>
-          </div>
-        ) : null}
-      </div>
     </div>
   );
 }
@@ -3881,6 +3272,27 @@ function blockContainsQuery(block: ContentBlock, query: string) {
   return false;
 }
 
+function serializeSnapshot(input: {
+  title: string;
+  subtitle: string;
+  description: string;
+  slug: string;
+  label: string;
+  estimatedMinutes: string;
+  published: boolean;
+  content: ContentDocument;
+}) {
+  return JSON.stringify({
+    title: input.title.trim(),
+    subtitle: input.subtitle.trim(),
+    description: input.description.trim(),
+    slug: input.slug.trim(),
+    label: input.label.trim(),
+    estimatedMinutes: input.estimatedMinutes.trim(),
+    published: input.published,
+    content: input.content,
+  });
+}
 function buildPlainTextExport(input: {
   title: string;
   subtitle: string;
@@ -4008,51 +3420,3 @@ function resolveMediaForBlock(
   } satisfies ResolvedMediaBlock;
 }
 
-function renderAssetIcon(kind: LinkedAssetKind) {
-  switch (kind) {
-    case "video":
-      return <PlayCircle className="h-4 w-4" />;
-    case "worksheet":
-      return <FileDown className="h-4 w-4" />;
-    case "activity":
-      return <ClipboardList className="h-4 w-4" />;
-    case "exercise":
-      return <BookOpenCheck className="h-4 w-4" />;
-    case "learningOutcome":
-      return <BookOpenCheck className="h-4 w-4" />;
-    case "resource":
-    default:
-      return <FileText className="h-4 w-4" />;
-  }
-}
-
-function defaultTargetTypeForKind(kind: LinkedAssetKind) {
-  switch (kind) {
-    case "video":
-      return "VIDEO_LESSON";
-    case "activity":
-      return "CHAPTER_ACTIVITY";
-    case "exercise":
-      return "BOOK_EXERCISE";
-    case "learningOutcome":
-      return "CHAPTER_LEARNING_OUTCOME";
-    case "worksheet":
-      return "PUBLISHER_WORKSHEET";
-    case "resource":
-    default:
-      return "RESOURCE";
-  }
-}
-
-function serializeSnapshot(snapshot: {
-  title: string;
-  subtitle: string;
-  description: string;
-  slug: string;
-  label: string;
-  estimatedMinutes: string;
-  published: boolean;
-  content: ContentDocument;
-}) {
-  return JSON.stringify(snapshot);
-}
