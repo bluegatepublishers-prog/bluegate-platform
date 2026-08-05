@@ -14,7 +14,9 @@ import { revalidatePath } from "next/cache";
 
 import {
   duplicateBookStructureNode,
+  deleteBookStructureNode,
   moveBookStructureNode,
+  renameBookStructureNode,
   reorderBookStructureNodes,
   saveBookStructureNode,
   setBookStructureNodeArchived,
@@ -977,6 +979,26 @@ export async function archiveContentNodeAction(
   archived: boolean,
 ) {
   await setBookStructureNodeArchived(bookId, type, id, archived);
+  refresh(bookId);
+}
+
+export async function renameContentNodeAction(
+  bookId: string,
+  type: BookStructureNodeType,
+  id: string,
+  title: string,
+) {
+  await renameBookStructureNode(bookId, type, id, title);
+  refresh(bookId);
+}
+
+export async function deleteContentNodeAction(
+  bookId: string,
+  type: BookStructureNodeType,
+  id: string,
+  confirmationTitle: string,
+) {
+  await deleteBookStructureNode(bookId, type, id, confirmationTitle);
   refresh(bookId);
 }
 

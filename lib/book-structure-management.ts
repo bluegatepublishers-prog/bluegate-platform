@@ -384,6 +384,122 @@ async function nodeRecord(
   return tx.bookTopic.findFirst({ where: { id, bookId } });
 }
 
+export async function renameBookStructureNode(
+  bookId: string,
+  type: BookStructureNodeType,
+  id: string,
+  title: string,
+) {
+  const { actor } = await actorAndBook(bookId);
+  const cleanTitle = clean(title, 200);
+  if (!cleanTitle) throw new BookStructureError("Title is required.");
+  return prisma.$transaction(async (tx) => {
+    const existing = await nodeRecord(tx, bookId, type, id);
+    if (!existing) throw new BookStructureError("Structure item not found.");
+    if (type === "PART") await tx.bookPart.update({ where: { id }, data: { title: cleanTitle } });
+    else if (type === "UNIT") await tx.bookUnit.update({ where: { id }, data: { title: cleanTitle } });
+    else if (type === "CHAPTER") await tx.bookChapter.update({ where: { id }, data: { title: cleanTitle } });
+    else if (type === "MODULE") await tx.bookModule.update({ where: { id }, data: { title: cleanTitle } });
+    else await tx.bookTopic.update({ where: { id }, data: { title: cleanTitle } });
+    const descriptor = auditDescriptor(type, false);
+    await writeSecurityAuditEvent(tx, {
+      actor: publisherAdminAuditActor(actor),
+      action: descriptor.action,
+      targetType: descriptor.targetType,
+      targetId: id,
+      outcome: SecurityAuditOutcome.SUCCESS,
+      metadata: { changedFields: ["title"] },
+    });
+    return { id, title: cleanTitle };
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+}
+
+export async function deleteBookStructureNode(
+  bookId: string,
+  type: BookStructureNodeType,
+  id: string,
+  confirmationTitle: string,
+) {
+  const { actor } = await actorAndBook(bookId);
+  return prisma.$transaction(async (tx) => {
+    const existing = await nodeRecord(tx, bookId, type, id);
+    if (!existing) throw new BookStructureError("Structure item not found.");
+    if (existing.title !== confirmationTitle.trim()) {
+      throw new BookStructureError("The final confirmation did not match the node title.");
+    }
+    const dependencies = await structureDependencies(tx, bookId, type, id);
+    if (dependencies.length) {
+      throw new BookStructureError(`This item cannot be permanently deleted because it has ${dependencies.join(", ")}.`);
+    }
+    if (type === "PART") await tx.bookPart.delete({ where: { id } });
+    else if (type === "UNIT") await tx.bookUnit.delete({ where: { id } });
+    else if (type === "CHAPTER") await tx.bookChapter.delete({ where: { id } });
+    else if (type === "MODULE") await tx.bookModule.delete({ where: { id } });
+    else await tx.bookTopic.delete({ where: { id } });
+    const descriptor = auditDescriptor(type, false);
+    await writeSecurityAuditEvent(tx, {
+      actor: publisherAdminAuditActor(actor),
+      action: type === "PART" ? "publisher.book_part.delete" : `publisher.curriculum.${type.toLowerCase()}.delete` as never,
+      targetType: descriptor.targetType,
+      targetId: id,
+      outcome: SecurityAuditOutcome.SUCCESS,
+      metadata: { changedFields: ["deleted"] },
+    });
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+}
+
+async function structureDependencies(
+  tx: Prisma.TransactionClient,
+  bookId: string,
+  type: BookStructureNodeType,
+  id: string,
+) {
+  const dependencyCount = async (label: string, count: Promise<number>) => (await count) > 0 ? label : null;
+  const checks: Promise<string | null>[] = [];
+  if (type === "PART") {
+    checks.push(dependencyCount("child units", tx.bookUnit.count({ where: { bookId, partId: id } })));
+    checks.push(dependencyCount("child chapters", tx.bookChapter.count({ where: { bookId, partId: id } })));
+    checks.push(dependencyCount("linked resources", tx.bookResourceLink.count({ where: { bookId, partId: id, active: true } })));
+    checks.push(dependencyCount("QR destinations", tx.dynamicQrCode.count({ where: { bookId, partId: id } })));
+    checks.push(dependencyCount("published releases", tx.contentRelease.count({ where: { bookId, targetId: id, lifecycle: "PUBLISHED" } })));
+  } else if (type === "UNIT") {
+    checks.push(dependencyCount("child chapters", tx.bookChapter.count({ where: { bookId, unitId: id } })));
+    checks.push(dependencyCount("child modules", tx.bookModule.count({ where: { bookId, unitId: id } })));
+    checks.push(dependencyCount("linked resources", tx.bookResourceLink.count({ where: { bookId, unitId: id, active: true } })));
+    checks.push(dependencyCount("QR destinations", tx.dynamicQrCode.count({ where: { bookId, unitId: id } })));
+    checks.push(dependencyCount("published releases", tx.contentRelease.count({ where: { bookId, targetId: id, lifecycle: "PUBLISHED" } })));
+  } else if (type === "CHAPTER") {
+    checks.push(dependencyCount("modules", tx.bookModule.count({ where: { bookId, chapterId: id } })));
+    checks.push(dependencyCount("topics", tx.bookTopic.count({ where: { bookId, chapterId: id } })));
+    checks.push(dependencyCount("activities", tx.chapterActivity.count({ where: { chapterId: id } })));
+    checks.push(dependencyCount("worksheets", tx.publisherWorksheet.count({ where: { bookId, chapterId: id } })));
+    checks.push(dependencyCount("exercises", tx.bookExercise.count({ where: { bookId, chapterId: id } })));
+    checks.push(dependencyCount("questions", tx.bookQuestion.count({ where: { bookId, chapterId: id } })));
+    checks.push(dependencyCount("student attempts", tx.studentPracticeAttempt.count({ where: { bookId, chapterId: id } })));
+    checks.push(dependencyCount("linked resources", tx.bookResourceLink.count({ where: { bookId, chapterId: id, active: true } })));
+    checks.push(dependencyCount("QR destinations", tx.dynamicQrCode.count({ where: { bookId, chapterId: id } })));
+    checks.push(dependencyCount("published releases", tx.contentRelease.count({ where: { bookId, targetType: "CHAPTER", targetId: id, lifecycle: "PUBLISHED" } })));
+  } else if (type === "MODULE") {
+    checks.push(dependencyCount("topics", tx.bookTopic.count({ where: { bookId, moduleId: id } })));
+    checks.push(dependencyCount("activities", tx.chapterActivity.count({ where: { moduleId: id } })));
+    checks.push(dependencyCount("worksheets", tx.publisherWorksheet.count({ where: { bookId, moduleId: id } })));
+    checks.push(dependencyCount("exercises", tx.bookExercise.count({ where: { bookId, moduleId: id } })));
+    checks.push(dependencyCount("questions", tx.bookQuestion.count({ where: { bookId, moduleId: id } })));
+    checks.push(dependencyCount("linked resources", tx.bookResourceLink.count({ where: { bookId, moduleId: id, active: true } })));
+    checks.push(dependencyCount("QR destinations", tx.dynamicQrCode.count({ where: { bookId, moduleId: id } })));
+    checks.push(dependencyCount("published releases", tx.contentRelease.count({ where: { bookId, targetType: "MODULE", targetId: id, lifecycle: "PUBLISHED" } })));
+  } else {
+    checks.push(dependencyCount("activities", tx.chapterActivity.count({ where: { topicId: id } })));
+    checks.push(dependencyCount("worksheets", tx.publisherWorksheet.count({ where: { bookId, topicId: id } })));
+    checks.push(dependencyCount("exercises", tx.bookExercise.count({ where: { bookId, topicId: id } })));
+    checks.push(dependencyCount("questions", tx.bookQuestion.count({ where: { bookId, topicId: id } })));
+    checks.push(dependencyCount("linked resources", tx.bookResourceLink.count({ where: { bookId, topicId: id, active: true } })));
+    checks.push(dependencyCount("QR destinations", tx.dynamicQrCode.count({ where: { bookId, topicId: id } })));
+    checks.push(dependencyCount("published releases", tx.contentRelease.count({ where: { bookId, targetType: "TOPIC", targetId: id, lifecycle: "PUBLISHED" } })));
+  }
+  return (await Promise.all(checks)).filter((item): item is string => Boolean(item));
+}
+
 export async function setBookStructureNodeArchived(
   bookId: string,
   type: BookStructureNodeType,

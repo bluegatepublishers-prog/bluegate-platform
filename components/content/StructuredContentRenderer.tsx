@@ -12,6 +12,8 @@ import type {
   ContentBlock,
   ContentDocument,
   InfoBoxVariant,
+  RichTextSpan,
+  TextBlock,
 } from "@/lib/content-document";
 import {
   blockLabel,
@@ -63,7 +65,7 @@ export default function StructuredContentRenderer({
 }) {
   const sectionsById = new Map(sectionDefinitions.map((section) => [section.id, section]));
   return (
-    <div className={`space-y-5 ${className}`}>
+    <div className={`${document.layout === "double" ? "grid grid-cols-1 gap-x-8 gap-y-5 md:grid-cols-2" : "space-y-5"} ${className}`}>
       {document.blocks.map((block) => (
         <RenderedBlock
           key={block.id}
@@ -443,33 +445,142 @@ function MarkedText({
   block,
   definitions,
 }: {
-  block: { text: string; knowledgeReferences?: KnowledgeReference[] };
+  block: TextBlock;
   definitions: Record<string, KnowledgeDefinitionSummary | null>;
 }) {
+  const text = block.text;
+  const spans =
+    block.spans?.length > 0
+      ? block.spans
+      : [{ text }];
+
   const references = (block.knowledgeReferences ?? [])
-    .filter((reference) => reference.end <= block.text.length && reference.end > reference.start)
+    .filter(
+      (reference) =>
+        reference.start >= 0 &&
+        reference.end <= text.length &&
+        reference.end > reference.start,
+    )
     .sort((a, b) => a.start - b.start);
-  if (!references.length) return <>{block.text}</>;
-  const nodes: ReactNode[] = [];
-  let cursor = 0;
+
+  const boundaries = new Set<number>([0, text.length]);
+
+  let spanCursor = 0;
+
+  for (const span of spans) {
+    boundaries.add(spanCursor);
+    spanCursor += span.text.length;
+    boundaries.add(Math.min(spanCursor, text.length));
+  }
+
   for (const reference of references) {
-    if (reference.start < cursor) continue;
-    if (reference.start > cursor) nodes.push(block.text.slice(cursor, reference.start));
-    const text = block.text.slice(reference.start, reference.end);
+    boundaries.add(reference.start);
+    boundaries.add(reference.end);
+  }
+
+  const orderedBoundaries = Array.from(boundaries)
+    .filter((value) => value >= 0 && value <= text.length)
+    .sort((left, right) => left - right);
+
+  const nodes: ReactNode[] = [];
+
+  for (let index = 0; index < orderedBoundaries.length - 1; index += 1) {
+    const start = orderedBoundaries[index];
+    const end = orderedBoundaries[index + 1];
+
+    if (end <= start) continue;
+
+    const segmentText = text.slice(start, end);
+    const span = findSpanAtOffset(spans, start);
+    const styledText = (
+      <RichTextSegment
+        key={`styled-${start}-${end}`}
+        span={span}
+        text={segmentText}
+      />
+    );
+
+    const reference = references.find(
+      (entry) => entry.start <= start && entry.end >= end,
+    );
+
+    if (!reference) {
+      nodes.push(styledText);
+      continue;
+    }
+
     nodes.push(
       <KnowledgeReferenceView
-        key={reference.id}
+        key={`${reference.id}-${start}-${end}`}
         reference={reference}
-        definition={definitions[knowledgeMapKey(reference.type, reference.targetId)] ?? null}
-        text={text}
+        definition={
+          definitions[
+            knowledgeMapKey(reference.type, reference.targetId)
+          ] ?? null
+        }
+        text={styledText}
       />,
     );
-    cursor = reference.end;
   }
-  if (cursor < block.text.length) nodes.push(block.text.slice(cursor));
+
   return <>{nodes}</>;
 }
+function RichTextSegment({
+  span,
+  text,
+}: {
+  span: RichTextSpan;
+  text: string;
+}) {
+  const decorations: string[] = [];
 
+  if (span.marks?.includes("underline")) {
+    decorations.push("underline");
+  }
+
+  return (
+    <span
+      style={{
+        color: span.color,
+        backgroundColor: span.highlight,
+        fontSize: span.fontSize
+          ? `${span.fontSize}px`
+          : undefined,
+        fontWeight: span.marks?.includes("bold")
+          ? 700
+          : undefined,
+        fontStyle: span.marks?.includes("italic")
+          ? "italic"
+          : undefined,
+        textDecoration:
+          decorations.length > 0
+            ? decorations.join(" ")
+            : undefined,
+      }}
+    >
+      {text}
+    </span>
+  );
+}
+
+function findSpanAtOffset(
+  spans: RichTextSpan[],
+  offset: number,
+): RichTextSpan {
+  let cursor = 0;
+
+  for (const span of spans) {
+    const end = cursor + span.text.length;
+
+    if (offset >= cursor && offset < end) {
+      return span;
+    }
+
+    cursor = end;
+  }
+
+  return spans[spans.length - 1] ?? { text: "" };
+}
 function knowledgeMapKey(type: KnowledgeReference["type"], id: string) {
   return `${type}:${id}`;
 }
@@ -553,5 +664,23 @@ function infoBoxClass(variant: InfoBoxVariant) {
       return "border border-indigo-200 bg-indigo-50 text-indigo-950";
     case "summary":
       return "border border-slate-200 bg-slate-100 text-slate-900";
+    case "thinkAndDiscuss":
+      return "border border-cyan-200 bg-cyan-50 text-cyan-950";
+    case "reflection":
+      return "border border-violet-200 bg-violet-50 text-violet-950";
+    case "competencyCheck":
+      return "border border-orange-200 bg-orange-50 text-orange-950";
+    case "lifeSkill":
+      return "border border-teal-200 bg-teal-50 text-teal-950";
+    case "caseStudy":
+      return "border border-fuchsia-200 bg-fuchsia-50 text-fuchsia-950";
+    case "teacherTip":
+      return "border border-blue-200 bg-blue-50 text-blue-950";
+    case "activityPrompt":
+      return "border border-green-200 bg-green-50 text-green-950";
+    case "experimentPrompt":
+      return "border border-yellow-200 bg-yellow-50 text-yellow-950";
+    case "observationPrompt":
+      return "border border-teal-200 bg-teal-50 text-teal-950";
   }
 }

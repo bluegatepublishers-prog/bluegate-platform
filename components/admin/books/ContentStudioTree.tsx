@@ -3,12 +3,13 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import type { KeyboardEvent, MouseEvent, TransitionStartFunction } from "react";
-import { BookOpen, ChevronRight, Copy, FileText, Folder, GripVertical, Plus, Search, Trash2 } from "lucide-react";
+import { BookOpen, ChevronRight, Copy, FileText, Folder, GripVertical, Pencil, Plus, Search, Trash2 } from "lucide-react";
 
 import {
-  archiveContentNodeAction,
   createContentChildAction,
+  deleteContentNodeAction,
   duplicateContentNodeAction,
+  renameContentNodeAction,
   reorderContentBranchAction,
 } from "@/app/admin/books/[id]/content/actions";
 import { flattenContentTree, type ContentNodeType, type ContentTreeNode } from "@/lib/content-studio-tree";
@@ -39,6 +40,8 @@ export default function ContentStudioTree({
   const [activeAdd, setActiveAdd] = useState<TreeActionsState>({ key: null, type: null });
   const [addTitle, setAddTitle] = useState("");
   const [addType, setAddType] = useState("");
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [editTitle, setEditTitle] = useState("");
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -137,7 +140,7 @@ export default function ContentStudioTree({
         onKeyDown={keyboard}
         className={`min-h-0 flex-1 overflow-y-auto p-3 ${pending ? "opacity-70" : ""}`}
       >
-        <TreeBranch
+          <TreeBranch
           bookId={bookId}
           node={visible}
           siblings={[visible]}
@@ -162,9 +165,13 @@ export default function ContentStudioTree({
           }}
           addTitle={addTitle}
           setAddTitle={setAddTitle}
-          addType={addType}
-          setAddType={setAddType}
-        />
+            addType={addType}
+            setAddType={setAddType}
+            editingKey={editingKey}
+            setEditingKey={setEditingKey}
+            editTitle={editTitle}
+            setEditTitle={setEditTitle}
+          />
         {query && !realChildren(visible).length && !visible.title.toLowerCase().includes(query.toLowerCase()) ? (
           <p className="p-6 text-center text-sm text-slate-500">No matching content.</p>
         ) : null}
@@ -189,6 +196,10 @@ function TreeBranch({
   setAddTitle,
   addType,
   setAddType,
+  editingKey,
+  setEditingKey,
+  editTitle,
+  setEditTitle,
 }: {
   bookId: string;
   node: ContentTreeNode;
@@ -205,6 +216,10 @@ function TreeBranch({
   setAddTitle: (value: string) => void;
   addType: string;
   setAddType: (value: string) => void;
+  editingKey: string | null;
+  setEditingKey: (value: string | null) => void;
+  editTitle: string;
+  setEditTitle: (value: string) => void;
 }) {
   const children = realChildren(node);
   const open = expanded.has(node.key);
@@ -301,7 +316,7 @@ function TreeBranch({
             </span>
           </Link>
 
-          {node.type !== "BOOK" && node.type !== "FOLDER" ? (
+          {node.type !== "FOLDER" ? (
             <div className="flex items-center gap-1 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100">
               {childTypesFor(node.type).length ? (
                 <button
@@ -313,35 +328,32 @@ function TreeBranch({
                   <Plus className="h-4 w-4" />
                 </button>
               ) : null}
-              <button
-                  type="button"
-                  onClick={() =>
-                    startTransition(async () => {
-                    await duplicateContentNodeAction(bookId, actionableType, node.id);
-                  })
-                }
-                className="rounded-lg p-2 text-slate-500 transition hover:bg-white hover:text-slate-900"
-                aria-label={`Duplicate ${node.title}`}
-              >
-                <Copy className="h-4 w-4" />
-              </button>
-              <button
-                  type="button"
-                  onClick={() =>
-                    startTransition(async () => {
-                    await archiveContentNodeAction(bookId, actionableType, node.id, !node.archived);
-                  })
-                }
-                className={`rounded-lg p-2 transition hover:bg-white ${
-                  node.archived ? "text-emerald-600 hover:text-emerald-700" : "text-slate-500 hover:text-rose-600"
-                }`}
-                aria-label={node.archived ? `Restore ${node.title}` : `Archive ${node.title}`}
-              >
-                <Trash2 className="h-4 w-4" />
-              </button>
+              {node.type !== "BOOK" ? <>
+                <button type="button" onClick={() => { setEditingKey(node.key); setEditTitle(node.title); }} className="rounded-lg p-2 text-slate-500 transition hover:bg-white hover:text-slate-900" aria-label={`Edit ${node.title}`}>
+                  <Pencil className="h-4 w-4" />
+                </button>
+                <button type="button" onClick={() => {
+                  if (!confirm(`Delete \"${node.title}\"?`)) return;
+                  if (!confirm(`Permanently delete \"${node.title}\"? This cannot be undone.`)) return;
+                  startTransition(async () => { await deleteContentNodeAction(bookId, actionableType, node.id, node.title); });
+                }} className="rounded-lg p-2 text-slate-500 transition hover:bg-white hover:text-rose-700" aria-label={`Delete ${node.title}`}>
+                  <Trash2 className="h-4 w-4" />
+                </button>
+                <button type="button" onClick={() => startTransition(async () => { await duplicateContentNodeAction(bookId, actionableType, node.id); })} className="rounded-lg p-2 text-slate-500 transition hover:bg-white hover:text-slate-900" aria-label={`Duplicate ${node.title}`}>
+                  <Copy className="h-4 w-4" />
+                </button>
+              </> : null}
             </div>
           ) : null}
         </div>
+
+        {editingKey === node.key ? (
+          <form className="mx-3 mb-3 flex gap-2" onSubmit={(event) => { event.preventDefault(); if (!editTitle.trim() || node.type === "BOOK") return; startTransition(async () => { await renameContentNodeAction(bookId, actionableType, node.id, editTitle); setEditingKey(null); }); }}>
+            <input autoFocus value={editTitle} onChange={(event) => setEditTitle(event.target.value)} className="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm" aria-label={`Rename ${node.title}`} />
+            <button type="submit" className="rounded-xl bg-slate-950 px-3 py-2 text-xs font-semibold text-white">Save</button>
+            <button type="button" onClick={() => setEditingKey(null)} className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600">Cancel</button>
+          </form>
+        ) : null}
 
         {activeAdd.key === node.key && addOptions.length ? (
           <form onSubmit={submitQuickAdd} className="mx-3 mb-3 rounded-2xl border border-dashed border-slate-300 bg-white/90 p-3">
@@ -400,6 +412,10 @@ function TreeBranch({
               setAddTitle={setAddTitle}
               addType={addType}
               setAddType={setAddType}
+              editingKey={editingKey}
+              setEditingKey={setEditingKey}
+              editTitle={editTitle}
+              setEditTitle={setEditTitle}
             />
           ))}
         </div>

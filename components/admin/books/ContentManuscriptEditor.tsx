@@ -1,27 +1,21 @@
 "use client";
 
+import TopActionBar from "@/components/admin/books/editor/TopActionBar";
+import WritingRibbon from "@/components/admin/books/editor/WritingRibbon";
+import PeriodTabs from "@/components/admin/books/editor/PeriodTabs";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
-import type { KeyboardEvent, MouseEvent } from "react";
+import type { ClipboardEvent, KeyboardEvent, MouseEvent } from "react";
 import {
-  Archive,
-  ChevronDown,
   BookOpenCheck,
+  ChevronDown,
   ChevronUp,
   CircleAlert,
   ClipboardList,
   Copy,
-  Eye,
   FileDown,
   FileText,
-  GripVertical,
-  MoreHorizontal,
   PlayCircle,
-  Plus,
-  Redo2,
-  RotateCcw,
-  Save,
-  Search,
   Slash,
   Trash2,
 } from "lucide-react";
@@ -34,7 +28,7 @@ import ExerciseAuthoringStudio from "@/components/admin/books/ExerciseAuthoringS
 import StudioBuilderDrawer from "@/components/admin/books/StudioBuilderDrawer";
 import WorksheetStudio from "@/components/admin/books/WorksheetStudio";
 import {
-  archiveContentNodeAction,
+  deleteContentNodeAction,
   duplicateContentNodeAction,
 } from "@/app/admin/books/[id]/content/actions";
 import type { BookStructureNodeType } from "@/lib/book-structure-management";
@@ -77,8 +71,9 @@ import {
   MEDIA_DISPLAY_MODES,
   MEDIA_KINDS,
   blockLabel,
-  convertBlockType,
+  addContentPeriod,
   createBlockByType,
+  createTextBlock,
   defaultNextBlockType,
   duplicateBlock,
   filterSectionsForAssetKind,
@@ -97,6 +92,9 @@ import {
   isTableBlock,
   isTextBlock,
   moveBlock,
+  moveBlockToPeriod,
+  removeEmptyContentPeriod,
+  renameContentPeriod,
   normalizeContentDocument,
   removeBlock,
   sanitizeUrl,
@@ -123,6 +121,13 @@ type ResourceChoice = {
   mimeType?: string | null;
   published?: boolean;
   audience?: string | null;
+};
+
+type ImageInsertMetadata = {
+  alt: string;
+  caption: string;
+  align: BlockAlignment;
+  width: "full" | "wide" | "medium";
 };
 
 type SaveState = "saved" | "dirty" | "saving" | "error";
@@ -174,6 +179,7 @@ type ExerciseLookupData = {
 type ToolbarInsertKind =
   | "image"
   | "media"
+  | "feature"
   | "activity"
   | "worksheet"
   | "exercise"
@@ -349,6 +355,9 @@ export default function ContentManuscriptEditor({
   const [contentDoc, setContentDoc] = useState<ContentDocument>(() =>
     normalizeContentDocument(nodeContent),
   );
+  const [activePeriodId, setActivePeriodId] = useState(() => normalizeContentDocument(nodeContent).periods[0]?.id ?? "period_default");
+  const [editingPeriodId, setEditingPeriodId] = useState<string | null>(null);
+  const [periodTitleDraft, setPeriodTitleDraft] = useState("");
   const [resourceChoices, setResourceChoices] = useState(resources);
   const [assetLibrary, setAssetLibrary] = useState(assetOptions);
   const [mediaLibrary, setMediaLibrary] = useState(mediaOptions);
@@ -361,6 +370,7 @@ export default function ContentManuscriptEditor({
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
   const [menuAnchor, setMenuAnchor] = useState<string | null>(null);
+  const [activeBlockId, setActiveBlockId] = useState<string | null>(null);
   const [focusTarget, setFocusTarget] = useState<string | null>(null);
   const [activeSelection, setActiveSelection] = useState<TextSelection | null>(null);
   const [knowledgePopup, setKnowledgePopup] = useState<KnowledgePopupState | null>(null);
@@ -374,6 +384,7 @@ export default function ContentManuscriptEditor({
   const [releasePanelOpen, setReleasePanelOpen] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
   const [toolbarAddOpen, setToolbarAddOpen] = useState(false);
+  const [featureMenuOpen, setFeatureMenuOpen] = useState(false);
   const [insertKind, setInsertKind] = useState<ToolbarInsertKind | null>(null);
   const [builderKind, setBuilderKind] = useState<BuilderKind | null>(null);
   const [builderTab, setBuilderTab] = useState<"existing" | "create">("existing");
@@ -628,6 +639,26 @@ export default function ContentManuscriptEditor({
     closeMenu();
   }
 
+  function addFeature(variant: InfoBoxVariant) {
+    if (!toolbarAnchorId) return;
+    addBlockWithFactory(toolbarAnchorId, () => {
+      const block = createBlockByType("infoBox");
+      return isInfoBoxBlock(block) ? { ...block, variant } : block;
+    });
+    setFeatureMenuOpen(false);
+  }
+
+  function applyToolbarBlockType(type: ContentBlockType) {
+    if (!toolbarAnchorId) return;
+    applyDocumentChange((current) => updateBlock(current, toolbarAnchorId, (block) => {
+      const next = createBlockByType(type);
+      if (isTextBlock(block) && isTextBlock(next)) return { ...next, text: block.text };
+      if (isListBlock(block) && isListBlock(next)) return { ...next, items: block.items };
+      return next;
+    }));
+    setSaveMessage("Text style updated");
+  }
+
   function updateText(blockId: string, value: string) {
     applyDocumentChange((current) =>
       updateBlock(current, blockId, (block) => {
@@ -700,6 +731,7 @@ export default function ContentManuscriptEditor({
 
   function openInsertSurface(kind: ToolbarInsertKind, anchorId = toolbarAnchorId) {
     setToolbarAddOpen(false);
+    setFeatureMenuOpen(false);
     setBuilderKind(null);
     setInsertKind(kind);
     setInsertAnchorId(anchorId);
@@ -721,6 +753,15 @@ export default function ContentManuscriptEditor({
     clearInsertFeedback();
   }
 
+  function deleteCurrentNode() {
+    const name = nodeTitle;
+    if (!confirm(`Delete "${name}"?`)) return;
+    if (!confirm(`Permanently delete "${name}"? This cannot be undone.`)) return;
+    void deleteContentNodeAction(bookId, nodeType, nodeId, name).catch((cause) => {
+      setError(cause instanceof Error ? cause.message : "Unable to delete this item.");
+    });
+  }
+
   function closeBuilderSurface() {
     setBuilderKind(null);
     clearInsertFeedback();
@@ -737,11 +778,6 @@ export default function ContentManuscriptEditor({
     const form = new FormData();
     form.set("confirm", "on");
     void transitionReleaseAction("PUBLISH", form);
-  }
-
-  function archiveCurrentNode() {
-    if (!confirm(`Archive this ${nodeType.toLowerCase()} from the publishing studio?`)) return;
-    void archiveContentNodeAction(bookId, nodeType, nodeId, true);
   }
 
   function duplicateCurrentNode() {
@@ -799,6 +835,49 @@ export default function ContentManuscriptEditor({
     setSaveMessage("Content updated");
   }
 
+  function addPeriod() {
+    setContentDoc((current) => {
+      const next = addContentPeriod(current);
+      setActivePeriodId(next.periods[next.periods.length - 1]?.id ?? current.periods[0]?.id ?? "period_default");
+      historyRef.current.push(current);
+      futureRef.current = [];
+      setCanUndo(true);
+      setCanRedo(false);
+      setSaveState("dirty");
+      return next;
+    });
+    setSaveMessage("Period added");
+  }
+
+  function beginPeriodRename(periodId: string, title: string) {
+    setEditingPeriodId(periodId);
+    setPeriodTitleDraft(title);
+  }
+
+  function commitPeriodRename() {
+    if (!editingPeriodId) return;
+    applyDocumentChange((current) => renameContentPeriod(current, editingPeriodId, periodTitleDraft));
+    setEditingPeriodId(null);
+    setSaveMessage("Period renamed");
+  }
+
+  function deleteEmptyPeriod(periodId: string) {
+    const period = contentDoc.periods.find((entry) => entry.id === periodId);
+    if (!period || contentDoc.blocks.some((block) => block.periodId === periodId)) {
+      setSaveMessage("Only empty periods can be deleted");
+      return;
+    }
+    applyDocumentChange((current) => removeEmptyContentPeriod(current, periodId));
+    if (activePeriodId === periodId) setActivePeriodId(contentDoc.periods[0]?.id ?? "period_default");
+    setSaveMessage("Empty period deleted");
+  }
+
+  function moveCurrentBlockToPeriod(blockId: string, periodId: string) {
+    applyDocumentChange((current) => moveBlockToPeriod(current, blockId, periodId));
+    setSaveState("dirty");
+    setSaveMessage("Content moved");
+  }
+
   function insertLinkedAssetOption(option: ContentStudioAssetOption, anchorId: string) {
     addBlockWithFactory(anchorId, () => {
       const block = createBlockByType("linkedAsset") as LinkedAssetBlock;
@@ -834,11 +913,12 @@ export default function ContentManuscriptEditor({
     });
   }
 
-  function insertImageResource(resource: ResourceChoice, anchorId: string) {
-    const safeUrl =
-      sanitizeUrl(resource.thumbnail ?? "") ||
-      sanitizeUrl(resource.fileUrl ?? "") ||
-      `/api/resources/${encodeURIComponent(resource.id)}/download`;
+  function insertImageResource(
+    resource: ResourceChoice,
+    anchorId: string,
+    metadata?: ImageInsertMetadata,
+  ) {
+    const safeUrl = `/api/resources/${encodeURIComponent(resource.id)}/download`;
     addBlockWithFactory(anchorId, () => {
       const block = createBlockByType("image");
       if (!isImageBlock(block)) return block;
@@ -846,8 +926,10 @@ export default function ContentManuscriptEditor({
         ...block,
         resourceId: resource.id,
         url: safeUrl,
-        alt: resource.title,
-        caption: "",
+        alt: metadata?.alt || resource.title,
+        caption: metadata?.caption || "",
+        align: metadata?.align ?? "center",
+        width: metadata?.width ?? "wide",
       };
     });
   }
@@ -1046,13 +1128,6 @@ export default function ContentManuscriptEditor({
     applyDocumentChange((current) => moveBlock(current, blockId, direction));
   }
 
-  function convertCurrentBlock(blockId: string, type: ContentBlockType) {
-    applyDocumentChange((current) =>
-      updateBlock(current, blockId, (block) => convertBlockType(block, type)),
-    );
-    setFocusTarget(blockId);
-  }
-
   function handleTextKeyDown(
     event: KeyboardEvent<HTMLElement>,
     block: ContentBlock,
@@ -1090,6 +1165,32 @@ export default function ContentManuscriptEditor({
     }
   }
 
+  function handleTextPaste(event: ClipboardEvent<HTMLInputElement | HTMLTextAreaElement>, block: ContentBlock) {
+    if (!isTextBlock(block)) return;
+    const pasted = event.clipboardData.getData("text/plain").replace(/\r\n/g, "\n");
+    if (!pasted.includes("\n")) return;
+    event.preventDefault();
+    const target = event.currentTarget;
+    const start = target.selectionStart ?? block.text.length;
+    const end = target.selectionEnd ?? start;
+    const pieces = pasted.split(/\n{2,}/).map((piece) => piece.replace(/\n/g, " ").trim()).filter(Boolean);
+    if (!pieces.length) return;
+    applyDocumentChange((current) => {
+      let next = updateBlock(current, block.id, (entry) => ({
+        ...entry,
+        text: block.text.slice(0, start) + pieces[0] + block.text.slice(end),
+      }));
+      let anchorId = block.id;
+      for (const piece of pieces.slice(1)) {
+        const paragraph = createTextBlock("paragraph", piece);
+        next = insertBlockAfter(next, anchorId, paragraph);
+        anchorId = paragraph.id;
+      }
+      return next;
+    });
+    setSaveMessage("Pasted lesson text");
+  }
+
   function handleListKeyDown(
     event: KeyboardEvent<HTMLInputElement>,
     block: ContentBlock,
@@ -1119,8 +1220,9 @@ export default function ContentManuscriptEditor({
   const previewLinkedAssets = buildLinkedAssetPreviewMap(contentDoc, assetLibrary, resolvedAssets);
   const previewMedia = buildMediaPreviewMap(contentDoc, mediaLibrary, resolvedMedia);
   const wordCount = countDocumentWords({ title, subtitle, description, content: contentDoc });
-  const toolbarAnchorId =
-    contentDoc.blocks[contentDoc.blocks.length - 1]?.id ?? contentDoc.blocks[0]?.id ?? "";
+  const toolbarAnchorId = activeBlockId && contentDoc.blocks.some((block) => block.id === activeBlockId)
+    ? activeBlockId
+    : contentDoc.blocks[contentDoc.blocks.length - 1]?.id ?? contentDoc.blocks[0]?.id ?? "";
   const canOpenScopedBuilders = Boolean(chapterId);
 
   return (
@@ -1148,198 +1250,86 @@ export default function ContentManuscriptEditor({
     >
       <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[2rem] bg-[#fcfaf5] shadow-sm ring-1 ring-slate-200">
         <div className="border-b border-slate-200 bg-white/95 px-3 py-3 backdrop-blur sm:px-5">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="inline-flex items-center rounded-full bg-slate-950 px-3 py-2 text-sm font-semibold text-white">
-              {releaseSummary?.lifecycle === "PUBLISHED" ? "Published" : "Draft"}
-            </span>
-            <button
-              type="button"
-              title="Save"
-              aria-label="Save content"
-              disabled={!dirty || saveState === "saving"}
-              onClick={() => void saveDocument()}
-              className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 disabled:opacity-40"
-            >
-              <Save className="h-4 w-4" />
-              {saveState === "saving" ? "Saving..." : "Save"}
-            </button>
-            <div className="relative">
-              <button
-                type="button"
-                title="Open preview menu"
-                aria-label="Open preview menu"
-                aria-expanded={previewMenuOpen}
-                onClick={() => {
-                  setPreviewMenuOpen((current) => !current);
-                  setMoreMenuOpen(false);
-                }}
-                className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700"
-              >
-                <Eye className="h-4 w-4" />
-                Preview
-                <ChevronDown className="h-4 w-4" />
-              </button>
-              {previewMenuOpen ? (
-                <div className="absolute left-0 top-full z-20 mt-2 w-56 rounded-[1.25rem] border border-slate-200 bg-white p-2 shadow-xl">
-                  {[
-                    { key: "STUDENT", label: "Student View" },
-                    { key: "TEACHER", label: "Teacher View" },
-                    { key: "WHITEBOARD", label: "Whiteboard View" },
-                  ].map((item) => (
-                    <button
-                      key={item.key}
-                      type="button"
-                      onClick={() => openPreview(item.key as PreviewSurfaceMode)}
-                      className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                    >
-                      <span>{item.label}</span>
-                      {previewMode === item.key ? <span className="text-xs text-slate-400">Current</span> : null}
-                    </button>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-            <button
-              type="button"
-              title="Publish"
-              aria-label="Publish content"
-              disabled={!transitionReleaseAction}
-              onClick={publishCurrentNode}
-              className="inline-flex shrink-0 items-center gap-2 rounded-xl bg-slate-950 px-3 py-2 text-sm font-semibold text-white disabled:opacity-40"
-            >
-              Publish
-            </button>
-            <button
-              type="button"
-              title="Delete"
-              aria-label="Archive current content node"
-              onClick={archiveCurrentNode}
-              className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700"
-            >
-              <Trash2 className="h-4 w-4" />
-              Delete
-            </button>
-            <button
-              type="button"
-              title="Undo"
-              aria-label="Undo"
-              onClick={undoDocument}
-              disabled={!canUndo}
-              className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 disabled:opacity-40"
-            >
-              <RotateCcw className="h-4 w-4" />
-              Undo
-            </button>
-            <button
-              type="button"
-              title="Redo"
-              aria-label="Redo"
-              onClick={redoDocument}
-              disabled={!canRedo}
-              className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 disabled:opacity-40"
-            >
-              <Redo2 className="h-4 w-4" />
-              Redo
-            </button>
-            <button
-              type="button"
-              title="Search manuscript"
-              aria-label="Search manuscript"
-              aria-expanded={searchOpen}
-              onClick={() => setSearchOpen((current) => !current)}
-              className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700"
-            >
-              <Search className="h-4 w-4" />
-              Search
-            </button>
-            <button
-              type="button"
-              title="Open insert menu"
-              aria-label="Open insert menu"
-              aria-expanded={toolbarAddOpen}
-              onClick={() => {
-                setToolbarAddOpen((current) => !current);
-                setPreviewMenuOpen(false);
-                setMoreMenuOpen(false);
-              }}
-              className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700"
-            >
-              <Plus className="h-4 w-4" />
-              Insert
-              <ChevronDown className="h-4 w-4" />
-            </button>
-            <div className="relative">
-              <button
-                type="button"
-                title="Open more actions"
-                aria-label="Open more actions"
-                aria-expanded={moreMenuOpen}
-                onClick={() => {
-                  setMoreMenuOpen((current) => !current);
-                  setPreviewMenuOpen(false);
-                }}
-                className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700"
-              >
-                <MoreHorizontal className="h-4 w-4" />
-                More
-              </button>
-              {moreMenuOpen ? (
-                <div className="absolute right-0 top-full z-20 mt-2 w-56 rounded-[1.25rem] border border-slate-200 bg-white p-2 shadow-xl">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setMoreMenuOpen(false);
-                      setReleasePanelOpen(true);
-                    }}
-                    className="flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                  >
-                    Version History
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setMoreMenuOpen(false);
-                      setReleasePanelOpen(true);
-                    }}
-                    className="flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                  >
-                    Rollback
-                  </button>
-                  <button
-                    type="button"
-                    onClick={archiveCurrentNode}
-                    className="flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                  >
-                    <Archive className="mr-2 h-4 w-4" />
-                    Archive
-                  </button>
-                  <button
-                    type="button"
-                    onClick={duplicateCurrentNode}
-                    className="flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                  >
-                    <Copy className="mr-2 h-4 w-4" />
-                    Duplicate
-                  </button>
-                  <button
-                    type="button"
-                    onClick={exportManuscript}
-                    className="flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                  >
-                    <FileDown className="mr-2 h-4 w-4" />
-                    Export
-                  </button>
-                  <button
-                    type="button"
-                    onClick={printManuscript}
-                    className="flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                  >
-                    Print
-                  </button>
-                </div>
-              ) : null}
-            </div>
-          </div>
+        </div>
+          <TopActionBar
+  lifecycleLabel={
+    releaseSummary?.lifecycle === "PUBLISHED"
+      ? "Published"
+      : "Draft"
+  }
+  dirty={dirty}
+  saveState={saveState}
+  onSave={() => void saveDocument()}
+  previewMode={previewMode}
+  previewMenuOpen={previewMenuOpen}
+  onTogglePreviewMenu={() => {
+    setPreviewMenuOpen((current) => !current);
+    setMoreMenuOpen(false);
+  }}
+  onPreview={openPreview}
+  canPublish={Boolean(transitionReleaseAction)}
+  onPublish={publishCurrentNode}
+  onDelete={deleteCurrentNode}
+  canUndo={canUndo}
+  canRedo={canRedo}
+  onUndo={undoDocument}
+  onRedo={redoDocument}
+  searchOpen={searchOpen}
+  onToggleSearch={() =>
+    setSearchOpen((current) => !current)
+  }
+  insertMenuOpen={toolbarAddOpen}
+  onToggleInsertMenu={() => {
+    setToolbarAddOpen((current) => !current);
+    setPreviewMenuOpen(false);
+    setMoreMenuOpen(false);
+  }}
+  moreMenuOpen={moreMenuOpen}
+  onToggleMoreMenu={() => {
+    setMoreMenuOpen((current) => !current);
+    setPreviewMenuOpen(false);
+  }}
+  onOpenVersionHistory={() => {
+    setMoreMenuOpen(false);
+    setReleasePanelOpen(true);
+  }}
+  onOpenRollback={() => {
+    setMoreMenuOpen(false);
+    setReleasePanelOpen(true);
+  }}
+  onDuplicate={duplicateCurrentNode}
+  onExport={exportManuscript}
+  onPrint={printManuscript}
+  layout={contentDoc.layout}
+  onToggleLayout={() => {
+    applyDocumentChange((current) => ({
+      ...current,
+      layout:
+        current.layout === "double"
+          ? "single"
+          : "double",
+    }));
+    setSaveState("dirty");
+  }}
+/>
+          <WritingRibbon
+  activeBlockType={
+    contentDoc.blocks.find(
+      (block) => block.id === toolbarAnchorId,
+    )?.type ?? "paragraph"
+  }
+  onChangeBlockType={applyToolbarBlockType}
+  onAlignLeft={() =>
+    updatePatch(toolbarAnchorId, { align: "left" })
+  }
+  onAlignCenter={() =>
+    updatePatch(toolbarAnchorId, { align: "center" })
+  }
+  onAlignRight={() =>
+    updatePatch(toolbarAnchorId, { align: "right" })
+  }
+  onOpenInsertMenu={() => setToolbarAddOpen(true)}
+/>
           {searchOpen ? (
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <input
@@ -1369,6 +1359,11 @@ export default function ContentManuscriptEditor({
               <UnifiedAddMenu
                 canOpenScopedBuilders={canOpenScopedBuilders}
                 onPick={(kind) => {
+                  if (kind === "feature") {
+                    setFeatureMenuOpen(true);
+                    setToolbarAddOpen(false);
+                    return;
+                  }
                   if (kind === "activity" || kind === "worksheet" || kind === "exercise") {
                     openBuilderSurface(kind, "existing");
                     return;
@@ -1378,20 +1373,37 @@ export default function ContentManuscriptEditor({
               />
             </div>
           ) : null}
-        </div>
+          {featureMenuOpen ? (
+            <div className="mt-3 rounded-[1.5rem] border border-slate-200 bg-white p-3 shadow-sm">
+              <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Feature Element</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {INFO_BOX_VARIANTS.map((variant) => (
+                  <button key={variant} type="button" onClick={() => addFeature(variant)} className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+                    {infoBoxToolbarLabel(variant)}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+          <PeriodTabs
+  periods={contentDoc.periods}
+  activePeriodId={activePeriodId}
+  editingPeriodId={editingPeriodId}
+  periodTitleDraft={periodTitleDraft}
+  onSelectPeriod={setActivePeriodId}
+  onBeginRename={beginPeriodRename}
+  onChangeTitleDraft={setPeriodTitleDraft}
+  onCommitRename={commitPeriodRename}
+  onCancelRename={() => setEditingPeriodId(null)}
+  onDeleteEmptyPeriod={deleteEmptyPeriod}
+  onAddPeriod={addPeriod}
+/>
 
         <div className="min-h-0 flex-1 overflow-y-auto">
           <div className="mx-auto flex w-full max-w-[76rem] flex-col gap-4 px-4 py-4 sm:px-6 sm:py-6">
             <div className="mx-auto w-full max-w-[62rem] rounded-[2rem] bg-white px-6 py-7 shadow-sm ring-1 ring-slate-200 sm:px-8">
               <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-blue-700">
-                    {nodeType} Manuscript
-                  </p>
-                  <p className="mt-1 text-sm text-slate-500">
-                    Write directly on the manuscript canvas. Insert media, teaching elements, and reusable study materials inline.
-                  </p>
-                </div>
+                <div className="min-h-7" aria-hidden="true" />
                 <span
                   className={`rounded-full px-3 py-1 text-xs font-bold ${
                     saveState === "saving"
@@ -1443,8 +1455,8 @@ export default function ContentManuscriptEditor({
 
             </div>
 
-            <div className="mx-auto w-full max-w-[62rem] space-y-4">
-              {contentDoc.blocks.map((block, index) => (
+            <div className={`mx-auto w-full max-w-[62rem] gap-4 ${contentDoc.layout === "double" ? "grid grid-cols-1 md:grid-cols-2" : "space-y-4"}`}>
+              {contentDoc.blocks.filter((block) => block.periodId === activePeriodId).map((block, index) => (
                 <BlockEditor
                   key={block.id}
                   bookId={bookId}
@@ -1454,6 +1466,7 @@ export default function ContentManuscriptEditor({
                   assetOptions={assetLibrary}
                   mediaOptions={mediaLibrary}
                   sectionDefinitions={sectionDefinitions}
+                  periods={contentDoc.periods}
                   resolvedAsset={previewLinkedAssets[block.id] ?? null}
                   resolvedMedia={previewMedia[block.id] ?? null}
                   menuOpen={menuAnchor === block.id}
@@ -1463,6 +1476,7 @@ export default function ContentManuscriptEditor({
                   onInsertAfter={(type) => addBlock(type, block.id)}
                   onUpdateText={(value) => updateText(block.id, value)}
                   onTextSelect={(target) => captureTextSelection(block, target)}
+                  onTextPaste={(event) => handleTextPaste(event, block)}
                   onOpenKnowledge={(type, target) => {
                     const selection = target
                       ? readTextSelection(block, target)
@@ -1478,7 +1492,8 @@ export default function ContentManuscriptEditor({
                   onClearImage={() => updatePatch(block.id, { url: "", resourceId: undefined, alt: "" })}
                   onUpdateLinkedAsset={(patch) => updatePatch(block.id, patch)}
                   onUpdateMedia={(patch) => updatePatch(block.id, patch)}
-                  onConvert={(type) => convertCurrentBlock(block.id, type)}
+                  onActivate={() => setActiveBlockId(block.id)}
+                  onMovePeriod={(periodId) => moveCurrentBlockToPeriod(block.id, periodId)}
                   onKeyDown={handleTextKeyDown}
                   onListKeyDown={handleListKeyDown}
                   onDuplicate={() => duplicateCurrentBlock(block.id)}
@@ -1582,8 +1597,20 @@ export default function ContentManuscriptEditor({
                 audience: input.audience,
               });
               if (!insertAnchorId) return;
-              if (insertKind === "media") {
-                insertResourceAsMedia(resource, insertAnchorId, input.type === ResourceType.AUDIO ? "audio" : input.type === ResourceType.INTERACTIVE ? "simulation" : "video");
+              if (insertKind === "image") {
+                insertImageResource(resource, insertAnchorId, input.image);
+              } else if (insertKind === "media") {
+                insertResourceAsMedia(
+                  resource,
+                  insertAnchorId,
+                  input.type === ResourceType.AUDIO
+                    ? "audio"
+                    : input.file.type === "image/gif" || input.file.type === "image/svg+xml"
+                      ? "animation"
+                      : input.type === ResourceType.INTERACTIVE
+                        ? "simulation"
+                        : "video",
+                );
               } else {
                 insertResourceAsLinkedAsset(resource, insertAnchorId);
               }
@@ -1655,6 +1682,7 @@ function BlockEditor({
   assetOptions,
   mediaOptions,
   sectionDefinitions,
+  periods,
   resolvedAsset,
   resolvedMedia,
   menuOpen,
@@ -1664,6 +1692,7 @@ function BlockEditor({
   onInsertAfter,
   onUpdateText,
   onTextSelect,
+  onTextPaste,
   onOpenKnowledge,
   onRemoveKnowledge,
   resolvedKnowledge,
@@ -1674,7 +1703,8 @@ function BlockEditor({
   onClearImage,
   onUpdateLinkedAsset,
   onUpdateMedia,
-  onConvert,
+  onActivate,
+  onMovePeriod,
   onKeyDown,
   onListKeyDown,
   onDuplicate,
@@ -1689,6 +1719,7 @@ function BlockEditor({
   assetOptions: ContentStudioAssetOption[];
   mediaOptions: ContentStudioMediaOption[];
   sectionDefinitions: ContentSectionDefinitionSummary[];
+  periods: ContentDocument["periods"];
   resolvedAsset: ResolvedLinkedAsset | null;
   resolvedMedia: ResolvedMediaBlock | null;
   menuOpen: boolean;
@@ -1698,6 +1729,7 @@ function BlockEditor({
   onInsertAfter: (type: ContentBlockType) => void;
   onUpdateText: (value: string) => void;
   onTextSelect: (target: HTMLInputElement | HTMLTextAreaElement) => void;
+  onTextPaste: (event: ClipboardEvent<HTMLInputElement | HTMLTextAreaElement>) => void;
   onOpenKnowledge: (
     type: KnowledgeReferenceType,
     target?: HTMLInputElement | HTMLTextAreaElement,
@@ -1711,7 +1743,8 @@ function BlockEditor({
   onClearImage: () => void;
   onUpdateLinkedAsset: (patch: Partial<LinkedAssetBlock>) => void;
   onUpdateMedia: (patch: Partial<MediaBlock>) => void;
-  onConvert: (type: ContentBlockType) => void;
+  onActivate: () => void;
+  onMovePeriod: (periodId: string) => void;
   onKeyDown: (
     event: KeyboardEvent<HTMLElement>,
     block: ContentBlock,
@@ -1729,30 +1762,18 @@ function BlockEditor({
   onMoveUp: () => void;
   onMoveDown: () => void;
 }) {
-  const shell =
-    "group rounded-[1.75rem] border border-transparent bg-white px-4 py-3 shadow-sm ring-1 ring-slate-200 transition hover:ring-slate-300";
+  const shell = "group rounded-xl px-1 py-2 transition hover:bg-white/45";
   const actionButton =
     "rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700";
   const safeImage = sanitizeUrl(isImageBlock(block) ? block.url : "");
   const collapsed = block.collapsed === true;
 
   return (
-    <article className={shell}>
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-3 py-1 text-xs font-bold uppercase tracking-[0.14em] text-slate-500">
-          <GripVertical className="h-3.5 w-3.5" />
-          {blockLabel(block.type)}
-        </span>
-        <select
-          value={block.type}
-          onChange={(event) => onConvert(event.target.value as ContentBlockType)}
-          className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700"
-        >
-          {ALL_BLOCK_TYPES.map((type) => (
-            <option key={type} value={type}>
-              {blockLabel(type)}
-            </option>
-          ))}
+    <article className={shell} onFocusCapture={onActivate} onMouseDown={onActivate}>
+      <div className="mb-1 flex min-h-7 flex-wrap items-center gap-2 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100">
+        <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">{blockLabel(block.type)}</span>
+        <select value={block.periodId ?? periods[0]?.id ?? ""} onChange={(event) => onMovePeriod(event.target.value)} aria-label="Move block to period" className="rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600">
+          {periods.map((period) => <option key={period.id} value={period.id}>{period.title}</option>)}
         </select>
         <div className="ml-auto flex flex-wrap gap-2 opacity-100 transition sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
           <button
@@ -1793,7 +1814,7 @@ function BlockEditor({
       </div>
 
       <div className="space-y-3">
-        <div className="grid gap-3 rounded-[1.5rem] bg-slate-50 p-4 ring-1 ring-slate-200 lg:grid-cols-5">
+        <div className="hidden grid gap-3 rounded-[1.5rem] bg-slate-50 p-4 ring-1 ring-slate-200 lg:grid-cols-5">
           <label className="block text-sm font-semibold text-slate-700 lg:col-span-2">
             Optional title
             <input
@@ -1872,6 +1893,7 @@ function BlockEditor({
             value={block.text}
             onChange={(event) => onUpdateText(event.target.value)}
             onSelect={(event) => onTextSelect(event.currentTarget)}
+            onPaste={onTextPaste}
             onContextMenu={(event) => openKnowledgeFromContext(event, onTextSelect, onOpenKnowledge)}
             onKeyDown={(event) => onKeyDown(event, block, index, block.text)}
             placeholder={block.type === "heading" ? "Heading" : "Subheading"}
@@ -1889,6 +1911,7 @@ function BlockEditor({
             value={block.text}
             onChange={(event) => onUpdateText(event.target.value)}
             onSelect={(event) => onTextSelect(event.currentTarget)}
+            onPaste={onTextPaste}
             onContextMenu={(event) => openKnowledgeFromContext(event, onTextSelect, onOpenKnowledge)}
             onKeyDown={(event) => onKeyDown(event, block, index, block.text)}
             rows={4}
@@ -3329,6 +3352,7 @@ function UnifiedAddMenu({
   const items: Array<{ kind: ToolbarInsertKind; label: string; disabled?: boolean }> = [
     { kind: "image", label: "Image" },
     { kind: "media", label: "Media" },
+    { kind: "feature", label: "Feature Element" },
     { kind: "activity", label: "Activity", disabled: !canOpenScopedBuilders },
     { kind: "worksheet", label: "Worksheet", disabled: !canOpenScopedBuilders },
     { kind: "exercise", label: "Exercise", disabled: !canOpenScopedBuilders },
@@ -3483,38 +3507,42 @@ function InsertContentDrawer({
     title: string;
     type: ResourceType;
     audience: ResourceAudience;
+    image?: ImageInsertMetadata;
   }) => void;
 }) {
   if (!open || !kind) return null;
 
-  const imageChoices = resources.filter((resource) => resource.thumbnail || resource.fileUrl);
+  const imageChoices = resources.filter(
+    (resource) => resource.type === ResourceType.IMAGE || resource.mimeType?.startsWith("image/"),
+  );
   const linkedChoices = assetOptions.filter((option) => option.assetKind === kind);
 
   return (
     <StudioBuilderDrawer open={open} title={`Insert ${blockLabelForDrawer(kind)}`} onClose={onClose}>
       <div className="space-y-5">
         {kind === "image" ? (
-          <section className="rounded-[1.5rem] bg-white p-4 ring-1 ring-slate-200">
-            <p className="text-sm font-semibold text-slate-700">
-              Choose an existing publisher resource thumbnail or file to insert as an image.
-            </p>
-            <p className="mt-2 text-sm text-slate-500">
-              Direct image upload is limited by the current canonical Resource type set, so this drawer uses existing reusable publisher resources only.
-            </p>
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              {imageChoices.map((resource) => (
-                <button
-                  key={resource.id}
-                  type="button"
-                  onClick={() => onChooseImage(resource)}
-                  className="rounded-[1.25rem] border border-slate-200 px-4 py-3 text-left hover:bg-slate-50"
-                >
-                  <p className="text-sm font-semibold text-slate-900">{resource.title}</p>
-                  <p className="mt-1 text-xs text-slate-500">{resource.type ?? "Resource"}</p>
-                </button>
-              ))}
-            </div>
-          </section>
+          <>
+            <LibrarySection
+              title="Choose Existing Image"
+              items={imageChoices.map((resource) => ({
+                key: resource.id,
+                title: resource.title,
+                detail: resource.mimeType || "Image",
+                onChoose: () => onChooseImage(resource),
+              }))}
+              emptyText="No compatible images are available in this publisher library."
+            />
+            <ResourceUploadCard
+              title="Upload New Image"
+              allowedTypes={[ResourceType.IMAGE]}
+              imageMode
+              busy={busy}
+              status={status}
+              error={error}
+              uploadProgress={uploadProgress}
+              onSubmit={onUploadResource}
+            />
+          </>
         ) : null}
 
         {kind === "media" ? (
@@ -3530,7 +3558,8 @@ function InsertContentDrawer({
             />
             <ResourceUploadCard
               title="Upload New Media"
-              allowedTypes={[ResourceType.VIDEO, ResourceType.AUDIO, ResourceType.INTERACTIVE]}
+              allowedTypes={[ResourceType.VIDEO, ResourceType.AUDIO, ResourceType.INTERACTIVE, ResourceType.IMAGE]}
+              fileAccept="video/*,audio/*,image/gif,image/svg+xml"
               busy={busy}
               status={status}
               error={error}
@@ -3787,6 +3816,8 @@ function LibrarySection({
 function ResourceUploadCard({
   title,
   allowedTypes,
+  imageMode = false,
+  fileAccept,
   busy,
   status,
   error,
@@ -3795,6 +3826,8 @@ function ResourceUploadCard({
 }: {
   title: string;
   allowedTypes: ResourceType[];
+  imageMode?: boolean;
+  fileAccept?: string;
   busy: boolean;
   status: string;
   error: string;
@@ -3804,29 +3837,49 @@ function ResourceUploadCard({
     title: string;
     type: ResourceType;
     audience: ResourceAudience;
+    image?: ImageInsertMetadata;
   }) => void;
 }) {
   const [file, setFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState("");
+  const previewUrlRef = useRef("");
   const [resourceTitle, setResourceTitle] = useState("");
   const [resourceType, setResourceType] = useState<ResourceType>(allowedTypes[0] ?? ResourceType.PDF);
   const [audience, setAudience] = useState<ResourceAudience>(ResourceAudience.BOTH);
+  const [alt, setAlt] = useState("");
+  const [caption, setCaption] = useState("");
+  const [align, setAlign] = useState<BlockAlignment>("center");
+  const [width, setWidth] = useState<ImageInsertMetadata["width"]>("wide");
+
+  function chooseFile(nextFile: File | null) {
+    if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+    const nextPreview = imageMode && nextFile ? URL.createObjectURL(nextFile) : "";
+    previewUrlRef.current = nextPreview;
+    setPreviewUrl(nextPreview);
+    setFile(nextFile);
+    if (nextFile && !resourceTitle) setResourceTitle(nextFile.name.replace(/\.[^.]+$/, ""));
+  }
+
+  useEffect(() => () => {
+    if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+  }, []);
 
   return (
     <section className="rounded-[1.5rem] bg-white p-4 ring-1 ring-slate-200">
       <h3 className="text-sm font-bold text-slate-950">{title}</h3>
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        <label className="block text-sm font-semibold text-slate-700">
+        {!imageMode ? <label className="block text-sm font-semibold text-slate-700">
           Title
           <input value={resourceTitle} onChange={(event) => setResourceTitle(event.target.value)} className={field} />
-        </label>
-        <label className="block text-sm font-semibold text-slate-700">
+        </label> : null}
+        {!imageMode ? <label className="block text-sm font-semibold text-slate-700">
           Type
           <select value={resourceType} onChange={(event) => setResourceType(event.target.value as ResourceType)} className={field}>
             {allowedTypes.map((type) => (
               <option key={type} value={type}>{type}</option>
             ))}
           </select>
-        </label>
+        </label> : null}
         <label className="block text-sm font-semibold text-slate-700">
           Audience
           <select value={audience} onChange={(event) => setAudience(event.target.value as ResourceAudience)} className={field}>
@@ -3837,16 +3890,37 @@ function ResourceUploadCard({
         </label>
         <label className="block text-sm font-semibold text-slate-700">
           File
-          <input type="file" onChange={(event) => setFile(event.target.files?.[0] ?? null)} className={field} />
+          <input type="file" accept={fileAccept ?? (imageMode ? "image/jpeg,image/png,image/webp" : undefined)} onChange={(event) => chooseFile(event.target.files?.[0] ?? null)} className={field} />
         </label>
       </div>
+      {imageMode ? (
+        <div className="mt-4 space-y-3">
+          {previewUrl ? (
+            // Local object URLs are intentionally used for the pre-upload preview.
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={previewUrl} alt="Selected image preview" className="max-h-48 w-full rounded-2xl object-contain ring-1 ring-slate-200" />
+          ) : null}
+          <label className="block text-sm font-semibold text-slate-700">
+            Alt text <span className="text-rose-600">*</span>
+            <input value={alt} onChange={(event) => setAlt(event.target.value)} required className={field} />
+          </label>
+          <label className="block text-sm font-semibold text-slate-700">
+            Caption
+            <input value={caption} onChange={(event) => setCaption(event.target.value)} className={field} />
+          </label>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="block text-sm font-semibold text-slate-700">Alignment<select value={align} onChange={(event) => setAlign(event.target.value as BlockAlignment)} className={field}><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select></label>
+            <label className="block text-sm font-semibold text-slate-700">Width<select value={width} onChange={(event) => setWidth(event.target.value as ImageInsertMetadata["width"])} className={field}><option value="medium">Medium</option><option value="wide">Large</option><option value="full">Full</option></select></label>
+          </div>
+        </div>
+      ) : null}
       {uploadProgress > 0 ? <p className="mt-3 text-sm font-semibold text-slate-500">Upload {uploadProgress}%</p> : null}
       {status ? <p className="mt-3 text-sm font-semibold text-slate-500">{status}</p> : null}
       {error ? <p className="mt-3 rounded-xl bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">{error}</p> : null}
       <button
         type="button"
-        disabled={!file || !resourceTitle.trim() || busy}
-        onClick={() => file && onSubmit({ file, title: resourceTitle.trim(), type: resourceType, audience })}
+        disabled={!file || (!imageMode && !resourceTitle.trim()) || (imageMode && !alt.trim()) || busy}
+        onClick={() => file && onSubmit({ file, title: imageMode ? alt.trim() : resourceTitle.trim(), type: resourceType, audience, image: imageMode ? { alt: alt.trim(), caption: caption.trim(), align, width } : undefined })}
         className="mt-4 rounded-xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white disabled:opacity-45"
       >
         {busy ? "Uploading..." : "Upload and Insert"}
@@ -3861,6 +3935,8 @@ function blockLabelForDrawer(kind: ToolbarInsertKind) {
       return "Image";
     case "media":
       return "Media";
+    case "feature":
+      return "Feature Element";
     case "activity":
       return "Activity";
     case "worksheet":
@@ -3872,6 +3948,12 @@ function blockLabelForDrawer(kind: ToolbarInsertKind) {
     case "learningOutcome":
       return "Learning Outcome";
   }
+}
+
+function infoBoxToolbarLabel(variant: InfoBoxVariant) {
+  return variant
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/^./, (value) => value.toUpperCase());
 }
 
 function buildLinkedAssetPreviewMap(

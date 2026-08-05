@@ -4013,6 +4013,7 @@ enum AiUsageStatus {
 }
 
 enum ResourceType {
+  IMAGE
   PDF
   PPT
   DOC

@@ -99,6 +99,9 @@ export async function POST(request: Request) {
   if (mimeRaw && !mimeType) {
     return NextResponse.json({ message: "Provide a supported file type." }, { status: 400 });
   }
+  if (type === ResourceType.IMAGE && !mimeType?.startsWith("image/")) {
+    return NextResponse.json({ message: "Image resources require an image file." }, { status: 400 });
+  }
 
   const fileSizeBytes = Object.prototype.hasOwnProperty.call(body, "fileSizeBytes")
     ? parseResourceFileSizeBytes(body.fileSizeBytes)

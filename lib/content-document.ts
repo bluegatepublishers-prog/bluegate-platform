@@ -16,7 +16,8 @@ import {
   type KnowledgeReference,
 } from "@/lib/content-knowledge-types";
 
-export const CONTENT_DOCUMENT_VERSION = 2 as const;
+export const CONTENT_DOCUMENT_VERSION = 4 as const;
+export const DEFAULT_PERIOD_ID = "period_default";
 
 export const BLOCK_ALIGNMENTS = ["left", "center", "right"] as const;
 export const BLOCK_BACKGROUND_STYLES = ["none", "subtle", "accent", "emphasis"] as const;
@@ -29,6 +30,15 @@ export const INFO_BOX_VARIANTS = [
   "warning",
   "didYouKnow",
   "summary",
+  "thinkAndDiscuss",
+  "reflection",
+  "competencyCheck",
+  "lifeSkill",
+  "caseStudy",
+  "teacherTip",
+  "activityPrompt",
+  "experimentPrompt",
+  "observationPrompt",
 ] as const;
 export const FORMULA_DISPLAY_MODES = ["inline", "block"] as const;
 export const IMAGE_WIDTHS = ["full", "wide", "medium"] as const;
@@ -49,6 +59,22 @@ export type MediaKind = (typeof MEDIA_KINDS)[number];
 export type MediaTargetType = (typeof MEDIA_TARGET_TYPES)[number];
 export type MediaDisplayMode = (typeof MEDIA_DISPLAY_MODES)[number];
 export type PlaceholderBlockType = (typeof PLACEHOLDER_BLOCK_TYPES)[number];
+export const TEXT_MARKS = ["bold", "italic", "underline"] as const;
+
+export type TextMark = (typeof TEXT_MARKS)[number];
+
+export type RichTextSpan = {
+  text: string;
+  marks?: TextMark[];
+  color?: string;
+  highlight?: string;
+  fontSize?: number;
+};
+export type ContentPeriod = {
+  id: string;
+  title: string;
+  sortOrder: number;
+};
 
 export type ContentBlockType =
   | "heading"
@@ -85,6 +111,7 @@ type BaseBlock = {
   borderStyle?: BlockBorderStyle;
   hidden?: boolean;
   collapsed?: boolean;
+  periodId?: string;
 };
 
 type ImageLike = {
@@ -115,7 +142,19 @@ type SequenceItem = {
 
 export type TextBlock = BaseBlock & {
   type: "heading" | "subheading" | "paragraph" | "caption" | "quote" | "callout";
+
+  /**
+   * Plain-text representation retained for backward compatibility,
+   * searching, knowledge-reference offsets, AI collection and exports.
+   */
   text: string;
+
+  /**
+   * Canonical character-level formatting representation.
+   * When omitted on legacy content, normalization creates one plain span.
+   */
+  spans: RichTextSpan[];
+
   attribution?: string;
   knowledgeReferences?: KnowledgeReference[];
 };
@@ -220,6 +259,8 @@ export type ContentBlock =
 export type ContentDocument = {
   version: typeof CONTENT_DOCUMENT_VERSION;
   blocks: ContentBlock[];
+  periods: ContentPeriod[];
+  layout: "single" | "double";
 };
 
 const supportedTypes = new Set<ContentBlockType>([
@@ -249,23 +290,59 @@ const supportedTypes = new Set<ContentBlockType>([
   "flowChart",
 ]);
 
-const fallbackParagraph = (): ContentDocument => ({
-  version: CONTENT_DOCUMENT_VERSION,
-  blocks: [createTextBlock("paragraph", "")],
-});
+const fallbackParagraph = (): ContentDocument => createContentDocument();
 
-export function createContentDocument(blocks: ContentBlock[] = []): ContentDocument {
+export function createContentDocument(
+  blocks: ContentBlock[] = [],
+  periods: ContentPeriod[] = [],
+  layout: ContentDocument["layout"] = "single",
+): ContentDocument {
+  const normalizedPeriods = normalizePeriods(periods);
+  const firstPeriodId = normalizedPeriods[0]?.id ?? DEFAULT_PERIOD_ID;
+  const normalizedBlocks = blocks.map((block) => ({
+    ...block,
+    periodId: normalizedPeriods.some((period) => period.id === block.periodId) ? block.periodId : firstPeriodId,
+  }));
   return {
     version: CONTENT_DOCUMENT_VERSION,
-    blocks: blocks.length ? blocks : [createTextBlock("paragraph", "")],
+    blocks: normalizedBlocks.length ? normalizedBlocks : [{ ...createTextBlock("paragraph", ""), periodId: firstPeriodId }],
+    periods: normalizedPeriods,
+    layout,
   };
+}
+
+export function addContentPeriod(document: ContentDocument, title?: string) {
+  const sortOrder = document.periods.length;
+  const period: ContentPeriod = { id: createStableId(), title: normalizeText(title) || `Period ${sortOrder + 1}`, sortOrder };
+  return createContentDocument(document.blocks, [...document.periods, period], document.layout);
+}
+
+export function moveBlockToPeriod(document: ContentDocument, blockId: string, periodId: string) {
+  if (!document.periods.some((period) => period.id === periodId)) return document;
+  return createContentDocument(document.blocks.map((block) => block.id === blockId ? { ...block, periodId } : block), document.periods, document.layout);
+}
+
+export function renameContentPeriod(document: ContentDocument, periodId: string, title: string) {
+  return createContentDocument(document.blocks, document.periods.map((period) => period.id === periodId ? { ...period, title: normalizeText(title) || period.title } : period), document.layout);
+}
+
+export function removeEmptyContentPeriod(document: ContentDocument, periodId: string) {
+  if (document.periods.length <= 1 || document.blocks.some((block) => block.periodId === periodId)) return document;
+  return createContentDocument(document.blocks, document.periods.filter((period) => period.id !== periodId).map((period, index) => ({ ...period, sortOrder: index })), document.layout);
 }
 
 export function createTextBlock(
   type: "heading" | "subheading" | "paragraph" | "caption" | "quote" | "callout",
   text = "",
 ): TextBlock {
-  return { id: createStableId(), type, text };
+  const normalizedText = normalizeTextContent(text);
+
+  return {
+    id: createStableId(),
+    type,
+    text: normalizedText,
+    spans: [{ text: normalizedText }],
+  };
 }
 
 export function createListBlock(
@@ -469,21 +546,33 @@ export function convertBlockType(block: ContentBlock, type: ContentBlockType): C
   const id = block.id;
   const textValue = extractBlockText(block);
   if (
-    type === "heading" ||
-    type === "subheading" ||
-    type === "paragraph" ||
-    type === "caption" ||
-    type === "quote" ||
-    type === "callout"
-  ) {
-    return {
-      ...createTextBlock(type, textValue),
-      ...shared,
-      id,
-      attribution: block.type === "quote" || block.type === "callout" ? block.attribution : undefined,
-      knowledgeReferences: isTextBlock(block) ? block.knowledgeReferences : undefined,
-    };
-  }
+  type === "heading" ||
+  type === "subheading" ||
+  type === "paragraph" ||
+  type === "caption" ||
+  type === "quote" ||
+  type === "callout"
+) {
+  return {
+    ...createTextBlock(type, textValue),
+    ...shared,
+    id,
+    spans: isTextBlock(block)
+      ? block.spans.map((span) => ({
+          ...span,
+          marks: span.marks ? [...span.marks] : undefined,
+        }))
+      : [{ text: textValue }],
+    attribution:
+      block.type === "quote" || block.type === "callout"
+        ? block.attribution
+        : undefined,
+    knowledgeReferences: isTextBlock(block)
+      ? block.knowledgeReferences
+      : undefined,
+  };
+}
+  
   if (type === "bulletList" || type === "numberedList") {
     return {
       ...createListBlock(type, extractBlockItems(block)),
@@ -589,18 +678,12 @@ export function normalizeContentDocument(value: unknown): ContentDocument {
     const blocks = value.blocks
       .map((block) => normalizeBlock(block))
       .filter((block): block is ContentBlock => Boolean(block));
-    return {
-      version: CONTENT_DOCUMENT_VERSION,
-      blocks: blocks.length ? blocks : [createTextBlock("paragraph", "")],
-    };
+    return createContentDocument(blocks, normalizePeriods(value.periods), value.layout === "double" ? "double" : "single");
   }
 
   if (isSupportedType(value.type)) {
     const block = normalizeBlock(value);
-    return {
-      version: CONTENT_DOCUMENT_VERSION,
-      blocks: block ? [block] : [createTextBlock("paragraph", "")],
-    };
+    return createContentDocument(block ? [block] : []);
   }
 
   const content = readFirstText(value, ["content", "text", "body", "summary", "description"]);
@@ -608,10 +691,7 @@ export function normalizeContentDocument(value: unknown): ContentDocument {
 
   const segments = extractLegacySegments(value);
   if (segments.length) {
-    return {
-      version: CONTENT_DOCUMENT_VERSION,
-      blocks: segmentsToBlocks(segments),
-    };
+    return createContentDocument(segmentsToBlocks(segments));
   }
 
   return fallbackParagraph();
@@ -629,15 +709,15 @@ export function insertBlockAfter(
   const blocks = [...document.blocks];
   if (!afterId) {
     blocks.unshift(block);
-    return createContentDocument(blocks);
+    return createContentDocument(blocks, document.periods, document.layout);
   }
   const index = blocks.findIndex((entry) => entry.id === afterId);
   if (index < 0) {
     blocks.push(block);
-    return createContentDocument(blocks);
+    return createContentDocument(blocks, document.periods, document.layout);
   }
   blocks.splice(index + 1, 0, block);
-  return createContentDocument(blocks);
+  return createContentDocument(blocks, document.periods, document.layout);
 }
 
 export function insertBlockBefore(
@@ -648,15 +728,15 @@ export function insertBlockBefore(
   const blocks = [...document.blocks];
   if (!beforeId) {
     blocks.push(block);
-    return createContentDocument(blocks);
+    return createContentDocument(blocks, document.periods, document.layout);
   }
   const index = blocks.findIndex((entry) => entry.id === beforeId);
   if (index < 0) {
     blocks.push(block);
-    return createContentDocument(blocks);
+    return createContentDocument(blocks, document.periods, document.layout);
   }
   blocks.splice(index, 0, block);
-  return createContentDocument(blocks);
+  return createContentDocument(blocks, document.periods, document.layout);
 }
 
 export function updateBlock(
@@ -665,12 +745,12 @@ export function updateBlock(
   updater: (block: ContentBlock) => ContentBlock,
 ) {
   const blocks = document.blocks.map((block) => (block.id === blockId ? updater(block) : block));
-  return createContentDocument(blocks);
+  return createContentDocument(blocks, document.periods, document.layout);
 }
 
 export function removeBlock(document: ContentDocument, blockId: string) {
   const blocks = document.blocks.filter((block) => block.id !== blockId);
-  return createContentDocument(blocks);
+  return createContentDocument(blocks, document.periods, document.layout);
 }
 
 export function moveBlock(document: ContentDocument, blockId: string, direction: -1 | 1) {
@@ -1011,25 +1091,42 @@ function normalizeBlock(value: unknown): ContentBlock | null {
   }
 
   if (
-    type === "quote" ||
-    type === "callout" ||
-    type === "heading" ||
-    type === "subheading" ||
-    type === "paragraph" ||
-    type === "caption"
-  ) {
-    const text =
-      normalizeText(readFirstText(value, ["text", "content", "body", "value", "title", "caption"])) ||
-      normalizeText(typeof value === "string" ? value : "");
-    return {
-      id,
-      type,
-      ...shared,
+  type === "quote" ||
+  type === "callout" ||
+  type === "heading" ||
+  type === "subheading" ||
+  type === "paragraph" ||
+  type === "caption"
+) {
+  const legacyText = normalizeTextContent(
+    readFirstText(value, [
+      "text",
+      "content",
+      "body",
+      "value",
+      "title",
+      "caption",
+    ]),
+  );
+
+  const spans = normalizeRichTextSpans(value.spans, legacyText);
+  const text = richTextSpansToText(spans);
+
+  return {
+    id,
+    type,
+    ...shared,
+    text,
+    spans,
+    attribution: normalizeOptionalText(
+      readFirstText(value, ["attribution", "source"]),
+    ),
+    knowledgeReferences: normalizeKnowledgeReferences(
+      value.knowledgeReferences,
       text,
-      attribution: normalizeOptionalText(readFirstText(value, ["attribution", "source"])),
-      knowledgeReferences: normalizeKnowledgeReferences(value.knowledgeReferences, text),
-    };
-  }
+    ),
+  };
+}
 
   if (isRecord(value.content) || Array.isArray(value.content) || typeof value.content === "string") {
     return normalizeBlock(value.content);
@@ -1043,10 +1140,7 @@ function normalizeBlock(value: unknown): ContentBlock | null {
 
 function legacyTextToDocument(value: string): ContentDocument {
   const blocks = markdownishToBlocks(value);
-  return {
-    version: CONTENT_DOCUMENT_VERSION,
-    blocks: blocks.length ? blocks : [createTextBlock("paragraph", value)],
-  };
+  return createContentDocument(blocks.length ? blocks : [createTextBlock("paragraph", value)]);
 }
 
 function markdownishToBlocks(value: string): ContentBlock[] {
@@ -1184,6 +1278,7 @@ function normalizeSharedProps(value: Record<string, unknown>) {
     borderStyle: normalizeBorderStyle(value.borderStyle),
     hidden: value.hidden ? true : undefined,
     collapsed: value.collapsed ? true : undefined,
+    periodId: normalizeOptionalText(typeof value.periodId === "string" ? value.periodId : ""),
   };
 }
 
@@ -1196,9 +1291,163 @@ function sharedPresentationProps(block: ContentBlock) {
     borderStyle: block.borderStyle,
     hidden: block.hidden,
     collapsed: block.collapsed,
+    periodId: block.periodId,
   };
 }
 
+function normalizePeriods(value: unknown): ContentPeriod[] {
+  const periods = Array.isArray(value)
+    ? value.map((entry, index) => {
+        const record = isRecord(entry) ? entry : {};
+        const id = normalizeText(typeof record.id === "string" ? record.id : "") || (index === 0 ? DEFAULT_PERIOD_ID : createStableId());
+        return {
+          id,
+          title: normalizeText(typeof record.title === "string" ? record.title : "") || `Period ${index + 1}`,
+          sortOrder: index,
+        };
+      })
+    : [];
+  return periods.length ? periods : [{ id: DEFAULT_PERIOD_ID, title: "Period 1", sortOrder: 0 }];
+}
+export function richTextSpansToText(spans: RichTextSpan[]) {
+  return spans.map((span) => span.text).join("");
+}
+
+export function normalizeRichTextSpans(
+  value: unknown,
+  fallbackText = "",
+): RichTextSpan[] {
+  if (!Array.isArray(value)) {
+    return [{ text: normalizeTextContent(fallbackText) }];
+  }
+
+  const spans = value
+    .map((entry): RichTextSpan | null => {
+      if (!isRecord(entry)) return null;
+
+      const text = normalizeTextContent(
+        typeof entry.text === "string" ? entry.text : "",
+      );
+
+      /*
+       * Preserve empty spans only temporarily during editing, but discard
+       * completely empty spans when other useful spans exist.
+       */
+      const marks = normalizeTextMarks(entry.marks);
+      const color = normalizeCssColor(entry.color);
+      const highlight = normalizeCssColor(entry.highlight);
+      const fontSize = normalizeFontSize(entry.fontSize);
+
+      return {
+        text,
+        marks: marks.length ? marks : undefined,
+        color,
+        highlight,
+        fontSize,
+      };
+    })
+    .filter((span): span is RichTextSpan => Boolean(span));
+
+  const usableSpans =
+    spans.length > 1
+      ? spans.filter(
+          (span) =>
+            span.text.length > 0 ||
+            Boolean(span.marks?.length) ||
+            Boolean(span.color) ||
+            Boolean(span.highlight) ||
+            Boolean(span.fontSize),
+        )
+      : spans;
+
+  if (!usableSpans.length) {
+    return [{ text: normalizeTextContent(fallbackText) }];
+  }
+
+  return mergeAdjacentRichTextSpans(usableSpans);
+}
+
+function normalizeTextMarks(value: unknown): TextMark[] {
+  if (!Array.isArray(value)) return [];
+
+  return Array.from(
+    new Set(
+      value.filter(
+        (entry): entry is TextMark =>
+          typeof entry === "string" &&
+          TEXT_MARKS.includes(entry as TextMark),
+      ),
+    ),
+  );
+}
+
+function normalizeCssColor(value: unknown) {
+  if (typeof value !== "string") return undefined;
+
+  const color = value.trim();
+
+  /*
+   * Keep the first version intentionally strict.
+   * It accepts hexadecimal colours only and rejects CSS injection,
+   * variables, URLs and arbitrary style expressions.
+   */
+  return /^#[0-9a-fA-F]{6}$/.test(color) ||
+    /^#[0-9a-fA-F]{3}$/.test(color)
+    ? color.toLowerCase()
+    : undefined;
+}
+
+function normalizeFontSize(value: unknown) {
+  const size = Number(value);
+
+  if (!Number.isFinite(size)) return undefined;
+
+  const rounded = Math.round(size);
+
+  /*
+   * Prevent unusably small or dangerously large values.
+   */
+  return rounded >= 8 && rounded <= 96 ? rounded : undefined;
+}
+
+function normalizeTextContent(value: string | undefined) {
+  return (value ?? "").replace(/\u0000/g, "");
+}
+
+function mergeAdjacentRichTextSpans(
+  spans: RichTextSpan[],
+): RichTextSpan[] {
+  const result: RichTextSpan[] = [];
+
+  for (const span of spans) {
+    const previous = result[result.length - 1];
+
+    if (previous && haveSameRichTextFormatting(previous, span)) {
+      previous.text += span.text;
+      continue;
+    }
+
+    result.push({
+      ...span,
+      marks: span.marks ? [...span.marks] : undefined,
+    });
+  }
+
+  return result.length ? result : [{ text: "" }];
+}
+
+function haveSameRichTextFormatting(
+  left: RichTextSpan,
+  right: RichTextSpan,
+) {
+  return (
+    JSON.stringify(left.marks ?? []) ===
+      JSON.stringify(right.marks ?? []) &&
+    left.color === right.color &&
+    left.highlight === right.highlight &&
+    left.fontSize === right.fontSize
+  );
+}
 function normalizeText(value: string | undefined) {
   return (value ?? "").replace(/\u0000/g, "").trim();
 }
@@ -1441,6 +1690,24 @@ function infoBoxDefaultTitle(variant: InfoBoxVariant) {
       return "Did You Know";
     case "summary":
       return "Summary";
+    case "thinkAndDiscuss":
+      return "Think and Discuss";
+    case "reflection":
+      return "Reflection";
+    case "competencyCheck":
+      return "Competency Check";
+    case "lifeSkill":
+      return "Life Skill";
+    case "caseStudy":
+      return "Case Study";
+    case "teacherTip":
+      return "Teacher Tip";
+    case "activityPrompt":
+      return "Activity Prompt";
+    case "experimentPrompt":
+      return "Experiment Prompt";
+    case "observationPrompt":
+      return "Observation Prompt";
   }
 }
 
@@ -1449,25 +1716,55 @@ function placeholderBlockTitle(type: PlaceholderBlockType) {
 }
 
 function extractBlockText(block: ContentBlock) {
-  if (isTextBlock(block)) return block.text;
+  if (isTextBlock(block)) {
+    return richTextSpansToText(block.spans);
+  }
+
   if (isInfoBoxBlock(block)) return block.text;
   if (isObservationBoxBlock(block)) return block.text;
   if (isFormulaBlock(block)) return block.expression;
   if (isImageBlock(block)) return block.caption ?? block.alt;
+
   if (isSequenceBlock(block)) {
-    return block.items.map((item) => item.title).filter(Boolean).join("\n");
+    return block.items
+      .map((item) => item.title)
+      .filter(Boolean)
+      .join("\n");
   }
+
   if (isTableBlock(block)) {
-    return block.rows.map((row) => row.cells.map((cell) => cell.text).join(" | ")).join("\n");
+    return block.rows
+      .map((row) => row.cells.map((cell) => cell.text).join(" | "))
+      .join("\n");
   }
+
   return block.title ?? "";
 }
 
 function extractBlockItems(block: ContentBlock) {
   if (isListBlock(block)) return block.items;
-  if (isSequenceBlock(block)) return block.items.map((item) => item.title || item.description || "");
-  if (isTableBlock(block)) return block.rows.map((row) => row.cells[0]?.text ?? "");
-  if (isTextBlock(block)) return block.text ? block.text.split(/\n+/).map((item) => normalizeText(item)).filter(Boolean) : [""];
+
+  if (isSequenceBlock(block)) {
+    return block.items.map(
+      (item) => item.title || item.description || "",
+    );
+  }
+
+  if (isTableBlock(block)) {
+    return block.rows.map((row) => row.cells[0]?.text ?? "");
+  }
+
+  if (isTextBlock(block)) {
+    const text = richTextSpansToText(block.spans);
+
+    return text
+      ? text
+          .split(/\n+/)
+          .map((item) => normalizeText(item))
+          .filter(Boolean)
+      : [""];
+  }
+
   return [extractBlockText(block)].filter(Boolean);
 }
 

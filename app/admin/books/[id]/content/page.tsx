@@ -509,36 +509,32 @@ async function NodeCanvas({
       duplicateActivityAction={scope.chapterId ? duplicateActivityStudioAction.bind(null, bookId) : null}
       archiveActivityAction={scope.chapterId ? archiveActivityStudioAction.bind(null, bookId) : null}
       moveActivityAction={
-        scope.chapterId
-          ? (activityId, direction) =>
-              moveActivityStudioAction(
-                bookId,
-                scope.chapterId!,
-                scope.moduleId ?? null,
-                scope.topicId ?? null,
-                activityId,
-                direction,
-              )
-          : null
-      }
+  scope.chapterId
+    ? moveActivityStudioAction.bind(
+        null,
+        bookId,
+        scope.chapterId,
+        scope.moduleId ?? null,
+        scope.topicId ?? null,
+      )
+    : null
+}
       saveWorksheetAction={
         scope.chapterId ? saveWorksheetStudioAction.bind(null, bookId, scope.chapterId) : null
       }
       duplicateWorksheetAction={scope.chapterId ? duplicateWorksheetStudioAction.bind(null, bookId) : null}
       archiveWorksheetAction={scope.chapterId ? archiveWorksheetStudioAction.bind(null, bookId) : null}
       moveWorksheetAction={
-        scope.chapterId
-          ? (worksheetId, direction) =>
-              moveWorksheetStudioAction(
-                bookId,
-                scope.chapterId!,
-                scope.moduleId ?? null,
-                scope.topicId ?? null,
-                worksheetId,
-                direction,
-              )
-          : null
-      }
+  scope.chapterId
+    ? moveWorksheetStudioAction.bind(
+        null,
+        bookId,
+        scope.chapterId,
+        scope.moduleId ?? null,
+        scope.topicId ?? null,
+      )
+    : null
+}
       saveExerciseStudioAction={
         scope.chapterId ? saveExerciseStudioExerciseAction.bind(null, bookId, scope.chapterId) : null
       }
@@ -855,7 +851,7 @@ async function FolderCanvas({
       { userId, publisherId },
       bookId,
       "WORKSHEET",
-      rows.map((row) => row.id),
+      rows.map((row: { id: string }) => row.id)
     );
     return (
       <FolderShell
@@ -1570,6 +1566,10 @@ async function loadEditorResources(publisherId: string) {
       title: true,
       thumbnail: true,
       fileUrl: true,
+      type: true,
+      mimeType: true,
+      published: true,
+      audience: true,
     },
     orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
     take: 100,

@@ -1,0 +1,11 @@
+
+> bluegate-platform@0.1.0 dev
+> next dev
+
+▲ Next.js 16.2.10 (Turbopack)
+- Local:         http://localhost:3000
+- Network:       http://192.168.1.7:3000
+- Environments: .env.local, .env
+✓ Ready in 1111ms
+Creating turbopack project { dir: 'C:\\Users\\vikky\\bluegate-platform', testMode: true }
+

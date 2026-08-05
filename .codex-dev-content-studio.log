@@ -1,0 +1,208 @@
+
+> bluegate-platform@0.1.0 dev
+> next dev
+
+▲ Next.js 16.2.10 (Turbopack)
+- Local:         http://localhost:3000
+- Network:       http://192.168.1.7:3000
+- Environments: .env.local, .env
+✓ Ready in 969ms
+Creating turbopack project { dir: 'C:\\Users\\vikky\\bluegate-platform', testMode: true }
+
+Persisting failed: Unable to write SST file 00004479.sst
+
+Caused by:
+    The system cannot find the path specified. (os error 3)
+Persisting failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Compaction failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Persisting failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Persisting failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Compaction failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Persisting failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Compaction failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Persisting failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Compaction failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Persisting failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Compaction failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Persisting failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Persisting failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Compaction failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Persisting failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Compaction failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Persisting failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Compaction failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Persisting failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Compaction failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Persisting failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Compaction failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Persisting failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Compaction failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Persisting failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Compaction failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Persisting failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Compaction failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Persisting failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Compaction failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Persisting failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Compaction failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Persisting failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Compaction failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Persisting failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Compaction failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Persisting failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Compaction failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Persisting failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Compaction failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Compaction failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Compaction failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Compaction failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Compaction failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Compaction failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Persisting failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Compaction failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Compaction failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Persisting failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Compaction failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Compaction failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Compaction failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Persisting failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Compaction failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Persisting failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Compaction failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Compaction failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+
+thread 'tokio-runtime-worker' (29020) panicked at turbopack\crates\turbo-tasks-backend\src\backend\operation\mod.rs:197:17:
+Failed to restore task data (corrupted database or bug): Meta for TaskId 932504)
+
+Caused by:
+    0: Looking up task storage for TaskId 932504 from database failed
+    1: Unable to open static sorted file referenced from 00004454.meta
+    2: Unable to open static sorted file 00004450.sst
+    3: Failed to open SST file C:\Users\vikky\bluegate-platform\.next\dev\cache/turbopack\v16.2.10\00004450.sst
+    4: The system cannot find the file specified. (os error 2)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'tokio-runtime-worker' (20656) panicked at turbopack\crates\turbo-tasks-backend\src\backend\operation\mod.rs:197:17:
+Failed to restore task data (corrupted database or bug): Meta for TaskId 939499)
+
+Caused by:
+    0: Looking up task storage for TaskId 939499 from database failed
+    1: Unable to open static sorted file referenced from 00004365.meta
+    2: Unable to open static sorted file 00004363.sst
+    3: Failed to open SST file C:\Users\vikky\bluegate-platform\.next\dev\cache/turbopack\v16.2.10\00004363.sst
+    4: The system cannot find the file specified. (os error 2)
+
+thread 'tokio-runtime-worker' (31048) panicked at turbopack\crates\turbo-tasks-backend\src\backend\operation\mod.rs:197:17:
+Failed to restore task data (corrupted database or bug): Meta for TaskId 934643)
+
+Caused by:
+    0: Looking up task storage for TaskId 934643 from database failed
+    1: Unable to open static sorted file referenced from 00004365.meta
+    2: Unable to open static sorted file 00004363.sst
+    3: Failed to open SST file C:\Users\vikky\bluegate-platform\.next\dev\cache/turbopack\v16.2.10\00004363.sst
+    4: The system cannot find the file specified. (os error 2)
+
+thread 'tokio-runtime-worker' (15620) panicked at turbopack\crates\turbo-tasks-backend\src\backend\operation\mod.rs:197:17:
+Failed to restore task data (corrupted database or bug): Meta for TaskId 934545)
+
+Caused by:
+    0: Looking up task storage for TaskId 934545 from database failed
+    1: Unable to open static sorted file referenced from 00004365.meta
+    2: Unable to open static sorted file 00004363.sst
+    3: Failed to open SST file C:\Users\vikky\bluegate-platform\.next\dev\cache/turbopack\v16.2.10\00004363.sst
+    4: The system cannot find the file specified. (os error 2)
+
+thread 'tokio-runtime-worker' (35896) panicked at turbopack\crates\turbo-tasks-backend\src\backend\operation\mod.rs:197:17:
+Failed to restore task data (corrupted database or bug): Meta for TaskId 940783)
+
+Caused by:
+    0: Looking up task storage for TaskId 940783 from database failed
+    1: Unable to open static sorted file referenced from 00004365.meta
+    2: Unable to open static sorted file 00004363.sst
+    3: Failed to open SST file C:\Users\vikky\bluegate-platform\.next\dev\cache/turbopack\v16.2.10\00004363.sst
+    4: The system cannot find the file specified. (os error 2)
+
+thread 'tokio-runtime-worker' (12716) panicked at turbopack\crates\turbo-tasks-backend\src\backend\operation\mod.rs:197:17:
+Failed to restore task data (corrupted database or bug): Meta for TaskId 939515)
+
+Caused by:
+    0: Looking up task storage for TaskId 939515 from database failed
+    1: Unable to open static sorted file referenced from 00004365.meta
+    2: Unable to open static sorted file 00004363.sst
+    3: Failed to open SST file C:\Users\vikky\bluegate-platform\.next\dev\cache/turbopack\v16.2.10\00004363.sst
+    4: The system cannot find the file specified. (os error 2)
+
+thread 'tokio-runtime-worker' (22668) panicked at turbopack\crates\turbo-tasks-backend\src\backend\operation\mod.rs:197:17:
+Failed to restore task data (corrupted database or bug): Meta for TaskId 932744)
+
+Caused by:
+    0: Looking up task storage for TaskId 932744 from database failed
+    1: Unable to open static sorted file referenced from 00004365.meta
+    2: Unable to open static sorted file 00004363.sst
+    3: Failed to open SST file C:\Users\vikky\bluegate-platform\.next\dev\cache/turbopack\v16.2.10\00004363.sst
+    4: The system cannot find the file specified. (os error 2)
+Persisting failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Compaction failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+
+thread 'tokio-runtime-worker' (35896) panicked at turbopack\crates\turbo-tasks-backend\src\backend\operation\mod.rs:225:17:
+Failed to restore task data (corrupted database or bug): Data for batch of 4 tasks
+
+Caused by:
+    0: Looking up typed data for 4 tasks from database failed
+    1: Unable to open static sorted file referenced from 00004459.meta
+    2: Unable to open static sorted file 00004458.sst
+    3: Failed to open SST file C:\Users\vikky\bluegate-platform\.next\dev\cache/turbopack\v16.2.10\00004458.sst
+    4: The system cannot find the file specified. (os error 2)
+
+thread 'tokio-runtime-worker' (20656) panicked at turbopack\crates\turbo-tasks-backend\src\backend\operation\mod.rs:197:17:
+Failed to restore task data (corrupted database or bug): Data for TaskId 353807)
+
+Caused by:
+    0: Looking up task storage for TaskId 353807 from database failed
+    1: Unable to open static sorted file referenced from 00004082.meta
+    2: Unable to open static sorted file 00004081.sst
+    3: Failed to open SST file C:\Users\vikky\bluegate-platform\.next\dev\cache/turbopack\v16.2.10\00004081.sst
+    4: The system cannot find the file specified. (os error 2)
+○ Compiling / ...
+
+thread 'tokio-runtime-worker' (15620) panicked at turbopack\crates\turbo-tasks-backend\src\backend\operation\mod.rs:197:17:
+Failed to restore task data (corrupted database or bug): Data for TaskId 400577)
+
+Caused by:
+    0: Looking up task storage for TaskId 400577 from database failed
+    1: Unable to open static sorted file referenced from 00004082.meta
+    2: Unable to open static sorted file 00004081.sst
+    3: Failed to open SST file C:\Users\vikky\bluegate-platform\.next\dev\cache/turbopack\v16.2.10\00004081.sst
+    4: The system cannot find the file specified. (os error 2)
+
+thread 'tokio-runtime-worker' (20656) panicked at turbopack\crates\turbo-tasks-backend\src\backend\operation\mod.rs:225:17:
+Failed to restore task data (corrupted database or bug): Data for batch of 4 tasks
+
+Caused by:
+    0: Looking up typed data for 4 tasks from database failed
+    1: Unable to open static sorted file referenced from 00004459.meta
+    2: Unable to open static sorted file 00004456.sst
+    3: Failed to open SST file C:\Users\vikky\bluegate-platform\.next\dev\cache/turbopack\v16.2.10\00004456.sst
+    4: The system cannot find the file specified. (os error 2)
+Persisting failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Compaction failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Persisting failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Compaction failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Compaction failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Compaction failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Compaction failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Persisting failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Compaction failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Compaction failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+
+thread 'tokio-runtime-worker' (27092) panicked at turbopack\crates\turbo-tasks-backend\src\backend\operation\mod.rs:225:17:
+Failed to restore task data (corrupted database or bug): Data for batch of 2 tasks
+
+Caused by:
+    0: Looking up typed data for 2 tasks from database failed
+    1: Unable to open static sorted file referenced from 00004098.meta
+    2: Unable to open static sorted file 00004095.sst
+    3: Failed to open SST file C:\Users\vikky\bluegate-platform\.next\dev\cache/turbopack\v16.2.10\00004095.sst
+    4: The system cannot find the file specified. (os error 2)
+Persisting failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)
+Compaction failed: Another write batch or compaction is already active (Only a single write operations is allowed at a time)

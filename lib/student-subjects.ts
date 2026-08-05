@@ -1,11 +1,11 @@
 import "server-only";
 
-import { BookAdoptionStatus, PlatformFeatureKey, ResourceAudience, TeacherAssignmentType } from "@prisma/client";
+import { BookAdoptionStatus, PlatformFeatureKey, ResourceAudience, ResourceType, TeacherAssignmentType } from "@prisma/client";
 import { cache } from "react";
 import { prisma } from "@/lib/prisma";
 import { isPublisherFeatureEnabled } from "@/lib/publisher-features";
 import { requireStudent } from "@/lib/student-dashboard";
-import { buildStudentSubjectViewModels } from "@/lib/student-subject-policy";
+import { buildStudentSubjectViewModels, type StudentResourceType } from "@/lib/student-subject-policy";
 import { resolveResourceEntitlementForAuthenticatedUser } from "@/lib/entitlements/resource";
 import { authorizeStudentResourceFromSubjects } from "@/lib/student-resource-service";
 
@@ -83,6 +83,7 @@ export const getStudentSubjects = cache(async () => {
           publisherId: publisher.id,
           published: true,
           archived: false,
+          type: { not: ResourceType.IMAGE },
           audience: { in: [ResourceAudience.STUDENT, ResourceAudience.BOTH] },
           schoolEntitlements: {
             some: {
@@ -162,6 +163,9 @@ export const getStudentSubjects = cache(async () => {
     subjects.map((subject) => ({
       ...subject,
       adoptions: subject.bookAdoptions,
+      resources: subject.resources
+        .filter((resource) => resource.type !== ResourceType.IMAGE)
+        .map((resource) => ({ ...resource, type: resource.type as StudentResourceType })),
       assignments: assignments.filter((assignment) => assignment.subjectId === subject.subject.id),
     })),
   );
