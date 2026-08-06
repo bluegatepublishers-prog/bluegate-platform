@@ -1,9 +1,9 @@
 "use client";
 
-import Canvas from "@/components/admin/books/editor/Canvas";
+import EditorShell from "@/components/admin/books/editor/EditorShell";
+import DocumentWorkspace from "@/components/admin/books/editor/DocumentWorkspace";
 import PeriodTabs from "@/components/admin/books/editor/PeriodTabs";
-import TopActionBar from "@/components/admin/books/editor/TopActionBar";
-import WritingRibbon from "@/components/admin/books/editor/WritingRibbon";
+import WordRibbon from "@/components/admin/books/editor/WordRibbon";
 import TextBlockEditor from "@/components/admin/books/editor/blocks/TextBlockEditor";
 import ImageBlockEditor from "@/components/admin/books/editor/blocks/ImageBlockEditor";
 import TableBlockEditor from "@/components/admin/books/editor/blocks/TableBlockEditor";
@@ -12,15 +12,7 @@ import LinkedAssetEditor from "@/components/admin/books/editor/blocks/LinkedAsse
 import ListBlockEditor from "@/components/admin/books/editor/blocks/ListBlockEditor";
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import type { ClipboardEvent, KeyboardEvent, MouseEvent } from "react";
-import {
-  ChevronDown,
-  ChevronUp,
-  Copy,
-  Slash,
-  Trash2,
-} from "lucide-react";
 import { ResourceAudience, ResourceType } from "@prisma/client";
-
 import ActivityStudio from "@/components/admin/books/ActivityStudio";
 import ContentDocumentRenderer from "@/components/admin/books/ContentDocumentRenderer";
 import ContentReleasePanel from "@/components/admin/books/ContentReleasePanel";
@@ -29,7 +21,6 @@ import StudioBuilderDrawer from "@/components/admin/books/StudioBuilderDrawer";
 import WorksheetStudio from "@/components/admin/books/WorksheetStudio";
 import {
   deleteContentNodeAction,
-  duplicateContentNodeAction,
 } from "@/app/admin/books/[id]/content/actions";
 import type { BookStructureNodeType } from "@/lib/book-structure-management";
 import type { ContentRenderMode } from "@/lib/content-audience";
@@ -65,10 +56,10 @@ import {
   INFO_BOX_VARIANTS,
   blockLabel,
   addContentPeriod,
+  convertBlockType,
   createBlockByType,
   createTextBlock,
   defaultNextBlockType,
-  duplicateBlock,
   insertBlockAfter,
   insertBlockBefore,
   isFormulaBlock,
@@ -83,8 +74,6 @@ import {
   isSequenceBlock,
   isTableBlock,
   isTextBlock,
-  moveBlock,
-  moveBlockToPeriod,
   removeEmptyContentPeriod,
   renameContentPeriod,
   normalizeContentDocument,
@@ -358,14 +347,9 @@ export default function ContentManuscriptEditor({
   const [knowledgeMap, setKnowledgeMap] = useState(resolvedKnowledge);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewMode, setPreviewMode] = useState<PreviewSurfaceMode>("STUDENT");
-  const [previewMenuOpen, setPreviewMenuOpen] = useState(false);
-  const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [releasePanelOpen, setReleasePanelOpen] = useState(false);
-  const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
-  const [toolbarAddOpen, setToolbarAddOpen] = useState(false);
-  const [featureMenuOpen, setFeatureMenuOpen] = useState(false);
   const [insertKind, setInsertKind] = useState<ToolbarInsertKind | null>(null);
   const [builderKind, setBuilderKind] = useState<BuilderKind | null>(null);
   const [builderTab, setBuilderTab] = useState<"existing" | "create">("existing");
@@ -373,6 +357,11 @@ export default function ContentManuscriptEditor({
   const [insertStatus, setInsertStatus] = useState("");
   const [insertError, setInsertError] = useState("");
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [showRuler, setShowRuler] = useState(true);
+  const [showGrid, setShowGrid] = useState(false);
+  const [zoom, setZoom] = useState(100);
+  const editorShellRef =
+    useRef<HTMLDivElement>(null);
   const [isRunningInsert, startInsertTransition] = useTransition();
   const [baselineSnapshot, setBaselineSnapshot] = useState(() =>
     serializeSnapshot({
@@ -500,11 +489,10 @@ export default function ContentManuscriptEditor({
     form.set("content", current);
 
     try {
-      const result = await saveAction(form);
+      await saveAction(form);
       setBaselineSnapshot(current);
       setSaveState("saved");
       setSaveMessage("Saved");
-      setLastSavedAt(result.savedAt);
     } catch (cause) {
       setSaveState("error");
       setSaveMessage("Save failed");
@@ -621,22 +609,29 @@ export default function ContentManuscriptEditor({
   }
 
   function addFeature(variant: InfoBoxVariant) {
-    if (!toolbarAnchorId) return;
-    addBlockWithFactory(toolbarAnchorId, () => {
-      const block = createBlockByType("infoBox");
-      return isInfoBoxBlock(block) ? { ...block, variant } : block;
-    });
-    setFeatureMenuOpen(false);
-  }
+  if (!toolbarAnchorId) return;
+
+  addBlockWithFactory(toolbarAnchorId, () => {
+    const block = createBlockByType("infoBox");
+
+    return isInfoBoxBlock(block)
+      ? { ...block, variant }
+      : block;
+  });
+}
 
   function applyToolbarBlockType(type: ContentBlockType) {
     if (!toolbarAnchorId) return;
-    applyDocumentChange((current) => updateBlock(current, toolbarAnchorId, (block) => {
-      const next = createBlockByType(type);
-      if (isTextBlock(block) && isTextBlock(next)) return { ...next, text: block.text };
-      if (isListBlock(block) && isListBlock(next)) return { ...next, items: block.items };
-      return next;
-    }));
+
+    applyDocumentChange((current) =>
+      updateBlock(
+        current,
+        toolbarAnchorId,
+        (block) => convertBlockType(block, type),
+      ),
+    );
+
+    setSaveState("dirty");
     setSaveMessage("Text style updated");
   }
 
@@ -644,9 +639,276 @@ export default function ContentManuscriptEditor({
     applyDocumentChange((current) =>
       updateBlock(current, blockId, (block) => {
         if (!isTextBlock(block)) return block;
-        return { ...block, text: value };
+
+        return {
+          ...block,
+          text: value,
+          spans: [{ text: value }],
+        };
       }),
     );
+  }
+
+  function applyBlockFormat(
+    command:
+      | "bold"
+      | "italic"
+      | "underline"
+      | "strikethrough"
+      | "clearFormatting"
+      | "fontFamily"
+      | "fontSize"
+      | "textColor"
+      | "highlightColor",
+    value?: string,
+  ) {
+    const block = activeTextBlock();
+
+    if (!block) {
+      setSaveMessage("Select a text block first");
+      return;
+    }
+
+    if (command === "clearFormatting") {
+      updatePatch(block.id, {
+        fontFamily: undefined,
+        fontSize: undefined,
+        bold: undefined,
+        italic: undefined,
+        underline: undefined,
+        strikethrough: undefined,
+        textColor: undefined,
+        highlightColor: undefined,
+      });
+
+      setSaveState("dirty");
+      setSaveMessage("Formatting cleared");
+      return;
+    }
+
+    if (command === "fontFamily") {
+      if (!value) return;
+
+      updatePatch(block.id, {
+        fontFamily: value,
+      });
+
+      setSaveState("dirty");
+      setSaveMessage("Font family updated");
+      return;
+    }
+
+    if (command === "fontSize") {
+      const fontSize = Number(value);
+
+      if (
+        !Number.isFinite(fontSize) ||
+        fontSize < 8 ||
+        fontSize > 96
+      ) {
+        return;
+      }
+
+      updatePatch(block.id, {
+        fontSize: Math.round(fontSize),
+      });
+
+      setSaveState("dirty");
+      setSaveMessage("Font size updated");
+      return;
+    }
+
+    if (command === "textColor") {
+      if (!value) return;
+
+      updatePatch(block.id, {
+        textColor: value,
+      });
+
+      setSaveState("dirty");
+      setSaveMessage("Text colour updated");
+      return;
+    }
+
+    if (command === "highlightColor") {
+      if (!value) return;
+
+      updatePatch(block.id, {
+        highlightColor: value,
+      });
+
+      setSaveState("dirty");
+      setSaveMessage("Highlight updated");
+      return;
+    }
+
+    updatePatch(block.id, {
+      [command]: !block[command],
+    });
+
+    setSaveState("dirty");
+    setSaveMessage(
+      `${formatCommandLabel(command)} updated`,
+    );
+  }
+
+  function formatCommandLabel(
+    command:
+      | "bold"
+      | "italic"
+      | "underline"
+      | "strikethrough",
+  ) {
+    switch (command) {
+      case "bold":
+        return "Bold";
+      case "italic":
+        return "Italic";
+      case "underline":
+        return "Underline";
+      case "strikethrough":
+        return "Strikethrough";
+    }
+  }
+
+  function activeTextBlock() {
+    const block =
+      contentDoc.blocks.find(
+        (entry) =>
+          entry.id === toolbarAnchorId,
+      ) ?? null;
+
+    return block && isTextBlock(block)
+      ? block
+      : null;
+  }
+
+  async function copyActiveText() {
+    const block = activeTextBlock();
+    if (!block) return;
+
+    const text =
+      activeSelection?.blockId === block.id
+        ? activeSelection.text
+        : block.text;
+
+    if (!text) return;
+
+    try {
+      await navigator.clipboard.writeText(text);
+      setSaveMessage("Text copied");
+    } catch {
+      setSaveMessage("Clipboard access was blocked by the browser");
+    }
+  }
+
+  async function cutActiveText() {
+    const block = activeTextBlock();
+    if (!block) return;
+
+    const selection =
+      activeSelection?.blockId === block.id
+        ? activeSelection
+        : null;
+
+    const text = selection
+      ? selection.text
+      : block.text;
+
+    if (!text) return;
+
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      setSaveMessage("Clipboard access was blocked by the browser");
+      return;
+    }
+
+    const nextText = selection
+      ? block.text.slice(0, selection.start) +
+        block.text.slice(selection.end)
+      : "";
+
+    updateText(block.id, nextText);
+    setActiveSelection(null);
+    setFocusTarget(block.id);
+    setSaveState("dirty");
+    setSaveMessage("Text cut");
+  }
+
+  async function pasteIntoActiveText() {
+    const block = activeTextBlock();
+    if (!block) return;
+
+    let clipboardText = "";
+
+    try {
+      clipboardText =
+        await navigator.clipboard.readText();
+    } catch {
+      setSaveMessage("Clipboard access was blocked by the browser");
+      return;
+    }
+
+    if (!clipboardText) return;
+
+    const selection =
+      activeSelection?.blockId === block.id
+        ? activeSelection
+        : null;
+
+    const start = selection?.start ??
+      block.text.length;
+    const end = selection?.end ?? start;
+
+    const nextText =
+      block.text.slice(0, start) +
+      clipboardText +
+      block.text.slice(end);
+
+    updateText(block.id, nextText);
+    setActiveSelection(null);
+    setFocusTarget(block.id);
+    setSaveState("dirty");
+    setSaveMessage("Text pasted");
+  }
+
+  function selectAllActiveText() {
+    const block = activeTextBlock();
+
+    if (!block) {
+      setSaveMessage("Select a text block first");
+      return;
+    }
+
+    const selector =
+      `[data-block-id="${block.id}"]`;
+
+    const target =
+      globalThis.document.querySelector<
+        HTMLInputElement | HTMLTextAreaElement
+      >(selector);
+
+    if (!target) {
+      setSaveMessage("Unable to select this block");
+      return;
+    }
+
+    target.focus();
+    target.setSelectionRange(
+      0,
+      target.value.length,
+    );
+
+    setActiveSelection({
+      blockId: block.id,
+      start: 0,
+      end: target.value.length,
+      text: target.value,
+    });
+
+    setActiveBlockId(block.id);
+    setSaveMessage("Selected all text in the active block");
   }
 
   function updatePatch(blockId: string, patch: Partial<ContentBlock>) {
@@ -711,8 +973,6 @@ export default function ContentManuscriptEditor({
   }
 
   function openInsertSurface(kind: ToolbarInsertKind, anchorId = toolbarAnchorId) {
-    setToolbarAddOpen(false);
-    setFeatureMenuOpen(false);
     setBuilderKind(null);
     setInsertKind(kind);
     setInsertAnchorId(anchorId);
@@ -726,7 +986,6 @@ export default function ContentManuscriptEditor({
 
   function openBuilderSurface(kind: BuilderKind, tab: "existing" | "create" = "existing") {
     if (!canOpenScopedBuilders) return;
-    setToolbarAddOpen(false);
     setInsertKind(null);
     setBuilderKind(kind);
     setBuilderTab(tab);
@@ -750,7 +1009,6 @@ export default function ContentManuscriptEditor({
 
   function openPreview(mode: PreviewSurfaceMode) {
     setPreviewMode(mode);
-    setPreviewMenuOpen(false);
     setPreviewOpen(true);
   }
 
@@ -761,10 +1019,7 @@ export default function ContentManuscriptEditor({
     void transitionReleaseAction("PUBLISH", form);
   }
 
-  function duplicateCurrentNode() {
-    void duplicateContentNodeAction(bookId, nodeType, nodeId);
-  }
-
+  
   function focusSearchResult() {
     const query = searchQuery.trim().toLowerCase();
     if (!query) return;
@@ -780,29 +1035,7 @@ export default function ContentManuscriptEditor({
     setSaveMessage("Jumped to the first matching block");
   }
 
-  function exportManuscript() {
-    const lines = buildPlainTextExport({
-      title,
-      subtitle,
-      description,
-      content: contentDoc,
-    });
-    const blob = new Blob([lines], { type: "text/plain;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const anchor = globalThis.document.createElement("a");
-    anchor.href = url;
-    anchor.download = `${(title || nodeTitle || "manuscript").trim().replace(/[^a-z0-9]+/gi, "-").toLowerCase() || "manuscript"}.txt`;
-    anchor.click();
-    URL.revokeObjectURL(url);
-    setMoreMenuOpen(false);
-  }
-
-  function printManuscript() {
-    setMoreMenuOpen(false);
-    globalThis.print();
-  }
-
-  function addBlockWithFactory(
+      function addBlockWithFactory(
     anchorId: string,
     factory: () => ContentBlock,
     before = false,
@@ -817,17 +1050,90 @@ export default function ContentManuscriptEditor({
   }
 
   function addPeriod() {
-    setContentDoc((current) => {
-      const next = addContentPeriod(current);
-      setActivePeriodId(next.periods[next.periods.length - 1]?.id ?? current.periods[0]?.id ?? "period_default");
-      historyRef.current.push(current);
-      futureRef.current = [];
-      setCanUndo(true);
-      setCanRedo(false);
-      setSaveState("dirty");
-      return next;
+    const nextDocument = addContentPeriod(
+      contentDoc,
+      `Period ${contentDoc.periods.length + 1}`,
+    );
+
+    const newPeriod =
+      nextDocument.periods[
+        nextDocument.periods.length - 1
+      ];
+
+    if (!newPeriod) {
+      setSaveMessage("Unable to create a new period");
+      return;
+    }
+
+    const firstParagraph = {
+      ...createTextBlock("paragraph", ""),
+      periodId: newPeriod.id,
+    };
+
+    const documentWithWriter: ContentDocument = {
+      ...nextDocument,
+      blocks: [
+        ...nextDocument.blocks,
+        firstParagraph,
+      ],
+    };
+
+    applyDocumentChange(() => documentWithWriter);
+
+    setActivePeriodId(newPeriod.id);
+    setActiveBlockId(firstParagraph.id);
+    setFocusTarget(firstParagraph.id);
+    setSaveState("dirty");
+    setSaveMessage("New period added");
+  }
+
+  function ensurePeriodHasWriter(
+    periodId: string,
+  ) {
+    const existingBlock =
+      contentDoc.blocks.find(
+        (block) =>
+          block.periodId === periodId,
+      ) ?? null;
+
+    setActivePeriodId(periodId);
+    closeMenu();
+
+    if (existingBlock) {
+      setActiveBlockId(existingBlock.id);
+      setFocusTarget(existingBlock.id);
+      return;
+    }
+
+    const firstParagraph = {
+      ...createTextBlock("paragraph", ""),
+      periodId,
+    };
+
+    applyDocumentChange((current) => {
+      const alreadyHasWriter =
+        current.blocks.some(
+          (block) =>
+            block.periodId === periodId,
+        );
+
+      if (alreadyHasWriter) {
+        return current;
+      }
+
+      return {
+        ...current,
+        blocks: [
+          ...current.blocks,
+          firstParagraph,
+        ],
+      };
     });
-    setSaveMessage("Period added");
+
+    setActiveBlockId(firstParagraph.id);
+    setFocusTarget(firstParagraph.id);
+    setSaveState("dirty");
+    setSaveMessage("Writing area created for this period");
   }
 
   function beginPeriodRename(periodId: string, title: string) {
@@ -843,22 +1149,87 @@ export default function ContentManuscriptEditor({
   }
 
   function deleteEmptyPeriod(periodId: string) {
-    const period = contentDoc.periods.find((entry) => entry.id === periodId);
-    if (!period || contentDoc.blocks.some((block) => block.periodId === periodId)) {
-      setSaveMessage("Only empty periods can be deleted");
+    if (contentDoc.periods.length <= 1) {
+      setSaveMessage("At least one period is required");
       return;
     }
-    applyDocumentChange((current) => removeEmptyContentPeriod(current, periodId));
-    if (activePeriodId === periodId) setActivePeriodId(contentDoc.periods[0]?.id ?? "period_default");
+
+    const period =
+      contentDoc.periods.find(
+        (entry) => entry.id === periodId,
+      ) ?? null;
+
+    if (!period) return;
+
+    const periodBlocks =
+      contentDoc.blocks.filter(
+        (block) =>
+          block.periodId === periodId,
+      );
+
+    const hasMeaningfulContent =
+      periodBlocks.some((block) => {
+        if (isTextBlock(block)) {
+          return Boolean(
+            block.text.trim() ||
+              block.attribution?.trim(),
+          );
+        }
+
+        if (isListBlock(block)) {
+          return block.items.some(
+            (item) => item.trim().length > 0,
+          );
+        }
+
+        return true;
+      });
+
+    if (hasMeaningfulContent) {
+      setSaveMessage(
+        "Only a period without written or inserted content can be deleted",
+      );
+      return;
+    }
+
+    let nextActivePeriodId =
+      activePeriodId;
+
+    applyDocumentChange((current) => {
+      const remainingBlocks =
+        current.blocks.filter(
+          (block) =>
+            block.periodId !== periodId,
+        );
+
+      const documentWithoutStarterBlocks = {
+        ...current,
+        blocks: remainingBlocks,
+      };
+
+      const nextDocument =
+        removeEmptyContentPeriod(
+          documentWithoutStarterBlocks,
+          periodId,
+        );
+
+      if (activePeriodId === periodId) {
+        nextActivePeriodId =
+          nextDocument.periods[0]?.id ??
+          "period_default";
+      }
+
+      return nextDocument;
+    });
+
+    setActivePeriodId(nextActivePeriodId);
+    setActiveBlockId(null);
+    setActiveSelection(null);
+    setSaveState("dirty");
     setSaveMessage("Empty period deleted");
   }
 
-  function moveCurrentBlockToPeriod(blockId: string, periodId: string) {
-    applyDocumentChange((current) => moveBlockToPeriod(current, blockId, periodId));
-    setSaveState("dirty");
-    setSaveMessage("Content moved");
-  }
-
+  
   function insertLinkedAssetOption(option: ContentStudioAssetOption, anchorId: string) {
     addBlockWithFactory(anchorId, () => {
       const block = createBlockByType("linkedAsset") as LinkedAssetBlock;
@@ -1094,21 +1465,6 @@ export default function ContentManuscriptEditor({
       anchorId,
     );
   }
-
-  function deleteBlock(blockId: string, fallbackIndex: number) {
-    const fallback = contentDoc.blocks[Math.max(0, fallbackIndex - 1)] ?? null;
-    applyDocumentChange((current) => removeBlock(current, blockId));
-    if (fallback) setFocusTarget(fallback.id);
-  }
-
-  function duplicateCurrentBlock(blockId: string) {
-    applyDocumentChange((current) => duplicateBlock(current, blockId));
-  }
-
-  function moveCurrentBlock(blockId: string, direction: -1 | 1) {
-    applyDocumentChange((current) => moveBlock(current, blockId, direction));
-  }
-
   function handleTextKeyDown(
     event: KeyboardEvent<HTMLElement>,
     block: ContentBlock,
@@ -1198,6 +1554,24 @@ export default function ContentManuscriptEditor({
     }
   }
 
+  async function toggleEditorFullScreen() {
+    const shell = editorShellRef.current;
+
+    if (!shell) return;
+
+    try {
+      if (globalThis.document.fullscreenElement) {
+        await globalThis.document.exitFullscreen();
+      } else {
+        await shell.requestFullscreen();
+      }
+    } catch {
+      setSaveMessage(
+        "Full screen is not available in this browser",
+      );
+    }
+  }
+
   const previewLinkedAssets = buildLinkedAssetPreviewMap(contentDoc, assetLibrary, resolvedAssets);
   const previewMedia = buildMediaPreviewMap(contentDoc, mediaLibrary, resolvedMedia);
   const wordCount = countDocumentWords({ title, subtitle, description, content: contentDoc });
@@ -1229,344 +1603,364 @@ export default function ContentManuscriptEditor({
         }
       }}
     >
-      <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[2rem] bg-[#fcfaf5] shadow-sm ring-1 ring-slate-200">
-        <div className="border-b border-slate-200 bg-white/95 px-3 py-3 backdrop-blur sm:px-5">
-        </div>
-          <TopActionBar
-  lifecycleLabel={
-    releaseSummary?.lifecycle === "PUBLISHED"
-      ? "Published"
-      : "Draft"
-  }
-  dirty={dirty}
-  saveState={saveState}
-  onSave={() => void saveDocument()}
-  previewMode={previewMode}
-  previewMenuOpen={previewMenuOpen}
-  onTogglePreviewMenu={() => {
-    setPreviewMenuOpen((current) => !current);
-    setMoreMenuOpen(false);
-  }}
-  onPreview={openPreview}
-  canPublish={Boolean(transitionReleaseAction)}
-  onPublish={publishCurrentNode}
-  onDelete={deleteCurrentNode}
-  canUndo={canUndo}
-  canRedo={canRedo}
-  onUndo={undoDocument}
-  onRedo={redoDocument}
-  searchOpen={searchOpen}
-  onToggleSearch={() =>
-    setSearchOpen((current) => !current)
-  }
-  insertMenuOpen={toolbarAddOpen}
-  onToggleInsertMenu={() => {
-    setToolbarAddOpen((current) => !current);
-    setPreviewMenuOpen(false);
-    setMoreMenuOpen(false);
-  }}
-  moreMenuOpen={moreMenuOpen}
-  onToggleMoreMenu={() => {
-    setMoreMenuOpen((current) => !current);
-    setPreviewMenuOpen(false);
-  }}
-  onOpenVersionHistory={() => {
-    setMoreMenuOpen(false);
-    setReleasePanelOpen(true);
-  }}
-  onOpenRollback={() => {
-    setMoreMenuOpen(false);
-    setReleasePanelOpen(true);
-  }}
-  onDuplicate={duplicateCurrentNode}
-  onExport={exportManuscript}
-  onPrint={printManuscript}
-  layout={contentDoc.layout}
-  onToggleLayout={() => {
-    applyDocumentChange((current) => ({
-      ...current,
-      layout:
-        current.layout === "double"
-          ? "single"
-          : "double",
-    }));
-    setSaveState("dirty");
-  }}
-/>
-          <WritingRibbon
-  activeBlockType={
-    contentDoc.blocks.find(
-      (block) => block.id === toolbarAnchorId,
-    )?.type ?? "paragraph"
-  }
-  onChangeBlockType={applyToolbarBlockType}
-  onAlignLeft={() =>
-    updatePatch(toolbarAnchorId, { align: "left" })
-  }
-  onAlignCenter={() =>
-    updatePatch(toolbarAnchorId, { align: "center" })
-  }
-  onAlignRight={() =>
-    updatePatch(toolbarAnchorId, { align: "right" })
-  }
-  onOpenInsertMenu={() => setToolbarAddOpen(true)}
-/>
-          {searchOpen ? (
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              <input
-                value={searchQuery}
-                onChange={(event) => setSearchQuery(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    focusSearchResult();
-                  }
-                }}
-                placeholder="Search titles, lead text, and manuscript blocks"
-                aria-label="Search manuscript text"
-                className="min-w-[16rem] flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-slate-300"
-              />
-              <button
-                type="button"
-                onClick={focusSearchResult}
-                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700"
-              >
-                Find
-              </button>
-            </div>
-          ) : null}
-          {toolbarAddOpen ? (
-            <div className="mt-3">
-              <UnifiedAddMenu
-                canOpenScopedBuilders={canOpenScopedBuilders}
-                onPick={(kind) => {
-                  if (kind === "feature") {
-                    setFeatureMenuOpen(true);
-                    setToolbarAddOpen(false);
-                    return;
-                  }
-                  if (kind === "activity" || kind === "worksheet" || kind === "exercise") {
-                    openBuilderSurface(kind, "existing");
-                    return;
-                  }
-                  openInsertSurface(kind);
-                }}
-              />
-            </div>
-          ) : null}
-          {featureMenuOpen ? (
-            <div className="mt-3 rounded-[1.5rem] border border-slate-200 bg-white p-3 shadow-sm">
-              <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Feature Element</p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {INFO_BOX_VARIANTS.map((variant) => (
-                  <button key={variant} type="button" onClick={() => addFeature(variant)} className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
-                    {infoBoxToolbarLabel(variant)}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ) : null}
-          <PeriodTabs
-  periods={contentDoc.periods}
-  activePeriodId={activePeriodId}
-  editingPeriodId={editingPeriodId}
-  periodTitleDraft={periodTitleDraft}
-  onSelectPeriod={setActivePeriodId}
-  onBeginRename={beginPeriodRename}
-  onChangeTitleDraft={setPeriodTitleDraft}
-  onCommitRename={commitPeriodRename}
-  onCancelRename={() => setEditingPeriodId(null)}
-  onDeleteEmptyPeriod={deleteEmptyPeriod}
-  onAddPeriod={addPeriod}
-/>
+      <EditorShell
+  shellRef={editorShellRef}
+  ribbon={
+      <WordRibbon
+      lifecycleLabel={
+        releaseSummary?.lifecycle === "PUBLISHED"
+          ? "Published"
+          : "Draft"
+      }
+      saveState={saveState}
+      dirty={dirty}
+      activeBlockType={
+        contentDoc.blocks.find(
+          (block) => block.id === toolbarAnchorId,
+        )?.type ?? "paragraph"
+      }
+      layout={contentDoc.layout}
+      canUndo={canUndo}
+      canRedo={canRedo}
+      canPublish={Boolean(transitionReleaseAction)}
+      onSave={() => void saveDocument()}
+      onUndo={undoDocument}
+      onRedo={redoDocument}
+      onDelete={deleteCurrentNode}
+      onPublish={publishCurrentNode}
+      onPreview={openPreview}
+      onSearch={() => setSearchOpen(true)}
+      onPaste={() => void pasteIntoActiveText()}
+      onCut={() => void cutActiveText()}
+      onCopy={() => void copyActiveText()}
+      onSelectAll={selectAllActiveText}
+      onFormat={(command, value) => {
+        if (
+          command === "bold" ||
+          command === "italic" ||
+          command === "underline" ||
+          command === "strikethrough" ||
+          command === "clearFormatting" ||
+          command === "fontFamily" ||
+          command === "fontSize" ||
+          command === "textColor" ||
+          command === "highlightColor"
+        ) {
+          applyBlockFormat(command, value);
+        }
+      }}
+      onChangeBlockType={applyToolbarBlockType}
+      onAlignLeft={() =>
+        updatePatch(toolbarAnchorId, {
+          align: "left",
+        })
+      }
+      onAlignCenter={() =>
+        updatePatch(toolbarAnchorId, {
+          align: "center",
+        })
+      }
+      onAlignRight={() =>
+        updatePatch(toolbarAnchorId, {
+          align: "right",
+        })
+      }
+      onToggleLayout={() => {
+        applyDocumentChange((current) => ({
+          ...current,
+          layout:
+            current.layout === "double"
+              ? "single"
+              : "double",
+        }));
 
-        <Canvas
-  title={title}
-  subtitle={subtitle}
-  description={description}
-  onTitleChange={(value) => {
-    setTitle(value);
-    setError("");
-  }}
-  onSubtitleChange={(value) => {
-    setSubtitle(value);
-    setError("");
-  }}
-  onDescriptionChange={(value) => {
-    setDescription(value);
-    setError("");
-  }}
-  saveState={saveState}
-  dirty={dirty}
-  error={error}
-  layout={contentDoc.layout}
->
-  {contentDoc.blocks
-    .filter((block) => block.periodId === activePeriodId)
-    .map((block, index) => (
-      <BlockEditor
-        key={block.id}
-        bookId={bookId}
-        block={block}
-        index={index}
-        resources={resourceChoices}
-        assetOptions={assetLibrary}
-        mediaOptions={mediaLibrary}
-        sectionDefinitions={sectionDefinitions}
+        setSaveState("dirty");
+      }}
+      onInsert={(kind) => {
+        if (
+          kind === "activity" ||
+          kind === "worksheet" ||
+          kind === "exercise"
+        ) {
+          openBuilderSurface(kind, "existing");
+          return;
+        }
+
+        if (kind === "qr") {
+          openInsertSurface("resource");
+          return;
+        }
+
+        openInsertSurface(kind);
+      }}
+      onInsertTable={() => {
+        if (!toolbarAnchorId) return;
+        addBlock("table", toolbarAnchorId);
+      }}
+      onInsertList={(type) => {
+        if (!toolbarAnchorId) return;
+        addBlock(type, toolbarAnchorId);
+      }}
+      onInsertFeature={addFeature}
+      onAddPeriod={addPeriod}
+      onToggleRuler={() =>
+        setShowRuler(
+          (current) => !current,
+        )
+      }
+      onToggleGrid={() =>
+        setShowGrid(
+          (current) => !current,
+        )
+      }
+      onZoomOut={() =>
+        setZoom((current) =>
+          Math.max(50, current - 10),
+        )
+      }
+      onZoomIn={() =>
+        setZoom((current) =>
+          Math.min(200, current + 10),
+        )
+      }
+      onFullScreen={() =>
+        void toggleEditorFullScreen()
+      }
+      />
+  }
+  periodTabs={
+    <div className="bg-white px-4">
+      <PeriodTabs
         periods={contentDoc.periods}
-        resolvedAsset={
-          previewLinkedAssets[block.id] ?? null
+        activePeriodId={activePeriodId}
+        editingPeriodId={editingPeriodId}
+        periodTitleDraft={periodTitleDraft}
+        onSelectPeriod={ensurePeriodHasWriter}
+        onBeginRename={beginPeriodRename}
+        onChangeTitleDraft={setPeriodTitleDraft}
+        onCommitRename={commitPeriodRename}
+        onCancelRename={() =>
+          setEditingPeriodId(null)
         }
-        resolvedMedia={
-          previewMedia[block.id] ?? null
-        }
-        menuOpen={menuAnchor === block.id}
-        onOpenMenu={openMenu}
-        onCloseMenu={closeMenu}
-        onInsertBefore={(type) =>
-          addBlock(type, block.id, true)
-        }
-        onInsertAfter={(type) =>
-          addBlock(type, block.id)
-        }
-        onUpdateText={(value) =>
-          updateText(block.id, value)
-        }
-        onTextSelect={(target) =>
-          captureTextSelection(block, target)
-        }
-        onTextPaste={(event) =>
-          handleTextPaste(event, block)
-        }
-        onOpenKnowledge={(selectionType) => {
-          if (!activeSelection) return;
+        onDeleteEmptyPeriod={deleteEmptyPeriod}
+        onAddPeriod={addPeriod}
+      />
+    </div>
+  }
+>
+  {searchOpen ? (
+    <div className="border-b border-slate-200 bg-white px-4 py-2">
+      <div className="mx-auto flex max-w-4xl items-center gap-2">
+        <input
+          value={searchQuery}
+          onChange={(event) =>
+            setSearchQuery(event.target.value)
+          }
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              focusSearchResult();
+            }
 
-          setKnowledgePopup({
-            ...activeSelection,
-            type: selectionType,
-          });
-        }}
-                onRemoveKnowledge={(referenceId) =>
-          removeKnowledgeReference(
-            block.id,
-            referenceId,
-          )
-        }
+            if (event.key === "Escape") {
+              setSearchOpen(false);
+            }
+          }}
+          autoFocus
+          placeholder="Find in document"
+          className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+        />
 
-        resolvedKnowledge={knowledgeMap}
+        <button
+          type="button"
+          onClick={focusSearchResult}
+          className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white"
+        >
+          Find
+        </button>
 
-        onUpdatePatch={(patch) =>
-          updatePatch(block.id, patch)
-        }
+        <button
+          type="button"
+          onClick={() => setSearchOpen(false)}
+          className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700"
+        >
+          Close
+        </button>
+      </div>
+    </div>
+  ) : null}
 
-        onUpdateListItem={(itemIndex, value) =>
-          updateListItem(
-            block.id,
+  <DocumentWorkspace
+    title={title}
+    subtitle={subtitle}
+    description={description}
+    onTitleChange={(value) => {
+      setTitle(value);
+      setError("");
+    }}
+    onSubtitleChange={(value) => {
+      setSubtitle(value);
+      setError("");
+    }}
+    onDescriptionChange={(value) => {
+      setDescription(value);
+      setError("");
+    }}
+    saveState={saveState}
+    dirty={dirty}
+    error={error}
+    layout={contentDoc.layout}
+    wordCount={wordCount}
+    showRuler={showRuler}
+    showGrid={showGrid}
+    zoom={zoom}
+    onZoomOut={() =>
+      setZoom((current) =>
+        Math.max(50, current - 10),
+      )
+    }
+    onZoomIn={() =>
+      setZoom((current) =>
+        Math.min(200, current + 10),
+      )
+    }
+  >
+    {contentDoc.blocks
+      .filter(
+        (block) =>
+          block.periodId === activePeriodId,
+      )
+      .map((block, index) => (
+        <BlockEditor
+          key={block.id}
+          bookId={bookId}
+          block={block}
+          index={index}
+          resources={resourceChoices}
+          assetOptions={assetLibrary}
+          mediaOptions={mediaLibrary}
+          sectionDefinitions={sectionDefinitions}
+          resolvedAsset={
+            previewLinkedAssets[block.id] ?? null
+          }
+          resolvedMedia={
+            previewMedia[block.id] ?? null
+          }
+          menuOpen={menuAnchor === block.id}
+          onCloseMenu={closeMenu}
+          onInsertBefore={(type) =>
+            addBlock(type, block.id, true)
+          }
+          onInsertAfter={(type) =>
+            addBlock(type, block.id)
+          }
+          onUpdateText={(value) =>
+            updateText(block.id, value)
+          }
+          onTextSelect={(target) =>
+            captureTextSelection(block, target)
+          }
+          onTextPaste={(event) =>
+            handleTextPaste(event, block)
+          }
+          onOpenKnowledge={(selectionType) => {
+            if (!activeSelection) return;
+
+            setKnowledgePopup({
+              ...activeSelection,
+              type: selectionType,
+            });
+          }}
+          onRemoveKnowledge={(referenceId) =>
+            removeKnowledgeReference(
+              block.id,
+              referenceId,
+            )
+          }
+          resolvedKnowledge={knowledgeMap}
+          onUpdatePatch={(patch) =>
+            updatePatch(block.id, patch)
+          }
+          onDelete={() => {
+            applyDocumentChange(
+              (current) =>
+                removeBlock(
+                  current,
+                  block.id,
+                ),
+            );
+            setActiveBlockId(null);
+            setActiveSelection(null);
+            setSaveState("dirty");
+            setSaveMessage("Block deleted");
+          }}
+          onUpdateListItem={(
             itemIndex,
             value,
-          )
-        }
-
-        onAddListItem={(itemIndex) =>
-          addListItem(block.id, itemIndex)
-        }
-
-        onChooseResource={(resourceId) =>
-          chooseResource(
-            block.id,
-            resourceId,
-          )
-        }
-
-        onClearImage={() =>
-          updatePatch(block.id, {
-            url: "",
-            resourceId: undefined,
-            alt: "",
-          })
-        }
-
-        onUpdateLinkedAsset={(patch) =>
-          updatePatch(block.id, patch)
-        }
-
-        onUpdateMedia={(patch) =>
-          updatePatch(block.id, patch)
-        }
-
-        onActivate={() =>
-          setActiveBlockId(block.id)
-        }
-
-        onMovePeriod={(periodId) =>
-          moveCurrentBlockToPeriod(
-            block.id,
-            periodId,
-          )
-        }
-
-        onDuplicate={() =>
-          duplicateCurrentBlock(block.id)
-        }
-
-        onDelete={() =>
-          deleteBlock(block.id, index)
-        }
-
-        onMoveUp={() =>
-          moveCurrentBlock(block.id, -1)
-        }
-
-        onMoveDown={() =>
-          moveCurrentBlock(block.id, 1)
-        }
-
-        onKeyDown={(
-          event,
-          currentBlock,
-          currentIndex,
-          currentValue,
-        ) =>
-          handleTextKeyDown(
+          ) =>
+            updateListItem(
+              block.id,
+              itemIndex,
+              value,
+            )
+          }
+          onAddListItem={(itemIndex) =>
+            addListItem(block.id, itemIndex)
+          }
+          onChooseResource={(resourceId) =>
+            chooseResource(
+              block.id,
+              resourceId,
+            )
+          }
+          onClearImage={() =>
+            updatePatch(block.id, {
+              url: "",
+              resourceId: undefined,
+              alt: "",
+            })
+          }
+          onUpdateLinkedAsset={(patch) =>
+            updatePatch(block.id, patch)
+          }
+          onUpdateMedia={(patch) =>
+            updatePatch(block.id, patch)
+          }
+          onActivate={() =>
+            setActiveBlockId(block.id)
+          }
+          onKeyDown={(
             event,
             currentBlock,
             currentIndex,
             currentValue,
-          )
-        }
-
-                onListKeyDown={(
-          event,
-          currentBlock,
-          itemIndex,
-          itemValue,
-        ) =>
-          handleListKeyDown(
+          ) =>
+            handleTextKeyDown(
+              event,
+              currentBlock,
+              currentIndex,
+              currentValue,
+            )
+          }
+          onListKeyDown={(
             event,
             currentBlock,
             itemIndex,
             itemValue,
-          )
-        }
-      />
+          ) =>
+            handleListKeyDown(
+              event,
+              currentBlock,
+              itemIndex,
+              itemValue,
+            )
+          }
+        />
       ))}
-</Canvas>
+  </DocumentWorkspace>
+</EditorShell>
 
-        <div className="border-t border-slate-200 bg-white/90 px-4 py-3 text-xs font-semibold text-slate-500">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-slate-700">{nodeType}</span>
-            <span className="text-slate-300">/</span>
-            <span className="truncate">{title || "Untitled"}</span>
-            <span className="ml-auto">Words {wordCount}</span>
-            <span className="text-slate-300">/</span>
-            <span>
-              {lastSavedAt ? `Last saved ${new Date(lastSavedAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}` : "Not saved in this session"}
-            </span>
-          </div>
-        </div>
-      </section>
-
-      {saveMessage ? <p className="text-sm font-semibold text-slate-500">{saveMessage}</p> : null}
+        {saveMessage ? <p className="text-sm font-semibold text-slate-500">{saveMessage}</p> : null}
       {error ? <p className="rounded-2xl bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{error}</p> : null}
 
       {menuAnchor ? (
@@ -1586,6 +1980,9 @@ export default function ContentManuscriptEditor({
         open={previewOpen}
         onClose={() => setPreviewOpen(false)}
         mode={previewMode}
+        title={title}
+        subtitle={subtitle}
+        description={description}
         document={contentDoc}
         linkedAssets={previewLinkedAssets}
         activities={resolvedActivities}
@@ -1727,11 +2124,9 @@ function BlockEditor({
   assetOptions,
   mediaOptions,
   sectionDefinitions,
-  periods,
   resolvedAsset,
   resolvedMedia,
   menuOpen,
-  onOpenMenu,
   onCloseMenu,
   onInsertBefore,
   onInsertAfter,
@@ -1742,6 +2137,7 @@ function BlockEditor({
   onRemoveKnowledge,
   resolvedKnowledge,
   onUpdatePatch,
+  onDelete,
   onUpdateListItem,
   onAddListItem,
   onChooseResource,
@@ -1749,13 +2145,8 @@ function BlockEditor({
   onUpdateLinkedAsset,
   onUpdateMedia,
   onActivate,
-  onMovePeriod,
   onKeyDown,
   onListKeyDown,
-  onDuplicate,
-  onDelete,
-  onMoveUp,
-  onMoveDown,
 }: {
   bookId: string;
   block: ContentBlock;
@@ -1764,11 +2155,9 @@ function BlockEditor({
   assetOptions: ContentStudioAssetOption[];
   mediaOptions: ContentStudioMediaOption[];
   sectionDefinitions: ContentSectionDefinitionSummary[];
-  periods: ContentDocument["periods"];
   resolvedAsset: ResolvedLinkedAsset | null;
   resolvedMedia: ResolvedMediaBlock | null;
   menuOpen: boolean;
-  onOpenMenu: (anchorId: string) => void;
   onCloseMenu: () => void;
   onInsertBefore: (type: ContentBlockType) => void;
   onInsertAfter: (type: ContentBlockType) => void;
@@ -1782,6 +2171,7 @@ function BlockEditor({
   onRemoveKnowledge: (referenceId: string) => void;
   resolvedKnowledge: Record<string, KnowledgeDefinitionSummary | null>;
   onUpdatePatch: (patch: Partial<ContentBlock>) => void;
+  onDelete: () => void;
   onUpdateListItem: (itemIndex: number, value: string) => void;
   onAddListItem: (itemIndex: number) => void;
   onChooseResource: (resourceId: string) => void;
@@ -1789,7 +2179,6 @@ function BlockEditor({
   onUpdateLinkedAsset: (patch: Partial<LinkedAssetBlock>) => void;
   onUpdateMedia: (patch: Partial<MediaBlock>) => void;
   onActivate: () => void;
-  onMovePeriod: (periodId: string) => void;
   onKeyDown: (
     event: KeyboardEvent<HTMLElement>,
     block: ContentBlock,
@@ -1802,62 +2191,13 @@ function BlockEditor({
     itemIndex: number,
     itemValue: string,
   ) => void;
-  onDuplicate: () => void;
-  onDelete: () => void;
-  onMoveUp: () => void;
-  onMoveDown: () => void;
 }) {
-  const shell = "group rounded-xl px-1 py-2 transition hover:bg-white/45";
-  const actionButton =
-    "rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700";
-  const collapsed = block.collapsed === true;
+  const shell = "group py-1";
+    const collapsed = block.collapsed === true;
 
   return (
     <article className={shell} onFocusCapture={onActivate} onMouseDown={onActivate}>
-      <div className="mb-1 flex min-h-7 flex-wrap items-center gap-2 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100">
-        <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">{blockLabel(block.type)}</span>
-        <select value={block.periodId ?? periods[0]?.id ?? ""} onChange={(event) => onMovePeriod(event.target.value)} aria-label="Move block to period" className="rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600">
-          {periods.map((period) => <option key={period.id} value={period.id}>{period.title}</option>)}
-        </select>
-        <div className="ml-auto flex flex-wrap gap-2 opacity-100 transition sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
-          <button
-            type="button"
-            onClick={() => onUpdatePatch({ collapsed: !collapsed })}
-            className={actionButton}
-          >
-            {collapsed ? "Expand" : "Collapse"}
-          </button>
-          <button
-            type="button"
-            onClick={() => onUpdatePatch({ hidden: !block.hidden })}
-            className={actionButton}
-          >
-            {block.hidden ? "Show" : "Hide"}
-          </button>
-          <button type="button" onClick={onMoveUp} className={actionButton}>
-            <ChevronUp className="mr-1 inline h-3.5 w-3.5" />
-            Up
-          </button>
-          <button type="button" onClick={onMoveDown} className={actionButton}>
-            <ChevronDown className="mr-1 inline h-3.5 w-3.5" />
-            Down
-          </button>
-          <button type="button" onClick={onDuplicate} className={actionButton}>
-            <Copy className="mr-1 inline h-3.5 w-3.5" />
-            Duplicate
-          </button>
-          <button type="button" onClick={onDelete} className={actionButton}>
-            <Trash2 className="mr-1 inline h-3.5 w-3.5" />
-            Delete
-          </button>
-          <button type="button" onClick={() => onOpenMenu(block.id)} className={actionButton}>
-            <Slash className="mr-1 inline h-3.5 w-3.5" />
-            Insert
-          </button>
-        </div>
-      </div>
-
-      <div className="space-y-3">
+            <div className="space-y-3">
         <div className="hidden grid gap-3 rounded-[1.5rem] bg-slate-50 p-4 ring-1 ring-slate-200 lg:grid-cols-5">
           <label className="block text-sm font-semibold text-slate-700 lg:col-span-2">
             Optional title
@@ -1992,7 +2332,11 @@ function BlockEditor({
         ) : null}
 
         {!collapsed && isTableBlock(block) ? (
-          <TableBlockEditor block={block} onUpdatePatch={onUpdatePatch} />
+          <TableBlockEditor
+            block={block}
+            onUpdatePatch={onUpdatePatch}
+            onDeleteTable={onDelete}
+          />
         ) : null}
 
         {!collapsed && isFormulaBlock(block) ? (
@@ -2581,48 +2925,12 @@ function BlockInsertMenu({
   );
 }
 
-function UnifiedAddMenu({
-  canOpenScopedBuilders,
-  onPick,
-}: {
-  canOpenScopedBuilders: boolean;
-  onPick: (kind: ToolbarInsertKind) => void;
-}) {
-  const items: Array<{ kind: ToolbarInsertKind; label: string; disabled?: boolean }> = [
-    { kind: "image", label: "Image" },
-    { kind: "media", label: "Media" },
-    { kind: "feature", label: "Feature Element" },
-    { kind: "activity", label: "Activity", disabled: !canOpenScopedBuilders },
-    { kind: "worksheet", label: "Worksheet", disabled: !canOpenScopedBuilders },
-    { kind: "exercise", label: "Exercise", disabled: !canOpenScopedBuilders },
-    { kind: "resource", label: "Resource" },
-    { kind: "learningOutcome", label: "Learning Outcome" },
-  ];
 
-  return (
-    <div className="rounded-[1.5rem] border border-slate-200 bg-white p-3 shadow-sm">
-      <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Add to manuscript</p>
-      <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-        {items.map((item) => (
-          <button
-            key={item.kind}
-            type="button"
-            disabled={item.disabled}
-            onClick={() => onPick(item.kind)}
-            className="rounded-xl border border-slate-200 px-3 py-2 text-left text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-45"
-          >
-            {item.label}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function DraftPreviewDrawer({
+  function DraftPreviewDrawer({
   open,
   onClose,
   mode,
+  title,
   document,
   linkedAssets,
   activities,
@@ -2634,6 +2942,9 @@ function DraftPreviewDrawer({
   open: boolean;
   onClose: () => void;
   mode: PreviewSurfaceMode;
+  title: string;
+  subtitle: string;
+  description: string;
   document: ContentDocument;
   linkedAssets: Record<string, ResolvedLinkedAsset | null>;
   activities: Record<string, ResolvedActivityBlock>;
@@ -2642,25 +2953,163 @@ function DraftPreviewDrawer({
   sectionDefinitions: ContentSectionDefinitionSummary[];
   knowledgeDefinitions: Record<string, KnowledgeDefinitionSummary | null>;
 }) {
+  const previewPeriods = document.periods;
+  const [activePreviewPeriodId, setActivePreviewPeriodId] =
+    useState(previewPeriods[0]?.id ?? "");
+
+  if (!open) return null;
+
+  const requestedPeriodIndex =
+    previewPeriods.findIndex(
+      (period) =>
+        period.id === activePreviewPeriodId,
+    );
+
+  const activePeriodIndex =
+    requestedPeriodIndex >= 0
+      ? requestedPeriodIndex
+      : 0;
+
+  const activePeriod =
+    previewPeriods[activePeriodIndex] ??
+    previewPeriods[0] ??
+    null;
+
+  const selectedPeriodDocument: ContentDocument = {
+    ...document,
+    periods: activePeriod ? [activePeriod] : [],
+    blocks: activePeriod
+      ? document.blocks.filter(
+          (block) =>
+            block.periodId === activePeriod.id,
+        )
+      : [],
+  };
+
+  const goToPreviousPeriod = () => {
+    if (activePeriodIndex <= 0) return;
+
+    setActivePreviewPeriodId(
+      previewPeriods[activePeriodIndex - 1]?.id ??
+        "",
+    );
+  };
+
+  const goToNextPeriod = () => {
+    if (
+      activePeriodIndex >=
+      previewPeriods.length - 1
+    ) {
+      return;
+    }
+
+    setActivePreviewPeriodId(
+      previewPeriods[activePeriodIndex + 1]?.id ??
+        "",
+    );
+  };
+
   return (
     <StudioBuilderDrawer
       open={open}
       title={`${previewModeLabel(mode)} Preview`}
-      description="This preview renders the current unsaved manuscript draft without leaving the editor."
+      description="Each period opens as a separate manuscript page."
       onClose={onClose}
     >
-      <div className="rounded-[1.75rem] bg-white p-6 ring-1 ring-slate-200">
-        <ContentDocumentRenderer
-          document={document}
-          mode={mode === "WHITEBOARD" ? "ADMIN_PREVIEW" : (mode as ContentRenderMode)}
-          linkedAssets={linkedAssets}
-          activities={activities}
-          worksheets={worksheets}
-          media={media}
-          sectionDefinitions={sectionDefinitions}
-          knowledgeDefinitions={knowledgeDefinitions}
-          className="mx-auto max-w-[60rem]"
-        />
+      <div className="min-w-0">
+        <div className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 px-4 py-3 backdrop-blur">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            {previewPeriods.map(
+              (period, index) => {
+                const active =
+                  period.id ===
+                  activePeriod?.id;
+
+                return (
+                  <button
+                    key={period.id}
+                    type="button"
+                    onClick={() =>
+                      setActivePreviewPeriodId(
+                        period.id,
+                      )
+                    }
+                    className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${
+                      active
+                        ? "bg-blue-600 text-white shadow-sm"
+                        : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                    }`}
+                  >
+                    {period.title ||
+                      `Period ${index + 1}`}
+                  </button>
+                );
+              },
+            )}
+          </div>
+
+          <div className="mt-3 flex items-center justify-between gap-3">
+            <button
+              type="button"
+              onClick={goToPreviousPeriod}
+              disabled={activePeriodIndex <= 0}
+              className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Previous period
+            </button>
+
+            <p className="text-sm font-semibold text-slate-500">
+              {previewPeriods.length
+                ? `Period ${
+                    activePeriodIndex + 1
+                  } of ${
+                    previewPeriods.length
+                  }`
+                : "No periods available"}
+            </p>
+
+            <button
+              type="button"
+              onClick={goToNextPeriod}
+              disabled={
+                activePeriodIndex >=
+                previewPeriods.length - 1
+              }
+              className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Next period
+            </button>
+          </div>
+        </div>
+
+        {activePeriod ? (
+          <div className="overflow-auto bg-[#e7ebf0] px-6 py-8">
+            <ContentDocumentRenderer
+              document={selectedPeriodDocument}
+              moduleTitle={title}
+              mode={
+                mode === "WHITEBOARD"
+                  ? "ADMIN_PREVIEW"
+                  : (mode as ContentRenderMode)
+              }
+              linkedAssets={linkedAssets}
+              activities={activities}
+              worksheets={worksheets}
+              media={media}
+              sectionDefinitions={
+                sectionDefinitions
+              }
+              knowledgeDefinitions={
+                knowledgeDefinitions
+              }
+              className="min-w-0 max-w-full"
+            />
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-12 text-center text-sm font-semibold text-slate-500">
+            No period is available for preview.
+          </div>
+        )}
       </div>
     </StudioBuilderDrawer>
   );
@@ -3079,90 +3528,286 @@ function ResourceUploadCard({
     image?: ImageInsertMetadata;
   }) => void;
 }) {
-  const [file, setFile] = useState<File | null>(null);
-  const [previewUrl, setPreviewUrl] = useState("");
-  const previewUrlRef = useRef("");
-  const [resourceTitle, setResourceTitle] = useState("");
-  const [resourceType, setResourceType] = useState<ResourceType>(allowedTypes[0] ?? ResourceType.PDF);
-  const [audience, setAudience] = useState<ResourceAudience>(ResourceAudience.BOTH);
-  const [alt, setAlt] = useState("");
-  const [caption, setCaption] = useState("");
-  const [align, setAlign] = useState<BlockAlignment>("center");
-  const [width, setWidth] = useState<ImageInsertMetadata["width"]>("wide");
+  const [file, setFile] =
+    useState<File | null>(null);
 
-  function chooseFile(nextFile: File | null) {
-    if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
-    const nextPreview = imageMode && nextFile ? URL.createObjectURL(nextFile) : "";
+  const [previewUrl, setPreviewUrl] =
+    useState("");
+
+  const previewUrlRef = useRef("");
+
+  const [resourceTitle, setResourceTitle] =
+    useState("");
+
+  const [resourceType, setResourceType] =
+    useState<ResourceType>(
+      allowedTypes[0] ??
+        ResourceType.PDF,
+    );
+
+  const [audience, setAudience] =
+    useState<ResourceAudience>(
+      ResourceAudience.BOTH,
+    );
+
+  const [caption, setCaption] =
+    useState("");
+
+  function chooseFile(
+    nextFile: File | null,
+  ) {
+    if (previewUrlRef.current) {
+      URL.revokeObjectURL(
+        previewUrlRef.current,
+      );
+    }
+
+    const nextPreview =
+      imageMode && nextFile
+        ? URL.createObjectURL(nextFile)
+        : "";
+
     previewUrlRef.current = nextPreview;
     setPreviewUrl(nextPreview);
     setFile(nextFile);
-    if (nextFile && !resourceTitle) setResourceTitle(nextFile.name.replace(/\.[^.]+$/, ""));
+
+    if (
+      nextFile &&
+      !resourceTitle.trim()
+    ) {
+      setResourceTitle(
+        nextFile.name.replace(
+          /\.[^.]+$/,
+          "",
+        ),
+      );
+    }
   }
 
-  useEffect(() => () => {
-    if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
-  }, []);
+  useEffect(
+    () => () => {
+      if (previewUrlRef.current) {
+        URL.revokeObjectURL(
+          previewUrlRef.current,
+        );
+      }
+    },
+    [],
+  );
+
+  const canSubmit =
+    Boolean(file) &&
+    Boolean(resourceTitle.trim()) &&
+    !busy;
 
   return (
     <section className="rounded-[1.5rem] bg-white p-4 ring-1 ring-slate-200">
-      <h3 className="text-sm font-bold text-slate-950">{title}</h3>
-      <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        {!imageMode ? <label className="block text-sm font-semibold text-slate-700">
-          Title
-          <input value={resourceTitle} onChange={(event) => setResourceTitle(event.target.value)} className={field} />
-        </label> : null}
-        {!imageMode ? <label className="block text-sm font-semibold text-slate-700">
-          Type
-          <select value={resourceType} onChange={(event) => setResourceType(event.target.value as ResourceType)} className={field}>
-            {allowedTypes.map((type) => (
-              <option key={type} value={type}>{type}</option>
-            ))}
-          </select>
-        </label> : null}
-        <label className="block text-sm font-semibold text-slate-700">
-          Audience
-          <select value={audience} onChange={(event) => setAudience(event.target.value as ResourceAudience)} className={field}>
-            <option value={ResourceAudience.BOTH}>Both</option>
-            <option value={ResourceAudience.STUDENT}>Student</option>
-            <option value={ResourceAudience.TEACHER_ONLY}>Teacher Only</option>
-          </select>
-        </label>
-        <label className="block text-sm font-semibold text-slate-700">
-          File
-          <input type="file" accept={fileAccept ?? (imageMode ? "image/jpeg,image/png,image/webp" : undefined)} onChange={(event) => chooseFile(event.target.files?.[0] ?? null)} className={field} />
-        </label>
-      </div>
+      <h3 className="text-sm font-bold text-slate-950">
+        {title}
+      </h3>
+
       {imageMode ? (
-        <div className="mt-4 space-y-3">
+        <div className="mt-4 space-y-4">
+          <label className="block text-sm font-semibold text-slate-700">
+            Choose Image
+            <input
+              type="file"
+              accept={
+                fileAccept ??
+                "image/jpeg,image/png,image/webp"
+              }
+              onChange={(event) =>
+                chooseFile(
+                  event.target.files?.[0] ??
+                    null,
+                )
+              }
+              className={field}
+            />
+          </label>
+
           {previewUrl ? (
             // Local object URLs are intentionally used for the pre-upload preview.
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={previewUrl} alt="Selected image preview" className="max-h-48 w-full rounded-2xl object-contain ring-1 ring-slate-200" />
+            <img
+              src={previewUrl}
+              alt="Selected image preview"
+              className="max-h-56 w-full rounded-2xl object-contain ring-1 ring-slate-200"
+            />
           ) : null}
+
           <label className="block text-sm font-semibold text-slate-700">
-            Alt text <span className="text-rose-600">*</span>
-            <input value={alt} onChange={(event) => setAlt(event.target.value)} required className={field} />
+            Image Name
+            <input
+              value={resourceTitle}
+              onChange={(event) =>
+                setResourceTitle(
+                  event.target.value,
+                )
+              }
+              placeholder="Enter image name"
+              className={field}
+            />
           </label>
+
           <label className="block text-sm font-semibold text-slate-700">
-            Caption
-            <input value={caption} onChange={(event) => setCaption(event.target.value)} className={field} />
+            Caption{" "}
+            <span className="font-normal text-slate-400">
+              (optional)
+            </span>
+            <input
+              value={caption}
+              onChange={(event) =>
+                setCaption(
+                  event.target.value,
+                )
+              }
+              placeholder="Add a short caption"
+              className={field}
+            />
           </label>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="block text-sm font-semibold text-slate-700">Alignment<select value={align} onChange={(event) => setAlign(event.target.value as BlockAlignment)} className={field}><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select></label>
-            <label className="block text-sm font-semibold text-slate-700">Width<select value={width} onChange={(event) => setWidth(event.target.value as ImageInsertMetadata["width"])} className={field}><option value="medium">Medium</option><option value="wide">Large</option><option value="full">Full</option></select></label>
-          </div>
         </div>
+      ) : (
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <label className="block text-sm font-semibold text-slate-700">
+            Title
+            <input
+              value={resourceTitle}
+              onChange={(event) =>
+                setResourceTitle(
+                  event.target.value,
+                )
+              }
+              className={field}
+            />
+          </label>
+
+          <label className="block text-sm font-semibold text-slate-700">
+            Type
+            <select
+              value={resourceType}
+              onChange={(event) =>
+                setResourceType(
+                  event.target
+                    .value as ResourceType,
+                )
+              }
+              className={field}
+            >
+              {allowedTypes.map((type) => (
+                <option
+                  key={type}
+                  value={type}
+                >
+                  {type}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="block text-sm font-semibold text-slate-700">
+            Audience
+            <select
+              value={audience}
+              onChange={(event) =>
+                setAudience(
+                  event.target
+                    .value as ResourceAudience,
+                )
+              }
+              className={field}
+            >
+              <option
+                value={ResourceAudience.BOTH}
+              >
+                Both
+              </option>
+              <option
+                value={
+                  ResourceAudience.STUDENT
+                }
+              >
+                Student
+              </option>
+              <option
+                value={
+                  ResourceAudience.TEACHER_ONLY
+                }
+              >
+                Teacher Only
+              </option>
+            </select>
+          </label>
+
+          <label className="block text-sm font-semibold text-slate-700">
+            File
+            <input
+              type="file"
+              accept={fileAccept}
+              onChange={(event) =>
+                chooseFile(
+                  event.target.files?.[0] ??
+                    null,
+                )
+              }
+              className={field}
+            />
+          </label>
+        </div>
+      )}
+
+      {uploadProgress > 0 ? (
+        <p className="mt-3 text-sm font-semibold text-slate-500">
+          Upload {uploadProgress}%
+        </p>
       ) : null}
-      {uploadProgress > 0 ? <p className="mt-3 text-sm font-semibold text-slate-500">Upload {uploadProgress}%</p> : null}
-      {status ? <p className="mt-3 text-sm font-semibold text-slate-500">{status}</p> : null}
-      {error ? <p className="mt-3 rounded-xl bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">{error}</p> : null}
+
+      {status ? (
+        <p className="mt-3 text-sm font-semibold text-slate-500">
+          {status}
+        </p>
+      ) : null}
+
+      {error ? (
+        <p className="mt-3 rounded-xl bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">
+          {error}
+        </p>
+      ) : null}
+
       <button
         type="button"
-        disabled={!file || (!imageMode && !resourceTitle.trim()) || (imageMode && !alt.trim()) || busy}
-        onClick={() => file && onSubmit({ file, title: imageMode ? alt.trim() : resourceTitle.trim(), type: resourceType, audience, image: imageMode ? { alt: alt.trim(), caption: caption.trim(), align, width } : undefined })}
-        className="mt-4 rounded-xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white disabled:opacity-45"
+        disabled={!canSubmit}
+        onClick={() => {
+          if (!file) return;
+
+          const name =
+            resourceTitle.trim();
+
+          onSubmit({
+            file,
+            title: name,
+            type: imageMode
+              ? ResourceType.IMAGE
+              : resourceType,
+            audience: imageMode
+              ? ResourceAudience.BOTH
+              : audience,
+            image: imageMode
+              ? {
+                  alt: name,
+                  caption:
+                    caption.trim(),
+                  align: "center",
+                  width: "wide",
+                }
+              : undefined,
+          });
+        }}
+        className="mt-4 rounded-xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-45"
       >
-        {busy ? "Uploading..." : "Upload and Insert"}
+        {busy
+          ? "Uploading..."
+          : "Upload and Insert"}
       </button>
     </section>
   );
@@ -3187,12 +3832,6 @@ function blockLabelForDrawer(kind: ToolbarInsertKind) {
     case "learningOutcome":
       return "Learning Outcome";
   }
-}
-
-function infoBoxToolbarLabel(variant: InfoBoxVariant) {
-  return variant
-    .replace(/([a-z])([A-Z])/g, "$1 $2")
-    .replace(/^./, (value) => value.toUpperCase());
 }
 
 function buildLinkedAssetPreviewMap(
@@ -3292,27 +3931,6 @@ function serializeSnapshot(input: {
     published: input.published,
     content: input.content,
   });
-}
-function buildPlainTextExport(input: {
-  title: string;
-  subtitle: string;
-  description: string;
-  content: ContentDocument;
-}) {
-  const parts = [input.title, input.subtitle, input.description].filter(Boolean);
-  for (const block of input.content.blocks) {
-    if (isTextBlock(block)) parts.push(block.text);
-    if (isListBlock(block)) parts.push(...block.items.map((item) => `- ${item}`));
-    if (isFormulaBlock(block)) parts.push(block.expression);
-    if (isInfoBoxBlock(block) || isObservationBoxBlock(block)) parts.push(block.text);
-    if (isSequenceBlock(block)) {
-      for (const item of block.items) parts.push(item.title, item.description ?? "");
-    }
-    if (isTableBlock(block)) {
-      for (const row of block.rows) parts.push(row.cells.map((cell) => cell.text).join(" | "));
-    }
-  }
-  return parts.filter(Boolean).join("\n\n");
 }
 
 function previewModeLabel(mode: PreviewSurfaceMode) {

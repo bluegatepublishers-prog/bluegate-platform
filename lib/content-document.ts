@@ -109,6 +109,14 @@ type BaseBlock = {
   align?: BlockAlignment;
   backgroundStyle?: BlockBackgroundStyle;
   borderStyle?: BlockBorderStyle;
+  fontFamily?: string;
+  fontSize?: number;
+  bold?: boolean;
+  italic?: boolean;
+  underline?: boolean;
+  strikethrough?: boolean;
+  textColor?: string;
+  highlightColor?: string;
   hidden?: boolean;
   collapsed?: boolean;
   periodId?: string;
@@ -1276,6 +1284,14 @@ function normalizeSharedProps(value: Record<string, unknown>) {
     align: normalizeAlignment(value.align),
     backgroundStyle: normalizeBackgroundStyle(value.backgroundStyle),
     borderStyle: normalizeBorderStyle(value.borderStyle),
+    fontFamily: normalizeFontFamily(value.fontFamily),
+    fontSize: normalizeFontSize(value.fontSize),
+    bold: value.bold ? true : undefined,
+    italic: value.italic ? true : undefined,
+    underline: value.underline ? true : undefined,
+    strikethrough: value.strikethrough ? true : undefined,
+    textColor: normalizeCssColor(value.textColor),
+    highlightColor: normalizeCssColor(value.highlightColor),
     hidden: value.hidden ? true : undefined,
     collapsed: value.collapsed ? true : undefined,
     periodId: normalizeOptionalText(typeof value.periodId === "string" ? value.periodId : ""),
@@ -1289,6 +1305,14 @@ function sharedPresentationProps(block: ContentBlock) {
     align: block.align,
     backgroundStyle: block.backgroundStyle,
     borderStyle: block.borderStyle,
+    fontFamily: block.fontFamily,
+    fontSize: block.fontSize,
+    bold: block.bold,
+    italic: block.italic,
+    underline: block.underline,
+    strikethrough: block.strikethrough,
+    textColor: block.textColor,
+    highlightColor: block.highlightColor,
     hidden: block.hidden,
     collapsed: block.collapsed,
     periodId: block.periodId,
@@ -1394,6 +1418,25 @@ function normalizeCssColor(value: unknown) {
   return /^#[0-9a-fA-F]{6}$/.test(color) ||
     /^#[0-9a-fA-F]{3}$/.test(color)
     ? color.toLowerCase()
+    : undefined;
+}
+
+function normalizeFontFamily(value: unknown) {
+  if (typeof value !== "string") return undefined;
+
+  const family = value.trim();
+
+  const allowed = [
+    "Arial",
+    "Calibri",
+    "Georgia",
+    "Times New Roman",
+    "Verdana",
+    "Noto Sans Devanagari",
+  ];
+
+  return allowed.includes(family)
+    ? family
     : undefined;
 }
 

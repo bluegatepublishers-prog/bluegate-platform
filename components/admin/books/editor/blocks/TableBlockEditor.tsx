@@ -11,7 +11,10 @@ type TableBlock = Extract<
 
 type Props = {
   block: TableBlock;
-  onUpdatePatch: (patch: Partial<ContentBlock>) => void;
+  onUpdatePatch: (
+    patch: Partial<ContentBlock>,
+  ) => void;
+  onDeleteTable: () => void;
 };
 
 const field =
@@ -20,7 +23,11 @@ const field =
 export default function TableBlockEditor({
   block,
   onUpdatePatch,
+  onDeleteTable,
 }: Props) {
+  const columnCount =
+    block.rows[0]?.cells.length ?? 0;
+
   function updateCell(
     rowId: string,
     cellId: string,
@@ -46,25 +53,45 @@ export default function TableBlockEditor({
   }
 
   function addRow() {
-    const columns =
-      block.rows[0]?.cells.length ?? 2;
+    const columns = Math.max(
+      columnCount,
+      2,
+    );
 
     onUpdatePatch({
       rows: [
         ...block.rows,
         {
-          id: `row_${Date.now().toString(36)}`,
+          id: createId("row"),
           cells: Array.from(
             { length: columns },
-            (_, i) => ({
-              id: `cell_${i}_${Math.random()
-                .toString(36)
-                .slice(2, 8)}`,
+            () => ({
+              id: createId("cell"),
               text: "",
             }),
           ),
         },
       ],
+    });
+  }
+
+  function deleteLastRow() {
+    if (block.rows.length <= 1) return;
+
+    const lastRow =
+      block.rows[block.rows.length - 1];
+
+    if (
+      rowContainsText(lastRow) &&
+      !window.confirm(
+        "The last row contains text. Delete it?",
+      )
+    ) {
+      return;
+    }
+
+    onUpdatePatch({
+      rows: block.rows.slice(0, -1),
     });
   }
 
@@ -75,9 +102,7 @@ export default function TableBlockEditor({
         cells: [
           ...row.cells,
           {
-            id: `cell_${Math.random()
-              .toString(36)
-              .slice(2, 8)}`,
+            id: createId("cell"),
             text: "",
           },
         ],
@@ -85,20 +110,84 @@ export default function TableBlockEditor({
     });
   }
 
+  function deleteLastColumn() {
+    if (columnCount <= 1) return;
+
+    const lastColumnHasText =
+      block.rows.some(
+        (row) =>
+          row.cells[
+            row.cells.length - 1
+          ]?.text.trim(),
+      );
+
+    if (
+      lastColumnHasText &&
+      !window.confirm(
+        "The last column contains text. Delete it?",
+      )
+    ) {
+      return;
+    }
+
+    onUpdatePatch({
+      rows: block.rows.map((row) => ({
+        ...row,
+        cells: row.cells.slice(0, -1),
+      })),
+    });
+  }
+
+  function deleteTable() {
+    const containsText =
+      block.rows.some(rowContainsText);
+
+    if (
+      containsText &&
+      !window.confirm(
+        "This table contains text. Delete the complete table?",
+      )
+    ) {
+      return;
+    }
+
+    if (
+      !containsText &&
+      !window.confirm(
+        "Delete this table?",
+      )
+    ) {
+      return;
+    }
+
+    onDeleteTable();
+  }
+
   return (
     <div className="space-y-4">
-      <label className="inline-flex items-center gap-2 rounded-full bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700 ring-1 ring-slate-200">
-        <input
-          type="checkbox"
-          checked={block.headerRow !== false}
-          onChange={(event) =>
-            onUpdatePatch({
-              headerRow: event.target.checked,
-            })
-          }
-        />
-        Header Row
-      </label>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <label className="inline-flex items-center gap-2 rounded-full bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700 ring-1 ring-slate-200">
+          <input
+            type="checkbox"
+            checked={block.headerRow !== false}
+            onChange={(event) =>
+              onUpdatePatch({
+                headerRow:
+                  event.target.checked,
+              })
+            }
+          />
+          Header Row
+        </label>
+
+        <button
+          type="button"
+          onClick={deleteTable}
+          className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700 transition hover:bg-rose-100"
+        >
+          Delete Table
+        </button>
+      </div>
 
       <div className="space-y-2 overflow-x-auto">
         {block.rows.map((row) => (
@@ -106,7 +195,8 @@ export default function TableBlockEditor({
             key={row.id}
             className="grid min-w-[32rem] gap-2"
             style={{
-              gridTemplateColumns: `repeat(${row.cells.length}, minmax(0,1fr))`,
+              gridTemplateColumns:
+                `repeat(${row.cells.length}, minmax(0,1fr))`,
             }}
           >
             {row.cells.map((cell) => (
@@ -128,7 +218,7 @@ export default function TableBlockEditor({
         ))}
       </div>
 
-      <div className="flex gap-2 flex-wrap">
+      <div className="flex flex-wrap gap-2">
         <button
           type="button"
           onClick={addRow}
@@ -139,12 +229,44 @@ export default function TableBlockEditor({
 
         <button
           type="button"
+          onClick={deleteLastRow}
+          disabled={block.rows.length <= 1}
+          className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          Delete Row
+        </button>
+
+        <button
+          type="button"
           onClick={addColumn}
           className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold"
         >
           Add Column
         </button>
+
+        <button
+          type="button"
+          onClick={deleteLastColumn}
+          disabled={columnCount <= 1}
+          className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          Delete Column
+        </button>
       </div>
     </div>
   );
+}
+
+function rowContainsText(
+  row: TableBlock["rows"][number],
+) {
+  return row.cells.some(
+    (cell) => cell.text.trim().length > 0,
+  );
+}
+
+function createId(prefix: string) {
+  return `${prefix}_${Date.now().toString(36)}_${Math.random()
+    .toString(36)
+    .slice(2, 8)}`;
 }

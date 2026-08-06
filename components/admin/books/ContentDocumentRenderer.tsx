@@ -12,6 +12,7 @@ import type { ResolvedWorksheetBlock } from "@/lib/worksheet-studio-types";
 
 export default function ContentDocumentRenderer({
   document,
+  moduleTitle = "",
   mode = "ADMIN_PREVIEW",
   className = "",
   linkedAssets = {},
@@ -22,6 +23,7 @@ export default function ContentDocumentRenderer({
   knowledgeDefinitions = {},
 }: {
   document: ContentDocument;
+  moduleTitle?: string;
   mode?: ContentRenderMode;
   className?: string;
   linkedAssets?: Record<string, ResolvedLinkedAsset | null>;
@@ -34,6 +36,7 @@ export default function ContentDocumentRenderer({
   return (
     <StructuredContentRenderer
       document={document}
+      moduleTitle={moduleTitle}
       mode={mode}
       className={className}
       linkedAssets={linkedAssets}

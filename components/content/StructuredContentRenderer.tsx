@@ -54,6 +54,7 @@ export default function StructuredContentRenderer({
   knowledgeDefinitions = {},
 }: {
   document: ContentDocument;
+  moduleTitle?: string;
   mode: ContentRenderMode;
   className?: string;
   linkedAssets?: Record<string, ResolvedLinkedAsset | null>;
@@ -65,7 +66,7 @@ export default function StructuredContentRenderer({
 }) {
   const sectionsById = new Map(sectionDefinitions.map((section) => [section.id, section]));
   return (
-    <div className={`${document.layout === "double" ? "grid grid-cols-1 gap-x-8 gap-y-5 md:grid-cols-2" : "space-y-5"} ${className}`}>
+    <div className={`min-w-0 max-w-full ${document.layout === "double" ? "grid grid-cols-1 gap-x-8 gap-y-5 md:grid-cols-2" : "space-y-5"} ${className}`}>
       {document.blocks.map((block) => (
         <RenderedBlock
           key={block.id}
@@ -121,7 +122,7 @@ function RenderedBlock({
     content
   );
   return (
-    <section className={blockShellClass(block)}>
+    <section className={`min-w-0 max-w-full ${blockShellClass(block)}`}>
       {block.title && !block.collapsed ? (
         <div className="mb-3 flex items-center gap-2">
           {block.icon ? (
@@ -129,7 +130,7 @@ function RenderedBlock({
               {block.icon}
             </span>
           ) : null}
-          <h4 className="text-sm font-bold uppercase tracking-[0.16em] text-slate-500">
+          <h4 className="min-w-0 break-words [overflow-wrap:anywhere] text-sm font-bold uppercase tracking-[0.16em] text-slate-500">
             {block.title}
           </h4>
         </div>
@@ -156,40 +157,64 @@ function renderBlockBody(
 ) {
   if (isTextBlock(block)) {
     const text = <MarkedText block={block} definitions={knowledgeDefinitions} />;
+    const decorations = [
+      block.underline ? "underline" : "",
+      block.strikethrough ? "line-through" : "",
+    ].filter(Boolean);
+
+    const typographyStyle = {
+      fontFamily: block.fontFamily || undefined,
+      fontSize: block.fontSize
+        ? `${block.fontSize}px`
+        : undefined,
+      fontWeight: block.bold
+        ? 700
+        : undefined,
+      fontStyle: block.italic
+        ? "italic"
+        : undefined,
+      textDecoration:
+        decorations.length
+          ? decorations.join(" ")
+          : undefined,
+      color: block.textColor || undefined,
+      backgroundColor:
+        block.highlightColor || undefined,
+    };
     switch (block.type) {
       case "heading":
-        return <h2 className={textAlign(block.align, "text-4xl font-bold tracking-tight text-slate-950")}>{text}</h2>;
+        return <h2 style={typographyStyle} className={textAlign(block.align, "min-w-0 whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-4xl font-bold tracking-tight text-slate-950")}>{text}</h2>;
       case "subheading":
-        return <h3 className={textAlign(block.align, "text-2xl font-semibold tracking-tight text-slate-900")}>{text}</h3>;
+        return <h3 style={typographyStyle} className={textAlign(block.align, "min-w-0 whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-2xl font-semibold tracking-tight text-slate-900")}>{text}</h3>;
       case "caption":
-        return <p className={textAlign(block.align, "whitespace-pre-wrap text-sm leading-6 text-slate-500")}>{text}</p>;
+        return <p style={typographyStyle} className={textAlign(block.align, "min-w-0 whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-sm leading-6 text-slate-500")}>{text}</p>;
       case "quote":
         return (
-          <blockquote className={`border-l-4 border-slate-300 pl-5 ${alignmentWrapper(block.align)}`}>
-            <p className="whitespace-pre-wrap text-[1.05rem] italic leading-8 text-slate-700">{text}</p>
+          <blockquote style={typographyStyle} className={`border-l-4 border-slate-300 pl-5 ${alignmentWrapper(block.align)}`}>
+            <p className="min-w-0 whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-[1.05rem] italic leading-8 text-slate-700">{text}</p>
             {block.attribution ? (
-              <footer className="mt-2 text-sm font-semibold text-slate-500">{block.attribution}</footer>
+              <footer className="mt-2 min-w-0 whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-sm font-semibold text-slate-500">{block.attribution}</footer>
             ) : null}
           </blockquote>
         );
       case "callout":
         return (
-          <aside className="rounded-2xl border border-blue-200 bg-blue-50 px-5 py-4 text-[1.05rem] leading-8 text-slate-800">
-            <p className={textAlign(block.align, "whitespace-pre-wrap")}>{text}</p>
+          <aside style={typographyStyle} className="rounded-2xl border border-blue-200 bg-blue-50 px-5 py-4 text-[1.05rem] leading-8 text-slate-800">
+            <p className={textAlign(block.align, "min-w-0 whitespace-pre-wrap break-words [overflow-wrap:anywhere]")}>{text}</p>
             {block.attribution ? (
-              <p className="mt-2 text-sm font-semibold text-blue-900">{block.attribution}</p>
+              <p className="mt-2 min-w-0 whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-sm font-semibold text-blue-900">{block.attribution}</p>
             ) : null}
           </aside>
         );
       case "paragraph":
       default:
-        return <p className={textAlign(block.align, "whitespace-pre-wrap text-[1.05rem] leading-8 text-slate-800")}>{text}</p>;
+        return <p style={typographyStyle} className={textAlign(block.align, "min-w-0 whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-[1.05rem] leading-8 text-slate-800")}>{text}</p>;
     }
   }
 
   if (isListBlock(block)) {
     const items = block.items.map((item, index) => (
-      <li key={`${block.id}-${index}`} className="whitespace-pre-wrap">
+      <li key={`${block.id}-${index}`} className="min-w-0 whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
         {item}
       </li>
     ));
@@ -223,7 +248,7 @@ function renderBlockBody(
           </div>
         )}
         {block.caption ? (
-          <figcaption className="mt-3 text-sm leading-6 text-slate-500">{block.caption}</figcaption>
+          <figcaption className="mt-3 min-w-0 whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-sm leading-6 text-slate-500">{block.caption}</figcaption>
         ) : null}
       </figure>
     );
@@ -251,7 +276,7 @@ function renderBlockBody(
                 </div>
               )}
               {image.caption ? (
-                <figcaption className="text-sm leading-6 text-slate-500">{image.caption}</figcaption>
+                <figcaption className="min-w-0 whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-sm leading-6 text-slate-500">{image.caption}</figcaption>
               ) : null}
             </figure>
           );
@@ -272,7 +297,7 @@ function renderBlockBody(
                     key={cell.id}
                     colSpan={cell.colSpan}
                     rowSpan={cell.rowSpan}
-                    className={`border-b border-slate-200 px-4 py-3 align-top ${
+                    className={`min-w-0 whitespace-pre-wrap break-words [overflow-wrap:anywhere] border-b border-slate-200 px-4 py-3 align-top ${
                       rowIndex === 0 && block.headerRow ? "font-bold text-slate-900" : ""
                     }`}
                   >
@@ -291,10 +316,10 @@ function renderBlockBody(
     const expression = block.expression || "x = ?";
     return block.displayMode === "inline" ? (
       <p className={textAlign(block.align, "text-[1.05rem] leading-8 text-slate-800")}>
-        <code className="rounded bg-slate-100 px-2 py-1 font-mono text-slate-900">{expression}</code>
+        <code className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] rounded bg-slate-100 px-2 py-1 font-mono text-slate-900">{expression}</code>
       </p>
     ) : (
-      <div className={`${alignmentWrapper(block.align)} rounded-2xl bg-slate-950 px-5 py-4 font-mono text-lg text-white`}>
+      <div className={`${alignmentWrapper(block.align)} min-w-0 whitespace-pre-wrap break-words [overflow-wrap:anywhere] rounded-2xl bg-slate-950 px-5 py-4 font-mono text-lg text-white`}>
         {expression}
       </div>
     );
@@ -321,7 +346,7 @@ function renderBlockBody(
   if (isInfoBoxBlock(block)) {
     return (
       <aside className={`${infoBoxClass(block.variant)} rounded-3xl px-5 py-4`}>
-        <p className={textAlign(block.align, "whitespace-pre-wrap text-[1.02rem] leading-8")}>{block.text}</p>
+        <p className={textAlign(block.align, "min-w-0 whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-[1.02rem] leading-8")}>{block.text}</p>
       </aside>
     );
   }
@@ -336,9 +361,9 @@ function renderBlockBody(
                 {item.icon || index + 1}
               </span>
               <div className="min-w-0">
-                <h5 className="font-bold text-slate-900">{item.title || `${blockLabel(block.type)} ${index + 1}`}</h5>
+                <h5 className="min-w-0 break-words [overflow-wrap:anywhere] font-bold text-slate-900">{item.title || `${blockLabel(block.type)} ${index + 1}`}</h5>
                 {item.description ? (
-                  <p className="mt-2 whitespace-pre-wrap text-sm leading-7 text-slate-600">{item.description}</p>
+                  <p className="mt-2 min-w-0 whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-sm leading-7 text-slate-600">{item.description}</p>
                 ) : null}
               </div>
             </div>
@@ -351,7 +376,7 @@ function renderBlockBody(
   if (isObservationBoxBlock(block)) {
     return (
       <aside className="rounded-3xl border border-teal-200 bg-teal-50 px-5 py-4">
-        <p className={textAlign(block.align, "whitespace-pre-wrap text-[1.02rem] leading-8 text-slate-800")}>{block.text}</p>
+        <p className={textAlign(block.align, "min-w-0 whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-[1.02rem] leading-8 text-slate-800")}>{block.text}</p>
       </aside>
     );
   }
@@ -359,7 +384,7 @@ function renderBlockBody(
   if (isPlaceholderBlock(block)) {
     return (
       <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 px-5 py-6 text-slate-600">
-        <p className="font-bold text-slate-900">{block.title || blockLabel(block.type)}</p>
+        <p className="min-w-0 break-words [overflow-wrap:anywhere] font-bold text-slate-900">{block.title || blockLabel(block.type)}</p>
         <p className="mt-2 text-sm leading-7">
           This component is renderer-ready for future lesson authoring and delivery expansion.
         </p>
@@ -398,7 +423,7 @@ function MediaBlockView({
         >
           Open {label}
         </a>
-        {caption ? <p className="mt-3 text-sm leading-6 text-slate-500">{caption}</p> : null}
+        {caption ? <p className="mt-3 min-w-0 whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-sm leading-6 text-slate-500">{caption}</p> : null}
       </div>
     );
   }
@@ -431,7 +456,7 @@ function MediaBlockView({
           className="min-h-[28rem] w-full rounded-3xl border border-slate-200 bg-white"
         />
       ) : null}
-      {caption ? <figcaption className="mt-3 text-sm leading-6 text-slate-500">{caption}</figcaption> : null}
+      {caption ? <figcaption className="mt-3 min-w-0 whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-sm leading-6 text-slate-500">{caption}</figcaption> : null}
       {!caption && media.durationSeconds ? (
         <figcaption className="mt-3 text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
           {Math.floor(media.durationSeconds / 60)} min {media.durationSeconds % 60} sec
