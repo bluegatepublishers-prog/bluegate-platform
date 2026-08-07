@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="100" viewBox="0 0 160 100" role="img" aria-labelledby="title">
+  <title id="title">Bluegate E2E image fixture</title>
+  <rect width="160" height="100" rx="12" fill="#dbeafe"/>
+  <circle cx="48" cy="42" r="18" fill="#2563eb"/>
+  <path d="M16 84 62 54l26 18 18-12 38 24H16Z" fill="#1d4ed8"/>
+  <text x="80" y="24" text-anchor="middle" font-family="Arial,sans-serif" font-size="12" font-weight="700" fill="#172554">E2E</text>
+</svg>

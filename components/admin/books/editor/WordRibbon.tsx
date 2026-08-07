@@ -52,9 +52,10 @@ import {
 } from "lucide-react";
 
 import type {
+  CanvasPreset,
   ContentBlockType,
-  InfoBoxVariant,
 } from "@/lib/content-document";
+import { EDUCATIONAL_OBJECT_REGISTRY, type EducationalObjectType } from "@/lib/educational-object-registry";
 
 type RibbonTab =
   | "HOME"
@@ -88,6 +89,8 @@ type InlineFormatCommand =
   | "fontSize"
   | "textColor"
   | "highlightColor"
+  | "superscript"
+  | "subscript"
   | "decreaseIndent"
   | "increaseIndent"
   | "justify"
@@ -100,6 +103,8 @@ type WordRibbonProps = {
 
   activeBlockType: ContentBlockType;
   layout: "single" | "double";
+  canvasPreset: CanvasPreset;
+  onChangeCanvas: (preset: CanvasPreset) => void;
 
   canUndo: boolean;
   canRedo: boolean;
@@ -121,12 +126,12 @@ type WordRibbonProps = {
   onToggleLayout: () => void;
 
   onInsert: (kind: InsertKind) => void;
-  onInsertTable: () => void;
+  onInsertTable: (rows: number, columns: number) => void;
   onInsertList: (
     type: "bulletList" | "numberedList",
   ) => void;
   onInsertFeature: (
-    variant: InfoBoxVariant,
+    variant: EducationalObjectType,
   ) => void;
 
   /*
@@ -192,6 +197,8 @@ export default function WordRibbon({
   onAlignCenter,
   onAlignRight,
   onToggleLayout,
+  canvasPreset,
+  onChangeCanvas,
   onInsert,
   onInsertTable,
   onInsertList,
@@ -247,7 +254,7 @@ export default function WordRibbon({
   const blockFontFormattingAvailable =
     typeof onFormat === "function";
 
-  const inlineFormattingAvailable = false;
+  const inlineFormattingAvailable = true;
 
   function applyFormat(
     command: InlineFormatCommand,
@@ -472,6 +479,8 @@ export default function WordRibbon({
         {activeTab === "VIEW" ? (
           <ViewRibbon
             layout={layout}
+            canvasPreset={canvasPreset}
+            onChangeCanvas={onChangeCanvas}
             onToggleLayout={onToggleLayout}
             onZoomIn={onZoomIn}
             onZoomOut={onZoomOut}
@@ -731,9 +740,23 @@ function HomeRibbon({
               disabled={
                 !blockFontFormattingAvailable
               }
-              onClick={() =>
-                onFormat("strikethrough")
-              }
+                onClick={() =>
+                  onFormat("strikethrough")
+                }
+              />
+
+            <FormatButton
+              icon={<span className="text-xs font-bold">x²</span>}
+              label="Superscript"
+              disabled={!blockFontFormattingAvailable}
+              onClick={() => onFormat("superscript")}
+            />
+
+            <FormatButton
+              icon={<span className="text-xs font-bold">x₂</span>}
+              label="Subscript"
+              disabled={!blockFontFormattingAvailable}
+              onClick={() => onFormat("subscript")}
             />
 
             <FormatButton
@@ -918,6 +941,9 @@ function HomeRibbon({
           <option value="heading">
             Heading 1
           </option>
+          <option value="heading3">
+            Heading 3
+          </option>
           <option value="subheading">
             Heading 2
           </option>
@@ -977,14 +1003,23 @@ function InsertRibbon({
   onToggleFeature: () => void;
   onCloseFeature: () => void;
   onInsert: (kind: InsertKind) => void;
-  onInsertTable: () => void;
-  onInsertFeature: (
-    variant: InfoBoxVariant,
-  ) => void;
+  onInsertTable: (rows: number, columns: number) => void;
+  onInsertFeature: (variant: EducationalObjectType) => void;
   onInsertDivider?: () => void;
   onInsertPageBreak?: () => void;
   onAddPeriod?: () => void;
 }) {
+  const [tablePickerOpen, setTablePickerOpen] = useState(false);
+  const [tableRows, setTableRows] = useState("3");
+  const [tableColumns, setTableColumns] = useState("3");
+
+  function insertTable() {
+    const rows = Math.min(50, Math.max(1, Number.parseInt(tableRows, 10) || 1));
+    const columns = Math.min(20, Math.max(1, Number.parseInt(tableColumns, 10) || 1));
+    onInsertTable(rows, columns);
+    setTablePickerOpen(false);
+  }
+
   return (
     <div className="flex min-w-max items-stretch px-2 py-2">
       <RibbonGroup label="Pages">
@@ -1027,11 +1062,26 @@ function InsertRibbon({
           onClick={() => onInsert("media")}
         />
 
-        <LargeCommand
-          icon={<Table2 className="h-6 w-6" />}
-          label="Table"
-          onClick={onInsertTable}
-        />
+        <div className="relative">
+          <LargeCommand
+            icon={<Table2 className="h-6 w-6" />}
+            label="Table"
+            onClick={() => setTablePickerOpen((current) => !current)}
+          />
+          {tablePickerOpen ? (
+            <div className="absolute left-0 top-full z-40 mt-1 w-64 rounded-xl border border-slate-200 bg-white p-3 shadow-xl">
+              <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">Insert table</p>
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <label className="text-xs font-semibold text-slate-600">Rows<input className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm" type="number" min={1} max={50} value={tableRows} onChange={(event) => setTableRows(event.target.value)} /></label>
+                <label className="text-xs font-semibold text-slate-600">Columns<input className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm" type="number" min={1} max={20} value={tableColumns} onChange={(event) => setTableColumns(event.target.value)} /></label>
+              </div>
+              <div className="mt-2 flex flex-wrap gap-1">
+                {["1×1", "2×2", "3×3", "4×5"].map((preset) => { const [rows, columns] = preset.split("×"); return <button key={preset} type="button" className="rounded-md bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-blue-50" onClick={() => { setTableRows(rows); setTableColumns(columns); }}>{preset}</button>; })}
+              </div>
+              <button type="button" className="mt-3 w-full rounded-lg bg-blue-600 px-3 py-2 text-sm font-bold text-white hover:bg-blue-700" onClick={insertTable}>Insert</button>
+            </div>
+          ) : null}
+        </div>
       </RibbonGroup>
 
       <RibbonGroup label="Learning Content">
@@ -1094,41 +1144,7 @@ function InsertRibbon({
 
           {featureOpen ? (
             <DropdownPanel className="left-0 w-60">
-              {(
-                [
-                  ["didYouKnow", "Did You Know"],
-                  ["important", "Important"],
-                  ["example", "Example"],
-                  ["remember", "Remember"],
-                  ["tip", "Tip"],
-                  ["warning", "Warning"],
-                  ["teacherTip", "Teacher Tip"],
-                  [
-                    "activityPrompt",
-                    "Activity Prompt",
-                  ],
-                  [
-                    "experimentPrompt",
-                    "Experiment Prompt",
-                  ],
-                  [
-                    "observationPrompt",
-                    "Observation Prompt",
-                  ],
-                  ["summary", "Summary"],
-                  [
-                    "thinkAndDiscuss",
-                    "Think and Discuss",
-                  ],
-                  ["reflection", "Reflection"],
-                  [
-                    "competencyCheck",
-                    "Competency Check",
-                  ],
-                  ["lifeSkill", "Life Skill"],
-                  ["caseStudy", "Case Study"],
-                ] as const
-              ).map(([variant, label]) => (
+              {EDUCATIONAL_OBJECT_REGISTRY.map(([variant, label]) => (
                 <DropdownButton
                   key={variant}
                   label={label}
@@ -1190,6 +1206,8 @@ function ReviewRibbon({
 
 function ViewRibbon({
   layout,
+  canvasPreset,
+  onChangeCanvas,
   onToggleLayout,
   onZoomIn,
   onZoomOut,
@@ -1198,6 +1216,8 @@ function ViewRibbon({
   onFullScreen,
 }: {
   layout: "single" | "double";
+  canvasPreset: CanvasPreset;
+  onChangeCanvas: (preset: CanvasPreset) => void;
   onToggleLayout: () => void;
   onZoomIn?: () => void;
   onZoomOut?: () => void;
@@ -1207,6 +1227,20 @@ function ViewRibbon({
 }) {
   return (
     <div className="flex min-w-max items-stretch px-2 py-2">
+      <RibbonGroup label="Canvas">
+        <label className="flex h-[58px] min-w-[120px] flex-col justify-center gap-1 px-2 text-[11px] font-semibold text-slate-700">
+          View as
+          <select value={canvasPreset} onChange={(event) => onChangeCanvas(event.target.value as CanvasPreset)} className="h-8 rounded-md border border-slate-300 bg-white px-2 text-xs">
+            <option value="WEB">Web</option>
+            <option value="STUDENT">Student Dashboard</option>
+            <option value="TEACHER">Teacher Dashboard</option>
+            <option value="A3">A3</option>
+            <option value="A4">A4</option>
+            <option value="A5">A5</option>
+            <option value="CUSTOM">Custom</option>
+          </select>
+        </label>
+      </RibbonGroup>
       <RibbonGroup label="Page View">
         <LargeCommand
           icon={<Columns3 className="h-6 w-6" />}
@@ -1397,6 +1431,7 @@ function styleValue(
 ): ContentBlockType {
   if (
     type === "heading" ||
+    type === "heading3" ||
     type === "subheading" ||
     type === "quote" ||
     type === "caption" ||

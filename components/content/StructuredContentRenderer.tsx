@@ -11,8 +11,13 @@ import type {
   BlockBorderStyle,
   ContentBlock,
   ContentDocument,
+  ActivityBlock,
+  WorksheetBlock,
+  ExerciseBlock,
   InfoBoxVariant,
   RichTextSpan,
+  TableBlock,
+  TableCell,
   TextBlock,
 } from "@/lib/content-document";
 import {
@@ -20,16 +25,21 @@ import {
   isImageBlock,
   isImageGalleryBlock,
   isInfoBoxBlock,
+  isEducationalObjectBlock,
+  isActivityBlock,
+  isWorksheetBlock,
+  isExerciseBlock,
   isLinkedAssetBlock,
   isListBlock,
   isMediaBlock,
   isObservationBoxBlock,
   isPlaceholderBlock,
   isSequenceBlock,
-  isTableBlock,
   isTextBlock,
   sanitizeUrl,
 } from "@/lib/content-document";
+import { getEducationalObjectDefinition } from "@/lib/educational-object-registry";
+import { activityFieldEditorKind, activityFieldLabel, type ActivityField } from "@/lib/activity-object";
 import type {
   KnowledgeDefinitionSummary,
   KnowledgeReference,
@@ -41,6 +51,7 @@ import type {
 import type { ResolvedMediaBlock } from "@/lib/content-media-types";
 import type { ResolvedActivityBlock } from "@/lib/activity-studio-types";
 import type { ResolvedWorksheetBlock } from "@/lib/worksheet-studio-types";
+import { WORKSHEET_QUESTION_LABELS, type WorksheetQuestion } from "@/lib/worksheet-object";
 
 export default function StructuredContentRenderer({
   document,
@@ -180,10 +191,14 @@ function renderBlockBody(
       color: block.textColor || undefined,
       backgroundColor:
         block.highlightColor || undefined,
+      marginLeft: block.indent ? `${block.indent * 24}px` : undefined,
+      lineHeight: block.lineSpacing || undefined,
     };
     switch (block.type) {
       case "heading":
         return <h2 style={typographyStyle} className={textAlign(block.align, "min-w-0 whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-4xl font-bold tracking-tight text-slate-950")}>{text}</h2>;
+      case "heading3":
+        return <h4 style={typographyStyle} className={textAlign(block.align, "min-w-0 whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-xl font-bold tracking-tight text-slate-900")}>{text}</h4>;
       case "subheading":
         return <h3 style={typographyStyle} className={textAlign(block.align, "min-w-0 whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-2xl font-semibold tracking-tight text-slate-900")}>{text}</h3>;
       case "caption":
@@ -215,15 +230,15 @@ function renderBlockBody(
   if (isListBlock(block)) {
     const items = block.items.map((item, index) => (
       <li key={`${block.id}-${index}`} className="min-w-0 whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
-        {item}
+        {block.itemSpans?.[index] ? <RichTextSpans spans={block.itemSpans[index]} /> : item}
       </li>
     ));
     return block.type === "numberedList" ? (
-      <ol className={`${alignmentWrapper(block.align)} list-decimal space-y-2 pl-6 text-[1.05rem] leading-8 text-slate-800`}>
+      <ol style={{ marginLeft: block.indent ? `${block.indent * 24}px` : undefined, lineHeight: block.lineSpacing || undefined }} className={`${alignmentWrapper(block.align)} list-decimal space-y-2 pl-6 text-[1.05rem] leading-8 text-slate-800`}>
         {items}
       </ol>
     ) : (
-      <ul className={`${alignmentWrapper(block.align)} list-disc space-y-2 pl-6 text-[1.05rem] leading-8 text-slate-800`}>
+      <ul style={{ marginLeft: block.indent ? `${block.indent * 24}px` : undefined, lineHeight: block.lineSpacing || undefined }} className={`${alignmentWrapper(block.align)} list-disc space-y-2 pl-6 text-[1.05rem] leading-8 text-slate-800`}>
         {items}
       </ul>
     );
@@ -285,7 +300,11 @@ function renderBlockBody(
     );
   }
 
-  if (isTableBlock(block)) {
+  if (isRenderableTableBlock(block)) {
+    return <ResponsiveTable block={block as TableBlock} />;
+  }
+
+  if (isLegacyTableBlock(block)) {
     return (
       <div className="overflow-x-auto rounded-3xl border border-slate-200 bg-white">
         <table className="min-w-full divide-y divide-slate-200 text-sm text-slate-700">
@@ -339,6 +358,18 @@ function renderBlockBody(
     return <LinkedAssetView block={block} linkedAsset={linkedAsset} sectionLabel={sectionLabel} mode={mode} />;
   }
 
+  if (isActivityBlock(block)) {
+    return <ActivityObjectView block={block} mode={mode} />;
+  }
+
+  if (isWorksheetBlock(block)) {
+    return <WorksheetObjectView block={block} mode={mode} />;
+  }
+
+  if (isExerciseBlock(block)) {
+    return <ExerciseObjectView block={block} mode={mode} />;
+  }
+
   if (isMediaBlock(block)) {
     return <MediaBlockView media={media} sectionLabel={sectionLabel} />;
   }
@@ -347,6 +378,16 @@ function renderBlockBody(
     return (
       <aside className={`${infoBoxClass(block.variant)} rounded-3xl px-5 py-4`}>
         <p className={textAlign(block.align, "min-w-0 whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-[1.02rem] leading-8")}>{block.text}</p>
+      </aside>
+    );
+  }
+
+  if (isEducationalObjectBlock(block)) {
+    const definition = getEducationalObjectDefinition(block.objectType);
+    return (
+      <aside className="rounded-3xl border border-blue-200 bg-blue-50 px-5 py-4 text-slate-900">
+        <p className="text-xs font-bold uppercase tracking-[0.14em] text-blue-800">{block.title || definition.defaultTitle}</p>
+        {block.text ? <p className="mt-2 whitespace-pre-wrap break-words leading-7">{block.text}</p> : null}
       </aside>
     );
   }
@@ -393,6 +434,79 @@ function renderBlockBody(
   }
 
   return null;
+}
+
+function ActivityObjectView({ block, mode }: { block: ActivityBlock; mode: ContentRenderMode }) {
+  const student = mode === "STUDENT";
+  const fields = block.fields.filter((field) => {
+    const visible = student ? field.visibility?.student ?? field.type !== "teacherNote" : field.visibility?.teacher ?? true;
+    return visible && (Boolean(field.text?.trim()) || Boolean(field.resourceId));
+  });
+  return (
+    <article className="rounded-3xl border border-emerald-200 bg-emerald-50/70 p-5 text-slate-800">
+      <p className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-700">Activity</p>
+      {fields.length ? (
+        <div className="mt-4 grid gap-3">
+          {fields.map((field) => <ActivityFieldView key={field.id} field={field} mode={mode} />)}
+        </div>
+      ) : null}
+    </article>
+  );
+}
+
+function ActivityFieldView({ field, mode }: { field: ActivityField; mode: ContentRenderMode }) {
+  const label = activityFieldLabel(field);
+  const editorKind = activityFieldEditorKind(field.type);
+  if (editorKind === "resource" && field.resourceId) {
+    const route = mode === "STUDENT" ? `/api/student/resources/${encodeURIComponent(field.resourceId)}/open` : `/api/resources/${encodeURIComponent(field.resourceId)}/download`;
+    if (field.type === "image") return (
+      <section className="rounded-2xl bg-white/80 p-3">
+        <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">{label}</p>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={route} alt={label} className="mt-2 max-h-72 w-full rounded-xl object-contain" />
+      </section>
+    );
+    return <section className="rounded-2xl bg-white/80 px-4 py-3"><a href={route} className="font-semibold text-emerald-800 underline" target={mode === "STUDENT" ? undefined : "_blank"} rel="noreferrer">{field.type === "video" ? `Watch ${label}` : `Open ${label}`}</a></section>;
+  }
+  if (!field.text?.trim()) return null;
+  return <section className={`rounded-2xl px-4 py-3 ${field.type === "teacherNote" ? "bg-amber-50 text-amber-950" : "bg-white/80"}`}><h4 className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">{label}</h4><p className="mt-2 whitespace-pre-wrap break-words text-sm leading-7">{field.text}</p></section>;
+}
+
+function WorksheetObjectView({ block, mode }: { block: WorksheetBlock; mode: ContentRenderMode }) {
+  const student = mode === "STUDENT";
+  const showAnswers = !student && block.answerKeyEnabled !== false;
+  const questions = block.questions.filter((question) => student ? question.visibility?.student !== false : question.visibility?.teacher !== false);
+  return (
+    <article className="worksheet-object rounded-3xl border border-violet-200 bg-violet-50/70 p-5 text-slate-800">
+      <p className="text-xs font-bold uppercase tracking-[0.18em] text-violet-700">Worksheet</p>
+      {block.title ? <h3 className="mt-2 text-2xl font-bold text-slate-950">{block.title}</h3> : null}
+      {block.description ? <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-7 text-slate-600">{block.description}</p> : null}
+      {block.instructions ? <div className="mt-4 rounded-2xl bg-white/80 px-4 py-3"><p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Instructions</p><p className="mt-2 whitespace-pre-wrap break-words text-sm leading-7">{block.instructions}</p></div> : null}
+      {block.marks !== undefined || block.difficulty || block.duration ? <div className="mt-3 flex flex-wrap gap-2 text-xs font-semibold text-slate-600">{block.marks !== undefined ? <span className="rounded-full bg-white px-3 py-1">{block.marks} marks</span> : null}{block.difficulty ? <span className="rounded-full bg-white px-3 py-1">{block.difficulty}</span> : null}{block.duration ? <span className="rounded-full bg-white px-3 py-1">{block.duration}</span> : null}</div> : null}
+      <div className="mt-5 grid gap-4">{questions.map((question, index) => <WorksheetQuestionView key={question.id} question={question} index={index} showAnswers={showAnswers} mode={mode} />)}</div>
+      {!student && block.teacherNote ? <aside className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3"><p className="text-xs font-bold uppercase tracking-[0.16em] text-amber-800">Teacher note</p><p className="mt-2 whitespace-pre-wrap break-words text-sm leading-7 text-amber-950">{block.teacherNote}</p></aside> : null}
+    </article>
+  );
+}
+
+function WorksheetQuestionView({ question, index, showAnswers, mode }: { question: WorksheetQuestion; index: number; showAnswers: boolean; mode: ContentRenderMode }) {
+  const resourceRoute = question.resourceId ? (mode === "STUDENT" ? `/api/student/resources/${encodeURIComponent(question.resourceId)}/open` : `/api/resources/${encodeURIComponent(question.resourceId)}/download`) : null;
+  return <section className="worksheet-question rounded-2xl border border-slate-200 bg-white px-4 py-4"><div className="flex items-start gap-3"><span className="font-bold text-violet-700">{index + 1}.</span><div className="min-w-0 flex-1"><p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">{WORKSHEET_QUESTION_LABELS[question.type]}</p>{question.instructions ? <p className="mt-1 whitespace-pre-wrap break-words text-xs italic text-slate-500">{question.instructions}</p> : null}<p className="mt-2 whitespace-pre-wrap break-words text-[1.02rem] leading-7 text-slate-900">{question.prompt || "Untitled question"}{question.marks !== undefined ? <span className="ml-2 text-xs font-semibold text-slate-400">[{question.marks}]</span> : null}</p>{question.type === "mcq" ? <div className="mt-3 grid gap-2 sm:grid-cols-2">{(question.options ?? []).map((option, optionIndex) => <div key={option.id} className="rounded-xl border border-slate-200 px-3 py-2 text-sm"><span className="mr-2 font-bold text-slate-400">{String.fromCharCode(65 + optionIndex)}.</span>{option.text}</div>)}</div> : null}{question.type === "trueFalse" ? <div className="mt-3 flex gap-2 text-sm"><span className="rounded-full border px-3 py-1">True</span><span className="rounded-full border px-3 py-1">False</span></div> : null}{question.type === "match" ? <div className="mt-3 grid gap-1 border-t border-slate-100 pt-2 text-sm">{(question.pairs ?? []).map((pair) => <div key={pair.id} className="grid grid-cols-2 gap-3"><span>{pair.left}</span><span>{pair.right}</span></div>)}</div> : null}{question.type === "assertionReason" ? <div className="mt-3 grid gap-2 text-sm"><p><strong>Assertion:</strong> {question.assertion}</p><p><strong>Reason:</strong> {question.reason}</p></div> : null}{question.type === "caseBased" ? <div className="mt-3 grid gap-2 text-sm"><p className="whitespace-pre-wrap break-words rounded-xl bg-slate-50 p-3 leading-7">{question.caseText}</p>{(question.subQuestions ?? []).map((entry, subIndex) => <p key={entry.id}><strong>{subIndex + 1}.</strong> {entry.prompt}</p>)}</div> : null}{resourceRoute ? <a href={resourceRoute} className="mt-3 inline-flex text-sm font-semibold text-violet-700 underline" target={mode === "STUDENT" ? undefined : "_blank"} rel="noreferrer">Open question resource</a> : null}{showAnswers && (question.answer || question.correctOption || question.trueFalseAnswer || question.explanation) ? <div className="mt-3 rounded-xl bg-emerald-50 px-3 py-2 text-sm text-emerald-950"><p className="text-xs font-bold uppercase tracking-[0.14em] text-emerald-700">Answer key</p>{question.answer ? <p className="mt-1 whitespace-pre-wrap break-words"><strong>Answer:</strong> {question.answer}</p> : null}{question.correctOption ? <p className="mt-1"><strong>Correct option:</strong> {(question.options ?? []).find((option) => option.id === question.correctOption)?.text ?? question.correctOption}</p> : null}{question.trueFalseAnswer ? <p className="mt-1"><strong>Correct answer:</strong> {question.trueFalseAnswer}</p> : null}{question.explanation ? <p className="mt-1 whitespace-pre-wrap break-words"><strong>Why:</strong> {question.explanation}</p> : null}</div> : null}</div></div></section>;
+}
+
+function ExerciseObjectView({ block, mode }: { block: ExerciseBlock; mode: ContentRenderMode }) {
+  const showAnswers = mode === "STUDENT" ? block.showAnswersToStudent === true : true;
+  const renderQuestion = (question: WorksheetQuestion, number: number) => <ExerciseQuestionView key={question.id} question={question} number={number} showAnswers={showAnswers} mode={mode} />;
+  const groups = block.groups.map((group, groupIndex) => ({
+    group,
+    start: block.questions.length + block.groups.slice(0, groupIndex).reduce((total, entry) => total + entry.questions.length, 0),
+  }));
+  return <article className="exercise-object rounded-3xl border-l-4 border-amber-400 bg-amber-50/60 px-5 py-5 text-slate-800"><p className="text-xs font-bold uppercase tracking-[0.18em] text-amber-700">Exercise</p>{block.title ? <h3 className="mt-2 text-2xl font-bold text-slate-950">{block.title}</h3> : null}{block.introduction ? <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-7 text-slate-700">{block.introduction}</p> : null}{block.instructions ? <p className="mt-3 rounded-2xl bg-white/80 px-4 py-3 text-sm leading-7"><strong>Instructions:</strong> {block.instructions}</p> : null}{block.difficulty || block.suggestedTime ? <div className="mt-3 flex flex-wrap gap-2 text-xs font-semibold text-slate-600">{block.difficulty ? <span className="rounded-full bg-white px-3 py-1">{block.difficulty}</span> : null}{block.suggestedTime ? <span className="rounded-full bg-white px-3 py-1">Suggested time: {block.suggestedTime}</span> : null}</div> : null}<div className="mt-5">{block.questions.map((question, index) => renderQuestion(question, index + 1))}{groups.map(({ group, start }) => <section key={group.id} className="mt-6"><h4 className="text-lg font-bold text-amber-950">{group.title || "Exercise group"}</h4>{group.instructions ? <p className="mt-1 text-sm leading-7 text-slate-600">{group.instructions}</p> : null}<div className="mt-3">{group.questions.map((question, index) => renderQuestion(question, start + index + 1))}</div></section>)}</div>{mode !== "STUDENT" && block.teacherNote ? <aside className="mt-5 rounded-2xl border border-amber-200 bg-amber-100 px-4 py-3 text-sm leading-7 text-amber-950"><p className="text-xs font-bold uppercase tracking-[0.16em] text-amber-800">Teacher note</p>{block.teacherNote}</aside> : null}</article>;
+}
+
+function ExerciseQuestionView({ question, number, showAnswers, mode }: { question: WorksheetQuestion; number: number; showAnswers: boolean; mode: ContentRenderMode }) {
+  const resourceRoute = question.resourceId ? (mode === "STUDENT" ? `/api/student/resources/${encodeURIComponent(question.resourceId)}/open` : `/api/resources/${encodeURIComponent(question.resourceId)}/download`) : null;
+  return <section className="exercise-question mb-4 rounded-2xl border border-amber-100 bg-white px-4 py-4"><p className="text-[1.02rem] leading-7 text-slate-900"><strong className="mr-2 text-amber-700">{number}.</strong>{question.prompt || "Untitled question"}{question.marks !== undefined ? <span className="ml-2 text-xs font-semibold text-slate-400">[{question.marks} marks]</span> : null}</p>{question.instructions ? <p className="mt-1 text-xs italic text-slate-500">{question.instructions}</p> : null}{question.options?.length ? <div className="mt-3 grid gap-2 sm:grid-cols-2">{question.options.map((option, index) => <div key={option.id} className="rounded-xl border border-slate-200 px-3 py-2 text-sm"><span className="mr-2 font-bold text-slate-400">{String.fromCharCode(65 + index)}.</span>{option.text}</div>)}</div> : null}{question.caseText ? <div className="mt-3 rounded-xl bg-slate-50 p-3 text-sm leading-7"><strong>Case:</strong> {question.caseText}{question.subQuestions?.map((entry, index) => <p key={entry.id} className="mt-1">{number}.{index + 1} {entry.prompt}</p>)}</div> : null}{question.pairs?.length ? <div className="mt-3 grid gap-1 text-sm">{question.pairs.map((pair) => <div key={pair.id} className="grid grid-cols-2 gap-3"><span>{pair.left}</span><span>{pair.right}</span></div>)}</div> : null}{resourceRoute ? <a href={resourceRoute} className="mt-3 inline-flex text-sm font-semibold text-amber-800 underline" target={mode === "STUDENT" ? undefined : "_blank"} rel="noreferrer">Open question resource</a> : null}{showAnswers && (question.answer || question.correctOption || question.trueFalseAnswer || question.explanation) ? <div className="mt-3 rounded-xl bg-emerald-50 px-3 py-2 text-sm text-emerald-950"><p className="text-xs font-bold uppercase tracking-[0.14em] text-emerald-700">Answer</p>{question.answer ? <p className="mt-1 whitespace-pre-wrap break-words">{question.answer}</p> : null}{question.correctOption ? <p className="mt-1">{question.options?.find((option) => option.id === question.correctOption)?.text ?? question.correctOption}</p> : null}{question.trueFalseAnswer ? <p className="mt-1">{question.trueFalseAnswer}</p> : null}{question.explanation ? <p className="mt-1 whitespace-pre-wrap break-words"><strong>Explanation:</strong> {question.explanation}</p> : null}</div> : null}</section>;
 }
 
 function MediaBlockView({
@@ -464,6 +578,57 @@ function MediaBlockView({
       ) : null}
     </figure>
   );
+}
+
+function ResponsiveTable({ block }: { block: TableBlock }) {
+  const columnCount = Math.max(1, block.rows.reduce((maximum, row) => Math.max(maximum, row.cells.reduce((sum, cell) => sum + (cell.colSpan ?? 1), 0)), 0));
+  const widths = normalizeTableWidths(block.columnWidths, columnCount);
+  const headerRows = block.headerRows ?? (block.headerRow === false ? [] : [0]);
+  return (
+    <div className="overflow-x-auto rounded-3xl border border-slate-200 bg-white">
+      <table className="min-w-full table-fixed border-collapse text-sm text-slate-700">
+        <colgroup>{widths.map((width, index) => <col key={index} style={{ width: `${width * 100}%` }} />)}</colgroup>
+        <tbody>
+          {block.rows.map((row, rowIndex) => (
+            <tr key={row.id} style={{ height: row.height ? `${row.height}px` : undefined }}>
+              {row.cells.map((cell, cellIndex) => {
+                const isHeader = headerRows.includes(rowIndex) || cell.header === true;
+                const CellTag = isHeader ? "th" : "td";
+                return <CellTag key={cell.id} colSpan={cell.colSpan} rowSpan={cell.rowSpan} className={`${tableCellBorder(block.tableBorderStyle, rowIndex, cellIndex, block.rows.length, row.cells.length)} ${tableCellBackground(cell.background)} min-w-0 whitespace-pre-wrap break-words [overflow-wrap:anywhere] px-4 py-3 ${isHeader ? "font-bold text-slate-900" : ""}`} style={{ textAlign: cell.horizontalAlign ?? "left", verticalAlign: cell.verticalAlign ?? "top" }}>
+                  {cell.text ? <>{(cell.spans?.length ? cell.spans : [{ text: cell.text }]).map((span, index) => <RichTextSegment key={`${cell.id}-${index}`} span={span} text={span.text} />)}</> : <span className="text-slate-300">—</span>}
+                </CellTag>;
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function isLegacyTableBlock(_block: ContentBlock): _block is TableBlock {
+  return Boolean(_block && false);
+}
+
+function isRenderableTableBlock(block: ContentBlock) {
+  return block.type === "table" || block.type === "comparisonTable";
+}
+
+function normalizeTableWidths(widths: number[] | undefined, count: number) {
+  const raw = Array.from({ length: count }, (_, index) => Math.max(0.05, widths?.[index] ?? 1));
+  const total = raw.reduce((sum, width) => sum + width, 0);
+  return raw.map((width) => width / total);
+}
+
+function tableCellBorder(style: TableBlock["tableBorderStyle"], row: number, column: number, rows: number, columns: number) {
+  if (style === "none") return "";
+  if (style === "outer") return `${row === 0 ? "border-t" : ""} ${row === rows - 1 ? "border-b" : ""} ${column === 0 ? "border-l" : ""} ${column === columns - 1 ? "border-r" : ""} border-slate-300`;
+  if (style === "inner") return `${row < rows - 1 ? "border-b" : ""} ${column < columns - 1 ? "border-r" : ""} border-slate-200`;
+  return "border border-slate-300";
+}
+
+function tableCellBackground(background: TableCell["background"]) {
+  return background === "muted" ? "bg-slate-50" : background === "accent" ? "bg-blue-50" : background === "highlight" ? "bg-amber-50" : "bg-white";
 }
 
 function MarkedText({
@@ -577,6 +742,11 @@ function RichTextSegment({
         fontStyle: span.marks?.includes("italic")
           ? "italic"
           : undefined,
+        verticalAlign: span.marks?.includes("superscript")
+          ? "super"
+          : span.marks?.includes("subscript")
+            ? "sub"
+            : undefined,
         textDecoration:
           decorations.length > 0
             ? decorations.join(" ")
@@ -586,6 +756,10 @@ function RichTextSegment({
       {text}
     </span>
   );
+}
+
+function RichTextSpans({ spans }: { spans: RichTextSpan[] }) {
+  return <>{spans.map((span, index) => <RichTextSegment key={`${index}-${span.text}`} span={span} text={span.text} />)}</>;
 }
 
 function findSpanAtOffset(

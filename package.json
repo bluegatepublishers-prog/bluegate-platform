@@ -9,6 +9,7 @@
     "start": "next start",
     "lint": "eslint",
     "test": "node --conditions=react-server --import tsx --test tests/*.test.ts",
+    "test:e2e": "playwright test",
     "gaps:backfill": "node --conditions=react-server --import tsx scripts/gap-analysis-backfill.ts",
     "provision:super-admin": "tsx scripts/provision-super-admin.ts",
     "seed": "tsx prisma/seed.ts",
@@ -35,6 +36,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@playwright/test": "^1.51.1",
     "@tailwindcss/postcss": "^4",
     "@types/bcryptjs": "^2.4.6",
     "@types/node": "^20",

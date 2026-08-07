@@ -1,11 +1,18 @@
 import "server-only";
-import { deleteFile, isManagedFileUrl } from "@/lib/storage";
+import { deleteFile, deleteStoredObject, isManagedFileUrl } from "@/lib/storage";
+import { normalizeAndValidateObjectKey } from "@/lib/storage/object-key";
 export async function removeManagedResourceFile(url: string | null | undefined) {
   if (!url) return;
-  if (!isManagedFileUrl(url)) return;
-  if (!isResourceUrl(url)) return;
   try {
-    await deleteFile(url);
+    if (isManagedFileUrl(url) && isResourceUrl(url)) {
+      await deleteFile(url);
+      return;
+    }
+
+    const key = normalizeAndValidateObjectKey(url);
+    if (key.startsWith("resources/files/") || key.startsWith("resources/thumbnails/")) {
+      await deleteStoredObject({ key });
+    }
   } catch {
     console.warn("Managed resource file cleanup failed", { code: "DELETE_FAILED" });
   }

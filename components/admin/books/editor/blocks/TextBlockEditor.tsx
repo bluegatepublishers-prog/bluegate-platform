@@ -17,18 +17,7 @@ import type {
   TextBlock,
 } from "@/lib/content-document";
 
-type EditableTextBlock = Extract<
-  TextBlock,
-  {
-    type:
-      | "heading"
-      | "subheading"
-      | "paragraph"
-      | "caption"
-      | "quote"
-      | "callout";
-  }
->;
+type EditableTextBlock = TextBlock;
 
 type TextBlockEditorProps = {
   block: EditableTextBlock;
@@ -79,6 +68,7 @@ export default function TextBlockEditor({
 
   if (
     block.type === "heading" ||
+    block.type === "heading3" ||
     block.type === "subheading"
   ) {
     return (
@@ -110,7 +100,9 @@ export default function TextBlockEditor({
         className={`w-full min-w-0 border-none bg-transparent p-0 outline-none placeholder:text-slate-300 ${
           block.type === "heading"
             ? "text-4xl font-bold tracking-tight text-slate-950"
-            : "text-2xl font-semibold tracking-tight text-slate-900"
+            : block.type === "heading3"
+              ? "text-xl font-bold tracking-tight text-slate-900"
+              : "text-2xl font-semibold tracking-tight text-slate-900"
         }`}
       />
     );

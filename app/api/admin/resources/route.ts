@@ -151,6 +151,8 @@ export async function POST(request: Request) {
   const subjectId = trimToNull(body.subjectId);
   const seriesId = trimToNull(body.seriesId);
   const bookId = trimToNull(body.bookId);
+  const chapterId = trimToNull(body.chapterId);
+  const moduleId = trimToNull(body.moduleId);
   const classLevel = String(body.classLevel ?? "");
   const subject = String(body.subject ?? "");
 
@@ -198,6 +200,43 @@ export async function POST(request: Request) {
           })
         : Promise.resolve(null),
     ]);
+
+  let scopedChapterId = chapterId;
+  let scopedModuleId = moduleId;
+  if (moduleId) {
+    const moduleRecord = await prisma.bookModule.findFirst({
+      where: {
+        id: moduleId,
+        ...(bookId ? { bookId } : {}),
+        book: { publisherId: actor.publisherId },
+      },
+      select: { id: true, chapterId: true, bookId: true },
+    });
+    if (!moduleRecord) {
+      return NextResponse.json(
+        { message: "Select a valid module in this book." },
+        { status: 400 },
+      );
+    }
+    scopedModuleId = moduleRecord.id;
+    scopedChapterId = moduleRecord.chapterId;
+  } else if (chapterId) {
+    const chapterRecord = await prisma.bookChapter.findFirst({
+      where: {
+        id: chapterId,
+        ...(bookId ? { bookId } : {}),
+        book: { publisherId: actor.publisherId },
+      },
+      select: { id: true },
+    });
+    if (!chapterRecord) {
+      return NextResponse.json(
+        { message: "Select a valid chapter in this book." },
+        { status: 400 },
+      );
+    }
+    scopedChapterId = chapterRecord.id;
+  }
 
   const resolvedLinks = resolveResourceLinks({
     selected: {
@@ -278,6 +317,8 @@ export async function POST(request: Request) {
           subjectId: resolvedLinks.data.subjectId,
           seriesId: resolvedLinks.data.seriesId,
           bookId: resolvedLinks.data.bookId,
+          chapterId: scopedChapterId,
+          moduleId: scopedModuleId,
           type,
           audience,
           fileUrl,
@@ -310,10 +351,18 @@ export async function POST(request: Request) {
       status: 201,
     });
   } catch (error) {
-    console.error(
-      "Publisher resource creation failed:",
-      error,
-    );
+    console.error("Publisher resource creation failed", {
+      name: error instanceof Error ? error.name : "UnknownError",
+      message: error instanceof Error ? error.message : String(error),
+      code: isRecord(error) && typeof error.code === "string" ? error.code : undefined,
+      meta: isRecord(error) && isRecord(error.meta) ? error.meta : undefined,
+      publisherId: actor.publisherId,
+      bookId,
+      chapterId: scopedChapterId,
+      moduleId: scopedModuleId,
+      resourceType: type,
+      mimeType,
+    });
 
     await Promise.all([
       fileUrl
@@ -335,4 +384,8 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object";
 }

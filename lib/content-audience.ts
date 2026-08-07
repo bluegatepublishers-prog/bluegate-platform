@@ -10,6 +10,8 @@ import {
   isSequenceBlock,
   isTableBlock,
   isTextBlock,
+  isWorksheetBlock,
+  isExerciseBlock,
 } from "@/lib/content-document";
 import type { KnowledgeDefinitionSummary } from "@/lib/content-knowledge-types";
 import type { ContentSectionDefinitionSummary, ResolvedLinkedAsset } from "@/lib/content-linked-asset-types";
@@ -133,6 +135,8 @@ export function documentHasRenderableContent(document: ContentDocument) {
     if (isListBlock(block)) return block.items.some((item) => item.trim());
     if (isInfoBoxBlock(block) || isObservationBoxBlock(block)) return Boolean(block.text.trim());
     if (isTableBlock(block)) return block.rows.some((row) => row.cells.some((cell) => cell.text.trim()));
+    if (isWorksheetBlock(block)) return block.questions.length > 0 || Boolean(block.title?.trim() || block.instructions?.trim());
+    if (isExerciseBlock(block)) return block.questions.length > 0 || block.groups.some((group) => group.questions.length > 0) || Boolean(block.title?.trim() || block.instructions?.trim() || block.introduction?.trim());
     if (isSequenceBlock(block)) return block.items.some((item) => item.title.trim() || item.description?.trim());
     if (block.type === "formula") return Boolean(block.expression.trim());
     return Boolean(block.title?.trim());

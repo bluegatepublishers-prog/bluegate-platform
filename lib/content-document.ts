@@ -15,6 +15,35 @@ import {
   KNOWLEDGE_REFERENCE_TYPES,
   type KnowledgeReference,
 } from "@/lib/content-knowledge-types";
+import {
+  getEducationalObjectDefinition,
+  isEducationalObjectType,
+  type EducationalObjectType,
+} from "@/lib/educational-object-registry";
+import {
+  activityFieldDefinition,
+  defaultActivityFieldVisibility,
+  type ActivityField,
+  type ActivityFieldType,
+} from "@/lib/activity-object";
+import {
+  createWorksheetBlock as createWorksheetObjectBlock,
+  normalizeWorksheetBlock,
+  type WorksheetBlockData,
+} from "@/lib/worksheet-object";
+import {
+  createExerciseBlock as createExerciseObjectBlock,
+  normalizeExerciseBlock,
+  addExerciseGroup as addExerciseObjectGroup,
+  updateExerciseGroup as updateExerciseObjectGroup,
+  removeExerciseGroup as removeExerciseObjectGroup,
+  moveExerciseGroup as moveExerciseObjectGroup,
+  addExerciseQuestion as addExerciseObjectQuestion,
+  removeExerciseQuestion as removeExerciseObjectQuestion,
+  moveExerciseQuestion as moveExerciseObjectQuestion,
+  duplicateExerciseQuestion as duplicateExerciseObjectQuestion,
+  type ExerciseBlockData,
+} from "@/lib/exercise-object";
 
 export const CONTENT_DOCUMENT_VERSION = 4 as const;
 export const DEFAULT_PERIOD_ID = "period_default";
@@ -22,6 +51,9 @@ export const DEFAULT_PERIOD_ID = "period_default";
 export const BLOCK_ALIGNMENTS = ["left", "center", "right"] as const;
 export const BLOCK_BACKGROUND_STYLES = ["none", "subtle", "accent", "emphasis"] as const;
 export const BLOCK_BORDER_STYLES = ["none", "subtle", "strong"] as const;
+export const TABLE_BORDER_STYLES = ["all", "outer", "inner", "none"] as const;
+export const TABLE_CELL_BACKGROUNDS = ["none", "muted", "accent", "highlight"] as const;
+export const TABLE_VERTICAL_ALIGNMENTS = ["top", "middle", "bottom"] as const;
 export const INFO_BOX_VARIANTS = [
   "example",
   "remember",
@@ -47,10 +79,14 @@ export const MEDIA_KINDS = ["video", "audio", "animation", "html5", "simulation"
 export const MEDIA_TARGET_TYPES = ["RESOURCE", "VIDEO_LESSON"] as const;
 export const MEDIA_DISPLAY_MODES = ["inline", "button", "fullWidth"] as const;
 export const PLACEHOLDER_BLOCK_TYPES = ["mindMap", "flowChart"] as const;
+export const CANVAS_PRESETS = ["A3", "A4", "A5", "CUSTOM", "WEB", "STUDENT", "TEACHER"] as const;
 
 export type BlockAlignment = (typeof BLOCK_ALIGNMENTS)[number];
 export type BlockBackgroundStyle = (typeof BLOCK_BACKGROUND_STYLES)[number];
 export type BlockBorderStyle = (typeof BLOCK_BORDER_STYLES)[number];
+export type TableBorderStyle = (typeof TABLE_BORDER_STYLES)[number];
+export type TableCellBackground = (typeof TABLE_CELL_BACKGROUNDS)[number];
+export type TableVerticalAlignment = (typeof TABLE_VERTICAL_ALIGNMENTS)[number];
 export type InfoBoxVariant = (typeof INFO_BOX_VARIANTS)[number];
 export type FormulaDisplayMode = (typeof FORMULA_DISPLAY_MODES)[number];
 export type ImageWidth = (typeof IMAGE_WIDTHS)[number];
@@ -59,7 +95,8 @@ export type MediaKind = (typeof MEDIA_KINDS)[number];
 export type MediaTargetType = (typeof MEDIA_TARGET_TYPES)[number];
 export type MediaDisplayMode = (typeof MEDIA_DISPLAY_MODES)[number];
 export type PlaceholderBlockType = (typeof PLACEHOLDER_BLOCK_TYPES)[number];
-export const TEXT_MARKS = ["bold", "italic", "underline"] as const;
+export type CanvasPreset = (typeof CANVAS_PRESETS)[number];
+export const TEXT_MARKS = ["bold", "italic", "underline", "superscript", "subscript"] as const;
 
 export type TextMark = (typeof TEXT_MARKS)[number];
 
@@ -78,6 +115,7 @@ export type ContentPeriod = {
 
 export type ContentBlockType =
   | "heading"
+  | "heading3"
   | "subheading"
   | "paragraph"
   | "caption"
@@ -85,6 +123,10 @@ export type ContentBlockType =
   | "numberedList"
   | "quote"
   | "callout"
+  | "activity"
+  | "worksheet"
+  | "exercise"
+  | "educationalObject"
   | "image"
   | "imageGallery"
   | "diagram"
@@ -100,6 +142,30 @@ export type ContentBlockType =
   | "stepList"
   | "observationBox"
   | PlaceholderBlockType;
+
+export type LayoutMetadata = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  zIndex: number;
+  locked?: boolean;
+  digital?: {
+    order?: number;
+    width?: "full" | "wide" | "content";
+    alignment?: "left" | "center" | "right";
+    visibility?: "all" | "web" | "student" | "teacher";
+  };
+};
+
+export type CanvasConfig = {
+  preset: CanvasPreset;
+  width: number;
+  height: number;
+  unit: "px" | "mm" | "cm" | "inch";
+  orientation: "portrait" | "landscape";
+  margins: { top: number; right: number; bottom: number; left: number };
+};
 
 type BaseBlock = {
   id: string;
@@ -117,9 +183,12 @@ type BaseBlock = {
   strikethrough?: boolean;
   textColor?: string;
   highlightColor?: string;
+  indent?: number;
+  lineSpacing?: number;
   hidden?: boolean;
   collapsed?: boolean;
   periodId?: string;
+  layout?: LayoutMetadata;
 };
 
 type ImageLike = {
@@ -127,18 +196,25 @@ type ImageLike = {
   url: string;
   alt: string;
   caption?: string;
+  crop?: { x: number; y: number; width: number; height: number };
 };
 
-type TableCell = {
+export type TableCell = {
   id: string;
   text: string;
+  spans?: RichTextSpan[];
   colSpan?: number;
   rowSpan?: number;
+  horizontalAlign?: BlockAlignment;
+  verticalAlign?: TableVerticalAlignment;
+  background?: TableCellBackground;
+  header?: boolean;
 };
 
-type TableRow = {
+export type TableRow = {
   id: string;
   cells: TableCell[];
+  height?: number;
 };
 
 type SequenceItem = {
@@ -149,7 +225,7 @@ type SequenceItem = {
 };
 
 export type TextBlock = BaseBlock & {
-  type: "heading" | "subheading" | "paragraph" | "caption" | "quote" | "callout";
+  type: "heading" | "heading3" | "subheading" | "paragraph" | "caption" | "quote" | "callout";
 
   /**
    * Plain-text representation retained for backward compatibility,
@@ -167,9 +243,24 @@ export type TextBlock = BaseBlock & {
   knowledgeReferences?: KnowledgeReference[];
 };
 
+export type EducationalObjectBlock = BaseBlock & {
+  type: "educationalObject";
+  objectType: EducationalObjectType;
+  text: string;
+};
+
+export type ActivityBlock = BaseBlock & {
+  type: "activity";
+  fields: ActivityField[];
+};
+
+export type WorksheetBlock = BaseBlock & WorksheetBlockData;
+export type ExerciseBlock = BaseBlock & ExerciseBlockData;
+
 export type ListBlock = BaseBlock & {
   type: "bulletList" | "numberedList";
   items: string[];
+  itemSpans?: RichTextSpan[][];
 };
 
 export type ImageBlock = BaseBlock & {
@@ -187,7 +278,10 @@ export type ImageGalleryBlock = BaseBlock & {
 export type TableBlock = BaseBlock & {
   type: "table" | "comparisonTable";
   headerRow?: boolean;
+  headerRows?: number[];
   rows: TableRow[];
+  columnWidths?: number[];
+  tableBorderStyle?: TableBorderStyle;
 };
 
 export type FormulaBlock = BaseBlock & {
@@ -251,6 +345,10 @@ export type PlaceholderBlock = BaseBlock & {
 
 export type ContentBlock =
   | TextBlock
+  | ActivityBlock
+  | WorksheetBlock
+  | ExerciseBlock
+  | EducationalObjectBlock
   | ListBlock
   | ImageBlock
   | ImageGalleryBlock
@@ -269,10 +367,12 @@ export type ContentDocument = {
   blocks: ContentBlock[];
   periods: ContentPeriod[];
   layout: "single" | "double";
+  canvas: CanvasConfig;
 };
 
 const supportedTypes = new Set<ContentBlockType>([
   "heading",
+  "heading3",
   "subheading",
   "paragraph",
   "caption",
@@ -280,6 +380,10 @@ const supportedTypes = new Set<ContentBlockType>([
   "numberedList",
   "quote",
   "callout",
+  "activity",
+  "worksheet",
+  "exercise",
+  "educationalObject",
   "image",
   "imageGallery",
   "diagram",
@@ -304,6 +408,7 @@ export function createContentDocument(
   blocks: ContentBlock[] = [],
   periods: ContentPeriod[] = [],
   layout: ContentDocument["layout"] = "single",
+  canvas?: Partial<CanvasConfig>,
 ): ContentDocument {
   const normalizedPeriods = normalizePeriods(periods);
   const firstPeriodId = normalizedPeriods[0]?.id ?? DEFAULT_PERIOD_ID;
@@ -316,31 +421,52 @@ export function createContentDocument(
     blocks: normalizedBlocks.length ? normalizedBlocks : [{ ...createTextBlock("paragraph", ""), periodId: firstPeriodId }],
     periods: normalizedPeriods,
     layout,
+    canvas: normalizeCanvasConfig(canvas),
+  };
+}
+
+export function normalizeCanvasConfig(value: unknown): CanvasConfig {
+  const record = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  const preset = CANVAS_PRESETS.includes(record.preset as CanvasPreset) ? record.preset as CanvasPreset : "WEB";
+  const unit = ["px", "mm", "cm", "inch"].includes(record.unit as string) ? record.unit as CanvasConfig["unit"] : "px";
+  const orientation = record.orientation === "landscape" ? "landscape" : "portrait";
+  const number = (candidate: unknown, fallback: number) => typeof candidate === "number" && Number.isFinite(candidate) && candidate > 0 ? candidate : fallback;
+  const margins = record.margins && typeof record.margins === "object" ? record.margins as Record<string, unknown> : {};
+  return {
+    preset,
+    width: number(record.width, preset === "A3" ? 1123 : preset === "A5" ? 559 : 794),
+    height: number(record.height, preset === "A3" ? 1587 : preset === "A5" ? 794 : 1123),
+    unit,
+    orientation,
+    margins: {
+      top: number(margins.top, 48), right: number(margins.right, 48),
+      bottom: number(margins.bottom, 48), left: number(margins.left, 48),
+    },
   };
 }
 
 export function addContentPeriod(document: ContentDocument, title?: string) {
   const sortOrder = document.periods.length;
   const period: ContentPeriod = { id: createStableId(), title: normalizeText(title) || `Period ${sortOrder + 1}`, sortOrder };
-  return createContentDocument(document.blocks, [...document.periods, period], document.layout);
+  return createContentDocument(document.blocks, [...document.periods, period], document.layout, document.canvas);
 }
 
 export function moveBlockToPeriod(document: ContentDocument, blockId: string, periodId: string) {
   if (!document.periods.some((period) => period.id === periodId)) return document;
-  return createContentDocument(document.blocks.map((block) => block.id === blockId ? { ...block, periodId } : block), document.periods, document.layout);
+  return createContentDocument(document.blocks.map((block) => block.id === blockId ? { ...block, periodId } : block), document.periods, document.layout, document.canvas);
 }
 
 export function renameContentPeriod(document: ContentDocument, periodId: string, title: string) {
-  return createContentDocument(document.blocks, document.periods.map((period) => period.id === periodId ? { ...period, title: normalizeText(title) || period.title } : period), document.layout);
+  return createContentDocument(document.blocks, document.periods.map((period) => period.id === periodId ? { ...period, title: normalizeText(title) || period.title } : period), document.layout, document.canvas);
 }
 
 export function removeEmptyContentPeriod(document: ContentDocument, periodId: string) {
   if (document.periods.length <= 1 || document.blocks.some((block) => block.periodId === periodId)) return document;
-  return createContentDocument(document.blocks, document.periods.filter((period) => period.id !== periodId).map((period, index) => ({ ...period, sortOrder: index })), document.layout);
+  return createContentDocument(document.blocks, document.periods.filter((period) => period.id !== periodId).map((period, index) => ({ ...period, sortOrder: index })), document.layout, document.canvas);
 }
 
 export function createTextBlock(
-  type: "heading" | "subheading" | "paragraph" | "caption" | "quote" | "callout",
+  type: "heading" | "heading3" | "subheading" | "paragraph" | "caption" | "quote" | "callout",
   text = "",
 ): TextBlock {
   const normalizedText = normalizeTextContent(text);
@@ -350,6 +476,62 @@ export function createTextBlock(
     type,
     text: normalizedText,
     spans: [{ text: normalizedText }],
+  };
+}
+
+export function createEducationalObjectBlock(objectType: EducationalObjectType): EducationalObjectBlock {
+  const definition = getEducationalObjectDefinition(objectType);
+  return {
+    id: createStableId(), type: "educationalObject", objectType,
+    title: definition.defaultTitle, text: "",
+    layout: {
+      x: 0, y: 0, width: definition.defaultWidth, height: definition.defaultHeight, zIndex: 1,
+      digital: { order: 0, width: "content", alignment: "left", visibility: "all" },
+    },
+  };
+}
+
+export function createActivityBlock(): ActivityBlock {
+  return {
+    id: createStableId(),
+    type: "activity",
+    fields: [{ id: createStableId(), type: "instructions" }],
+    layout: {
+      x: 0,
+      y: 0,
+      width: 640,
+      height: 280,
+      zIndex: 1,
+      digital: { order: 0, width: "content", alignment: "left", visibility: "all" },
+    },
+  };
+}
+
+export function createWorksheetBlock(): WorksheetBlock {
+  return {
+    ...createWorksheetObjectBlock(),
+    layout: {
+      x: 0,
+      y: 0,
+      width: 700,
+      height: 420,
+      zIndex: 1,
+      digital: { order: 0, width: "content", alignment: "left", visibility: "all" },
+    },
+  };
+}
+
+export function createExerciseBlock(): ExerciseBlock {
+  return {
+    ...createExerciseObjectBlock(),
+    layout: {
+      x: 0,
+      y: 0,
+      width: 700,
+      height: 420,
+      zIndex: 1,
+      digital: { order: 0, width: "content", alignment: "left", visibility: "all" },
+    },
   };
 }
 
@@ -377,7 +559,19 @@ export function createImageBlock(
     resourceId: normalizeOptionalText(partial?.resourceId),
     width: normalizeImageWidth(partial?.width),
     float: normalizeImageFloat(partial?.float),
+    crop: normalizeCrop(partial?.crop),
   };
+}
+
+function normalizeCrop(value: unknown) {
+  if (!value || typeof value !== "object") return { x: 0, y: 0, width: 1, height: 1 };
+  const record = value as Record<string, unknown>;
+  const number = (candidate: unknown, fallback: number) => typeof candidate === "number" && Number.isFinite(candidate) ? candidate : fallback;
+  const x = Math.min(1, Math.max(0, number(record.x, 0)));
+  const y = Math.min(1, Math.max(0, number(record.y, 0)));
+  const width = Math.min(1 - x, Math.max(0.01, number(record.width, 1)));
+  const height = Math.min(1 - y, Math.max(0.01, number(record.height, 1)));
+  return { x, y, width, height };
 }
 
 export function createImageGalleryBlock(
@@ -396,18 +590,35 @@ export function createImageGalleryBlock(
 export function createTableBlock(
   type: "table" | "comparisonTable" = "table",
   partial?: Partial<TableBlock>,
+  dimensions?: { rows?: number; columns?: number },
 ): TableBlock {
+  const requestedRows = dimensions?.rows ?? partial?.rows?.length ?? 2;
+  const requestedColumns = dimensions?.columns ?? partial?.rows?.[0]?.cells.length ?? 2;
+  const rowCount = clampTableDimension(requestedRows, 1, 50);
+  const columnCount = clampTableDimension(requestedColumns, 1, 20);
+  const rows = partial?.rows?.length
+    ? partial.rows.map((row) => normalizeTableRow(row, columnCount))
+    : Array.from({ length: rowCount }, () => createTableRow(columnCount));
   return {
     id: createStableId(),
     type,
     headerRow: partial?.headerRow ?? true,
-    rows:
-      partial?.rows?.length
-        ? partial.rows.map((row) => normalizeTableRow(row))
-        : [
-            createTableRow(2),
-            createTableRow(2),
-          ],
+    headerRows: partial?.headerRows ?? (partial?.headerRow === false ? [] : [0]),
+    rows,
+    columnWidths: normalizeTableColumnWidths(partial?.columnWidths, columnCount),
+    tableBorderStyle: partial?.tableBorderStyle ?? "all",
+    layout: partial?.layout ?? defaultTableLayout(),
+  };
+}
+
+function defaultTableLayout(): LayoutMetadata {
+  return {
+    x: 0,
+    y: 0,
+    width: 640,
+    height: 240,
+    zIndex: 1,
+    digital: { order: 0, width: "content", alignment: "left", visibility: "all" },
   };
 }
 
@@ -509,12 +720,21 @@ export function createPlaceholderBlock(type: PlaceholderBlockType): PlaceholderB
 export function createBlockByType(type: ContentBlockType): ContentBlock {
   switch (type) {
     case "heading":
+    case "heading3":
     case "subheading":
     case "paragraph":
     case "caption":
     case "quote":
     case "callout":
       return createTextBlock(type, "");
+    case "educationalObject":
+      return createEducationalObjectBlock("didYouKnow");
+    case "activity":
+      return createActivityBlock();
+    case "worksheet":
+      return createWorksheetBlock();
+    case "exercise":
+      return createExerciseBlock();
     case "bulletList":
     case "numberedList":
       return createListBlock(type);
@@ -555,6 +775,7 @@ export function convertBlockType(block: ContentBlock, type: ContentBlockType): C
   const textValue = extractBlockText(block);
   if (
   type === "heading" ||
+  type === "heading3" ||
   type === "subheading" ||
   type === "paragraph" ||
   type === "caption" ||
@@ -586,6 +807,9 @@ export function convertBlockType(block: ContentBlock, type: ContentBlockType): C
       ...createListBlock(type, extractBlockItems(block)),
       ...shared,
       id,
+      itemSpans: isListBlock(block)
+        ? block.itemSpans?.map((spans) => spans.map((span) => ({ ...span, marks: span.marks ? [...span.marks] : undefined })))
+        : undefined,
     };
   }
   if (type === "image" || type === "diagram") {
@@ -609,7 +833,28 @@ export function convertBlockType(block: ContentBlock, type: ContentBlockType): C
       block.type === "table" || block.type === "comparisonTable"
         ? block.rows
         : rowsFromItems(extractBlockItems(block));
-    return { ...createTableBlock(type, { rows }), ...shared, id };
+    return {
+      ...createTableBlock(type, block.type === "table" || block.type === "comparisonTable"
+        ? {
+            rows,
+            headerRow: block.headerRow,
+            headerRows: block.headerRows,
+            columnWidths: block.columnWidths,
+            tableBorderStyle: block.tableBorderStyle,
+          }
+        : { rows }),
+      ...shared,
+      id,
+    };
+  }
+  if (type === "activity") {
+    return { ...createActivityBlock(), ...shared, id, fields: [{ id: createStableId(), type: "instructions", text: textValue || undefined }] };
+  }
+  if (type === "worksheet") {
+    return { ...createWorksheetBlock(), ...shared, ...normalizeWorksheetBlock({ ...block, id }), id };
+  }
+  if (type === "exercise") {
+    return { ...createExerciseBlock(), ...shared, ...normalizeExerciseBlock({ ...block, id }), id };
   }
   if (type === "formula") {
     return {
@@ -646,6 +891,14 @@ export function convertBlockType(block: ContentBlock, type: ContentBlockType): C
       ...createObservationBoxBlock({ text: textValue, title: block.title }),
       ...shared,
       id,
+    };
+  }
+  if (type === "educationalObject") {
+    return {
+      ...createEducationalObjectBlock("didYouKnow"),
+      ...shared,
+      id,
+      text: textValue,
     };
   }
   return { ...createPlaceholderBlock(type), ...shared, id };
@@ -686,7 +939,7 @@ export function normalizeContentDocument(value: unknown): ContentDocument {
     const blocks = value.blocks
       .map((block) => normalizeBlock(block))
       .filter((block): block is ContentBlock => Boolean(block));
-    return createContentDocument(blocks, normalizePeriods(value.periods), value.layout === "double" ? "double" : "single");
+    return createContentDocument(blocks, normalizePeriods(value.periods), value.layout === "double" ? "double" : "single", normalizeCanvasConfig(value.canvas));
   }
 
   if (isSupportedType(value.type)) {
@@ -717,15 +970,15 @@ export function insertBlockAfter(
   const blocks = [...document.blocks];
   if (!afterId) {
     blocks.unshift(block);
-    return createContentDocument(blocks, document.periods, document.layout);
+    return createContentDocument(blocks, document.periods, document.layout, document.canvas);
   }
   const index = blocks.findIndex((entry) => entry.id === afterId);
   if (index < 0) {
     blocks.push(block);
-    return createContentDocument(blocks, document.periods, document.layout);
+    return createContentDocument(blocks, document.periods, document.layout, document.canvas);
   }
   blocks.splice(index + 1, 0, block);
-  return createContentDocument(blocks, document.periods, document.layout);
+  return createContentDocument(blocks, document.periods, document.layout, document.canvas);
 }
 
 export function insertBlockBefore(
@@ -736,15 +989,15 @@ export function insertBlockBefore(
   const blocks = [...document.blocks];
   if (!beforeId) {
     blocks.push(block);
-    return createContentDocument(blocks, document.periods, document.layout);
+    return createContentDocument(blocks, document.periods, document.layout, document.canvas);
   }
   const index = blocks.findIndex((entry) => entry.id === beforeId);
   if (index < 0) {
     blocks.push(block);
-    return createContentDocument(blocks, document.periods, document.layout);
+    return createContentDocument(blocks, document.periods, document.layout, document.canvas);
   }
   blocks.splice(index, 0, block);
-  return createContentDocument(blocks, document.periods, document.layout);
+  return createContentDocument(blocks, document.periods, document.layout, document.canvas);
 }
 
 export function updateBlock(
@@ -753,12 +1006,224 @@ export function updateBlock(
   updater: (block: ContentBlock) => ContentBlock,
 ) {
   const blocks = document.blocks.map((block) => (block.id === blockId ? updater(block) : block));
-  return createContentDocument(blocks, document.periods, document.layout);
+  return createContentDocument(blocks, document.periods, document.layout, document.canvas);
+}
+
+export function updateTableBlock(
+  document: ContentDocument,
+  blockId: string,
+  updater: (table: TableBlock) => TableBlock,
+) {
+  return updateBlock(document, blockId, (block) => isTableBlock(block) ? updater(block) : block);
+}
+
+export function updateActivityBlock(
+  document: ContentDocument,
+  blockId: string,
+  updater: (activity: ActivityBlock) => ActivityBlock,
+) {
+  return updateBlock(document, blockId, (block) => isActivityBlock(block) ? updater(block) : block);
+}
+
+export function updateWorksheetBlock(
+  document: ContentDocument,
+  blockId: string,
+  updater: (worksheet: WorksheetBlock) => WorksheetBlock,
+) {
+  return updateBlock(document, blockId, (block) => isWorksheetBlock(block) ? updater(block) : block);
+}
+
+export function updateExerciseBlock(
+  document: ContentDocument,
+  blockId: string,
+  updater: (exercise: ExerciseBlock) => ExerciseBlock,
+) {
+  return updateBlock(document, blockId, (block) => isExerciseBlock(block) ? updater(block) : block);
+}
+
+export function addExerciseQuestion(document: ContentDocument, blockId: string, question: ExerciseBlock["questions"][number], groupId?: string, index?: number) {
+  return updateExerciseBlock(document, blockId, (exercise) => addExerciseObjectQuestion(exercise, question, groupId, index));
+}
+
+export function removeExerciseQuestion(document: ContentDocument, blockId: string, questionId: string) {
+  return updateExerciseBlock(document, blockId, (exercise) => removeExerciseObjectQuestion(exercise, questionId));
+}
+
+export function moveExerciseQuestion(document: ContentDocument, blockId: string, questionId: string, direction: -1 | 1) {
+  return updateExerciseBlock(document, blockId, (exercise) => moveExerciseObjectQuestion(exercise, questionId, direction));
+}
+
+export function duplicateExerciseQuestion(document: ContentDocument, blockId: string, questionId: string) {
+  return updateExerciseBlock(document, blockId, (exercise) => duplicateExerciseObjectQuestion(exercise, questionId));
+}
+
+export function addExerciseGroup(document: ContentDocument, blockId: string) {
+  return updateExerciseBlock(document, blockId, (exercise) => addExerciseObjectGroup(exercise));
+}
+
+export function updateExerciseGroup(document: ContentDocument, blockId: string, groupId: string, patch: Partial<ExerciseBlock["groups"][number]>) {
+  return updateExerciseBlock(document, blockId, (exercise) => updateExerciseObjectGroup(exercise, groupId, patch));
+}
+
+export function removeExerciseGroup(document: ContentDocument, blockId: string, groupId: string) {
+  return updateExerciseBlock(document, blockId, (exercise) => removeExerciseObjectGroup(exercise, groupId));
+}
+
+export function moveExerciseGroup(document: ContentDocument, blockId: string, groupId: string, direction: -1 | 1) {
+  return updateExerciseBlock(document, blockId, (exercise) => moveExerciseObjectGroup(exercise, groupId, direction));
+}
+
+export function addActivityField(document: ContentDocument, blockId: string, field: ActivityField, index?: number) {
+  return updateActivityBlock(document, blockId, (activity) => {
+    const fields = [...activity.fields];
+    fields.splice(Math.min(fields.length, Math.max(0, index ?? fields.length)), 0, field);
+    return { ...activity, fields };
+  });
+}
+
+export function removeActivityField(document: ContentDocument, blockId: string, fieldId: string) {
+  return updateActivityBlock(document, blockId, (activity) => ({ ...activity, fields: activity.fields.filter((field) => field.id !== fieldId) }));
+}
+
+export function moveActivityField(document: ContentDocument, blockId: string, fieldId: string, direction: -1 | 1) {
+  return updateActivityBlock(document, blockId, (activity) => {
+    const fields = [...activity.fields];
+    const index = fields.findIndex((field) => field.id === fieldId);
+    const next = index + direction;
+    if (index < 0 || next < 0 || next >= fields.length) return activity;
+    [fields[index], fields[next]] = [fields[next], fields[index]];
+    return { ...activity, fields };
+  });
+}
+
+export function addWorksheetQuestion(document: ContentDocument, blockId: string, question: WorksheetBlock["questions"][number], index?: number) {
+  return updateWorksheetBlock(document, blockId, (worksheet) => {
+    const questions = [...worksheet.questions];
+    questions.splice(Math.min(questions.length, Math.max(0, index ?? questions.length)), 0, question);
+    return { ...worksheet, questions };
+  });
+}
+
+export function removeWorksheetQuestion(document: ContentDocument, blockId: string, questionId: string) {
+  return updateWorksheetBlock(document, blockId, (worksheet) => ({ ...worksheet, questions: worksheet.questions.filter((question) => question.id !== questionId) }));
+}
+
+export function moveWorksheetQuestion(document: ContentDocument, blockId: string, questionId: string, direction: -1 | 1) {
+  return updateWorksheetBlock(document, blockId, (worksheet) => {
+    const questions = [...worksheet.questions];
+    const index = questions.findIndex((question) => question.id === questionId);
+    const next = index + direction;
+    if (index < 0 || next < 0 || next >= questions.length) return worksheet;
+    [questions[index], questions[next]] = [questions[next], questions[index]];
+    return { ...worksheet, questions };
+  });
+}
+
+export function duplicateWorksheetQuestion(document: ContentDocument, blockId: string, questionId: string) {
+  return updateWorksheetBlock(document, blockId, (worksheet) => {
+    const index = worksheet.questions.findIndex((question) => question.id === questionId);
+    if (index < 0) return worksheet;
+    const source = worksheet.questions[index];
+    const copy = {
+      ...source,
+      id: createStableId(),
+      visibility: source.visibility ? { ...source.visibility } : undefined,
+      options: source.options?.map((option) => ({ ...option, id: createStableId() })),
+      assertionOptions: source.assertionOptions?.map((option) => ({ ...option, id: createStableId() })),
+      pairs: source.pairs?.map((pair) => ({ ...pair, id: createStableId() })),
+      subQuestions: source.subQuestions?.map((entry) => ({ ...entry, id: createStableId() })),
+    };
+    const questions = [...worksheet.questions];
+    questions.splice(index + 1, 0, copy);
+    return { ...worksheet, questions };
+  });
+}
+
+export function insertTableRow(
+  document: ContentDocument,
+  blockId: string,
+  rowIndex: number,
+  position: "above" | "below" = "below",
+) {
+  return updateTableBlock(document, blockId, (table) => {
+    const index = Math.min(table.rows.length, Math.max(0, Math.floor(rowIndex) + (position === "below" ? 1 : 0)));
+    const rows = [...table.rows];
+    rows.splice(index, 0, createTableRow(tableColumnCount(table)));
+    const headerRows = (table.headerRows ?? (table.headerRow === false ? [] : [0]))
+      .map((headerIndex) => headerIndex >= index ? headerIndex + 1 : headerIndex);
+    return { ...table, rows, headerRows };
+  });
+}
+
+export function deleteTableRow(document: ContentDocument, blockId: string, rowIndex: number) {
+  return updateTableBlock(document, blockId, (table) => {
+    if (table.rows.length <= 1) return table;
+    const index = Math.min(table.rows.length - 1, Math.max(0, Math.floor(rowIndex)));
+    const rows = table.rows.filter((_, currentIndex) => currentIndex !== index);
+    const headerRows = (table.headerRows ?? (table.headerRow === false ? [] : [0]))
+      .filter((headerIndex) => headerIndex !== index)
+      .map((headerIndex) => headerIndex > index ? headerIndex - 1 : headerIndex);
+    return { ...table, rows, headerRows, headerRow: headerRows.includes(0) };
+  });
+}
+
+export function insertTableColumn(document: ContentDocument, blockId: string, columnIndex: number) {
+  return updateTableBlock(document, blockId, (table) => {
+    const index = Math.min(tableColumnCount(table), Math.max(0, Math.floor(columnIndex)));
+    const rows = table.rows.map((row) => ({ ...row, cells: insertCellAtColumn(row.cells, index) }));
+    return { ...table, rows, columnWidths: insertTableWidth(table.columnWidths, tableColumnCount(table), index) };
+  });
+}
+
+export function deleteTableColumn(document: ContentDocument, blockId: string, columnIndex: number) {
+  return updateTableBlock(document, blockId, (table) => {
+    const count = tableColumnCount(table);
+    if (count <= 1) return table;
+    const index = Math.min(count - 1, Math.max(0, Math.floor(columnIndex)));
+    const rows = table.rows.map((row) => ({ ...row, cells: deleteCellAtColumn(row.cells, index) }));
+    return { ...table, rows, columnWidths: deleteTableWidth(table.columnWidths, count, index) };
+  });
+}
+
+export function mergeTableCells(document: ContentDocument, blockId: string, rowIndex: number, startCellIndex: number, endCellIndex: number) {
+  return updateTableBlock(document, blockId, (table) => {
+    const row = table.rows[rowIndex];
+    if (!row) return table;
+    const start = Math.max(0, Math.min(startCellIndex, endCellIndex));
+    const end = Math.min(row.cells.length - 1, Math.max(startCellIndex, endCellIndex));
+    if (end <= start) return table;
+    const selected = row.cells.slice(start, end + 1);
+    const first = selected[0];
+    if (!first) return table;
+    const spans = selected.flatMap((cell, index) => index === 0 ? (cell.spans ?? [{ text: cell.text }]) : [{ text: " " }, ...(cell.spans ?? [{ text: cell.text }])]);
+    const merged: TableCell = {
+      ...first,
+      text: selected.map((cell) => cell.text).filter(Boolean).join(" "),
+      spans,
+      colSpan: selected.reduce((sum, cell) => sum + (cell.colSpan ?? 1), 0),
+    };
+    const cells = [...row.cells.slice(0, start), merged, ...row.cells.slice(end + 1)];
+    return { ...table, rows: table.rows.map((entry, index) => index === rowIndex ? { ...entry, cells } : entry) };
+  });
+}
+
+export function splitTableCell(document: ContentDocument, blockId: string, rowIndex: number, cellIndex: number) {
+  return updateTableBlock(document, blockId, (table) => {
+    const row = table.rows[rowIndex];
+    const cell = row?.cells[cellIndex];
+    const span = cell?.colSpan ?? 1;
+    if (!row || !cell || span <= 1) return table;
+    const cells = [
+      { ...cell, colSpan: undefined },
+      ...Array.from({ length: span - 1 }, () => createTableCell("")),
+    ];
+    return { ...table, rows: table.rows.map((entry, index) => index === rowIndex ? { ...entry, cells: [...entry.cells.slice(0, cellIndex), ...cells, ...entry.cells.slice(cellIndex + 1)] } : entry) };
+  });
 }
 
 export function removeBlock(document: ContentDocument, blockId: string) {
   const blocks = document.blocks.filter((block) => block.id !== blockId);
-  return createContentDocument(blocks, document.periods, document.layout);
+  return createContentDocument(blocks, document.periods, document.layout, document.canvas);
 }
 
 export function moveBlock(document: ContentDocument, blockId: string, direction: -1 | 1) {
@@ -767,7 +1232,7 @@ export function moveBlock(document: ContentDocument, blockId: string, direction:
   const next = index + direction;
   if (index < 0 || next < 0 || next >= blocks.length) return document;
   [blocks[index], blocks[next]] = [blocks[next], blocks[index]];
-  return createContentDocument(blocks);
+  return createContentDocument(blocks, document.periods, document.layout, document.canvas);
 }
 
 export function duplicateBlock(document: ContentDocument, blockId: string) {
@@ -776,15 +1241,44 @@ export function duplicateBlock(document: ContentDocument, blockId: string) {
   const source = document.blocks[index];
   const copy = normalizeBlock({ ...source, id: createStableId() });
   if (!copy) return document;
+  const duplicate = duplicateNestedBlockIds(copy);
   const blocks = [...document.blocks];
-  blocks.splice(index + 1, 0, copy);
-  return createContentDocument(blocks);
+  blocks.splice(index + 1, 0, duplicate);
+  return createContentDocument(blocks, document.periods, document.layout, document.canvas);
+}
+
+function duplicateNestedBlockIds(block: ContentBlock): ContentBlock {
+  if (isActivityBlock(block)) return { ...block, fields: block.fields.map((field) => ({ ...field, id: createStableId() })) };
+  if (isWorksheetBlock(block)) return { ...block, questions: block.questions.map((question) => duplicateQuestionIds(question)) };
+  if (isExerciseBlock(block)) return {
+    ...block,
+    questions: block.questions.map((question) => duplicateQuestionIds(question)),
+    groups: block.groups.map((group) => ({ ...group, id: createStableId(), questions: group.questions.map((question) => duplicateQuestionIds(question)) })),
+  };
+  if (isTableBlock(block)) return { ...block, rows: block.rows.map((row) => ({ ...row, id: createStableId(), cells: row.cells.map((cell) => ({ ...cell, id: createStableId() })) })) };
+  if (isImageGalleryBlock(block)) return { ...block, images: block.images.map((image) => ({ ...image, id: createStableId() })) };
+  if (isSequenceBlock(block)) return { ...block, items: block.items.map((item) => ({ ...item, id: createStableId() })) };
+  return block;
+}
+
+function duplicateQuestionIds(question: WorksheetBlock["questions"][number]) {
+  return {
+    ...question,
+    id: createStableId(),
+    visibility: question.visibility ? { ...question.visibility } : undefined,
+    options: question.options?.map((option) => ({ ...option, id: createStableId() })),
+    assertionOptions: question.assertionOptions?.map((option) => ({ ...option, id: createStableId() })),
+    pairs: question.pairs?.map((pair) => ({ ...pair, id: createStableId() })),
+    subQuestions: question.subQuestions?.map((entry) => ({ ...entry, id: createStableId() })),
+  };
 }
 
 export function blockLabel(type: ContentBlockType) {
   switch (type) {
     case "heading":
       return "Heading";
+    case "heading3":
+      return "Heading 3";
     case "subheading":
       return "Subheading";
     case "paragraph":
@@ -799,6 +1293,14 @@ export function blockLabel(type: ContentBlockType) {
       return "Quote";
     case "callout":
       return "Callout";
+    case "activity":
+      return "Activity";
+    case "worksheet":
+      return "Worksheet";
+    case "exercise":
+      return "Exercise";
+    case "educationalObject":
+      return "Educational Object";
     case "image":
       return "Image";
     case "imageGallery":
@@ -861,6 +1363,10 @@ export function defaultNextBlockType(type: ContentBlockType) {
     case "caption":
     case "quote":
     case "callout":
+    case "educationalObject":
+    case "activity":
+    case "worksheet":
+    case "exercise":
       return "paragraph";
     case "paragraph":
     default:
@@ -869,7 +1375,23 @@ export function defaultNextBlockType(type: ContentBlockType) {
 }
 
 export function isTextBlock(block: ContentBlock): block is TextBlock {
-  return ["heading", "subheading", "paragraph", "caption", "quote", "callout"].includes(block.type);
+  return ["heading", "heading3", "subheading", "paragraph", "caption", "quote", "callout"].includes(block.type);
+}
+
+export function isEducationalObjectBlock(block: ContentBlock): block is EducationalObjectBlock {
+  return block.type === "educationalObject";
+}
+
+export function isActivityBlock(block: ContentBlock): block is ActivityBlock {
+  return block.type === "activity";
+}
+
+export function isWorksheetBlock(block: ContentBlock): block is WorksheetBlock {
+  return block.type === "worksheet";
+}
+
+export function isExerciseBlock(block: ContentBlock): block is ExerciseBlock {
+  return block.type === "exercise";
 }
 
 export function isListBlock(block: ContentBlock): block is ListBlock {
@@ -944,6 +1466,40 @@ function normalizeBlock(value: unknown): ContentBlock | null {
 
   if (type === "divider") return { id, type, ...shared };
 
+  if (type === "educationalObject") {
+    const objectType = isEducationalObjectType(value.objectType) ? value.objectType : "didYouKnow";
+    return {
+      ...createEducationalObjectBlock(objectType),
+      ...shared,
+      id,
+      objectType,
+      title: normalizeOptionalText(readFirstText(value, ["title"])) ?? getEducationalObjectDefinition(objectType).defaultTitle,
+      text: normalizeText(readFirstText(value, ["text", "body", "content"])),
+    };
+  }
+
+  if (type === "activity") {
+    return {
+      ...createActivityBlock(),
+      ...shared,
+      id,
+      fields: normalizeActivityFields(value.fields, value),
+    };
+  }
+
+  if (type === "worksheet") {
+    return {
+      ...createWorksheetBlock(),
+      ...shared,
+      ...normalizeWorksheetBlock(value, id),
+      id,
+    };
+  }
+
+  if (type === "exercise") {
+    return { ...createExerciseBlock(), ...shared, ...normalizeExerciseBlock(value, id), id };
+  }
+
   if (type === "linkedAsset") {
     const assetKind = normalizeAssetKind(value.assetKind);
     const targetType = normalizeTargetType(value.targetType);
@@ -1006,6 +1562,7 @@ function normalizeBlock(value: unknown): ContentBlock | null {
       resourceId: normalizeOptionalText(readFirstText(value, ["resourceId"])),
       width: normalizeImageWidth(value.width),
       float: normalizeImageFloat(value.float),
+      crop: normalizeCrop(value.crop),
     };
   }
 
@@ -1022,15 +1579,33 @@ function normalizeBlock(value: unknown): ContentBlock | null {
   }
 
   if (type === "table" || type === "comparisonTable") {
-    const rows = Array.isArray(value.rows)
-      ? value.rows.map((row) => normalizeTableRow(row)).filter(Boolean)
-      : [];
+    const rawRows = Array.isArray(value.rows) ? value.rows : [];
+    const inferredColumns = rawRows.length ? rawRows.reduce((maximum, row) => {
+      const record = isRecord(row) ? row : {};
+      const cells = Array.isArray(record.cells) ? record.cells : [];
+      const columns = cells.reduce((sum, cell) => {
+        const cellRecord = isRecord(cell) ? cell : {};
+        const span = Number(cellRecord.colSpan);
+        return sum + (Number.isFinite(span) && span > 1 ? Math.floor(span) : 1);
+      }, 0);
+      return Math.max(maximum, columns);
+    }, 1) : 2;
+    const rows = rawRows.map((row) => normalizeTableRow(row, inferredColumns)).filter(Boolean);
+    const headerRows = Array.isArray(value.headerRows)
+      ? value.headerRows
+          .map((row) => Number(row))
+          .filter((row): row is number => Number.isInteger(row) && row >= 0 && row < Math.max(1, rows.length))
+      : value.headerRow === false ? [] : [0];
     return {
       id,
       type,
       ...shared,
       headerRow: value.headerRow === false ? false : true,
+      headerRows: Array.from(new Set(headerRows)),
       rows: rows.length ? rows : [createTableRow(2), createTableRow(2)],
+      columnWidths: normalizeTableColumnWidths(value.columnWidths, Math.max(1, inferredColumns)),
+      tableBorderStyle: normalizeTableBorderStyle(value.tableBorderStyle),
+      layout: shared.layout ?? defaultTableLayout(),
     };
   }
 
@@ -1090,11 +1665,16 @@ function normalizeBlock(value: unknown): ContentBlock | null {
 
   if (type === "bulletList" || type === "numberedList") {
     const items = normalizeStringList(value.items);
+    const rawItemSpans = value.itemSpans;
+    const itemSpans = Array.isArray(rawItemSpans)
+      ? items.map((item, index) => normalizeRichTextSpans(rawItemSpans[index], item))
+      : undefined;
     return {
       id,
       type,
       ...shared,
       items: items.length ? items : [""],
+      itemSpans,
     };
   }
 
@@ -1102,6 +1682,7 @@ function normalizeBlock(value: unknown): ContentBlock | null {
   type === "quote" ||
   type === "callout" ||
   type === "heading" ||
+  type === "heading3" ||
   type === "subheading" ||
   type === "paragraph" ||
   type === "caption"
@@ -1292,9 +1873,30 @@ function normalizeSharedProps(value: Record<string, unknown>) {
     strikethrough: value.strikethrough ? true : undefined,
     textColor: normalizeCssColor(value.textColor),
     highlightColor: normalizeCssColor(value.highlightColor),
+    indent: normalizeIndent(value.indent),
+    lineSpacing: normalizeLineSpacing(value.lineSpacing),
     hidden: value.hidden ? true : undefined,
     collapsed: value.collapsed ? true : undefined,
     periodId: normalizeOptionalText(typeof value.periodId === "string" ? value.periodId : ""),
+    layout: normalizeLayoutMetadata(value.layout),
+  };
+}
+
+function normalizeLayoutMetadata(value: unknown): LayoutMetadata | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const record = value as Record<string, unknown>;
+  const number = (candidate: unknown, fallback: number) => typeof candidate === "number" && Number.isFinite(candidate) ? candidate : fallback;
+  const digital = record.digital && typeof record.digital === "object" ? record.digital as Record<string, unknown> : undefined;
+  return {
+    x: number(record.x, 0), y: number(record.y, 0),
+    width: Math.max(80, number(record.width, 640)), height: Math.max(40, number(record.height, 180)),
+    zIndex: Math.round(number(record.zIndex, 0)), locked: record.locked === true,
+    digital: digital ? {
+      order: Math.round(number(digital.order, 0)),
+      width: ["full", "wide", "content"].includes(digital.width as string) ? digital.width as "full" | "wide" | "content" : "content",
+      alignment: ["left", "center", "right"].includes(digital.alignment as string) ? digital.alignment as "left" | "center" | "right" : "left",
+      visibility: ["all", "web", "student", "teacher"].includes(digital.visibility as string) ? digital.visibility as "all" | "web" | "student" | "teacher" : "all",
+    } : undefined,
   };
 }
 
@@ -1313,9 +1915,12 @@ function sharedPresentationProps(block: ContentBlock) {
     strikethrough: block.strikethrough,
     textColor: block.textColor,
     highlightColor: block.highlightColor,
+    indent: block.indent,
+    lineSpacing: block.lineSpacing,
     hidden: block.hidden,
     collapsed: block.collapsed,
     periodId: block.periodId,
+    layout: block.layout,
   };
 }
 
@@ -1453,6 +2058,18 @@ function normalizeFontSize(value: unknown) {
   return rounded >= 8 && rounded <= 96 ? rounded : undefined;
 }
 
+function normalizeIndent(value: unknown) {
+  const indent = Number(value);
+  if (!Number.isFinite(indent)) return undefined;
+  return Math.min(8, Math.max(0, Math.round(indent)));
+}
+
+function normalizeLineSpacing(value: unknown) {
+  const spacing = Number(value);
+  if (!Number.isFinite(spacing)) return undefined;
+  return Math.min(3, Math.max(1, Math.round(spacing * 10) / 10));
+}
+
 function normalizeTextContent(value: string | undefined) {
   return (value ?? "").replace(/\u0000/g, "");
 }
@@ -1548,6 +2165,7 @@ function normalizeGalleryImage(value: unknown) {
     alt: normalizeText(readFirstText(record, ["alt", "title", "caption"])),
     caption: normalizeOptionalText(readFirstText(record, ["caption", "description"])),
     width: normalizeImageWidth(record.width),
+    crop: normalizeCrop(record.crop),
   };
 }
 
@@ -1559,29 +2177,37 @@ function createGalleryImage() {
   };
 }
 
-function normalizeTableRow(value: unknown) {
+function normalizeTableRow(value: unknown, minimumColumns = 1) {
   const record = isRecord(value) ? value : {};
   const cells = Array.isArray(record.cells)
     ? record.cells.map((cell) => normalizeTableCell(cell)).filter(Boolean)
     : [];
   return {
     id: normalizeId(typeof record.id === "string" ? record.id : ""),
-    cells: cells.length ? cells : [createTableCell(), createTableCell()],
+    cells: cells.length ? cells : Array.from({ length: Math.max(1, minimumColumns) }, () => createTableCell()),
+    height: normalizeTableRowHeight(record.height),
   };
 }
 
 function normalizeTableCell(value: unknown) {
   const record = isRecord(value) ? value : {};
+  const text = normalizeText(readFirstText(record, ["text", "content", "value"]));
+  const spans = normalizeRichTextSpans(record.spans, text);
   return {
     id: normalizeId(typeof record.id === "string" ? record.id : ""),
-    text: normalizeText(readFirstText(record, ["text", "content", "value"])),
+    text: richTextSpansToText(spans) || text,
+    spans,
     colSpan: normalizeSpan(record.colSpan),
     rowSpan: normalizeSpan(record.rowSpan),
+    horizontalAlign: normalizeAlignment(record.horizontalAlign),
+    verticalAlign: normalizeTableVerticalAlignment(record.verticalAlign),
+    background: normalizeTableCellBackground(record.background),
+    header: record.header === true ? true : undefined,
   };
 }
 
 function createTableCell(text = "") {
-  return { id: createStableId(), text };
+  return { id: createStableId(), text, spans: [{ text }] };
 }
 
 function createTableRow(columns = 2) {
@@ -1589,6 +2215,80 @@ function createTableRow(columns = 2) {
     id: createStableId(),
     cells: Array.from({ length: Math.max(1, columns) }, () => createTableCell("")),
   };
+}
+
+function clampTableDimension(value: unknown, minimum: number, maximum: number) {
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.min(maximum, Math.max(minimum, Math.floor(number))) : minimum;
+}
+
+function normalizeTableColumnWidths(value: unknown, count: number) {
+  const safeCount = clampTableDimension(count, 1, 20);
+  const raw = Array.isArray(value)
+    ? value.slice(0, safeCount).map((entry) => Number(entry)).map((entry) => Number.isFinite(entry) && entry > 0 ? entry : 0)
+    : [];
+  while (raw.length < safeCount) raw.push(1);
+  const minimum = 0.05;
+  const clamped = raw.map((entry) => Math.max(minimum, entry));
+  const total = clamped.reduce((sum, entry) => sum + entry, 0) || safeCount;
+  return clamped.map((entry) => Math.round((entry / total) * 10000) / 10000);
+}
+
+function normalizeTableRowHeight(value: unknown) {
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 28 && number <= 800 ? Math.round(number) : undefined;
+}
+
+function tableColumnCount(table: TableBlock) {
+  return Math.max(1, table.rows.reduce((maximum, row) => Math.max(maximum, row.cells.reduce((sum, cell) => sum + (cell.colSpan ?? 1), 0)), 0));
+}
+
+function insertCellAtColumn(cells: TableCell[], columnIndex: number) {
+  const next = cells.map((cell) => ({ ...cell }));
+  let cursor = 0;
+  for (let index = 0; index < next.length; index += 1) {
+    const span = next[index].colSpan ?? 1;
+    if (columnIndex === cursor) {
+      next.splice(index, 0, createTableCell(""));
+      return next;
+    }
+    if (columnIndex > cursor && columnIndex < cursor + span) {
+      next[index] = { ...next[index], colSpan: span + 1 };
+      return next;
+    }
+    cursor += span;
+  }
+  next.push(createTableCell(""));
+  return next;
+}
+
+function deleteCellAtColumn(cells: TableCell[], columnIndex: number) {
+  const next = cells.map((cell) => ({ ...cell }));
+  let cursor = 0;
+  for (let index = 0; index < next.length; index += 1) {
+    const span = next[index].colSpan ?? 1;
+    if (columnIndex >= cursor && columnIndex < cursor + span) {
+      if (span > 1) next[index] = { ...next[index], colSpan: span - 1 };
+      else next.splice(index, 1);
+      return next.length ? next : [createTableCell("")];
+    }
+    cursor += span;
+  }
+  return next.length ? next : [createTableCell("")];
+}
+
+function insertTableWidth(widths: number[] | undefined, count: number, index: number) {
+  const current = normalizeTableColumnWidths(widths, count);
+  const insertion = current[Math.min(index, current.length - 1)] ?? 1;
+  current.splice(Math.min(index, current.length), 0, insertion);
+  return normalizeTableColumnWidths(current, current.length);
+}
+
+function deleteTableWidth(widths: number[] | undefined, count: number, index: number) {
+  const current = normalizeTableColumnWidths(widths, count);
+  if (current.length <= 1) return current;
+  current.splice(Math.min(index, current.length - 1), 1);
+  return normalizeTableColumnWidths(current, current.length);
 }
 
 function rowsFromItems(items: string[]) {
@@ -1617,6 +2317,76 @@ function createSequenceItem() {
 function normalizeSpan(value: unknown) {
   const number = Number(value);
   return Number.isFinite(number) && number > 1 ? Math.floor(number) : undefined;
+}
+
+function normalizeTableBorderStyle(value: unknown): TableBorderStyle {
+  return typeof value === "string" && TABLE_BORDER_STYLES.includes(value as TableBorderStyle)
+    ? value as TableBorderStyle
+    : "all";
+}
+
+function normalizeActivityFields(value: unknown, legacy: Record<string, unknown>) {
+  if (Array.isArray(value)) {
+    return value.map((field) => normalizeActivityField(field)).filter((field): field is ActivityField => Boolean(field));
+  }
+
+  const legacyFields: Array<[ActivityFieldType, string[]]> = [
+    ["introduction", ["introduction", "shortDescription"]],
+    ["objective", ["objective"]],
+    ["materials", ["materials"]],
+    ["time", ["time", "duration"]],
+    ["activityType", ["activityType", "groupType"]],
+    ["instructions", ["instructions", "studentInstructions", "body", "content", "text"]],
+    ["observation", ["observation", "observationPrompts"]],
+    ["discussion", ["discussion"]],
+    ["result", ["result", "expectedLearning"]],
+    ["reflection", ["reflection", "reflectionPrompts"]],
+    ["safetyNote", ["safetyNote", "safetyNotes"]],
+    ["teacherNote", ["teacherNote", "teacherGuidance"]],
+  ];
+  return legacyFields.flatMap(([type, keys]) => {
+    const value = keys.map((key) => legacy[key]).find((entry) => typeof entry === "string" || Array.isArray(entry));
+    const text = Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string").join("\n") : typeof value === "string" ? normalizeText(value) : "";
+    return text ? [{ id: createStableId(), type, text, visibility: defaultActivityFieldVisibility(type) }] : [];
+  });
+}
+
+function normalizeActivityField(value: unknown): ActivityField | null {
+  if (!isRecord(value)) return null;
+  const rawType = typeof value.type === "string" ? value.type : "custom";
+  const type = isActivityFieldType(rawType) ? rawType : "custom";
+  const definition = activityFieldDefinition(type);
+  const rawVisibility = isRecord(value.visibility) ? value.visibility : {};
+  const defaults = defaultActivityFieldVisibility(type);
+  const textValue = readFirstText(value, ["text", "content", "body", "value"]);
+  const resourceId = normalizeOptionalText(typeof value.resourceId === "string" ? value.resourceId : "");
+  return {
+    id: normalizeId(typeof value.id === "string" ? value.id : ""),
+    type,
+    label: normalizeOptionalText(typeof value.label === "string" ? value.label : "") ?? (type === "custom" ? definition[1] : undefined),
+    text: textValue || undefined,
+    resourceId,
+    visibility: {
+      student: rawVisibility.student === undefined ? defaults.student : rawVisibility.student === true,
+      teacher: rawVisibility.teacher === undefined ? defaults.teacher : rawVisibility.teacher === true,
+    },
+  };
+}
+
+function isActivityFieldType(value: string): value is ActivityFieldType {
+  return ["introduction", "objective", "materials", "time", "activityType", "instructions", "observation", "discussion", "result", "reflection", "safetyNote", "teacherNote", "image", "video", "linkedResource", "custom"].includes(value);
+}
+
+function normalizeTableCellBackground(value: unknown): TableCellBackground | undefined {
+  return typeof value === "string" && TABLE_CELL_BACKGROUNDS.includes(value as TableCellBackground)
+    ? value as TableCellBackground
+    : undefined;
+}
+
+function normalizeTableVerticalAlignment(value: unknown): TableVerticalAlignment | undefined {
+  return typeof value === "string" && TABLE_VERTICAL_ALIGNMENTS.includes(value as TableVerticalAlignment)
+    ? value as TableVerticalAlignment
+    : undefined;
 }
 
 function normalizeAlignment(value: unknown) {

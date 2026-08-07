@@ -50,7 +50,7 @@ export default function ImageBlockEditor({
   const safeImage = sanitizeUrl(block.url);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" onPointerDown={(event) => event.stopPropagation()}>
       {safeImage ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
@@ -186,6 +186,21 @@ export default function ImageBlockEditor({
             <option value="right">right</option>
           </select>
         </label>
+
+        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 lg:col-span-2">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-sm font-semibold text-slate-700">Non-destructive crop</span>
+            <button type="button" onClick={() => onUpdatePatch({ crop: { x: 0, y: 0, width: 1, height: 1 } })} className="text-xs font-semibold text-blue-700">Reset crop</button>
+          </div>
+          <div className="mt-2 grid grid-cols-4 gap-2">
+            {(["x", "y", "width", "height"] as const).map((key) => (
+              <label key={key} className="text-xs font-semibold uppercase text-slate-500">
+                {key}
+                <input type="number" min={0} max={1} step={0.01} value={block.crop?.[key] ?? (key === "width" || key === "height" ? 1 : 0)} onChange={(event) => onUpdatePatch({ crop: { x: block.crop?.x ?? 0, y: block.crop?.y ?? 0, width: block.crop?.width ?? 1, height: block.crop?.height ?? 1, [key]: Number(event.target.value) } })} className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs" />
+              </label>
+            ))}
+          </div>
+        </div>
 
         <label className="block text-sm font-semibold text-slate-700 lg:col-span-2">
           Caption

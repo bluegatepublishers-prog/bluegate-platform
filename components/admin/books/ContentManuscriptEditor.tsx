@@ -2,11 +2,16 @@
 
 import EditorShell from "@/components/admin/books/editor/EditorShell";
 import DocumentWorkspace from "@/components/admin/books/editor/DocumentWorkspace";
+import LayoutObjectFrame from "@/components/admin/books/editor/LayoutObjectFrame";
+import ContinuousTextEditor from "@/components/admin/books/editor/ContinuousTextEditor";
 import PeriodTabs from "@/components/admin/books/editor/PeriodTabs";
 import WordRibbon from "@/components/admin/books/editor/WordRibbon";
 import TextBlockEditor from "@/components/admin/books/editor/blocks/TextBlockEditor";
 import ImageBlockEditor from "@/components/admin/books/editor/blocks/ImageBlockEditor";
 import TableBlockEditor from "@/components/admin/books/editor/blocks/TableBlockEditor";
+import ActivityBlockEditor from "@/components/admin/books/editor/blocks/ActivityBlockEditor";
+import WorksheetBlockEditor from "@/components/admin/books/editor/blocks/WorksheetBlockEditor";
+import ExerciseBlockEditor from "@/components/admin/books/editor/blocks/ExerciseBlockEditor";
 import MediaBlockEditor from "@/components/admin/books/editor/blocks/MediaBlockEditor";
 import LinkedAssetEditor from "@/components/admin/books/editor/blocks/LinkedAssetEditor";
 import ListBlockEditor from "@/components/admin/books/editor/blocks/ListBlockEditor";
@@ -58,13 +63,23 @@ import {
   addContentPeriod,
   convertBlockType,
   createBlockByType,
+  createEducationalObjectBlock,
+  createActivityBlock,
+  createWorksheetBlock,
+  createExerciseBlock,
+  createTableBlock,
   createTextBlock,
   defaultNextBlockType,
+  duplicateBlock,
   insertBlockAfter,
   insertBlockBefore,
   isFormulaBlock,
   isImageGalleryBlock,
   isInfoBoxBlock,
+  isEducationalObjectBlock,
+  isActivityBlock,
+  isWorksheetBlock,
+  isExerciseBlock,
   isImageBlock,
   isLinkedAssetBlock,
   isListBlock,
@@ -84,13 +99,18 @@ import {
   type BlockAlignment,
   type BlockBackgroundStyle,
   type BlockBorderStyle,
+  type CanvasPreset,
   type ContentBlock,
   type ContentBlockType,
   type ContentDocument,
+  type ListBlock,
+  type TextBlock,
   type InfoBoxVariant,
   type LinkedAssetBlock,
   type MediaBlock,
 } from "@/lib/content-document";
+import { type EducationalObjectType } from "@/lib/educational-object-registry";
+import { EDUCATIONAL_OBJECT_REGISTRY, getEducationalObjectDefinition } from "@/lib/educational-object-registry";
 import type { ReleaseSummary } from "@/lib/content-release";
 import { uploadFileToR2 } from "@/lib/storage/client-upload";
 
@@ -176,6 +196,7 @@ const field =
 
 const ALL_BLOCK_TYPES: ContentBlockType[] = [
   "heading",
+  "heading3",
   "subheading",
   "paragraph",
   "caption",
@@ -183,6 +204,9 @@ const ALL_BLOCK_TYPES: ContentBlockType[] = [
   "numberedList",
   "quote",
   "callout",
+  "activity",
+  "worksheet",
+  "exercise",
   "image",
   "imageGallery",
   "diagram",
@@ -612,15 +636,11 @@ export default function ContentManuscriptEditor({
     closeMenu();
   }
 
-  function addFeature(variant: InfoBoxVariant) {
+  function addFeature(variant: EducationalObjectType) {
   if (!toolbarAnchorId) return;
 
   addBlockWithFactory(toolbarAnchorId, () => {
-    const block = createBlockByType("infoBox");
-
-    return isInfoBoxBlock(block)
-      ? { ...block, variant }
-      : block;
+    return createEducationalObjectBlock(variant);
   });
 }
 
@@ -663,12 +683,64 @@ export default function ContentManuscriptEditor({
       | "fontFamily"
       | "fontSize"
       | "textColor"
-      | "highlightColor",
+      | "highlightColor"
+      | "superscript"
+      | "subscript"
+      | "decreaseIndent"
+      | "increaseIndent"
+      | "justify"
+      | "lineSpacing",
     value?: string,
   ) {
-    const block = activeTextBlock();
+    const block = contentDoc.blocks.find((entry) => entry.id === toolbarAnchorId);
 
-    if (!block) {
+    if (!block || (!isTextBlock(block) && !isListBlock(block))) {
+      setSaveMessage("Select a text block first");
+      return;
+    }
+
+    if (
+      command === "bold" ||
+      command === "italic" ||
+      command === "underline" ||
+      command === "superscript" ||
+      command === "subscript"
+    ) {
+      document.execCommand(command, false);
+      setSaveState("dirty");
+      setSaveMessage("Inline formatting updated");
+      return;
+    }
+
+    if (command === "decreaseIndent" || command === "increaseIndent") {
+      const indent = Math.min(8, Math.max(0, (block.indent ?? 0) + (command === "increaseIndent" ? 1 : -1)));
+      updatePatch(block.id, { indent });
+      const target = globalThis.document.querySelector<HTMLElement>(`[data-block-id="${block.id}"]`);
+      if (target) target.style.marginLeft = indent ? `${indent * 24}px` : "";
+      setSaveState("dirty");
+      setSaveMessage("Indent updated");
+      return;
+    }
+
+    if (command === "justify") {
+      document.execCommand("justifyFull", false);
+      setSaveState("dirty");
+      setSaveMessage("Justification updated");
+      return;
+    }
+
+    if (command === "lineSpacing") {
+      const spacing = Number(value);
+      if (!Number.isFinite(spacing)) return;
+      updatePatch(block.id, { lineSpacing: Math.min(3, Math.max(1, spacing)) });
+      const target = globalThis.document.querySelector<HTMLElement>(`[data-block-id="${block.id}"]`);
+      if (target) target.style.lineHeight = String(spacing);
+      setSaveState("dirty");
+      setSaveMessage("Line spacing updated");
+      return;
+    }
+
+    if (!isTextBlock(block)) {
       setSaveMessage("Select a text block first");
       return;
     }
@@ -927,7 +999,9 @@ export default function ContentManuscriptEditor({
         if (!isListBlock(block)) return block;
         const items = [...block.items];
         items[itemIndex] = value;
-        return { ...block, items };
+        const itemSpans = block.itemSpans ? [...block.itemSpans] : undefined;
+        if (itemSpans) itemSpans[itemIndex] = [{ text: value }];
+        return { ...block, items, itemSpans };
       }),
     );
   }
@@ -938,7 +1012,9 @@ export default function ContentManuscriptEditor({
         if (!isListBlock(block)) return block;
         const items = [...block.items];
         items.splice(itemIndex + 1, 0, "");
-        return { ...block, items };
+        const itemSpans = block.itemSpans ? [...block.itemSpans] : undefined;
+        if (itemSpans) itemSpans.splice(itemIndex + 1, 0, [{ text: "" }]);
+        return { ...block, items, itemSpans };
       }),
     );
   }
@@ -948,7 +1024,8 @@ export default function ContentManuscriptEditor({
       updateBlock(current, blockId, (block) => {
         if (!isListBlock(block)) return block;
         const items = block.items.filter((_, index) => index !== itemIndex);
-        return { ...block, items: items.length ? items : [""] };
+        const itemSpans = block.itemSpans?.filter((_, index) => index !== itemIndex);
+        return { ...block, items: items.length ? items : [""], itemSpans };
       }),
     );
   }
@@ -985,15 +1062,6 @@ export default function ContentManuscriptEditor({
 
   function closeInsertSurface() {
     setInsertKind(null);
-    clearInsertFeedback();
-  }
-
-  function openBuilderSurface(kind: BuilderKind, tab: "existing" | "create" = "existing") {
-    if (!canOpenScopedBuilders) return;
-    setInsertKind(null);
-    setBuilderKind(kind);
-    setBuilderTab(tab);
-    setInsertAnchorId(toolbarAnchorId);
     clearInsertFeedback();
   }
 
@@ -1312,6 +1380,8 @@ export default function ContentManuscriptEditor({
         fileUrl: uploaded.objectKey,
         thumbnail: "",
         bookId,
+        chapterId,
+        moduleId: nodeType === "MODULE" ? nodeId : undefined,
         published: false,
         originalFileName: input.file.name,
         mimeType: uploaded.contentType,
@@ -1582,10 +1652,9 @@ export default function ContentManuscriptEditor({
   const toolbarAnchorId = activeBlockId && contentDoc.blocks.some((block) => block.id === activeBlockId)
     ? activeBlockId
     : contentDoc.blocks[contentDoc.blocks.length - 1]?.id ?? contentDoc.blocks[0]?.id ?? "";
-  const canOpenScopedBuilders = Boolean(chapterId);
-
   return (
     <div
+      data-testid="content-studio-editor"
       data-node-id={nodeId}
       data-content-editor-dirty={dirty ? "true" : "false"}
       className="flex h-full min-h-0 flex-col gap-4"
@@ -1624,6 +1693,7 @@ export default function ContentManuscriptEditor({
         )?.type ?? "paragraph"
       }
       layout={contentDoc.layout}
+      canvasPreset={contentDoc.canvas.preset}
       canUndo={canUndo}
       canRedo={canRedo}
       canPublish={Boolean(transitionReleaseAction)}
@@ -1648,7 +1718,13 @@ export default function ContentManuscriptEditor({
           command === "fontFamily" ||
           command === "fontSize" ||
           command === "textColor" ||
-          command === "highlightColor"
+          command === "highlightColor" ||
+          command === "superscript" ||
+          command === "subscript" ||
+          command === "decreaseIndent" ||
+          command === "increaseIndent" ||
+          command === "justify" ||
+          command === "lineSpacing"
         ) {
           applyBlockFormat(command, value);
         }
@@ -1680,13 +1756,30 @@ export default function ContentManuscriptEditor({
 
         setSaveState("dirty");
       }}
+      onChangeCanvas={(preset: CanvasPreset) => {
+        applyDocumentChange((current) => ({
+          ...current,
+          canvas: { ...current.canvas, preset },
+        }));
+        setSaveState("dirty");
+        setSaveMessage(`Canvas set to ${preset}`);
+      }}
       onInsert={(kind) => {
-        if (
-          kind === "activity" ||
-          kind === "worksheet" ||
-          kind === "exercise"
-        ) {
-          openBuilderSurface(kind, "existing");
+        if (kind === "activity") {
+          if (!toolbarAnchorId) return;
+          addBlockWithFactory(toolbarAnchorId, createActivityBlock);
+          return;
+        }
+
+        if (kind === "worksheet") {
+          if (!toolbarAnchorId) return;
+          addBlockWithFactory(toolbarAnchorId, createWorksheetBlock);
+          return;
+        }
+
+        if (kind === "exercise") {
+          if (!toolbarAnchorId) return;
+          addBlockWithFactory(toolbarAnchorId, createExerciseBlock);
           return;
         }
 
@@ -1697,9 +1790,9 @@ export default function ContentManuscriptEditor({
 
         openInsertSurface(kind);
       }}
-      onInsertTable={() => {
+      onInsertTable={(rows, columns) => {
         if (!toolbarAnchorId) return;
-        addBlock("table", toolbarAnchorId);
+        addBlockWithFactory(toolbarAnchorId, () => createTableBlock("table", undefined, { rows, columns }));
       }}
       onInsertList={(type) => {
         if (!toolbarAnchorId) return;
@@ -1814,6 +1907,7 @@ export default function ContentManuscriptEditor({
     dirty={dirty}
     error={error}
     layout={contentDoc.layout}
+    canvas={contentDoc.canvas}
     wordCount={wordCount}
     showRuler={showRuler}
     showGrid={showGrid}
@@ -1834,9 +1928,50 @@ export default function ContentManuscriptEditor({
         (block) =>
           block.periodId === activePeriodId,
       )
-      .map((block, index) => (
-        <BlockEditor
-          key={block.id}
+      .map((block, index, visibleBlocks) => {
+        if (isManuscriptBlock(block)) {
+          if (index > 0 && isManuscriptBlock(visibleBlocks[index - 1])) return null;
+          const run = takeManuscriptRun(visibleBlocks, index);
+          return (
+            <ContinuousTextEditor
+              key={`manuscript-${block.id}`}
+              blocks={run}
+              onActivate={(blockId) => setActiveBlockId(blockId)}
+              onChange={(next) => {
+                applyDocumentChange((current) => {
+                  const runIds = new Set(run.map((entry) => entry.id));
+                  const firstIndex = current.blocks.findIndex((entry) => runIds.has(entry.id));
+                  const blocks = current.blocks.filter((entry) => !runIds.has(entry.id));
+                  blocks.splice(Math.max(0, firstIndex), 0, ...next.map((entry) => ({ ...entry, periodId: entry.periodId ?? activePeriodId })));
+                  return { ...current, blocks };
+                });
+                setSaveState("dirty");
+                setSaveMessage("Manuscript updated");
+              }}
+            />
+          );
+        }
+        return (
+          <LayoutObjectFrame
+            key={block.id}
+            enabled
+            layout={block.layout}
+            selected={activeBlockId === block.id}
+            onChange={(layout) => updatePatch(block.id, { layout })}
+            onArrange={(direction) => updatePatch(block.id, { layout: { ...((block.layout ?? { x: 0, y: 0, width: 640, height: 180, zIndex: 0 })), zIndex: (block.layout?.zIndex ?? 0) + direction } })}
+            onDuplicate={() => {
+              applyDocumentChange((current) => duplicateBlock(current, block.id));
+              setSaveState("dirty");
+              setSaveMessage("Object duplicated");
+            }}
+            onDelete={() => {
+              applyDocumentChange((current) => removeBlock(current, block.id));
+              setActiveBlockId(null);
+              setSaveState("dirty");
+              setSaveMessage("Object deleted");
+            }}
+          >
+            <BlockEditor
           bookId={bookId}
           block={block}
           index={index}
@@ -1959,8 +2094,10 @@ export default function ContentManuscriptEditor({
               itemValue,
             )
           }
-        />
-      ))}
+            />
+          </LayoutObjectFrame>
+        );
+      })}
   </DocumentWorkspace>
 </EditorShell>
 
@@ -2343,6 +2480,30 @@ function BlockEditor({
           />
         ) : null}
 
+        {!collapsed && isActivityBlock(block) ? (
+          <ActivityBlockEditor
+            block={block}
+            resources={resources}
+            onUpdatePatch={onUpdatePatch}
+          />
+        ) : null}
+
+        {!collapsed && isWorksheetBlock(block) ? (
+          <WorksheetBlockEditor
+            block={block}
+            resources={resources}
+            onUpdatePatch={onUpdatePatch}
+          />
+        ) : null}
+
+        {!collapsed && isExerciseBlock(block) ? (
+          <ExerciseBlockEditor
+            block={block}
+            resources={resources}
+            onUpdatePatch={onUpdatePatch}
+          />
+        ) : null}
+
         {!collapsed && isFormulaBlock(block) ? (
           <div className="grid gap-3 lg:grid-cols-3">
             <label className="block text-sm font-semibold text-slate-700 lg:col-span-2">
@@ -2408,6 +2569,10 @@ function BlockEditor({
               />
             </label>
           </div>
+        ) : null}
+
+        {!collapsed && isEducationalObjectBlock(block) ? (
+          <EducationalObjectEditor block={block} onUpdatePatch={onUpdatePatch} />
         ) : null}
 
         {!collapsed && isSequenceBlock(block) ? (
@@ -2638,6 +2803,40 @@ function SequenceBlockEditor({
       <button type="button" onClick={addItem} className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700">
         Add item
       </button>
+    </div>
+  );
+}
+
+function EducationalObjectEditor({
+  block,
+  onUpdatePatch,
+}: {
+  block: Extract<ContentBlock, { type: "educationalObject" }>;
+  onUpdatePatch: (patch: Partial<ContentBlock>) => void;
+}) {
+  const definition = getEducationalObjectDefinition(block.objectType);
+  return (
+    <div className="rounded-2xl border border-blue-200 bg-blue-50/70 p-4">
+      <div className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.14em] text-blue-800">
+        <span>{definition.label}</span>
+        <span className="text-blue-400">Educational object</span>
+      </div>
+      <div className="grid gap-3">
+        <label className="text-sm font-semibold text-slate-700">
+          Element type
+          <select value={block.objectType} onChange={(event) => onUpdatePatch({ objectType: event.target.value as EducationalObjectType })} className={field}>
+            {EDUCATIONAL_OBJECT_REGISTRY.map(([type, label]) => <option key={type} value={type}>{label}</option>)}
+          </select>
+        </label>
+        <label className="text-sm font-semibold text-slate-700">
+          Title
+          <input value={block.title ?? ""} onChange={(event) => onUpdatePatch({ title: event.target.value })} className={field} placeholder={definition.defaultTitle} />
+        </label>
+        <label className="text-sm font-semibold text-slate-700">
+          Body
+          <textarea value={block.text} onChange={(event) => onUpdatePatch({ text: event.target.value })} rows={4} className={field} placeholder="Write the educational prompt or explanation." />
+        </label>
+      </div>
     </div>
   );
 }
@@ -3876,6 +4075,9 @@ function countDocumentWords(input: {
     if (isListBlock(block)) parts.push(...block.items);
     if (isFormulaBlock(block)) parts.push(block.expression);
     if (isInfoBoxBlock(block) || isObservationBoxBlock(block)) parts.push(block.text);
+    if (isActivityBlock(block)) parts.push(block.title ?? "", ...block.fields.map((entry) => entry.text ?? ""));
+    if (isWorksheetBlock(block)) parts.push(block.title ?? "", block.instructions ?? "", block.description ?? "", block.teacherNote ?? "", ...block.questions.flatMap((question) => [question.prompt, question.answer ?? "", question.explanation ?? ""]));
+    if (isExerciseBlock(block)) parts.push(block.title ?? "", block.introduction ?? "", block.instructions ?? "", block.teacherNote ?? "", ...block.questions.flatMap((question) => [question.prompt, question.answer ?? "", question.explanation ?? ""]), ...block.groups.flatMap((group) => [group.title ?? "", group.instructions ?? "", ...group.questions.flatMap((question) => [question.prompt, question.answer ?? "", question.explanation ?? ""])]) );
     if (isSequenceBlock(block)) {
       for (const item of block.items) parts.push(item.title, item.description ?? "");
     }
@@ -3892,11 +4094,30 @@ function countDocumentWords(input: {
     .filter(Boolean).length;
 }
 
+type ManuscriptBlock = TextBlock | ListBlock;
+
+function isManuscriptBlock(block: ContentBlock): block is ManuscriptBlock {
+  return isTextBlock(block) || isListBlock(block);
+}
+
+function takeManuscriptRun(blocks: ContentBlock[], start: number) {
+  const run: ManuscriptBlock[] = [];
+  for (let index = start; index < blocks.length; index += 1) {
+    const block = blocks[index];
+    if (!block || !isManuscriptBlock(block)) break;
+    run.push(block);
+  }
+  return run;
+}
+
 function blockContainsQuery(block: ContentBlock, query: string) {
   if (isTextBlock(block)) return block.text.toLowerCase().includes(query);
   if (isListBlock(block)) return block.items.some((item) => item.toLowerCase().includes(query));
   if (isFormulaBlock(block)) return block.expression.toLowerCase().includes(query);
   if (isInfoBoxBlock(block) || isObservationBoxBlock(block)) return block.text.toLowerCase().includes(query);
+  if (isActivityBlock(block)) return [block.title ?? "", ...block.fields.map((entry) => entry.text ?? "")].join(" ").toLowerCase().includes(query);
+  if (isWorksheetBlock(block)) return [block.title ?? "", block.instructions ?? "", block.description ?? "", ...block.questions.flatMap((question) => [question.prompt, question.answer ?? ""])].join(" ").toLowerCase().includes(query);
+  if (isExerciseBlock(block)) return [block.title ?? "", block.introduction ?? "", block.instructions ?? "", ...block.questions.flatMap((question) => [question.prompt, question.answer ?? ""]), ...block.groups.flatMap((group) => [group.title ?? "", ...group.questions.map((question) => question.prompt)])].join(" ").toLowerCase().includes(query);
   if (isSequenceBlock(block)) {
     return block.items.some(
       (item) =>

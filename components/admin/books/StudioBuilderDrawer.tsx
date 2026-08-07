@@ -32,7 +32,11 @@ export default function StudioBuilderDrawer({
         className="absolute inset-0"
         onClick={requestClose}
       />
-      <aside className="relative flex h-full w-full max-w-[92rem] flex-col overflow-hidden bg-[#f8f5ee] shadow-2xl ring-1 ring-slate-200">
+      <aside
+        data-testid="studio-builder-drawer"
+        data-builder-title={title}
+        className="relative flex h-full w-full max-w-[92rem] flex-col overflow-hidden bg-[#f8f5ee] shadow-2xl ring-1 ring-slate-200"
+      >
         <header className="flex items-start justify-between gap-4 border-b border-slate-200 bg-white/95 px-5 py-4 backdrop-blur sm:px-6">
           <div className="min-w-0">
             <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">

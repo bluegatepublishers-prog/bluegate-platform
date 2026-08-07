@@ -6,6 +6,7 @@ import type {
 } from "react";
 
 import DocumentPage from "@/components/admin/books/editor/DocumentPage";
+import type { CanvasConfig } from "@/lib/content-document";
 
 type DocumentSaveState =
   | "saved"
@@ -27,6 +28,7 @@ type DocumentWorkspaceProps = {
   error?: string;
 
   layout: "single" | "double";
+  canvas?: CanvasConfig;
   wordCount: number;
 
   showRuler?: boolean;
@@ -45,6 +47,7 @@ export default function DocumentWorkspace({
   dirty,
   error = "",
   layout,
+  canvas,
   wordCount,
   showRuler = true,
   showGrid = false,
@@ -112,7 +115,7 @@ export default function DocumentWorkspace({
             className="mx-auto w-fit"
             style={zoomStyle}
           >
-            <DocumentPage moduleTitle={title}>
+            <DocumentPage moduleTitle={title} canvas={canvas}>
               <input
                 value={title}
                 onChange={(event) =>

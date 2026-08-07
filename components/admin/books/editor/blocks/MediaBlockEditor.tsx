@@ -117,7 +117,7 @@ export default function MediaBlockEditor({
     Boolean(block.targetId) && !activeMedia;
 
   return (
-    <div className="space-y-4 rounded-[1.5rem] bg-slate-950 p-4 text-white ring-1 ring-slate-900">
+    <div className="space-y-4 rounded-[1.5rem] bg-slate-950 p-4 text-white ring-1 ring-slate-900" onPointerDown={(event) => event.stopPropagation()}>
       <div className="flex flex-wrap items-center gap-2">
         <span className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1.5 text-xs font-bold uppercase tracking-[0.14em] text-slate-200 ring-1 ring-white/10">
           <PlayCircle className="h-4 w-4" />
