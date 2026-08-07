@@ -569,11 +569,20 @@ function TreeBranch({
                   <button
                     type="button"
                     onClick={() => {
-                      if (!confirm(`Delete "${node.title}"?`)) return;
+                      const cascadeMessage =
+                        node.type === "PART"
+                          ? "This will also permanently delete every Unit, Chapter, Module and Content Studio item inside this Part."
+                          : node.type === "UNIT"
+                            ? "This will also permanently delete every Chapter, Module and Content Studio item inside this Unit."
+                            : node.type === "CHAPTER"
+                              ? "This will also permanently delete every Module and Content Studio item inside this Chapter."
+                              : node.type === "MODULE"
+                                ? "This will permanently delete this Module and its Content Studio data."
+                                : "This item and its dependent Content Studio data will be permanently deleted.";
 
                       if (
                         !confirm(
-                          `Permanently delete "${node.title}"? This cannot be undone.`,
+                          `Permanently delete "${node.title}"?\n\n${cascadeMessage}\n\nThis action cannot be undone.`,
                         )
                       ) {
                         return;
@@ -593,11 +602,9 @@ function TreeBranch({
                           return;
                         }
 
-                        if (selectedKey === node.key) {
-                          window.location.assign(
-                            `/admin/books/${bookId}/content`,
-                          );
-                        }
+                        window.location.assign(
+                          `/admin/books/${bookId}/content`,
+                        );
                       });
                     }}
                     className="flex h-6 w-6 items-center justify-center rounded text-slate-400 hover:bg-white hover:text-rose-700"

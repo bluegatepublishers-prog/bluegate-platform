@@ -414,6 +414,232 @@ export async function renameBookStructureNode(
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 }
 
+async function purgeQrCodes(
+  tx: Prisma.TransactionClient,
+  bookId: string,
+  where: { partId?: string; unitId?: string; chapterId?: string; moduleId?: string; topicId?: string },
+) {
+  const qrCodes = await tx.dynamicQrCode.findMany({
+    where: { bookId, ...where },
+    select: { id: true },
+  });
+  const qrIds = qrCodes.map((item) => item.id);
+  if (!qrIds.length) return;
+
+  await tx.qrRedirectRevision.deleteMany({ where: { qrCodeId: { in: qrIds } } });
+  await tx.dynamicQrCode.updateMany({
+    where: { id: { in: qrIds } },
+    data: { currentDestinationId: null },
+  });
+  await tx.qrDestination.deleteMany({ where: { qrCodeId: { in: qrIds } } });
+  await tx.dynamicQrCode.deleteMany({ where: { id: { in: qrIds } } });
+}
+
+async function purgeResourceLinks(
+  tx: Prisma.TransactionClient,
+  bookId: string,
+  where: { partId?: string; unitId?: string; chapterId?: string; moduleId?: string; topicId?: string },
+) {
+  const links = await tx.bookResourceLink.findMany({
+    where: { bookId, ...where },
+    select: { id: true },
+  });
+  const linkIds = links.map((item) => item.id);
+  if (!linkIds.length) return;
+
+  const destinations = await tx.qrDestination.findMany({
+    where: { bookResourceLinkId: { in: linkIds } },
+    select: { id: true, qrCodeId: true },
+  });
+  const destinationIds = destinations.map((item) => item.id);
+  const qrIds = [...new Set(destinations.map((item) => item.qrCodeId))];
+
+  if (destinationIds.length) {
+    await tx.qrRedirectRevision.deleteMany({
+      where: {
+        OR: [
+          { previousDestinationId: { in: destinationIds } },
+          { newDestinationId: { in: destinationIds } },
+        ],
+      },
+    });
+    await tx.dynamicQrCode.updateMany({
+      where: { currentDestinationId: { in: destinationIds } },
+      data: { currentDestinationId: null },
+    });
+    await tx.qrDestination.deleteMany({ where: { id: { in: destinationIds } } });
+  }
+
+  if (qrIds.length) {
+    const orphaned = await tx.dynamicQrCode.findMany({
+      where: { id: { in: qrIds }, destinations: { none: {} } },
+      select: { id: true },
+    });
+    const orphanedIds = orphaned.map((item) => item.id);
+    if (orphanedIds.length) {
+      await tx.qrRedirectRevision.deleteMany({ where: { qrCodeId: { in: orphanedIds } } });
+      await tx.dynamicQrCode.deleteMany({ where: { id: { in: orphanedIds } } });
+    }
+  }
+
+  await tx.bookResourceLink.deleteMany({ where: { id: { in: linkIds } } });
+}
+
+async function purgeContentReleases(
+  tx: Prisma.TransactionClient,
+  bookId: string,
+  targetIds: string[],
+) {
+  if (!targetIds.length) return;
+  await tx.contentRelease.deleteMany({
+    where: { bookId, targetId: { in: targetIds } },
+  });
+}
+
+async function purgeQuestions(
+  tx: Prisma.TransactionClient,
+  bookId: string,
+  chapterId: string,
+  extraWhere: { moduleId?: string; topicId?: string } = {},
+) {
+  const questions = await tx.bookQuestion.findMany({
+    where: { bookId, chapterId, ...extraWhere },
+    select: { id: true },
+  });
+  const questionIds = questions.map((item) => item.id);
+  if (!questionIds.length) return;
+
+  const assessmentQuestions = await tx.assessmentQuestion.findMany({
+    where: { questionId: { in: questionIds } },
+    select: { id: true },
+  });
+  const assessmentQuestionIds = assessmentQuestions.map((item) => item.id);
+  if (assessmentQuestionIds.length) {
+    await tx.assessmentResponse.deleteMany({
+      where: { assessmentQuestionId: { in: assessmentQuestionIds } },
+    });
+    await tx.assessmentQuestion.deleteMany({ where: { id: { in: assessmentQuestionIds } } });
+  }
+
+  await tx.studentPracticeResponse.deleteMany({ where: { questionId: { in: questionIds } } });
+  await tx.bookQuestion.deleteMany({ where: { id: { in: questionIds } } });
+}
+
+async function purgeLegacyTopic(
+  tx: Prisma.TransactionClient,
+  bookId: string,
+  chapterId: string,
+  topicId: string,
+) {
+  await purgeQrCodes(tx, bookId, { topicId });
+  await purgeResourceLinks(tx, bookId, { topicId });
+  await purgeQuestions(tx, bookId, chapterId, { topicId });
+  await tx.chapterActivity.deleteMany({ where: { topicId } });
+  await tx.publisherWorksheet.deleteMany({ where: { bookId, topicId } });
+  await tx.bookExercise.deleteMany({ where: { bookId, topicId } });
+  await tx.chapterLearningOutcome.deleteMany({ where: { topicId } });
+  await tx.videoLesson.updateMany({ where: { bookId, topicId }, data: { topicId: null } });
+  await purgeContentReleases(tx, bookId, [topicId]);
+  await tx.bookTopic.delete({ where: { id: topicId } });
+}
+
+async function purgeModule(
+  tx: Prisma.TransactionClient,
+  bookId: string,
+  chapterId: string,
+  moduleId: string,
+) {
+  const topics = await tx.bookTopic.findMany({
+    where: { bookId, chapterId, moduleId },
+    select: { id: true },
+  });
+  for (const topic of topics) {
+    await purgeLegacyTopic(tx, bookId, chapterId, topic.id);
+  }
+
+  await purgeQrCodes(tx, bookId, { moduleId });
+  await purgeResourceLinks(tx, bookId, { moduleId });
+  await purgeQuestions(tx, bookId, chapterId, { moduleId });
+  await tx.chapterActivity.deleteMany({ where: { moduleId } });
+  await tx.publisherWorksheet.deleteMany({ where: { bookId, moduleId } });
+  await tx.bookExercise.deleteMany({ where: { bookId, moduleId } });
+  await tx.chapterLearningOutcome.deleteMany({ where: { moduleId } });
+  await tx.resource.updateMany({ where: { bookId, moduleId }, data: { moduleId: null } });
+  await tx.videoLesson.updateMany({ where: { bookId, moduleId }, data: { moduleId: null } });
+  await purgeContentReleases(tx, bookId, [moduleId]);
+  await tx.bookModule.delete({ where: { id: moduleId } });
+}
+
+async function purgeChapter(
+  tx: Prisma.TransactionClient,
+  bookId: string,
+  chapterId: string,
+) {
+  const modules = await tx.bookModule.findMany({
+    where: { bookId, chapterId },
+    select: { id: true },
+    orderBy: { displayOrder: "asc" },
+  });
+  for (const bookModule of modules) {
+    await purgeModule(tx, bookId, chapterId, bookModule.id);
+  }
+
+  const looseTopics = await tx.bookTopic.findMany({
+    where: { bookId, chapterId, moduleId: null },
+    select: { id: true },
+  });
+  for (const topic of looseTopics) {
+    await purgeLegacyTopic(tx, bookId, chapterId, topic.id);
+  }
+
+  await purgeQrCodes(tx, bookId, { chapterId });
+  await purgeResourceLinks(tx, bookId, { chapterId });
+
+  await tx.studentPracticeAttempt.deleteMany({ where: { bookId, chapterId } });
+
+  const conversations = await tx.studentAiConversation.findMany({
+    where: { bookId, chapterId },
+    select: { id: true },
+  });
+  const conversationIds = conversations.map((item) => item.id);
+  if (conversationIds.length) {
+    await tx.studentAiUsage.deleteMany({ where: { conversationId: { in: conversationIds } } });
+    await tx.studentAiConversation.deleteMany({ where: { id: { in: conversationIds } } });
+  }
+
+  await tx.studentRevisionProgress.deleteMany({ where: { chapterId } });
+  await tx.studentChapterAnalytics.deleteMany({ where: { bookId, chapterId } });
+  await tx.learningTimeline.updateMany({ where: { bookId, chapterId }, data: { chapterId: null } });
+  await tx.studentLearningGap.updateMany({ where: { bookId, chapterId }, data: { chapterId: null } });
+  await tx.remedialRecommendation.updateMany({ where: { bookId, chapterId }, data: { chapterId: null } });
+  await tx.classMaterial.updateMany({ where: { chapterId }, data: { chapterId: null } });
+  await tx.classroomAssignment.updateMany({ where: { bookId, chapterId }, data: { chapterId: null } });
+  await tx.assignmentAttachment.updateMany({ where: { bookChapterId: chapterId }, data: { bookChapterId: null } });
+
+  const chapterAssessmentQuestions = await tx.assessmentQuestion.findMany({
+    where: { bookId, chapterId },
+    select: { id: true },
+  });
+  const chapterAssessmentQuestionIds = chapterAssessmentQuestions.map((item) => item.id);
+  if (chapterAssessmentQuestionIds.length) {
+    await tx.assessmentResponse.deleteMany({
+      where: { assessmentQuestionId: { in: chapterAssessmentQuestionIds } },
+    });
+    await tx.assessmentQuestion.deleteMany({ where: { id: { in: chapterAssessmentQuestionIds } } });
+  }
+  await tx.assessment.updateMany({ where: { bookId, chapterId }, data: { chapterId: null } });
+
+  await purgeQuestions(tx, bookId, chapterId);
+  await tx.chapterActivity.deleteMany({ where: { chapterId } });
+  await tx.publisherWorksheet.deleteMany({ where: { bookId, chapterId } });
+  await tx.bookExercise.deleteMany({ where: { bookId, chapterId } });
+  await tx.chapterLearningOutcome.deleteMany({ where: { chapterId } });
+  await tx.resource.updateMany({ where: { bookId, chapterId }, data: { chapterId: null } });
+  await tx.videoLesson.updateMany({ where: { bookId, chapterId }, data: { chapterId: null } });
+  await purgeContentReleases(tx, bookId, [chapterId]);
+  await tx.bookChapter.delete({ where: { id: chapterId } });
+}
+
 export async function deleteBookStructureNode(
   bookId: string,
   type: BookStructureNodeType,
@@ -421,140 +647,100 @@ export async function deleteBookStructureNode(
   confirmationTitle: string,
 ) {
   const { actor } = await actorAndBook(bookId);
-  return prisma.$transaction(async (tx) => {
+
+  await prisma.$transaction(async (tx) => {
     const existing = await nodeRecord(tx, bookId, type, id);
     if (!existing) throw new BookStructureError("Structure item not found.");
     if (existing.title !== confirmationTitle.trim()) {
       throw new BookStructureError("The final confirmation did not match the node title.");
     }
+
     if (type === "MODULE") {
-      const legacyTopics =
-        await tx.bookTopic.findMany({
-          where: {
-            bookId,
-            moduleId: id,
-          },
-          select: {
-            id: true,
-            title: true,
-          },
+      const bookModule = await tx.bookModule.findFirst({
+        where: { id, bookId },
+        select: { chapterId: true },
+      });
+      if (!bookModule) throw new BookStructureError("Module not found.");
+      await purgeModule(tx, bookId, bookModule.chapterId, id);
+    } else if (type === "CHAPTER") {
+      await purgeChapter(tx, bookId, id);
+    } else if (type === "UNIT") {
+      const chapters = await tx.bookChapter.findMany({
+        where: { bookId, unitId: id },
+        select: { id: true },
+        orderBy: { sortOrder: "asc" },
+      });
+      for (const chapter of chapters) {
+        await purgeChapter(tx, bookId, chapter.id);
+      }
+      await purgeQrCodes(tx, bookId, { unitId: id });
+      await purgeResourceLinks(tx, bookId, { unitId: id });
+      await tx.resource.updateMany({ where: { bookId, unitId: id }, data: { unitId: null } });
+      await tx.videoLesson.updateMany({ where: { bookId, unitId: id }, data: { unitId: null } });
+      await purgeContentReleases(tx, bookId, [id]);
+      await tx.bookUnit.delete({ where: { id } });
+    } else if (type === "PART") {
+      const units = await tx.bookUnit.findMany({
+        where: { bookId, partId: id },
+        select: { id: true },
+        orderBy: { displayOrder: "asc" },
+      });
+      for (const unit of units) {
+        const chapters = await tx.bookChapter.findMany({
+          where: { bookId, unitId: unit.id },
+          select: { id: true },
+          orderBy: { sortOrder: "asc" },
         });
-
-      for (const topic of legacyTopics) {
-        const topicDependencies =
-          await structureDependencies(
-            tx,
-            bookId,
-            "TOPIC",
-            topic.id,
-          );
-
-        if (topicDependencies.length) {
-          throw new BookStructureError(
-            `This module contains legacy topic "${topic.title}" with ${topicDependencies.join(
-              ", ",
-            )}. Remove or move those linked items before deleting the module.`,
-          );
+        for (const chapter of chapters) {
+          await purgeChapter(tx, bookId, chapter.id);
         }
+        await purgeQrCodes(tx, bookId, { unitId: unit.id });
+        await purgeResourceLinks(tx, bookId, { unitId: unit.id });
+        await tx.resource.updateMany({ where: { bookId, unitId: unit.id }, data: { unitId: null } });
+        await tx.videoLesson.updateMany({ where: { bookId, unitId: unit.id }, data: { unitId: null } });
+        await purgeContentReleases(tx, bookId, [unit.id]);
+        await tx.bookUnit.delete({ where: { id: unit.id } });
       }
 
-      if (legacyTopics.length) {
-        await tx.bookTopic.deleteMany({
-          where: {
-            bookId,
-            moduleId: id,
-          },
-        });
+      const directChapters = await tx.bookChapter.findMany({
+        where: { bookId, partId: id, unitId: null },
+        select: { id: true },
+        orderBy: { sortOrder: "asc" },
+      });
+      for (const chapter of directChapters) {
+        await purgeChapter(tx, bookId, chapter.id);
       }
+
+      await purgeQrCodes(tx, bookId, { partId: id });
+      await purgeResourceLinks(tx, bookId, { partId: id });
+      await purgeContentReleases(tx, bookId, [id]);
+      await tx.bookPart.delete({ where: { id } });
+    } else {
+      const topic = await tx.bookTopic.findFirst({
+        where: { id, bookId },
+        select: { chapterId: true },
+      });
+      if (!topic) throw new BookStructureError("Topic not found.");
+      await purgeLegacyTopic(tx, bookId, topic.chapterId, id);
     }
-
-    const dependencies =
-      await structureDependencies(
-        tx,
-        bookId,
-        type,
-        id,
-      );
-
-    if (dependencies.length) {
-      throw new BookStructureError(
-        `This item cannot be permanently deleted because it has ${dependencies.join(
-          ", ",
-        )}.`,
-      );
-    }
-
-    if (type === "PART") await tx.bookPart.delete({ where: { id } });
-    else if (type === "UNIT") await tx.bookUnit.delete({ where: { id } });
-    else if (type === "CHAPTER") await tx.bookChapter.delete({ where: { id } });
-    else if (type === "MODULE") await tx.bookModule.delete({ where: { id } });
-    else await tx.bookTopic.delete({ where: { id } });
-    const descriptor = auditDescriptor(type, false);
-    await writeSecurityAuditEvent(tx, {
-      actor: publisherAdminAuditActor(actor),
-      action: type === "PART" ? "publisher.book_part.delete" : `publisher.curriculum.${type.toLowerCase()}.delete` as never,
-      targetType: descriptor.targetType,
-      targetId: id,
-      outcome: SecurityAuditOutcome.SUCCESS,
-      metadata: { changedFields: ["deleted"] },
-    });
   }, {
     isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
     maxWait: 10000,
     timeout: 30000,
   });
-}
 
-async function structureDependencies(
-  tx: Prisma.TransactionClient,
-  bookId: string,
-  type: BookStructureNodeType,
-  id: string,
-) {
-  const dependencyCount = async (label: string, count: Promise<number>) => (await count) > 0 ? label : null;
-  const checks: Promise<string | null>[] = [];
-  if (type === "PART") {
-    checks.push(dependencyCount("child units", tx.bookUnit.count({ where: { bookId, partId: id } })));
-    checks.push(dependencyCount("child chapters", tx.bookChapter.count({ where: { bookId, partId: id } })));
-    checks.push(dependencyCount("linked resources", tx.bookResourceLink.count({ where: { bookId, partId: id, active: true } })));
-    checks.push(dependencyCount("QR destinations", tx.dynamicQrCode.count({ where: { bookId, partId: id } })));
-    checks.push(dependencyCount("published releases", tx.contentRelease.count({ where: { bookId, targetId: id, lifecycle: "PUBLISHED" } })));
-  } else if (type === "UNIT") {
-    checks.push(dependencyCount("child chapters", tx.bookChapter.count({ where: { bookId, unitId: id } })));
-    checks.push(dependencyCount("child modules", tx.bookModule.count({ where: { bookId, unitId: id } })));
-    checks.push(dependencyCount("linked resources", tx.bookResourceLink.count({ where: { bookId, unitId: id, active: true } })));
-    checks.push(dependencyCount("QR destinations", tx.dynamicQrCode.count({ where: { bookId, unitId: id } })));
-    checks.push(dependencyCount("published releases", tx.contentRelease.count({ where: { bookId, targetId: id, lifecycle: "PUBLISHED" } })));
-  } else if (type === "CHAPTER") {
-    checks.push(dependencyCount("modules", tx.bookModule.count({ where: { bookId, chapterId: id } })));
-    checks.push(dependencyCount("topics", tx.bookTopic.count({ where: { bookId, chapterId: id } })));
-    checks.push(dependencyCount("activities", tx.chapterActivity.count({ where: { chapterId: id } })));
-    checks.push(dependencyCount("worksheets", tx.publisherWorksheet.count({ where: { bookId, chapterId: id } })));
-    checks.push(dependencyCount("exercises", tx.bookExercise.count({ where: { bookId, chapterId: id } })));
-    checks.push(dependencyCount("questions", tx.bookQuestion.count({ where: { bookId, chapterId: id } })));
-    checks.push(dependencyCount("student attempts", tx.studentPracticeAttempt.count({ where: { bookId, chapterId: id } })));
-    checks.push(dependencyCount("linked resources", tx.bookResourceLink.count({ where: { bookId, chapterId: id, active: true } })));
-    checks.push(dependencyCount("QR destinations", tx.dynamicQrCode.count({ where: { bookId, chapterId: id } })));
-    checks.push(dependencyCount("published releases", tx.contentRelease.count({ where: { bookId, targetType: "CHAPTER", targetId: id, lifecycle: "PUBLISHED" } })));
-  } else if (type === "MODULE") {
-    checks.push(dependencyCount("topics", tx.bookTopic.count({ where: { bookId, moduleId: id } })));
-    checks.push(dependencyCount("activities", tx.chapterActivity.count({ where: { moduleId: id } })));
-    checks.push(dependencyCount("worksheets", tx.publisherWorksheet.count({ where: { bookId, moduleId: id } })));
-    checks.push(dependencyCount("exercises", tx.bookExercise.count({ where: { bookId, moduleId: id } })));
-    checks.push(dependencyCount("questions", tx.bookQuestion.count({ where: { bookId, moduleId: id } })));
-    checks.push(dependencyCount("linked resources", tx.bookResourceLink.count({ where: { bookId, moduleId: id, active: true } })));
-    checks.push(dependencyCount("QR destinations", tx.dynamicQrCode.count({ where: { bookId, moduleId: id } })));
-    checks.push(dependencyCount("published releases", tx.contentRelease.count({ where: { bookId, targetType: "MODULE", targetId: id, lifecycle: "PUBLISHED" } })));
-  } else {
-    checks.push(dependencyCount("activities", tx.chapterActivity.count({ where: { topicId: id } })));
-    checks.push(dependencyCount("worksheets", tx.publisherWorksheet.count({ where: { bookId, topicId: id } })));
-    checks.push(dependencyCount("exercises", tx.bookExercise.count({ where: { bookId, topicId: id } })));
-    checks.push(dependencyCount("questions", tx.bookQuestion.count({ where: { bookId, topicId: id } })));
-    checks.push(dependencyCount("linked resources", tx.bookResourceLink.count({ where: { bookId, topicId: id, active: true } })));
-    checks.push(dependencyCount("QR destinations", tx.dynamicQrCode.count({ where: { bookId, topicId: id } })));
-    checks.push(dependencyCount("published releases", tx.contentRelease.count({ where: { bookId, targetType: "TOPIC", targetId: id, lifecycle: "PUBLISHED" } })));
-  }
-  return (await Promise.all(checks)).filter((item): item is string => Boolean(item));
+  await prisma.$transaction((tx) =>
+    writeSecurityAuditEvent(tx, {
+      actor: publisherAdminAuditActor(actor),
+      action: type === "PART"
+        ? "publisher.book_part.delete"
+        : `publisher.curriculum.${type.toLowerCase()}.delete` as never,
+      targetType: auditDescriptor(type, false).targetType,
+      targetId: id,
+      outcome: SecurityAuditOutcome.SUCCESS,
+      metadata: { changedFields: ["deleted", "cascade"] },
+    }),
+  );
 }
 
 export async function setBookStructureNodeArchived(
