@@ -377,19 +377,39 @@ function TreeBranch({
     form.set("title", title);
 
     startTransition(async () => {
-      await createContentChildAction(
-        bookId,
-        activeAdd.type!,
-        node.id,
-        form,
-      );
+      try {
+        const created =
+          await createContentChildAction(
+            bookId,
+            activeAdd.type!,
+            node.id,
+            form,
+          );
 
-      setActiveAdd({
-        key: null,
-        type: null,
-      });
+        setActiveAdd({
+          key: null,
+          type: null,
+        });
 
-      setAddTitle("");
+        setAddTitle("");
+
+        if (created?.id && created?.type) {
+          const createdKey =
+            `${created.type}:${created.id}`;
+
+          window.location.assign(
+            `/admin/books/${bookId}/content?selected=${encodeURIComponent(
+              createdKey,
+            )}`,
+          );
+        }
+      } catch (cause) {
+        window.alert(
+          cause instanceof Error
+            ? cause.message
+            : "Unable to create this hierarchy item.",
+        );
+      }
     });
   }
 
@@ -560,12 +580,24 @@ function TreeBranch({
                       }
 
                       startTransition(async () => {
-                        await deleteContentNodeAction(
-                          bookId,
-                          actionableType,
-                          node.id,
-                          node.title,
-                        );
+                        const result =
+                          await deleteContentNodeAction(
+                            bookId,
+                            actionableType,
+                            node.id,
+                            node.title,
+                          );
+
+                        if (!result.ok) {
+                          window.alert(result.message);
+                          return;
+                        }
+
+                        if (selectedKey === node.key) {
+                          window.location.assign(
+                            `/admin/books/${bookId}/content`,
+                          );
+                        }
                       });
                     }}
                     className="flex h-6 w-6 items-center justify-center rounded text-slate-400 hover:bg-white hover:text-rose-700"
@@ -727,11 +759,11 @@ function filterTree(
 
 function childTypesFor(type: ContentNodeType) {
   const options: Record<ContentNodeType, string[]> = {
-    BOOK: ["PART", "UNIT", "CHAPTER"],
-    PART: ["UNIT", "CHAPTER"],
+    BOOK: ["PART"],
+    PART: ["UNIT"],
     UNIT: ["CHAPTER"],
-    CHAPTER: ["MODULE", "TOPIC"],
-    MODULE: ["TOPIC"],
+    CHAPTER: ["MODULE"],
+    MODULE: [],
     TOPIC: [],
     FOLDER: [],
   };

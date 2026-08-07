@@ -427,10 +427,63 @@ export async function deleteBookStructureNode(
     if (existing.title !== confirmationTitle.trim()) {
       throw new BookStructureError("The final confirmation did not match the node title.");
     }
-    const dependencies = await structureDependencies(tx, bookId, type, id);
-    if (dependencies.length) {
-      throw new BookStructureError(`This item cannot be permanently deleted because it has ${dependencies.join(", ")}.`);
+    if (type === "MODULE") {
+      const legacyTopics =
+        await tx.bookTopic.findMany({
+          where: {
+            bookId,
+            moduleId: id,
+          },
+          select: {
+            id: true,
+            title: true,
+          },
+        });
+
+      for (const topic of legacyTopics) {
+        const topicDependencies =
+          await structureDependencies(
+            tx,
+            bookId,
+            "TOPIC",
+            topic.id,
+          );
+
+        if (topicDependencies.length) {
+          throw new BookStructureError(
+            `This module contains legacy topic "${topic.title}" with ${topicDependencies.join(
+              ", ",
+            )}. Remove or move those linked items before deleting the module.`,
+          );
+        }
+      }
+
+      if (legacyTopics.length) {
+        await tx.bookTopic.deleteMany({
+          where: {
+            bookId,
+            moduleId: id,
+          },
+        });
+      }
     }
+
+    const dependencies =
+      await structureDependencies(
+        tx,
+        bookId,
+        type,
+        id,
+      );
+
+    if (dependencies.length) {
+      throw new BookStructureError(
+        `This item cannot be permanently deleted because it has ${dependencies.join(
+          ", ",
+        )}.`,
+      );
+    }
+
     if (type === "PART") await tx.bookPart.delete({ where: { id } });
     else if (type === "UNIT") await tx.bookUnit.delete({ where: { id } });
     else if (type === "CHAPTER") await tx.bookChapter.delete({ where: { id } });

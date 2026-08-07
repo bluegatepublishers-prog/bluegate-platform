@@ -926,50 +926,102 @@ export async function createContentChildAction(
   parentId: string,
   form: FormData,
 ) {
-  const type = text(form, "type") as BookStructureNodeType;
-  const allowed: Record<string, BookStructureNodeType[]> = {
-    BOOK: ["PART", "UNIT", "CHAPTER"],
-    PART: ["UNIT", "CHAPTER"],
+  const type =
+    text(
+      form,
+      "type",
+    ) as BookStructureNodeType;
+
+  const allowed: Record<
+    string,
+    BookStructureNodeType[]
+  > = {
+    BOOK: ["PART"],
+    PART: ["UNIT"],
     UNIT: ["CHAPTER"],
-    CHAPTER: ["MODULE", "TOPIC"],
-    MODULE: ["TOPIC"],
+    CHAPTER: ["MODULE"],
+    MODULE: [],
   };
-  if (!allowed[parentType]?.includes(type)) {
-    throw new Error("This child type is not valid for the selected parent.");
+
+  if (
+    !allowed[parentType]?.includes(type)
+  ) {
+    throw new Error(
+      "This child type is not valid for the selected parent.",
+    );
   }
 
   let parent: string | null = null;
   let secondary: string | null = null;
 
-  if (type === "UNIT" && parentType === "PART") parent = parentId;
-  else if (type === "CHAPTER") {
-    if (parentType === "UNIT") parent = parentId;
-    else if (parentType === "PART") secondary = parentId;
-  } else if (type === "MODULE") parent = parentId;
-  else if (type === "TOPIC") {
-    if (parentType === "MODULE") {
-      const moduleNode = await prisma.bookModule.findFirst({
-        where: { id: parentId, bookId },
-        select: { chapterId: true },
+  if (
+    type === "UNIT" &&
+    parentType === "PART"
+  ) {
+    parent = parentId;
+  } else if (
+    type === "CHAPTER" &&
+    parentType === "UNIT"
+  ) {
+    parent = parentId;
+
+    const unit =
+      await prisma.bookUnit.findFirst({
+        where: {
+          id: parentId,
+          bookId,
+        },
+        select: {
+          partId: true,
+        },
       });
-      if (!moduleNode) throw new Error("Parent Module not found.");
-      parent = moduleNode.chapterId;
-      secondary = parentId;
-    } else {
-      parent = parentId;
+
+    if (!unit) {
+      throw new Error(
+        "Parent Unit not found.",
+      );
     }
+
+    secondary = unit.partId;
+  } else if (
+    type === "MODULE" &&
+    parentType === "CHAPTER"
+  ) {
+    parent = parentId;
   }
 
-  await saveBookStructureNode(bookId, {
-    type,
-    parentId: parent,
-    secondaryParentId: secondary,
-    title: text(form, "title", 200),
-    label: nullable(form, "label", 80),
-    description: nullable(form, "description", 2000),
-    published: false,
-  });
+  const created =
+    await saveBookStructureNode(
+      bookId,
+      {
+        type,
+        parentId: parent,
+        secondaryParentId: secondary,
+        title: text(
+          form,
+          "title",
+          200,
+        ),
+        label: nullable(
+          form,
+          "label",
+          80,
+        ),
+        description: nullable(
+          form,
+          "description",
+          2000,
+        ),
+        published: false,
+      },
+    );
+
   refresh(bookId);
+
+  return {
+    id: created.id,
+    type,
+  };
 }
 
 export async function archiveContentNodeAction(
@@ -997,9 +1049,30 @@ export async function deleteContentNodeAction(
   type: BookStructureNodeType,
   id: string,
   confirmationTitle: string,
-) {
-  await deleteBookStructureNode(bookId, type, id, confirmationTitle);
-  refresh(bookId);
+): Promise<
+  | { ok: true }
+  | { ok: false; message: string }
+> {
+  try {
+    await deleteBookStructureNode(
+      bookId,
+      type,
+      id,
+      confirmationTitle,
+    );
+
+    refresh(bookId);
+
+    return { ok: true };
+  } catch (error) {
+    return {
+      ok: false,
+      message:
+        error instanceof Error
+          ? error.message
+          : "This hierarchy item could not be deleted.",
+    };
+  }
 }
 
 export async function reorderContentNodeAction(

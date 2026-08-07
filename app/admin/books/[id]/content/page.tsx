@@ -275,7 +275,7 @@ async function SelectedCanvas({
   query: Params;
 }) {
   if (selected.type === "BOOK") {
-    return <BookCanvas studio={studio} bookId={bookId} />;
+    return <BookCanvas studio={studio} />;
   }
   if (selected.type === "FOLDER") {
     return (
@@ -293,6 +293,29 @@ async function SelectedCanvas({
   if (!record) {
     return <Empty text="This content item is unavailable." />;
   }
+
+  if (
+    selected.type === "PART" ||
+    selected.type === "UNIT" ||
+    selected.type === "CHAPTER"
+  ) {
+    return (
+      <StructureOnlyCanvas
+        selected={selected}
+        record={record}
+      />
+    );
+  }
+
+  // Module is the final editable hierarchy level.
+  // Legacy Topic rows remain in the database for compatibility,
+  // but Topic is no longer reachable from the Content Studio tree.
+  if (selected.type !== "MODULE") {
+    return (
+      <Empty text="Select a module to open the writing editor." />
+    );
+  }
+
   const scope = await getContentNodeScope(
     publisherId,
     bookId,
@@ -390,10 +413,16 @@ async function SelectedCanvas({
   );
 }
 
-function BookCanvas({ studio, bookId: _bookId }: { studio: BookPageData; bookId: string }) {
-  const chapterCount = studio.chapters.length;
-  const moduleCount = studio.modules.length;
-  const topicCount = studio.topics.length;
+function BookCanvas({
+  studio,
+}: {
+  studio: BookPageData;
+}) {
+  const unitCount = studio.units.length;
+  const chapterCount =
+    studio.chapters.length;
+  const moduleCount =
+    studio.modules.length;
 
   return (
     <div className="mx-auto max-w-5xl space-y-4">
@@ -422,10 +451,119 @@ function BookCanvas({ studio, bookId: _bookId }: { studio: BookPageData; bookId:
       </section>
 
       <section className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
-        <CanvasMetric label="Parts" value={studio.parts.length} />
-        <CanvasMetric label="Chapters" value={chapterCount} />
-        <CanvasMetric label="Modules" value={moduleCount} />
-        <CanvasMetric label="Topics" value={topicCount} />
+        <CanvasMetric
+          label="Parts"
+          value={studio.parts.length}
+        />
+        <CanvasMetric
+          label="Units"
+          value={unitCount}
+        />
+        <CanvasMetric
+          label="Chapters"
+          value={chapterCount}
+        />
+        <CanvasMetric
+          label="Modules"
+          value={moduleCount}
+        />
+      </section>
+    </div>
+  );
+}
+
+function StructureOnlyCanvas({
+  selected,
+  record,
+}: {
+  selected: ContentTreeNode;
+  record: NonNullable<
+    Awaited<ReturnType<typeof loadNode>>
+  >;
+}) {
+  const children =
+    selected.children.filter(
+      (child) =>
+        child.type !== "FOLDER" &&
+        child.type !== "TOPIC",
+    );
+
+  const typeLabel =
+    selected.type === "PART"
+      ? "Part"
+      : selected.type === "UNIT"
+        ? "Unit"
+        : "Chapter";
+
+  const nextLabel =
+    selected.type === "PART"
+      ? "Units"
+      : selected.type === "UNIT"
+        ? "Chapters"
+        : "Modules";
+
+  return (
+    <div className="mx-auto max-w-5xl space-y-3">
+      <section className="rounded-[1.35rem] bg-white px-5 py-4 shadow-sm ring-1 ring-slate-200">
+        <p className="text-[9px] font-bold uppercase tracking-[0.16em] text-blue-700">
+          {typeLabel} Structure
+        </p>
+
+        <h2 className="mt-1 text-lg font-bold tracking-tight text-slate-950">
+          {record.title}
+        </h2>
+
+        {record.description ? (
+          <p className="mt-1.5 max-w-3xl text-[10px] leading-5 text-slate-500">
+            {record.description}
+          </p>
+        ) : null}
+
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-[9px]">
+          <span className="rounded-md bg-slate-100 px-2 py-1 font-semibold text-slate-600">
+            {nextLabel}: {children.length}
+          </span>
+
+          <span className="rounded-md bg-blue-50 px-2 py-1 font-semibold text-blue-700">
+            Writing opens only inside a Module
+          </span>
+        </div>
+      </section>
+
+      <section className="rounded-[1.35rem] bg-white p-4 shadow-sm ring-1 ring-slate-200">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-slate-400">
+              {nextLabel}
+            </p>
+            <p className="mt-0.5 text-[10px] text-slate-500">
+              Use the + button in the hierarchy to add the next level.
+            </p>
+          </div>
+        </div>
+
+        {children.length ? (
+          <div className="mt-3 divide-y divide-slate-100 rounded-lg border border-slate-200">
+            {children.map((child) => (
+              <div
+                key={child.key}
+                className="flex items-center justify-between gap-3 px-3 py-2"
+              >
+                <span className="min-w-0 truncate text-[10px] font-semibold text-slate-700">
+                  {child.title}
+                </span>
+
+                <span className="shrink-0 text-[8px] font-bold uppercase tracking-[0.12em] text-slate-400">
+                  {child.type}
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="mt-3 rounded-lg border border-dashed border-slate-200 px-4 py-6 text-center text-[10px] text-slate-400">
+            No {nextLabel.toLowerCase()} added yet.
+          </div>
+        )}
       </section>
     </div>
   );
