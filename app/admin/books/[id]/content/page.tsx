@@ -390,42 +390,42 @@ async function SelectedCanvas({
   );
 }
 
-function BookCanvas({ studio, bookId }: { studio: BookPageData; bookId: string }) {
+function BookCanvas({ studio, bookId: _bookId }: { studio: BookPageData; bookId: string }) {
   const chapterCount = studio.chapters.length;
   const moduleCount = studio.modules.length;
   const topicCount = studio.topics.length;
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6">
-      <section className="rounded-[2rem] bg-white p-8 shadow-sm ring-1 ring-slate-200 sm:p-10">
-        <p className="text-xs font-bold uppercase tracking-[0.18em] text-blue-700">Workspace</p>
-        <h2 className="mt-3 text-4xl font-bold tracking-tight text-slate-950">
+    <div className="mx-auto max-w-5xl space-y-4">
+      <section className="rounded-[1.5rem] bg-white px-6 py-5 shadow-sm ring-1 ring-slate-200 sm:px-7 sm:py-6">
+        <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-blue-700">
+          Workspace
+        </p>
+
+        <h2 className="mt-1.5 text-xl font-bold tracking-tight text-slate-950">
           {studio.title}
         </h2>
+
         {studio.subtitle ? (
-          <p className="mt-3 text-lg text-slate-500">{studio.subtitle}</p>
+          <p className="mt-1 text-[11px] font-medium text-slate-500">
+            {studio.subtitle}
+          </p>
         ) : null}
-        <div className="mt-6 max-w-3xl space-y-4 text-base leading-8 text-slate-700">
-          <p>{studio.description || studio.aboutBook || "No editorial summary is stored for this book yet."}</p>
+
+        <div className="mt-3 max-w-4xl text-[11px] leading-[1.65] text-slate-600">
           <p>
-            This shell preserves the current hierarchy, save contracts, resources, and chapter knowledge flows while moving the publisher into a three-column studio workspace.
+            {studio.description ||
+              studio.aboutBook ||
+              "No editorial summary is stored for this book yet."}
           </p>
         </div>
       </section>
 
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <section className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
         <CanvasMetric label="Parts" value={studio.parts.length} />
         <CanvasMetric label="Chapters" value={chapterCount} />
         <CanvasMetric label="Modules" value={moduleCount} />
         <CanvasMetric label="Topics" value={topicCount} />
-      </section>
-
-      <section className="rounded-[2rem] bg-white p-8 shadow-sm ring-1 ring-slate-200">
-        <h3 className="text-xl font-bold text-slate-950">Publishing Notes</h3>
-        <div className="mt-5 grid gap-4 sm:grid-cols-2">
-          <Note label="Preview" value={`Use the live reader at /admin/books/${bookId}/preview to inspect the existing PDF-backed delivery experience.`} />
-          <Note label="Editing" value="Book metadata is still saved through the existing admin update route in the Inspector, preserving the current API contract." />
-        </div>
       </section>
     </div>
   );
@@ -1717,14 +1717,6 @@ function CanvasMetric({ label, value }: { label: string; value: number }) {
   );
 }
 
-function Note({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-[1.5rem] bg-[#f7f4ed] px-5 py-4 ring-1 ring-slate-200">
-      <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">{label}</p>
-      <p className="mt-2 text-sm leading-7 text-slate-700">{value}</p>
-    </div>
-  );
-}
 
 function SummaryRow({ label, value }: { label: string; value: string }) {
   return (

@@ -1,6 +1,7 @@
 "use client";
 
-import { X, BookOpen } from "lucide-react";
+import { useEffect } from "react";
+import { BookOpen, X } from "lucide-react";
 
 interface SamplePdfModalProps {
   open: boolean;
@@ -15,123 +16,139 @@ export default function SamplePdfModal({
   title,
   onClose,
 }: SamplePdfModalProps) {
+  useEffect(() => {
+    if (!open) return;
+
+    const previousOverflow = document.body.style.overflow;
+    const previousOverscrollBehavior =
+      document.body.style.overscrollBehavior;
+
+    document.body.style.overflow = "hidden";
+    document.body.style.overscrollBehavior = "none";
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.body.style.overscrollBehavior =
+        previousOverscrollBehavior;
+      window.removeEventListener(
+        "keydown",
+        handleKeyDown,
+      );
+    };
+  }, [open, onClose]);
+
   if (!open) return null;
 
   return (
     <div
-      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-sm p-5"
-      onContextMenu={(event) => event.preventDefault()}
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Preview selected pages from ${title}`}
+      className="fixed inset-0 z-[9999] flex items-center justify-center overflow-hidden bg-black/70 p-3 backdrop-blur-sm sm:p-5"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) {
+          onClose();
+        }
+      }}
+      onContextMenu={(event) =>
+        event.preventDefault()
+      }
       onCopy={(event) => event.preventDefault()}
     >
-
-      <div className="flex h-[92vh] w-full max-w-[min(92vw,42rem)] flex-col overflow-hidden rounded-3xl bg-white shadow-2xl">
-
-        {/* Header */}
-
-        <div className="flex items-center justify-between border-b bg-gradient-to-r from-blue-600 to-sky-500 px-8 py-5">
-
-          <div className="flex items-center gap-4">
-
-            <div className="rounded-xl bg-white/20 p-3">
-
-              <BookOpen className="text-white" size={28} />
-
-            </div>
-
-            <div>
-
-              <h2 className="text-2xl font-bold text-white">
-                Preview Selected Pages
-              </h2>
-
-              <p className="text-blue-100">
-                {title}
-              </p>
-
-            </div>
-
-          </div>
-
-          <button
-            onClick={onClose}
-            className="rounded-full bg-white/20 p-3 text-white transition hover:bg-white/30"
-          >
-            <X size={24} />
-          </button>
-
-        </div>
-
-        {/* PDF */}
-
-        <div className="flex flex-1 items-center justify-center bg-slate-100 p-6 select-none">
-
-          {publicPreviewPdf ? (
-
-            <div className="aspect-[0.85] w-full max-w-full overflow-hidden rounded-2xl bg-white shadow-lg">
-              <iframe
-                src={`${publicPreviewPdf}#toolbar=0&navpanes=0&scrollbar=0&zoom=page-fit`}
-                title={title}
-                className="h-full w-full border-0 pointer-events-none select-none"
-                aria-hidden="true"
+      <div
+        className="flex h-[94vh] w-full max-w-[min(94vw,52rem)] flex-col overflow-hidden rounded-3xl bg-white shadow-2xl"
+        onMouseDown={(event) =>
+          event.stopPropagation()
+        }
+      >
+        <header className="flex shrink-0 items-center justify-between border-b bg-gradient-to-r from-blue-600 to-sky-500 px-5 py-4 sm:px-8 sm:py-5">
+          <div className="flex min-w-0 items-center gap-3 sm:gap-4">
+            <div className="shrink-0 rounded-xl bg-white/20 p-2.5 sm:p-3">
+              <BookOpen
+                className="text-white"
+                size={26}
               />
             </div>
 
+            <div className="min-w-0">
+              <h2 className="truncate text-xl font-bold text-white sm:text-2xl">
+                Preview Selected Pages
+              </h2>
+
+              <p className="truncate text-sm text-blue-100 sm:text-base">
+                {title}
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close preview"
+            className="shrink-0 rounded-full bg-white/20 p-2.5 text-white transition hover:bg-white/30"
+          >
+            <X size={22} />
+          </button>
+        </header>
+
+        <div className="min-h-0 flex-1 overflow-hidden bg-slate-100 p-3 sm:p-5">
+          {publicPreviewPdf ? (
+            <div className="h-full w-full overflow-hidden rounded-2xl bg-white shadow-lg ring-1 ring-slate-200">
+              <iframe
+                src={`${publicPreviewPdf}#toolbar=0&navpanes=0&scrollbar=1&view=FitH`}
+                title={`${title} sample preview`}
+                className="h-full w-full border-0"
+              />
+            </div>
           ) : (
-
             <div className="flex h-full items-center justify-center">
-
               <div className="text-center">
-
                 <BookOpen
-                  size={70}
+                  size={64}
                   className="mx-auto text-blue-600"
                 />
 
-                <h3 className="mt-6 text-3xl font-bold text-slate-800">
+                <h3 className="mt-6 text-2xl font-bold text-slate-800 sm:text-3xl">
                   Preview Coming Soon
                 </h3>
 
                 <p className="mt-3 text-slate-500">
-                  Preview a selection of pages from this book.
+                  Preview selected pages from this book
+                  when they become available.
                 </p>
-
               </div>
-
             </div>
-
           )}
-
         </div>
 
-        {/* Footer */}
-
-        <div className="flex items-center justify-between border-t bg-white px-8 py-5">
-
-          <div>
-
+        <footer className="flex shrink-0 flex-col gap-3 border-t bg-white px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-8">
+          <div className="min-w-0">
             <h3 className="font-semibold text-slate-800">
-              Evaluation Copy
+              Evaluation Preview
             </h3>
 
-            <p className="text-sm text-slate-500">
-              This preview is provided for evaluation purposes only.
-              For a complete inspection copy, please use the
-              &ldquo;Request Inspection Copy&rdquo; option on the Book Details page.
+            <p className="mt-1 text-sm text-slate-500">
+              Selected sample pages only. For an
+              inspection copy, use the request option
+              on the Book Details page.
             </p>
-
           </div>
 
           <button
+            type="button"
             onClick={onClose}
-            className="rounded-xl bg-blue-600 px-8 py-3 font-semibold text-white transition hover:bg-blue-700"
+            className="shrink-0 rounded-xl bg-blue-600 px-6 py-2.5 font-semibold text-white transition hover:bg-blue-700"
           >
             Close Preview
           </button>
-
-        </div>
-
+        </footer>
       </div>
-
     </div>
   );
 }

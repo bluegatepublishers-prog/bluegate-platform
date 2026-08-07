@@ -77,6 +77,7 @@ import {
   removeEmptyContentPeriod,
   renameContentPeriod,
   normalizeContentDocument,
+  serializeContentDocument,
   removeBlock,
   sanitizeUrl,
   updateBlock,
@@ -486,7 +487,10 @@ export default function ContentManuscriptEditor({
     form.set("label", label);
     form.set("estimatedMinutes", estimatedMinutes);
     form.set("published", published ? "on" : "");
-    form.set("content", current);
+    form.set(
+      "content",
+      serializeContentDocument(contentDoc),
+    );
 
     try {
       await saveAction(form);
@@ -4037,4 +4041,3 @@ function resolveMediaForBlock(
     },
   } satisfies ResolvedMediaBlock;
 }
-

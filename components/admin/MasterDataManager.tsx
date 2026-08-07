@@ -3,68 +3,43 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, Pencil, Plus, Search } from "lucide-react";
+import { ArrowRight, ChevronLeft, ChevronRight, Pencil, Plus, Search, X } from "lucide-react";
 
-export type ManagedMasterRow = {
-  id: string; name: string; code: string; description: string | null;
-  displayOrder: number; active: boolean; _count?: { values: number };
-};
+export type ManagedMasterRow={id:string;name:string;code:string;description:string|null;displayOrder:number;active:boolean;_count?:{values:number}};
+const PAGE_SIZE=5;
+const empty={name:"",code:"",description:"",displayOrder:0,active:true};
 
-const empty = { name: "", code: "", description: "", displayOrder: 0, active: true };
+export default function MasterDataManager({title,singular,apiBase,initialRows,detailHrefBase,reservedHint}:{title:string;singular:string;apiBase:string;initialRows:ManagedMasterRow[];detailHrefBase?:string;reservedHint?:string}) {
+  const router=useRouter();
+  const [query,setQuery]=useState("");
+  const [status,setStatus]=useState("all");
+  const [page,setPage]=useState(1);
+  const [editing,setEditing]=useState<ManagedMasterRow|null|undefined>(undefined);
+  const [form,setForm]=useState(empty);
+  const [saving,setSaving]=useState(false);
+  const [message,setMessage]=useState("");
+  const [error,setError]=useState("");
+  const filtered=useMemo(()=>initialRows.filter(row=>{const term=query.trim().toLowerCase();return(!term||`${row.name} ${row.code} ${row.description??""}`.toLowerCase().includes(term))&&(status==="all"||(status==="active")===row.active)}),[initialRows,query,status]);
+  const totalPages=Math.max(1,Math.ceil(filtered.length/PAGE_SIZE));
+  const safePage=Math.min(page,totalPages);
+  const visible=filtered.slice((safePage-1)*PAGE_SIZE,safePage*PAGE_SIZE);
+  const start=filtered.length===0?0:(safePage-1)*PAGE_SIZE+1;
+  const end=Math.min(safePage*PAGE_SIZE,filtered.length);
 
-export default function MasterDataManager({ title, singular, apiBase, initialRows, detailHrefBase, reservedHint }: {
-  title: string; singular: string; apiBase: string; initialRows: ManagedMasterRow[];
-  detailHrefBase?: string; reservedHint?: string;
-}) {
-  const router = useRouter();
-  const [query, setQuery] = useState("");
-  const [status, setStatus] = useState("all");
-  const [editing, setEditing] = useState<ManagedMasterRow | null | undefined>(undefined);
-  const [form, setForm] = useState(empty);
-  const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
+  function open(row?:ManagedMasterRow){setEditing(row??null);setError("");setMessage("");setForm(row?{name:row.name,code:row.code,description:row.description??"",displayOrder:row.displayOrder,active:row.active}:empty)}
+  async function save(event:React.FormEvent){event.preventDefault();setSaving(true);setError("");const response=await fetch(editing?`${apiBase}/${editing.id}`:apiBase,{method:editing?"PUT":"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(form)});const body=await response.json().catch(()=>({}));setSaving(false);if(!response.ok){setError(body.message||`Unable to save ${singular.toLowerCase()}.`);return}const wasEdit=Boolean(editing);setEditing(undefined);setMessage(`${singular} ${wasEdit?"updated":"created"}.`);router.refresh()}
 
-  const filtered = useMemo(() => initialRows.filter((row) => {
-    const match = `${row.name} ${row.code} ${row.description ?? ""}`.toLowerCase().includes(query.toLowerCase());
-    return match && (status === "all" || (status === "active") === row.active);
-  }), [initialRows, query, status]);
-
-  function open(row?: ManagedMasterRow) {
-    setEditing(row ?? null); setError(""); setMessage("");
-    setForm(row ? { name: row.name, code: row.code, description: row.description ?? "", displayOrder: row.displayOrder, active: row.active } : empty);
-  }
-
-  async function save(event: React.FormEvent) {
-    event.preventDefault(); setSaving(true); setError("");
-    const response = await fetch(editing ? `${apiBase}/${editing.id}` : apiBase, {
-      method: editing ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form),
-    });
-    const body = await response.json().catch(() => ({}));
-    setSaving(false);
-    if (!response.ok) { setError(body.message || `Unable to save ${singular.toLowerCase()}.`); return; }
-    setEditing(undefined); setMessage(`${singular} ${editing ? "updated" : "created"}.`); router.refresh();
-  }
-
-  return <div className="space-y-6">
-    <div className="flex flex-wrap items-start justify-between gap-4">
-      <div><h1 className="text-3xl font-bold text-slate-900">{title}</h1><p className="mt-2 text-slate-600">Manage publisher-scoped {title.toLowerCase()} without deleting historical references.</p></div>
-      <button type="button" onClick={() => open()} className="inline-flex items-center rounded-xl bg-blue-600 px-5 py-3 font-semibold text-white"><Plus className="mr-2 h-5 w-5"/>Add {singular}</button>
-    </div>
-    {message ? <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-emerald-800">{message}</p> : null}
-    <div className="grid gap-3 rounded-2xl border bg-white p-4 shadow-sm sm:grid-cols-[1fr_180px]">
-      <label className="relative"><span className="sr-only">Search</span><Search className="absolute left-3 top-3.5 h-4 w-4 text-slate-400"/><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={`Search ${title.toLowerCase()}`} className="w-full rounded-xl border py-3 pl-10 pr-4"/></label>
-      <select aria-label="Status" value={status} onChange={(e) => setStatus(e.target.value)} className="rounded-xl border px-4 py-3"><option value="all">All statuses</option><option value="active">Active</option><option value="inactive">Inactive</option></select>
-    </div>
-    {!filtered.length ? <div className="rounded-2xl border border-dashed bg-white p-12 text-center text-slate-500">No {title.toLowerCase()} match these filters.</div> : <>
-      <div className="grid gap-4 md:hidden">{filtered.map((row) => <article key={row.id} className="rounded-2xl border bg-white p-5 shadow-sm"><div className="flex justify-between gap-3"><div><h2 className="font-bold">{row.name}</h2><p className="text-sm text-slate-500">{row.code}</p></div><Status active={row.active}/></div>{row.description ? <p className="mt-3 text-sm text-slate-600">{row.description}</p> : null}<Actions row={row} open={open} detailHrefBase={detailHrefBase}/></article>)}</div>
-      <div className="hidden overflow-hidden rounded-2xl border bg-white shadow-sm md:block"><table className="w-full"><thead className="bg-slate-50 text-left"><tr><th className="px-5 py-4">Name</th><th className="px-5 py-4">Code</th><th className="px-5 py-4">Order</th><th className="px-5 py-4">Status</th><th className="px-5 py-4 text-right">Actions</th></tr></thead><tbody>{filtered.map((row) => <tr key={row.id} className="border-t"><td className="px-5 py-4"><strong>{row.name}</strong>{row._count ? <span className="ml-2 text-xs text-slate-500">{row._count.values} values</span> : null}<p className="max-w-md text-sm text-slate-500">{row.description}</p></td><td className="px-5 py-4 font-mono text-sm">{row.code}</td><td className="px-5 py-4">{row.displayOrder}</td><td className="px-5 py-4"><Status active={row.active}/></td><td className="px-5 py-4"><Actions row={row} open={open} detailHrefBase={detailHrefBase}/></td></tr>)}</tbody></table></div>
-    </>}
-    {editing !== undefined ? <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4" role="dialog" aria-modal="true" aria-label={`${editing ? "Edit" : "Add"} ${singular}`}><form onSubmit={save} className="max-h-[90vh] w-full max-w-xl space-y-5 overflow-auto rounded-2xl bg-white p-6 shadow-xl"><div><h2 className="text-2xl font-bold">{editing ? "Edit" : "Add"} {singular}</h2>{reservedHint ? <p className="mt-2 text-sm text-slate-500">{reservedHint}</p> : null}</div>{error ? <p role="alert" className="rounded-xl bg-red-50 p-3 text-red-700">{error}</p> : null}<div className="grid gap-4 sm:grid-cols-2"><Field label="Name"><input required value={form.name} onChange={(e) => setForm({...form, name:e.target.value})} className={fieldClass}/></Field><Field label="Code"><input required value={form.code} onChange={(e) => setForm({...form, code:e.target.value.toUpperCase().replace(/[^A-Z0-9]+/g,"_")})} className={fieldClass}/></Field><Field label="Display order"><input type="number" min="0" value={form.displayOrder} onChange={(e) => setForm({...form, displayOrder:Number(e.target.value)})} className={fieldClass}/></Field><label className="flex items-center gap-3 self-end rounded-xl border p-3"><input type="checkbox" checked={form.active} onChange={(e) => setForm({...form, active:e.target.checked})}/>Active</label></div><Field label="Description"><textarea rows={4} value={form.description} onChange={(e) => setForm({...form, description:e.target.value})} className={fieldClass}/></Field><div className="flex justify-end gap-3"><button type="button" onClick={() => setEditing(undefined)} className="rounded-xl border px-5 py-3 font-semibold">Cancel</button><button disabled={saving} className="rounded-xl bg-blue-600 px-5 py-3 font-semibold text-white disabled:opacity-50">{saving ? "Saving…" : "Save"}</button></div></form></div> : null}
-  </div>;
+  return <main className="min-w-0 space-y-4">
+    <header className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-[10px] font-bold uppercase tracking-[0.16em] text-blue-600">Master Data</p><h1 className="mt-1 text-xl font-bold tracking-tight text-slate-950">{title}</h1><p className="mt-0.5 text-xs text-slate-500">Manage publisher-scoped {title.toLowerCase()} without deleting historical references.</p></div><button type="button" onClick={()=>open()} className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-blue-600 px-3 text-[10px] font-bold text-white"><Plus className="h-3.5 w-3.5"/>Add {singular}</button></header>
+    {message?<p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-[10px] font-semibold text-emerald-800">{message}</p>:null}
+    <section className="rounded-2xl border border-slate-200 bg-white p-2.5"><div className="grid gap-2 md:grid-cols-[1fr_180px]"><label className="relative"><span className="sr-only">Search</span><Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-400"/><input value={query} onChange={e=>{setQuery(e.target.value);setPage(1)}} placeholder={`Search ${title.toLowerCase()}`} className="h-8 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-[11px] outline-none focus:border-blue-400"/></label><select aria-label="Status" value={status} onChange={e=>{setStatus(e.target.value);setPage(1)}} className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-[11px]"><option value="all">All statuses</option><option value="active">Active</option><option value="inactive">Inactive</option></select></div></section>
+    <div className="flex items-center justify-between px-1 text-[10px] text-slate-500"><span>Showing {start}–{end} of {filtered.length}</span><span>{initialRows.length} total</span></div>
+    {!visible.length?<section className="rounded-2xl border border-dashed border-slate-200 bg-white py-10 text-center text-xs font-semibold text-slate-700">No {title.toLowerCase()} match these filters.</section>:
+    <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white"><div className="hidden grid-cols-[1.4fr_0.9fr_1.5fr_0.5fr_0.7fr_7rem] items-center gap-3 border-b border-slate-200 bg-slate-50 px-3 py-2.5 text-[9px] font-bold uppercase tracking-[0.11em] text-slate-500 md:grid"><span>Name</span><span>Code</span><span>Description</span><span>Order</span><span>Status</span><span className="text-right">Actions</span></div><div className="divide-y divide-slate-100">{visible.map(row=><div key={row.id} className="grid min-h-[56px] gap-3 px-3 py-2 transition hover:bg-blue-50/30 md:grid-cols-[1.4fr_0.9fr_1.5fr_0.5fr_0.7fr_7rem] md:items-center"><div className="min-w-0"><p className="truncate text-[11px] font-bold text-slate-900">{row.name}</p>{row._count?<p className="mt-0.5 text-[9px] text-slate-400">{row._count.values} values</p>:null}</div><p className="hidden truncate font-mono text-[10px] text-slate-500 md:block">{row.code}</p><p className="hidden truncate text-[10px] text-slate-500 md:block" title={row.description??""}>{row.description||"—"}</p><p className="hidden text-[10px] text-slate-500 md:block">{row.displayOrder}</p><Status active={row.active}/><div className="flex justify-end gap-1"><button type="button" onClick={()=>open(row)} className="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 text-slate-600"><Pencil className="h-3.5 w-3.5"/></button>{detailHrefBase?<Link href={`${detailHrefBase}/${row.id}`} className="inline-flex h-7 items-center gap-1 rounded-lg border border-slate-200 px-2 text-[9px] font-semibold text-slate-600">Values<ArrowRight className="h-3 w-3"/></Link>:null}</div></div>)}</div></section>}
+    {totalPages>1?<nav className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2"><span className="text-[10px] text-slate-500">Page <strong>{safePage}</strong> of <strong>{totalPages}</strong></span><div className="flex gap-1"><button type="button" disabled={safePage<=1} onClick={()=>setPage(safePage-1)} className="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 disabled:text-slate-300"><ChevronLeft className="h-3.5 w-3.5"/></button><button type="button" disabled={safePage>=totalPages} onClick={()=>setPage(safePage+1)} className="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 disabled:text-slate-300"><ChevronRight className="h-3.5 w-3.5"/></button></div></nav>:null}
+    {editing!==undefined?<div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/35 p-4" role="dialog" aria-modal="true"><form onSubmit={save} className="w-full max-w-lg overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl"><header className="flex items-start justify-between gap-3 border-b border-slate-200 px-4 py-3"><div><h2 className="text-sm font-bold text-slate-950">{editing?"Edit":"Add"} {singular}</h2>{reservedHint?<p className="mt-1 text-[10px] leading-4 text-slate-500">{reservedHint}</p>:null}</div><button type="button" onClick={()=>setEditing(undefined)} className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400"><X className="h-4 w-4"/></button></header>{error?<div className="mx-4 mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-[10px] font-semibold text-rose-700">{error}</div>:null}<div className="grid gap-3 p-4 sm:grid-cols-2"><Field label="Name"><input required value={form.name} onChange={e=>setForm({...form,name:e.target.value})} className={fieldClass}/></Field><Field label="Code"><input required value={form.code} onChange={e=>setForm({...form,code:e.target.value.toUpperCase().replace(/[^A-Z0-9]+/g,"_")})} className={fieldClass}/></Field><Field label="Display Order"><input type="number" min="0" value={form.displayOrder} onChange={e=>setForm({...form,displayOrder:Number(e.target.value)})} className={fieldClass}/></Field><label className="block"><span className="mb-1 block text-[9px] font-bold uppercase tracking-[0.1em] text-slate-400">Status</span><button type="button" onClick={()=>setForm({...form,active:!form.active})} className="flex h-8 w-full items-center justify-between rounded-lg border border-slate-200 px-3"><span className="text-[11px] font-semibold text-slate-700">{form.active?"Active":"Inactive"}</span><span className={`relative inline-flex h-5 w-9 items-center rounded-full ${form.active?"bg-blue-600":"bg-slate-300"}`}><span className={`h-4 w-4 rounded-full bg-white shadow-sm transition ${form.active?"translate-x-4":"translate-x-0.5"}`}/></span></button></label><div className="sm:col-span-2"><Field label="Description"><textarea rows={3} value={form.description} onChange={e=>setForm({...form,description:e.target.value})} className={`${fieldClass} min-h-20 resize-y py-2`}/></Field></div></div><footer className="flex justify-end gap-2 border-t border-slate-200 bg-slate-50 px-4 py-3"><button type="button" onClick={()=>setEditing(undefined)} className="h-8 rounded-lg border border-slate-200 bg-white px-3 text-[10px] font-semibold text-slate-600">Cancel</button><button disabled={saving} className="h-8 rounded-lg bg-blue-600 px-4 text-[10px] font-bold text-white disabled:opacity-50">{saving?"Saving...":"Save"}</button></footer></form></div>:null}
+  </main>;
 }
-
-const fieldClass="mt-2 w-full rounded-xl border px-4 py-3";
-function Field({label,children}:{label:string;children:React.ReactNode}) { return <label className="block text-sm font-semibold text-slate-700">{label}{children}</label>; }
-function Status({active}:{active:boolean}) { return <span className={`rounded-full px-3 py-1 text-xs font-semibold ${active ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-600"}`}>{active ? "Active" : "Inactive"}</span>; }
-function Actions({row,open,detailHrefBase}:{row:ManagedMasterRow;open:(row:ManagedMasterRow)=>void;detailHrefBase?:string}) { return <div className="mt-4 flex justify-end gap-2 md:mt-0"><button type="button" onClick={() => open(row)} aria-label={`Edit ${row.name}`} className="rounded-lg border p-2 text-slate-700"><Pencil className="h-4 w-4"/></button>{detailHrefBase ? <Link href={`${detailHrefBase}/${row.id}`} className="inline-flex items-center rounded-lg border px-3 py-2 text-sm font-semibold">Values<ArrowRight className="ml-2 h-4 w-4"/></Link> : null}</div>; }
+const fieldClass="h-8 w-full rounded-lg border border-slate-200 bg-white px-3 text-[11px] text-slate-800 outline-none focus:border-blue-400";
+function Field({label,children}:{label:string;children:React.ReactNode}){return <label className="block"><span className="mb-1 block text-[9px] font-bold uppercase tracking-[0.1em] text-slate-400">{label}</span>{children}</label>}
+function Status({active}:{active:boolean}){return <span className={`inline-flex w-fit rounded-full px-2 py-1 text-[9px] font-bold ${active?"bg-emerald-50 text-emerald-700":"bg-slate-100 text-slate-500"}`}>{active?"Active":"Inactive"}</span>}

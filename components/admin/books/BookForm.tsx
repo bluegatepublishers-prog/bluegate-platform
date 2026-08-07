@@ -1,47 +1,835 @@
 "use client";
 
 import { useState } from "react";
-import NextImage, { type ImageProps } from "next/image";
-import { ImageIcon, Plus, RefreshCw, Save, Trash2, Upload } from "lucide-react";
-import { validateDirectUpload } from "@/lib/storage/upload-policy";
-import { uploadFileToR2 } from "@/lib/storage/client-upload";
-import type { BookFormData } from "@/types/book-form";
-import type { BookFormChangeHandler, SelectOption } from "@/types/admin-book";
+import NextImage, {
+  type ImageProps,
+} from "next/image";
+import {
+  FileText,
+  ImageIcon,
+  RefreshCw,
+  Save,
+  Trash2,
+  Upload,
+} from "lucide-react";
 
-interface BookFormProps { title:string; form:BookFormData; classes:SelectOption[]; subjects:SelectOption[]; series:SelectOption[]; boards:SelectOption[]; loading:boolean; onChange:BookFormChangeHandler; onSubmit:(event:React.FormEvent<HTMLFormElement>)=>void }
-type ListField="features"|"learningOutcomes"|"tableOfContents";
-const input="w-full rounded-xl border px-4 py-3 outline-none focus:border-blue-500";
+import { uploadFileToR2 } from "@/lib/storage/client-upload";
+import { validateDirectUpload } from "@/lib/storage/upload-policy";
+import type {
+  BookFormChangeHandler,
+  SelectOption,
+} from "@/types/admin-book";
+import type { BookFormData } from "@/types/book-form";
+
+interface BookFormProps {
+  title: string;
+  form: BookFormData;
+  classes: SelectOption[];
+  subjects: SelectOption[];
+  series: SelectOption[];
+  boards: SelectOption[];
+  loading: boolean;
+  onChange: BookFormChangeHandler;
+  onSubmit: (
+    event: React.FormEvent<HTMLFormElement>,
+  ) => void;
+}
+
+const input =
+  "h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-blue-400";
 
 function Image(props: ImageProps) {
-  const src = typeof props.src === "string" && !props.src.startsWith("/") && !/^https?:\/\//.test(props.src)
-    ? "/images/book-placeholder.jpg"
-    : props.src;
-  return <NextImage {...props} src={src} />;
+  const src =
+    typeof props.src === "string" &&
+    !props.src.startsWith("/") &&
+    !/^https?:\/\//.test(props.src)
+      ? "/images/book-placeholder.jpg"
+      : props.src;
+
+  return (
+    <NextImage
+      {...props}
+      src={src}
+    />
+  );
 }
 
-export default function BookForm({title,form,classes,subjects,series,boards,loading,onChange,onSubmit}:BookFormProps){
-  const[uploading,setUploading]=useState<"coverImage"|"publicPreviewPdf"|"fullBookPdf"|null>(null),[progress,setProgress]=useState(0),[uploadMessage,setUploadMessage]=useState(""),[uploadError,setUploadError]=useState("");
-  async function uploadFile(file:File,field:"coverImage"|"publicPreviewPdf"|"fullBookPdf"){const scope=field==="coverImage"?"book-cover" as const:field==="publicPreviewPdf"?"book-public-preview" as const:"book-full" as const,validation=validateDirectUpload(file,scope);setUploadMessage("");setUploadError("");if(!validation.ok){setUploadError(validation.message);return}setUploading(field);setProgress(0);try{const stored=await uploadFileToR2({file,scope,onProgress:setProgress});onChange(field,stored.objectKey);setUploadMessage("Upload complete.")}catch{setUploadError("The file could not be uploaded. Please try again.")}finally{setUploading(null);setProgress(0)}}
-  function addItem(field:ListField){onChange(field,[...form[field],""])} function updateItem(field:ListField,index:number,value:string){const items=[...form[field]];items[index]=value;onChange(field,items)} function removeItem(field:ListField,index:number){onChange(field,form[field].filter((_,i)=>i!==index))}
-  const slug=form.title.toLowerCase().trim().replace(/[^a-z0-9\s-]/g,"").replace(/\s+/g,"-").replace(/-+/g,"-");
-  return <form onSubmit={onSubmit} className="space-y-8">
-    {uploadMessage?<p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 font-semibold text-emerald-700">{uploadMessage}</p>:null}{uploadError?<p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 font-semibold text-red-700">{uploadError}</p>:null}
-    <Section title="Book Information"><div className="grid gap-6 md:grid-cols-2"><Field label="Title" required><input required value={form.title} onChange={e=>onChange("title",e.target.value)} className={input}/></Field><Field label="Author"><input value={form.author} onChange={e=>onChange("author",e.target.value)} className={input}/></Field><Field label="ISBN"><input value={form.isbn} onChange={e=>onChange("isbn",e.target.value)} className={input}/></Field><div className="rounded-xl border bg-slate-50 px-4 py-3"><p className="text-xs font-semibold uppercase text-slate-500">Auto-generated slug</p><p className="mt-1 break-all font-medium text-slate-700">{slug||"Generated from the title"}</p></div></div></Section>
-    <Section title="Book Files"><div className="space-y-8"><Asset title="Book Cover">{form.coverImage?<div className="space-y-4"><Image src={form.coverImage} alt="Book cover" width={220} height={300} className="max-h-72 w-auto rounded-xl border object-cover shadow"/><div className="flex flex-wrap gap-3"><UploadLabel label={uploading==="coverImage"?`Uploading ${progress}%`:"Replace"} accept="image/png,image/jpeg,image/webp" disabled={uploading!==null} onFile={file=>uploadFile(file,"coverImage")} icon={<RefreshCw className="mr-2 h-4 w-4"/>}/><button type="button" onClick={()=>onChange("coverImage","")} className="inline-flex items-center rounded-xl bg-red-600 px-4 py-2 font-semibold text-white"><Trash2 className="mr-2 h-4 w-4"/>Remove</button></div></div>:<UploadBox label={uploading==="coverImage"?`Uploading ${progress}%`:"Upload Cover"} hint="JPG · PNG · WEBP · maximum 5 MB" accept="image/png,image/jpeg,image/webp" disabled={uploading!==null} onFile={file=>uploadFile(file,"coverImage")} icon={<ImageIcon className="mb-3 h-10 w-10 text-blue-600"/>}/>}</Asset><div className="grid gap-6 lg:grid-cols-2"><PdfAsset title="Public Preview PDF" description="Upload a limited PDF containing only the pages visitors may preview on the public website." note="This file may be displayed without login." value={form.publicPreviewPdf} uploading={uploading==="publicPreviewPdf"} progress={progress} disabled={uploading!==null} onFile={file=>uploadFile(file,"publicPreviewPdf")} onRemove={()=>onChange("publicPreviewPdf","")}/><PdfAsset protectedFile title="Full Book PDF" description="Upload the complete book for authorised teachers, schools, students, administrators, and Bluegate AI." note="Protected file. Never show this URL on the public website." value={form.fullBookPdf} uploading={uploading==="fullBookPdf"} progress={progress} disabled={uploading!==null} onFile={file=>uploadFile(file,"fullBookPdf")} onRemove={()=>onChange("fullBookPdf","")}/></div></div></Section>
-    <Section title="Academic Information"><div className="grid gap-6 md:grid-cols-3"><SelectField label="Class" required value={form.classId} options={classes} placeholder="Select Class" onChange={value=>onChange("classId",value)}/><SelectField label="Subject" required value={form.subjectId} options={subjects} placeholder="Select Subject" onChange={value=>onChange("subjectId",value)}/><SelectField label="Series" value={form.seriesId} options={series} placeholder="Select Series" onChange={value=>onChange("seriesId",value)}/></div></Section>
-    <Section title="Publishing Details"><div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4"><Field label="Price"><input type="number" min="0" step="0.01" value={form.price} onChange={e=>onChange("price",e.target.value?Number(e.target.value):"")} className={input}/></Field><Field label="Pages"><input type="number" min="1" value={form.pages} onChange={e=>onChange("pages",e.target.value?Number(e.target.value):"")} className={input}/></Field><SelectField label="Board" value={form.boardId} options={boards} placeholder={form.board && !form.boardId ? `Legacy: ${form.board}` : "Select Board"} onChange={value=>{onChange("boardId",value);const selected=boards.find(option=>option.id===value);if(selected)onChange("board",selected.name)}}/><Field label="Publication Year"><input value={form.publicationYear} onChange={e=>onChange("publicationYear",e.target.value)} className={input}/></Field><Field label="Weight"><input value={form.weight} onChange={e=>onChange("weight",e.target.value)} className={input}/></Field></div><Field label="About the book" className="mt-6"><textarea rows={5} value={form.aboutBook} onChange={e=>onChange("aboutBook",e.target.value)} className={input}/></Field></Section>
-    <Section title="Book Content"><div className="grid gap-7 lg:grid-cols-3"><ListEditor title="Book Features" field="features" items={form.features} addItem={addItem} updateItem={updateItem} removeItem={removeItem}/><ListEditor title="Learning Outcomes" field="learningOutcomes" items={form.learningOutcomes} addItem={addItem} updateItem={updateItem} removeItem={removeItem}/><ListEditor title="Table of Contents" field="tableOfContents" items={form.tableOfContents} addItem={addItem} updateItem={updateItem} removeItem={removeItem}/></div></Section>
-    <Section title="SEO & Discovery"><div className="space-y-5"><Field label="SEO title"><input value={form.seoTitle} maxLength={70} onChange={e=>onChange("seoTitle",e.target.value)} className={input}/></Field><Field label="SEO description"><textarea rows={3} value={form.seoDescription} maxLength={180} onChange={e=>onChange("seoDescription",e.target.value)} className={input}/></Field><Field label="Keywords"><input value={form.keywords.join(", ")} onChange={e=>onChange("keywords",e.target.value.split(",").map(x=>x.trim()).filter(Boolean))} placeholder="mathematics, class 8, workbook" className={input}/></Field></div></Section>
-    <Section title="Settings"><div className="grid gap-4 sm:grid-cols-2"><Check label="Featured Book" description="Display this book in featured sections." checked={form.featured} onChange={value=>onChange("featured",value)}/><Check label="Published" description="Make this book visible on the website." checked={form.published} onChange={value=>onChange("published",value)}/></div><div className="mt-5 max-w-xs"><Field label="Featured display order"><input type="number" min="0" step="1" value={form.featuredOrder} onChange={e=>onChange("featuredOrder",e.target.value===""?"":Math.max(0,Math.trunc(Number(e.target.value)||0)))} className={input}/></Field><p className="mt-2 text-xs text-slate-500">Lower numbers appear first on the home featured section.</p></div></Section>
-    <div className="flex justify-end"><button type="submit" disabled={loading||uploading!==null} className="inline-flex items-center rounded-xl bg-blue-600 px-8 py-4 text-lg font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50">{loading?<><RefreshCw className="mr-2 h-5 w-5 animate-spin"/>Saving…</>:<><Save className="mr-2 h-5 w-5"/>{title}</>}</button></div>
-  </form>;
+export default function BookForm({
+  title,
+  form,
+  classes,
+  subjects,
+  series,
+  boards,
+  loading,
+  onChange,
+  onSubmit,
+}: BookFormProps) {
+  const [uploading, setUploading] =
+    useState<
+      | "coverImage"
+      | "publicPreviewPdf"
+      | null
+    >(null);
+
+  const [progress, setProgress] =
+    useState(0);
+
+  const [
+    uploadMessage,
+    setUploadMessage,
+  ] = useState("");
+
+  const [
+    uploadError,
+    setUploadError,
+  ] = useState("");
+
+  async function uploadFile(
+    file: File,
+    field:
+      | "coverImage"
+      | "publicPreviewPdf",
+  ) {
+    const scope =
+      field === "coverImage"
+        ? ("book-cover" as const)
+        : ("book-public-preview" as const);
+
+    const validation =
+      validateDirectUpload(
+        file,
+        scope,
+      );
+
+    setUploadMessage("");
+    setUploadError("");
+
+    if (!validation.ok) {
+      setUploadError(
+        validation.message,
+      );
+      return;
+    }
+
+    setUploading(field);
+    setProgress(0);
+
+    try {
+      const stored =
+        await uploadFileToR2({
+          file,
+          scope,
+          onProgress:
+            setProgress,
+        });
+
+      onChange(
+        field,
+        stored.objectKey,
+      );
+
+      setUploadMessage(
+        "Upload complete.",
+      );
+    } catch {
+      setUploadError(
+        "The file could not be uploaded. Please try again.",
+      );
+    } finally {
+      setUploading(null);
+      setProgress(0);
+    }
+  }
+
+  const slug = form.title
+    .toLowerCase()
+    .trim()
+    .replace(
+      /[^a-z0-9\s-]/g,
+      "",
+    )
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-");
+
+  return (
+    <form
+      onSubmit={onSubmit}
+      className="space-y-5"
+    >
+      {uploadMessage ? (
+        <p
+          role="status"
+          className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700"
+        >
+          {uploadMessage}
+        </p>
+      ) : null}
+
+      {uploadError ? (
+        <p
+          role="alert"
+          className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700"
+        >
+          {uploadError}
+        </p>
+      ) : null}
+
+      <section className="grid gap-5 xl:grid-cols-[250px_1fr]">
+        <div className="rounded-3xl border border-slate-200 bg-white p-5">
+          <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">
+            Book Cover
+          </p>
+
+          <div className="mt-4">
+            {form.coverImage ? (
+              <div>
+                <Image
+                  src={form.coverImage}
+                  alt="Book cover"
+                  width={220}
+                  height={300}
+                  className="mx-auto max-h-72 w-auto rounded-xl border border-slate-200 object-cover"
+                />
+
+                <div className="mt-4 flex flex-wrap justify-center gap-2">
+                  <UploadLabel
+                    label={
+                      uploading ===
+                      "coverImage"
+                        ? `Uploading ${progress}%`
+                        : "Replace"
+                    }
+                    accept="image/png,image/jpeg,image/webp"
+                    disabled={
+                      uploading !== null
+                    }
+                    onFile={(file) =>
+                      uploadFile(
+                        file,
+                        "coverImage",
+                      )
+                    }
+                  />
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onChange(
+                        "coverImage",
+                        "",
+                      )
+                    }
+                    className="inline-flex items-center rounded-lg border border-red-200 px-3 py-2 text-xs font-semibold text-red-600"
+                  >
+                    <Trash2 className="mr-1.5 h-4 w-4" />
+                    Remove
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <UploadBox
+                label={
+                  uploading ===
+                  "coverImage"
+                    ? `Uploading ${progress}%`
+                    : "Upload Cover"
+                }
+                hint="JPG, PNG or WEBP"
+                accept="image/png,image/jpeg,image/webp"
+                disabled={
+                  uploading !== null
+                }
+                onFile={(file) =>
+                  uploadFile(
+                    file,
+                    "coverImage",
+                  )
+                }
+                icon={
+                  <ImageIcon className="h-8 w-8 text-blue-600" />
+                }
+              />
+            )}
+          </div>
+        </div>
+
+        <div className="space-y-5">
+          <Card
+            title="Book Details"
+            description="Only the information needed to identify and classify the book."
+          >
+            <div className="grid gap-4 md:grid-cols-2">
+              <Field
+                label="Title"
+                required
+              >
+                <input
+                  required
+                  value={form.title}
+                  onChange={(event) =>
+                    onChange(
+                      "title",
+                      event.target.value,
+                    )
+                  }
+                  className={input}
+                />
+              </Field>
+
+              <Field label="Author">
+                <input
+                  value={form.author}
+                  onChange={(event) =>
+                    onChange(
+                      "author",
+                      event.target.value,
+                    )
+                  }
+                  className={input}
+                />
+              </Field>
+
+              <Field label="ISBN">
+                <input
+                  value={form.isbn}
+                  onChange={(event) =>
+                    onChange(
+                      "isbn",
+                      event.target.value,
+                    )
+                  }
+                  className={input}
+                />
+              </Field>
+
+              <div className="rounded-xl bg-slate-50 px-3 py-2.5">
+                <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-slate-400">
+                  Web slug
+                </p>
+                <p className="mt-1 break-all text-xs font-medium text-slate-600">
+                  {slug ||
+                    "Generated from title"}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <SelectField
+                label="Class"
+                required
+                value={form.classId}
+                options={classes}
+                placeholder="Select Class"
+                onChange={(value) =>
+                  onChange(
+                    "classId",
+                    value,
+                  )
+                }
+              />
+
+              <SelectField
+                label="Subject"
+                required
+                value={form.subjectId}
+                options={subjects}
+                placeholder="Select Subject"
+                onChange={(value) =>
+                  onChange(
+                    "subjectId",
+                    value,
+                  )
+                }
+              />
+
+              <SelectField
+                label="Series"
+                value={form.seriesId}
+                options={series}
+                placeholder="Select Series"
+                onChange={(value) =>
+                  onChange(
+                    "seriesId",
+                    value,
+                  )
+                }
+              />
+
+              <SelectField
+                label="Board"
+                value={form.boardId}
+                options={boards}
+                placeholder={
+                  form.board &&
+                  !form.boardId
+                    ? `Legacy: ${form.board}`
+                    : "Select Board"
+                }
+                onChange={(value) => {
+                  onChange(
+                    "boardId",
+                    value,
+                  );
+
+                  const selected =
+                    boards.find(
+                      (option) =>
+                        option.id ===
+                        value,
+                    );
+
+                  if (selected) {
+                    onChange(
+                      "board",
+                      selected.name,
+                    );
+                  }
+                }}
+              />
+            </div>
+          </Card>
+
+          <Card
+            title="Public Preview"
+            description="Upload only the selected sample pages shown on the public website."
+          >
+            <div className="flex flex-col gap-4 rounded-2xl bg-blue-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-start gap-3">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white text-blue-700">
+                  <FileText className="h-5 w-5" />
+                </span>
+
+                <div>
+                  <p className="text-sm font-bold text-slate-900">
+                    Sample Preview PDF
+                  </p>
+
+                  <p className="mt-1 text-xs leading-5 text-slate-600">
+                    Limited pages for visitors.
+                    This is not the digital book
+                    used by teachers or students.
+                  </p>
+
+                  {form.publicPreviewPdf ? (
+                    <p className="mt-2 text-xs font-semibold text-emerald-700">
+                      Preview PDF available
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="flex shrink-0 flex-wrap gap-2">
+                <UploadLabel
+                  label={
+                    uploading ===
+                    "publicPreviewPdf"
+                      ? `Uploading ${progress}%`
+                      : form.publicPreviewPdf
+                        ? "Replace PDF"
+                        : "Upload PDF"
+                  }
+                  accept="application/pdf"
+                  disabled={
+                    uploading !== null
+                  }
+                  onFile={(file) =>
+                    uploadFile(
+                      file,
+                      "publicPreviewPdf",
+                    )
+                  }
+                />
+
+                {form.publicPreviewPdf ? (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onChange(
+                        "publicPreviewPdf",
+                        "",
+                      )
+                    }
+                    className="rounded-lg border border-red-200 px-3 py-2 text-xs font-semibold text-red-600"
+                  >
+                    Remove
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          </Card>
+
+          <Card
+            title="Publishing"
+            description="Optional commercial and public catalogue information."
+          >
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              <Field label="Price">
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={form.price}
+                  onChange={(event) =>
+                    onChange(
+                      "price",
+                      event.target.value
+                        ? Number(
+                            event.target
+                              .value,
+                          )
+                        : "",
+                    )
+                  }
+                  className={input}
+                />
+              </Field>
+
+              <Field label="Pages">
+                <input
+                  type="number"
+                  min="1"
+                  value={form.pages}
+                  onChange={(event) =>
+                    onChange(
+                      "pages",
+                      event.target.value
+                        ? Number(
+                            event.target
+                              .value,
+                          )
+                        : "",
+                    )
+                  }
+                  className={input}
+                />
+              </Field>
+
+              <Field label="Publication Year">
+                <input
+                  value={
+                    form.publicationYear
+                  }
+                  onChange={(event) =>
+                    onChange(
+                      "publicationYear",
+                      event.target.value,
+                    )
+                  }
+                  className={input}
+                />
+              </Field>
+
+              <Field label="Weight">
+                <input
+                  value={form.weight}
+                  onChange={(event) =>
+                    onChange(
+                      "weight",
+                      event.target.value,
+                    )
+                  }
+                  className={input}
+                />
+              </Field>
+            </div>
+
+            <Field
+              label="About the book"
+              className="mt-4"
+            >
+              <textarea
+                rows={3}
+                value={form.aboutBook}
+                onChange={(event) =>
+                  onChange(
+                    "aboutBook",
+                    event.target.value,
+                  )
+                }
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-blue-400"
+              />
+            </Field>
+
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <Check
+                label="Featured Book"
+                description="Show in featured sections."
+                checked={form.featured}
+                onChange={(value) =>
+                  onChange(
+                    "featured",
+                    value,
+                  )
+                }
+              />
+
+              <Check
+                label="Published"
+                description="Visible on the public website."
+                checked={form.published}
+                onChange={(value) =>
+                  onChange(
+                    "published",
+                    value,
+                  )
+                }
+              />
+            </div>
+          </Card>
+        </div>
+      </section>
+
+      <div className="sticky bottom-0 z-20 flex justify-end border-t border-slate-200 bg-white/95 px-4 py-3 backdrop-blur">
+        <button
+          type="submit"
+          disabled={
+            loading ||
+            uploading !== null
+          }
+          className="inline-flex items-center rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {loading ? (
+            <>
+              <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+              Saving…
+            </>
+          ) : (
+            <>
+              <Save className="mr-2 h-4 w-4" />
+              {title}
+            </>
+          )}
+        </button>
+      </div>
+    </form>
+  );
 }
-function Section({title,children}:{title:string;children:React.ReactNode}){return <section className="rounded-2xl border bg-white p-6 shadow-sm sm:p-8"><h2 className="mb-6 text-2xl font-bold">{title}</h2>{children}</section>}
-function Field({label,required,className="",children}:{label:string;required?:boolean;className?:string;children:React.ReactNode}){return <label className={`block space-y-2 font-medium ${className}`}><span>{label}{required?<span className="text-red-500"> *</span>:null}</span>{children}</label>}
-function SelectField({label,required,value,options,placeholder,onChange}:{label:string;required?:boolean;value:string;options:SelectOption[];placeholder:string;onChange:(value:string)=>void}){return <Field label={label} required={required}><select required={required} value={value} onChange={e=>onChange(e.target.value)} className={input}><option value="">{placeholder}</option>{options.map(option=><option key={option.id} value={option.id}>{option.name}</option>)}</select></Field>}
-function Asset({title,children}:{title:string;children:React.ReactNode}){return <div><h3 className="mb-3 font-semibold">{title}</h3>{children}</div>}
-function PdfAsset({title,description,note,value,uploading,progress,disabled,onFile,onRemove,protectedFile=false}:{title:string;description:string;note:string;value:string;uploading:boolean;progress:number;disabled:boolean;onFile:(file:File)=>void;onRemove:()=>void;protectedFile?:boolean}){return <div className={`rounded-2xl border p-5 ${protectedFile?"border-amber-300 bg-amber-50":"border-blue-200 bg-blue-50"}`}><h3 className="text-lg font-bold">{title}</h3><p className="mt-2 text-sm text-slate-700">{description}</p><p className={`mt-2 text-sm font-semibold ${protectedFile?"text-amber-800":"text-blue-700"}`}>{note}</p>{value?<div className="mt-5"><p className="font-semibold text-emerald-700">Available</p><div className="mt-3 flex flex-wrap gap-3"><UploadLabel label={uploading?`Uploading ${progress}%`:"Replace"} accept="application/pdf" disabled={disabled} onFile={onFile}/><button type="button" onClick={onRemove} className="rounded-xl bg-red-600 px-4 py-2 font-semibold text-white">Remove</button></div></div>:<div className="mt-5"><UploadBox label={uploading?`Uploading ${progress}%`:"Upload PDF"} hint={`PDF · maximum ${protectedFile?100:50} MB`} accept="application/pdf" disabled={disabled} onFile={onFile} icon={<Upload className="mb-3 h-10 w-10 text-red-600"/>}/></div>}</div>}
-function UploadBox({label,hint,accept,disabled,onFile,icon}:{label:string;hint:string;accept:string;disabled:boolean;onFile:(file:File)=>void;icon:React.ReactNode}){return <label className="flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-300 p-10 text-center transition hover:border-blue-500 hover:bg-slate-50">{icon}<p className="font-semibold">{label}</p><p className="mt-2 text-sm text-slate-500">{hint}</p><input hidden type="file" accept={accept} disabled={disabled} onChange={e=>{const file=e.target.files?.[0];if(file)onFile(file);e.currentTarget.value=""}}/></label>}
-function UploadLabel({label,accept,disabled,onFile,icon}:{label:string;accept:string;disabled:boolean;onFile:(file:File)=>void;icon?:React.ReactNode}){return <label className="inline-flex cursor-pointer items-center rounded-xl bg-blue-600 px-4 py-2 font-semibold text-white">{icon}{label}<input hidden type="file" accept={accept} disabled={disabled} onChange={e=>{const file=e.target.files?.[0];if(file)onFile(file);e.currentTarget.value=""}}/></label>}
-function ListEditor({title,field,items,addItem,updateItem,removeItem}:{title:string;field:ListField;items:string[];addItem:(field:ListField)=>void;updateItem:(field:ListField,index:number,value:string)=>void;removeItem:(field:ListField,index:number)=>void}){return <div><div className="flex items-center justify-between"><h3 className="font-bold">{title}</h3><button type="button" onClick={()=>addItem(field)} className="inline-flex items-center rounded-lg border px-3 py-2 text-sm font-semibold"><Plus className="mr-1 h-4 w-4"/>Add</button></div><div className="mt-3 space-y-3">{items.map((item,index)=><div key={index} className="flex gap-2"><input value={item} onChange={e=>updateItem(field,index,e.target.value)} className={input}/><button type="button" aria-label={`Remove ${title} item`} onClick={()=>removeItem(field,index)} className="rounded-lg border px-3 text-red-600"><Trash2 className="h-4 w-4"/></button></div>)}{!items.length?<p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">No items added.</p>:null}</div></div>}
-function Check({label,description,checked,onChange}:{label:string;description:string;checked:boolean;onChange:(value:boolean)=>void}){return <label className="flex items-center gap-4 rounded-xl border p-4"><input type="checkbox" checked={checked} onChange={e=>onChange(e.target.checked)}/><span><strong className="block">{label}</strong><span className="text-sm text-slate-500">{description}</span></span></label>}
+
+function Card({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="rounded-3xl border border-slate-200 bg-white p-5">
+      <div>
+        <h2 className="text-base font-bold text-slate-950">
+          {title}
+        </h2>
+        <p className="mt-1 text-xs text-slate-500">
+          {description}
+        </p>
+      </div>
+
+      <div className="mt-5">
+        {children}
+      </div>
+    </section>
+  );
+}
+
+function Field({
+  label,
+  required,
+  className = "",
+  children,
+}: {
+  label: string;
+  required?: boolean;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <label
+      className={`block space-y-1.5 text-xs font-semibold text-slate-700 ${className}`}
+    >
+      <span>
+        {label}
+        {required ? (
+          <span className="text-red-500">
+            {" "}
+            *
+          </span>
+        ) : null}
+      </span>
+      {children}
+    </label>
+  );
+}
+
+function SelectField({
+  label,
+  required,
+  value,
+  options,
+  placeholder,
+  onChange,
+}: {
+  label: string;
+  required?: boolean;
+  value: string;
+  options: SelectOption[];
+  placeholder: string;
+  onChange: (
+    value: string,
+  ) => void;
+}) {
+  return (
+    <Field
+      label={label}
+      required={required}
+    >
+      <select
+        required={required}
+        value={value}
+        onChange={(event) =>
+          onChange(
+            event.target.value,
+          )
+        }
+        className={input}
+      >
+        <option value="">
+          {placeholder}
+        </option>
+
+        {options.map((option) => (
+          <option
+            key={option.id}
+            value={option.id}
+          >
+            {option.name}
+          </option>
+        ))}
+      </select>
+    </Field>
+  );
+}
+
+function UploadBox({
+  label,
+  hint,
+  accept,
+  disabled,
+  onFile,
+  icon,
+}: {
+  label: string;
+  hint: string;
+  accept: string;
+  disabled: boolean;
+  onFile: (file: File) => void;
+  icon: React.ReactNode;
+}) {
+  return (
+    <label className="flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-300 p-7 text-center transition hover:border-blue-400 hover:bg-slate-50">
+      {icon}
+
+      <p className="mt-3 text-sm font-semibold">
+        {label}
+      </p>
+
+      <p className="mt-1 text-xs text-slate-500">
+        {hint}
+      </p>
+
+      <input
+        hidden
+        type="file"
+        accept={accept}
+        disabled={disabled}
+        onChange={(event) => {
+          const file =
+            event.target.files?.[0];
+
+          if (file) {
+            onFile(file);
+          }
+
+          event.currentTarget.value =
+            "";
+        }}
+      />
+    </label>
+  );
+}
+
+function UploadLabel({
+  label,
+  accept,
+  disabled,
+  onFile,
+}: {
+  label: string;
+  accept: string;
+  disabled: boolean;
+  onFile: (file: File) => void;
+}) {
+  return (
+    <label className="inline-flex cursor-pointer items-center rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white">
+      <Upload className="mr-1.5 h-4 w-4" />
+      {label}
+
+      <input
+        hidden
+        type="file"
+        accept={accept}
+        disabled={disabled}
+        onChange={(event) => {
+          const file =
+            event.target.files?.[0];
+
+          if (file) {
+            onFile(file);
+          }
+
+          event.currentTarget.value =
+            "";
+        }}
+      />
+    </label>
+  );
+}
+
+function Check({
+  label,
+  description,
+  checked,
+  onChange,
+}: {
+  label: string;
+  description: string;
+  checked: boolean;
+  onChange: (
+    value: boolean,
+  ) => void;
+}) {
+  return (
+    <label className="flex items-center gap-3 rounded-xl bg-slate-50 px-4 py-3">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(event) =>
+          onChange(
+            event.target.checked,
+          )
+        }
+      />
+
+      <span>
+        <strong className="block text-sm text-slate-800">
+          {label}
+        </strong>
+
+        <span className="text-xs text-slate-500">
+          {description}
+        </span>
+      </span>
+    </label>
+  );
+}
