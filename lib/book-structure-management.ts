@@ -498,7 +498,11 @@ export async function deleteBookStructureNode(
       outcome: SecurityAuditOutcome.SUCCESS,
       metadata: { changedFields: ["deleted"] },
     });
-  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  }, {
+    isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+    maxWait: 10000,
+    timeout: 30000,
+  });
 }
 
 async function structureDependencies(
@@ -594,7 +598,11 @@ export async function setBookStructureNodeArchived(
         toStatus: archived ? "ARCHIVED" : "ACTIVE",
       },
     });
-  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  }, {
+    isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+    maxWait: 10000,
+    timeout: 30000,
+  });
 }
 
 export async function reorderBookStructureNodes(
