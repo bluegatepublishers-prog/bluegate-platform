@@ -20,7 +20,6 @@ type Attachment = {
   audienceOverride: string | null;
   published: boolean;
   archived: boolean;
-  qrEligible: boolean;
   displayOrder: number;
   fileName: string | null;
   externalHost: string | null;
@@ -56,7 +55,6 @@ type PanelResponse = {
 
 type LinkDraft = {
   audienceOverride: string;
-  qrEligible: boolean;
   displayOrder: string;
 };
 
@@ -237,7 +235,6 @@ export default function BookStudioResourcePanel({
     return (
       drafts[link.linkId] ?? {
         audienceOverride: link.audienceOverride ?? "",
-        qrEligible: link.qrEligible,
         displayOrder: String(link.displayOrder),
       }
     );
@@ -266,9 +263,6 @@ export default function BookStudioResourcePanel({
     const audienceOverride = draft.audienceOverride || null;
     if (audienceOverride !== link.audienceOverride) {
       changes.audienceOverride = audienceOverride;
-    }
-    if (draft.qrEligible !== link.qrEligible) {
-      changes.qrEligible = draft.qrEligible;
     }
     const displayOrder = Number(draft.displayOrder);
     if (displayOrder !== link.displayOrder) {
@@ -356,7 +350,6 @@ export default function BookStudioResourcePanel({
             const draft = draftFor(link);
             const dirty =
               (draft.audienceOverride || null) !== link.audienceOverride ||
-              draft.qrEligible !== link.qrEligible ||
               (validOrder(draft.displayOrder) &&
                 Number(draft.displayOrder) !== link.displayOrder);
             const orderInvalid = !validOrder(draft.displayOrder);
@@ -384,9 +377,6 @@ export default function BookStudioResourcePanel({
                       </p>
                     ) : null}
                   </div>
-                  <span className="shrink-0 rounded-full bg-white px-2 py-1 text-[10px] font-bold text-slate-500">
-                    {link.qrEligible ? "QR eligible" : "No QR"}
-                  </span>
                 </div>
 
                 <div className="mt-3 grid min-w-0 gap-2">
@@ -432,18 +422,6 @@ export default function BookStudioResourcePanel({
                             : "border-slate-200"
                         }`}
                       />
-                    </label>
-                    <label className="flex items-end gap-2 pb-1.5 text-[11px] font-semibold text-slate-600">
-                      <input
-                        type="checkbox"
-                        checked={draft.qrEligible}
-                        onChange={(event) =>
-                          changeDraft(link, "qrEligible", event.target.checked)
-                        }
-                        disabled={Boolean(pending)}
-                        className="h-4 w-4 rounded border-slate-300"
-                      />
-                      QR
                     </label>
                   </div>
                 </div>

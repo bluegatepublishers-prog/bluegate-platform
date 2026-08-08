@@ -160,8 +160,8 @@ export default async function AdminDashboardPage() {
           />
           <QuickTool
             href="/admin/qr"
-            label="QR Center"
-            detail="Book redirects"
+            label="QR Manager"
+            detail="Print-book QR"
             icon={QrCode}
           />
           <QuickTool

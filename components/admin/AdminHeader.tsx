@@ -199,8 +199,8 @@ export default function AdminHeader({
 
                   <ToolLink
                     href="/admin/qr"
-                    label="QR Center"
-                    detail="Book QR links"
+                    label="QR Manager"
+                    detail="Print-book QR"
                     icon={QrCode}
                     onClick={() =>
                       setLauncherOpen(false)

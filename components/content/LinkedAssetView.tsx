@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { BookOpenCheck, CircleAlert, ClipboardList, FileDown, FileText, PlayCircle, QrCode } from "lucide-react";
+import { BookOpenCheck, CircleAlert, ClipboardList, FileDown, FileText, PlayCircle } from "lucide-react";
 
 import type { ContentBlock } from "@/lib/content-document";
 import type { ContentRenderMode } from "@/lib/content-audience";
@@ -76,8 +76,6 @@ function renderAssetIcon(kind: ResolvedLinkedAsset["assetKind"] | ContentBlock["
     case "exercise":
     case "learningOutcome":
       return <BookOpenCheck className="h-4 w-4 shrink-0" />;
-    case "qr":
-      return <QrCode className="h-4 w-4 shrink-0" />;
     case "resource":
     default:
       return <FileText className="h-4 w-4 shrink-0" />;

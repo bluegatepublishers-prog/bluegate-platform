@@ -268,7 +268,7 @@ export default function QrWorkspace() {
 
       <nav
         className="mb-3 flex rounded-lg bg-slate-100 p-1 xl:hidden"
-        aria-label="QR Center panels"
+        aria-label="QR Manager panels"
       >
         {panelButton("filters", "Filters")}
         {panelButton("list", "QR List")}

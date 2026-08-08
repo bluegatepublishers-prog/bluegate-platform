@@ -135,7 +135,6 @@ export default async function ContentStudioPage({
         assessments: chapter._count.assessments,
         resources: chapter._count.resourceLinks,
         media: chapter._count.resourceLinks,
-        qr: chapter._count.dynamicQrCodes,
       },
     })),
     modules: studio.modules,
@@ -224,7 +223,6 @@ async function loadBookStudio(bookId: string, publisherId: string) {
               questions: true,
               assessments: true,
               resourceLinks: { where: { active: true } },
-              dynamicQrCodes: true,
             },
           },
         },
@@ -1110,58 +1108,6 @@ async function FolderCanvas({
       </FolderShell>
     );
   }
-
-  if (kind === "qr") {
-    const scopedRows = await prisma.dynamicQrCode.findMany({
-      where: {
-        bookId,
-        chapterId,
-        publisherId,
-        ...(moduleId ? { moduleId } : { moduleId: null }),
-        ...(topicId ? { topicId } : { topicId: null }),
-      },
-      include: { currentDestination: { select: { type: true } } },
-      orderBy: { updatedAt: "desc" },
-      take: 25,
-    });
-    return (
-      <FolderShell
-        title={isChapterLevelScope ? "Chapter QR Codes" : "QR Codes"}
-        scope={scope}
-      >
-        <section className="space-y-4">
-            <Link
-              href={`/admin/qr?create=1&bookId=${bookId}&targetType=${topicId ? "TOPIC" : moduleId ? "MODULE" : "CHAPTER"}&targetId=${encodeURIComponent(topicId ?? moduleId ?? chapterId)}&bookTitle=${encodeURIComponent(studio.title)}&targetTitle=${encodeURIComponent(topicId ? scope.topic?.title ?? chapter.title : moduleId ? scope.module?.title ?? chapter.title : chapter.title)}`}
-              className="inline-flex rounded-xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white"
-            >
-            Create QR For This Scope
-          </Link>
-          {scopedRows.map((row) => (
-            <article key={row.id} className="rounded-[1.75rem] bg-white p-6 shadow-sm ring-1 ring-slate-200">
-              <div className="flex flex-wrap justify-between gap-3">
-                <div>
-                  <h3 className="font-bold text-slate-950">{row.name}</h3>
-                  <p className="mt-1 text-sm text-slate-500">
-                    {row.status} · {row.audience} · {row.currentDestination?.type ?? "No destination"}
-                  </p>
-                </div>
-                <div className="flex gap-2">
-                  <Link href={`/qr/r/${row.publicCode}`} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700">
-                    Permanent URL
-                  </Link>
-                  <Link href={`/admin/qr?qrId=${row.id}`} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700">
-                    Details
-                  </Link>
-                </div>
-              </div>
-            </article>
-          ))}
-          {!scopedRows.length ? <Empty text="No QR codes are connected to this chapter." /> : null}
-        </section>
-      </FolderShell>
-    );
-  }
-
   return (
     <FolderShell title="Assessments" scope={scope}>
       <Empty text="Publisher assessment content is not wired into this sprint workspace." />

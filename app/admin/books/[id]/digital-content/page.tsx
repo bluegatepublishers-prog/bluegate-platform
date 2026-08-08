@@ -82,7 +82,6 @@ export default async function BookDigitalContentPage({ params }: { params: Promi
             {Object.values(ResourceAudience).map((item) => <option key={item}>{item}</option>)}
           </select>
         </label>
-        <label className="flex min-h-11 items-center gap-3 font-semibold"><input type="checkbox" name="qrEligible" className="size-5" /> Eligible for future QR target</label>
         <div className="sm:col-span-2 lg:col-span-3">
           <button className="min-h-12 rounded-xl bg-blue-700 px-6 font-semibold text-white">Attach resource</button>
         </div>
@@ -99,7 +98,7 @@ export default async function BookDigitalContentPage({ params }: { params: Promi
                   {link.resource.type} · {link.audienceOverride ?? link.resource.audience} · {link.resource.published ? "Published" : "Draft"}
                 </p>
                 <p className="mt-1 break-words text-xs text-slate-500">
-                  {link.targetType}: {targetLabel(link)}{link.qrEligible ? " · QR ready" : ""}
+                  {link.targetType}: {targetLabel(link)}
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -113,9 +112,7 @@ export default async function BookDigitalContentPage({ params }: { params: Promi
         </div>
       </section>
 
-      <aside className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm text-slate-700">
-        Stable entity IDs and publication/archive checks are in place for future dynamic QR routing. This phase does not add a second login system or a QR renderer.
-      </aside>
+
     </main>
   );
 }

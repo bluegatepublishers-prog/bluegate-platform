@@ -16,7 +16,6 @@ export type VirtualFolderKind =
   | "assessments"
   | "resources"
   | "media"
-  | "qr";
 
 export type FolderScopeType = "CHAPTER" | "MODULE" | "TOPIC";
 

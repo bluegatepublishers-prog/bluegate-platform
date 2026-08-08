@@ -276,7 +276,7 @@ export function normalizeSectionContexts(value: string[]): ContentSectionContext
 }
 
 async function loadAssetLibrary(scope: ContentNodeScope): Promise<LoaderResult> {
-  const [resources, links, videos, activities, worksheets, exercises, outcomes, qrs] = await Promise.all([
+  const [resources, links, videos, activities, worksheets, exercises, outcomes] = await Promise.all([
     prisma.resource.findMany({
       where: {
         publisherId: scope.publisherId,
@@ -406,23 +406,6 @@ async function loadAssetLibrary(scope: ContentNodeScope): Promise<LoaderResult> 
         chapterId: true,
       },
       orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
-    }),
-    prisma.dynamicQrCode.findMany({
-      where: {
-        publisherId: scope.publisherId,
-        bookId: scope.bookId,
-        archivedAt: null,
-      },
-      select: {
-        id: true,
-        name: true,
-        publicCode: true,
-        audience: true,
-        chapterId: true,
-        moduleId: true,
-        topicId: true,
-      },
-      orderBy: [{ updatedAt: "desc" }, { id: "asc" }],
     }),
   ]);
 
@@ -589,31 +572,6 @@ async function loadAssetLibrary(scope: ContentNodeScope): Promise<LoaderResult> 
     });
   }
 
-  for (const qr of qrs) {
-    if (!isScopedAsset(scope, qr.chapterId, qr.moduleId, qr.topicId)) continue;
-    const audienceOptions = qrAudienceOptions(qr.audience);
-    if (!audienceOptions.length) continue;
-    options.push({
-      assetKind: "qr",
-      targetType: "DYNAMIC_QR_CODE",
-      targetId: qr.id,
-      title: qr.name,
-      defaultLabel: qr.name,
-      sourceBadge: "QR",
-      sourceDetail: "Dynamic QR",
-      scopeLabel: scopeText(qr.chapterId, qr.moduleId, qr.topicId),
-      audienceOptions,
-      defaultAudience: audienceOptions,
-      displayStyles: ["button", "inline", "callout"],
-      openModes: ["route"],
-      teacherOnly: audienceOptions.length === 1 && audienceOptions[0] === "TEACHER",
-      route: {
-        href: `/qr/r/${encodeURIComponent(qr.publicCode)}`,
-        openMode: "route",
-      },
-    });
-  }
-
   const deduped = new Map<string, ContentStudioAssetOption>();
   for (const option of options) {
     deduped.set(linkedAssetKey(option.targetType, option.targetId), option);
@@ -656,13 +614,6 @@ export function scopeText(chapterId: string | null, moduleId: string | null, top
 export function resourceAudienceOptions(audience: ResourceAudience): LinkedAssetAudience[] {
   if (audience === ResourceAudience.TEACHER_ONLY) return ["TEACHER"];
   if (audience === ResourceAudience.STUDENT) return ["STUDENT"];
-  return ["TEACHER", "STUDENT"];
-}
-
-function qrAudienceOptions(audience: string): LinkedAssetAudience[] {
-  if (audience === "TEACHER_ONLY") return ["TEACHER"];
-  if (audience === "STUDENT_ONLY") return ["STUDENT"];
-  if (audience === "TEACHER_OR_STUDENT") return ["TEACHER", "STUDENT"];
   return ["TEACHER", "STUDENT"];
 }
 

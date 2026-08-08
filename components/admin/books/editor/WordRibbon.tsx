@@ -33,7 +33,6 @@ import {
   Paintbrush,
   Palette,
   PlayCircle,
-  QrCode,
   Redo2,
   Replace,
   Ruler,
@@ -77,7 +76,6 @@ type InsertKind =
   | "exercise"
   | "resource"
   | "learningOutcome"
-  | "qr"
   | "feature";
 
 type InlineFormatCommand =
@@ -1109,13 +1107,6 @@ function InsertRibbon({
           label="Exercise"
           onClick={() => onInsert("exercise")}
         />
-
-        <LargeCommand
-          icon={<QrCode className="h-6 w-6" />}
-          label="QR Code"
-          onClick={() => onInsert("qr")}
-        />
-
         <LargeCommand
           icon={<FileText className="h-6 w-6" />}
           label="Resource"

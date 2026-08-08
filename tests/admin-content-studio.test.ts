@@ -20,9 +20,6 @@ const editorForm = read(
   "components/admin/books/ContentEditorForm.tsx",
 );
 const resourceService = read("lib/book-resource-links.ts");
-const qrWorkspace = read(
-  "components/admin/qr/QrWorkspace.tsx",
-);
 const schema = read("prisma/schema.prisma");
 
 const emptyCounts = {
@@ -34,7 +31,6 @@ const emptyCounts = {
   assessments: 0,
   resources: 0,
   media: 0,
-  qr: 0,
 };
 
 function input(): ContentTreeInput {
@@ -181,8 +177,7 @@ test(
     )
       .filter((node) => node.type === "FOLDER")
       .map((node) => node.key);
-
-    assert.equal(keys.length, 6);
+    assert.equal(keys.length, 7);
 
     assert.ok(
       keys.every((key) =>
@@ -216,7 +211,6 @@ test(
       "Exercises",
       "Questions",
       "Resources",
-      "QR Codes",
     ]) {
       assert.match(shell, new RegExp(label));
     }
@@ -329,17 +323,6 @@ test("Resource detach does not delete Resource", () => {
     /resource\.delete/,
   );
 });
-
-test(
-  "QR creation receives Book and hierarchy target",
-  () => {
-    assert.match(
-      page,
-      /create=1&bookId=\$\{bookId\}&targetType=CHAPTER&targetId=\$\{chapterId\}/,
-    );
-    assert.match(qrWorkspace, /initialSelection/);
-  },
-);
 
 test(
   "archived records retain lifecycle visibility",

@@ -34,8 +34,8 @@ export default async function AdminLibraryPage() {
       icon: FolderOpen,
     },
     {
-      title: "QR Center",
-      description: "Maintain permanent redirects for printed books.",
+      title: "QR Manager",
+      description: "Permanent QR workspace for printed books.",
       count: qrCodes,
       href: "/admin/qr",
       icon: QrCode,

@@ -10,6 +10,7 @@ import {
   GraduationCap,
   LayoutDashboard,
   LibraryBig,
+  QrCode,
   School,
   X,
 } from "lucide-react";
@@ -28,7 +29,7 @@ type NavigationItem = {
 
 const navigation: NavigationItem[] = [
   {
-    name: "Home",
+    name: "Dashboard",
     href: "/admin",
     icon: LayoutDashboard,
   },
@@ -41,6 +42,11 @@ const navigation: NavigationItem[] = [
     name: "Content Studio",
     href: "/admin/books",
     icon: LibraryBig,
+  },
+  {
+    name: "QR Manager",
+    href: "/admin/qr",
+    icon: QrCode,
   },
   {
     name: "Requests",
@@ -74,13 +80,17 @@ export default function AdminSidebar({
   useEffect(() => {
     if (mobile) return;
 
-    try {
-      setCollapsed(
-        localStorage.getItem(
-          "bluegate:admin-sidebar-collapsed",
-        ) === "1",
-      );
-    } catch {}
+    const timer = window.setTimeout(() => {
+      try {
+        setCollapsed(
+          localStorage.getItem(
+            "bluegate:admin-sidebar-collapsed",
+          ) === "1",
+        );
+      } catch {}
+    }, 0);
+
+    return () => window.clearTimeout(timer);
   }, [mobile]);
 
   const items = navigation

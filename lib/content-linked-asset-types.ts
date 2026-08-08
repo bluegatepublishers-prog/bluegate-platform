@@ -5,7 +5,6 @@ export const LINKED_ASSET_KINDS = [
   "exercise",
   "resource",
   "learningOutcome",
-  "qr",
 ] as const;
 
 export const LINKED_ASSET_TARGET_TYPES = [
@@ -16,7 +15,6 @@ export const LINKED_ASSET_TARGET_TYPES = [
   "PUBLISHER_WORKSHEET",
   "BOOK_EXERCISE",
   "CHAPTER_LEARNING_OUTCOME",
-  "DYNAMIC_QR_CODE",
 ] as const;
 
 export const LINKED_ASSET_AUDIENCES = ["TEACHER", "STUDENT"] as const;
@@ -121,9 +119,7 @@ export function linkedAssetKindLabel(kind: LinkedAssetKind) {
       return "Resource";
     case "learningOutcome":
       return "Learning Outcome";
-    case "qr":
-      return "QR";
-  }
+}
 }
 
 export function linkedAssetAudienceLabel(audience: LinkedAssetAudience) {

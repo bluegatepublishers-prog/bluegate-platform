@@ -1789,12 +1789,6 @@ export default function ContentManuscriptEditor({
           addBlockWithFactory(toolbarAnchorId, createExerciseBlock);
           return;
         }
-
-        if (kind === "qr") {
-          openInsertSurface("resource");
-          return;
-        }
-
         openInsertSurface(kind);
       }}
       onInsertTable={(rows, columns) => {

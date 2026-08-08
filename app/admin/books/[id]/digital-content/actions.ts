@@ -27,7 +27,6 @@ export async function attachResourceAction(bookId: string, form: FormData) {
       topicId: value(form, "topicId"),
     },
     audienceOverride,
-    qrEligible: form.get("qrEligible") === "on",
   });
   revalidatePath(`/admin/books/${bookId}/digital-content`);
 }

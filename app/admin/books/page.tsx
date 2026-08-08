@@ -2,7 +2,6 @@ import Link from "next/link";
 import {
   Database,
   Plus,
-  QrCode,
   Search,
 } from "lucide-react";
 
@@ -265,14 +264,6 @@ export default async function BooksPage({
           >
             <Database className="h-3.5 w-3.5" />
             Master Data
-          </Link>
-
-          <Link
-            href="/admin/qr"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
-          >
-            <QrCode className="h-3.5 w-3.5" />
-            QR Center
           </Link>
 
           <Link
