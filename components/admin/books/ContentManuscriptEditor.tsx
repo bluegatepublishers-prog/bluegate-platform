@@ -23,6 +23,7 @@ import ContentDocumentRenderer from "@/components/admin/books/ContentDocumentRen
 import ContentReleasePanel from "@/components/admin/books/ContentReleasePanel";
 import ExerciseAuthoringStudio from "@/components/admin/books/ExerciseAuthoringStudio";
 import StudioBuilderDrawer from "@/components/admin/books/StudioBuilderDrawer";
+import { compactField, compactPanel, compactPrimaryButton, compactResourceRow } from "@/components/admin/books/compact-studio-styles";
 import WorksheetStudio from "@/components/admin/books/WorksheetStudio";
 import {
   deleteContentNodeAction,
@@ -110,10 +111,11 @@ import {
   type MediaBlock,
 } from "@/lib/content-document";
 import { type EducationalObjectType } from "@/lib/educational-object-registry";
-import { EDUCATIONAL_OBJECT_REGISTRY, getEducationalObjectDefinition } from "@/lib/educational-object-registry";
+import { EDUCATIONAL_OBJECT_REGISTRY, getEducationalObjectDefinition, getEducationalObjectPlaceholder } from "@/lib/educational-object-registry";
 import type { ReleaseSummary } from "@/lib/content-release";
 import { uploadFileToR2 } from "@/lib/storage/client-upload";
 import { contentResourcePreviewUrl } from "@/lib/content-resource-preview";
+import EducationalObjectIcon from "@/components/content/EducationalObjectIcon";
 
 type ResourceChoice = {
   id: string;
@@ -644,12 +646,13 @@ export default function ContentManuscriptEditor({
   }
 
   function addFeature(variant: EducationalObjectType) {
-  if (!toolbarAnchorId) return;
-
-  addBlockWithFactory(toolbarAnchorId, () => {
-    return createEducationalObjectBlock(variant);
-  });
-}
+    if (!toolbarAnchorId) return;
+    addBlockWithFactory(toolbarAnchorId, () => {
+      const block = createEducationalObjectBlock(variant);
+      const offset = contentDoc.blocks.filter(isEducationalObjectBlock).length * 24;
+      return { ...block, layout: block.layout ? { ...block.layout, x: block.layout.x + offset, y: block.layout.y + offset } : block.layout };
+    });
+  }
 
   function applyToolbarBlockType(type: ContentBlockType) {
     if (!toolbarAnchorId) return;
@@ -2355,7 +2358,7 @@ function BlockEditor({
 
   return (
     <article className={shell} onFocusCapture={onActivate} onMouseDown={onActivate}>
-      {!isTableBlock(block) ? (
+      {!isTableBlock(block) && !isEducationalObjectBlock(block) && !isActivityBlock(block) ? (
         <ContentDocumentRenderer
           document={normalizeContentDocument({ blocks: [previewBlock] })}
           linkedAssets={resolvedAsset ? { [block.id]: resolvedAsset } : {}}
@@ -2368,6 +2371,12 @@ function BlockEditor({
       ) : null}
       {!collapsed && isTableBlock(block) ? (
         <TableBlockEditor block={block} onUpdatePatch={onUpdatePatch} onDeleteTable={onDelete} showControls={selected && propertiesOpen} active={selected} />
+      ) : null}
+      {!collapsed && isEducationalObjectBlock(block) ? (
+        <EducationalObjectCanvas block={block} onUpdatePatch={onUpdatePatch} />
+      ) : null}
+      {!collapsed && isActivityBlock(block) ? (
+        <ActivityCanvas block={block} onUpdatePatch={onUpdatePatch} />
       ) : null}
       {selected ? (
         <ObjectContextToolbar
@@ -2741,18 +2750,140 @@ function authoringPreviewBlock(block: ContentBlock): ContentBlock {
     return { ...block, url: contentResourcePreviewUrl(block.resourceId) };
   }
   if (isEducationalObjectBlock(block) && !block.text.trim()) {
-    const placeholder = ({
-      learningOutcome: "Type learning outcome here...",
-      learningObjective: "Type learning objective here...",
-      didYouKnow: "Type interesting fact here...",
-      thinkAndDiscuss: "Type discussion prompt here...",
-      thinkAndWrite: "Type writing prompt here...",
-    } as Record<string, string>)[block.objectType] ?? "Type content here...";
-    return { ...block, text: placeholder };
+    return { ...block, text: getEducationalObjectPlaceholder(block.objectType) };
   }
   return block;
 }
 
+function EducationalObjectCanvas({
+  block,
+  onUpdatePatch,
+}: {
+  block: Extract<ContentBlock, { type: "educationalObject" }>;
+  onUpdatePatch: (patch: Partial<ContentBlock>) => void;
+}) {
+  const definition = getEducationalObjectDefinition(block.objectType);
+  const titleRef = useRef<HTMLDivElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const title = block.title || definition.defaultTitle;
+  const body = block.text || definition.defaultPlaceholder;
+  const variantClass = educationalObjectCanvasClass(definition.appearanceVariant);
+
+  useEffect(() => {
+    if (titleRef.current && document.activeElement !== titleRef.current && titleRef.current.textContent !== title) {
+      titleRef.current.textContent = title;
+    }
+    if (bodyRef.current && document.activeElement !== bodyRef.current && bodyRef.current.textContent !== body) {
+      bodyRef.current.textContent = body;
+    }
+  }, [body, title]);
+
+  return (
+    <aside className={`rounded-3xl border px-5 py-4 text-slate-900 ${variantClass}`}>
+      <div className="flex items-center gap-2">
+        <EducationalObjectIcon type={block.objectType} className="h-5 w-5 shrink-0" />
+        <div
+        ref={titleRef}
+        contentEditable
+        suppressContentEditableWarning
+        role="heading"
+        aria-level={4}
+        aria-label="Educational block title"
+        className="text-xs font-bold uppercase tracking-[0.14em] outline-none"
+        onPointerDown={(event) => event.stopPropagation()}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") event.preventDefault();
+        }}
+        onInput={(event) => onUpdatePatch({ title: event.currentTarget.textContent?.trim() || undefined })}
+        >
+          {title}
+        </div>
+      </div>
+      <div
+        ref={bodyRef}
+        contentEditable
+        suppressContentEditableWarning
+        role="textbox"
+        aria-label="Educational block body"
+        className="mt-2 min-h-10 whitespace-pre-wrap break-words leading-7 outline-none"
+        onPointerDown={(event) => event.stopPropagation()}
+        onInput={(event) => onUpdatePatch({ text: event.currentTarget.textContent ?? "" })}
+      >
+        {body}
+      </div>
+    </aside>
+  );
+}
+
+function educationalObjectCanvasClass(variant: string) {
+  switch (variant) {
+    case "target": return "border-emerald-200 bg-emerald-50";
+    case "didYouKnow": return "border-indigo-200 bg-indigo-50";
+    case "thinkAndDiscuss": return "border-cyan-200 bg-cyan-50";
+    case "thinkAndAnswer": return "border-orange-200 bg-orange-50";
+    case "reflection": return "border-violet-200 bg-violet-50";
+    case "remember": return "border-sky-200 bg-sky-50";
+    case "teacherTip": return "border-blue-200 bg-blue-50";
+    case "lifeSkill": return "border-teal-200 bg-teal-50";
+    case "caseStudy": return "border-fuchsia-200 bg-fuchsia-50";
+    default: return "border-blue-200 bg-blue-50";
+  }
+}
+function ActivityCanvas({
+  block,
+  onUpdatePatch,
+}: {
+  block: Extract<ContentBlock, { type: "activity" }>;
+  onUpdatePatch: (patch: Partial<ContentBlock>) => void;
+}) {
+  const titleRef = useRef<HTMLDivElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const bodyIndex = Math.max(0, block.fields.findIndex((field) => field.type !== "teacherNote"));
+  const title = block.title || "Activity";
+  const body = block.fields[bodyIndex]?.text || "Type activity instructions here...";
+
+  useEffect(() => {
+    if (titleRef.current && document.activeElement !== titleRef.current && titleRef.current.textContent !== title) titleRef.current.textContent = title;
+    if (bodyRef.current && document.activeElement !== bodyRef.current && bodyRef.current.textContent !== body) bodyRef.current.textContent = body;
+  }, [body, title]);
+
+  function updateBody(value: string) {
+    onUpdatePatch({ fields: block.fields.map((field, index) => index === bodyIndex ? { ...field, text: value } : field) });
+  }
+
+  return (
+    <article className="rounded-3xl border border-emerald-200 bg-emerald-50/70 px-5 py-4 text-slate-900">
+      <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-emerald-700">
+        <span aria-hidden="true">🧪</span>
+        <div
+          ref={titleRef}
+          contentEditable
+          suppressContentEditableWarning
+          role="heading"
+          aria-level={4}
+          aria-label="Activity title"
+          className="outline-none"
+          onPointerDown={(event) => event.stopPropagation()}
+          onInput={(event) => onUpdatePatch({ title: event.currentTarget.textContent?.trim() || undefined })}
+        >
+          {title}
+        </div>
+      </div>
+      <div
+        ref={bodyRef}
+        contentEditable
+        suppressContentEditableWarning
+        role="textbox"
+        aria-label="Activity content"
+        className="mt-3 min-h-12 whitespace-pre-wrap break-words leading-7 outline-none"
+        onPointerDown={(event) => event.stopPropagation()}
+        onInput={(event) => updateBody(event.currentTarget.textContent ?? "")}
+      >
+        {body}
+      </div>
+    </article>
+  );
+}
 function ImageGalleryEditor({
   block,
   resources,
@@ -3509,7 +3640,7 @@ function InsertContentDrawer({
 
   return (
     <StudioBuilderDrawer open={open} title={`Insert ${blockLabelForDrawer(kind)}`} size="compact" onClose={onClose}>
-      <div className="space-y-5">
+      <div className="space-y-4">
         {kind === "image" ? (
           <>
             <LibrarySection
@@ -3518,6 +3649,7 @@ function InsertContentDrawer({
                 key: resource.id,
                 title: resource.title,
                 detail: resource.mimeType || "Image",
+                thumbnail: sanitizeUrl(resource.thumbnail ?? "") || sanitizeUrl(resource.fileUrl ?? "") || undefined,
                 onChoose: () => onChooseImage(resource),
               }))}
               emptyText="No compatible images are available in this publisher library."
@@ -3675,14 +3807,14 @@ function BuilderStudioDrawer({
         <button
           type="button"
           onClick={() => onChangeTab("existing")}
-          className={`rounded-xl px-3 py-2 text-sm font-semibold ${tab === "existing" ? "bg-slate-950 text-white" : "bg-white text-slate-700 ring-1 ring-slate-200"}`}
+          className={`inline-flex h-9 items-center rounded-lg px-3 text-sm font-medium ${tab === "existing" ? "bg-slate-950 text-white" : "bg-white text-slate-700 ring-1 ring-slate-200"}`}
         >
           Choose Existing
         </button>
         <button
           type="button"
           onClick={() => onChangeTab("create")}
-          className={`rounded-xl px-3 py-2 text-sm font-semibold ${tab === "create" ? "bg-slate-950 text-white" : "bg-white text-slate-700 ring-1 ring-slate-200"}`}
+          className={`inline-flex h-9 items-center rounded-lg px-3 text-sm font-medium ${tab === "create" ? "bg-slate-950 text-white" : "bg-white text-slate-700 ring-1 ring-slate-200"}`}
         >
           Create New
         </button>
@@ -3779,30 +3911,49 @@ function LibrarySection({
   emptyText = "No matching items.",
 }: {
   title: string;
-  items: { key: string; title: string; detail: string; onChoose: () => void }[];
+  items: { key: string; title: string; detail: string; thumbnail?: string; onChoose: () => void }[];
   emptyText?: string;
 }) {
+  const [query, setQuery] = useState("");
+  const filteredItems = items.filter((item) => {
+    const normalized = query.trim().toLowerCase();
+    return !normalized || `${item.title} ${item.detail}`.toLowerCase().includes(normalized);
+  });
+
   return (
-    <section className="rounded-[1.5rem] bg-white p-4 ring-1 ring-slate-200">
-      <h3 className="text-sm font-bold text-slate-950">{title}</h3>
-      <div className="mt-4 space-y-3">
-        {items.map((item) => (
-          <button
-            key={item.key}
-            type="button"
-            onClick={item.onChoose}
-            className="w-full rounded-[1.25rem] border border-slate-200 px-4 py-3 text-left hover:bg-slate-50"
-          >
-            <p className="text-sm font-semibold text-slate-900">{item.title}</p>
-            <p className="mt-1 text-xs text-slate-500">{item.detail}</p>
+    <section className={compactPanel}>
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-sm font-semibold text-slate-950">{title}</h3>
+        <span className="text-xs text-slate-400">{items.length}</span>
+      </div>
+      {items.length > 2 ? (
+        <input
+          aria-label={`Search ${title.toLowerCase()}`}
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder={`Search ${title.toLowerCase().replace("choose existing ", "")}...`}
+          className={compactField}
+        />
+      ) : null}
+      <div className="mt-3 space-y-1.5">
+        {filteredItems.map((item) => (
+          <button key={item.key} type="button" onClick={item.onChoose} className={compactResourceRow}>
+            {item.thumbnail ? (
+              <span aria-hidden="true" className="h-9 w-9 shrink-0 rounded-md bg-slate-100 bg-cover bg-center ring-1 ring-slate-200" style={{ backgroundImage: `url("${item.thumbnail}")` }} />
+            ) : (
+              <span aria-hidden="true" className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-slate-100 text-xs font-semibold uppercase text-slate-500 ring-1 ring-slate-200">{item.detail.slice(0, 1)}</span>
+            )}
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-sm font-medium text-slate-900">{item.title}</span>
+              <span className="mt-0.5 block truncate text-[11px] text-slate-500">{item.detail}</span>
+            </span>
           </button>
         ))}
-        {!items.length ? <p className="text-sm text-slate-500">{emptyText}</p> : null}
+        {!filteredItems.length ? <p className="px-1 py-2 text-xs text-slate-500">{items.length ? "No matching items." : emptyText}</p> : null}
       </div>
     </section>
   );
 }
-
 function ResourceUploadCard({
   title,
   allowedTypes,
@@ -3903,13 +4054,13 @@ function ResourceUploadCard({
     !busy;
 
   return (
-    <section className="rounded-[1.5rem] bg-white p-4 ring-1 ring-slate-200">
+    <section className={compactPanel}>
       <h3 className="text-sm font-bold text-slate-950">
         {title}
       </h3>
 
       {imageMode ? (
-        <div className="mt-4 space-y-4">
+        <div className="mt-3 space-y-3">
           <label className="block text-sm font-semibold text-slate-700">
             Choose Image
             <input
@@ -3924,7 +4075,7 @@ function ResourceUploadCard({
                     null,
                 )
               }
-              className={field}
+              className={compactField}
             />
           </label>
 
@@ -3934,7 +4085,7 @@ function ResourceUploadCard({
             <img
               src={previewUrl}
               alt="Selected image preview"
-              className="max-h-56 w-full rounded-2xl object-contain ring-1 ring-slate-200"
+              className="max-h-48 w-full rounded-xl object-contain ring-1 ring-slate-200"
             />
           ) : null}
 
@@ -3948,7 +4099,7 @@ function ResourceUploadCard({
                 )
               }
               placeholder="Enter image name"
-              className={field}
+              className={compactField}
             />
           </label>
 
@@ -3965,12 +4116,12 @@ function ResourceUploadCard({
                 )
               }
               placeholder="Add a short caption"
-              className={field}
+              className={compactField}
             />
           </label>
         </div>
       ) : (
-        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <div className="mt-3 grid gap-2 sm:grid-cols-2">
           <label className="block text-sm font-semibold text-slate-700">
             Title
             <input
@@ -3980,7 +4131,7 @@ function ResourceUploadCard({
                   event.target.value,
                 )
               }
-              className={field}
+              className={compactField}
             />
           </label>
 
@@ -3994,7 +4145,7 @@ function ResourceUploadCard({
                     .value as ResourceType,
                 )
               }
-              className={field}
+              className={compactField}
             >
               {allowedTypes.map((type) => (
                 <option
@@ -4017,7 +4168,7 @@ function ResourceUploadCard({
                     .value as ResourceAudience,
                 )
               }
-              className={field}
+              className={compactField}
             >
               <option
                 value={ResourceAudience.BOTH}
@@ -4052,7 +4203,7 @@ function ResourceUploadCard({
                     null,
                 )
               }
-              className={field}
+              className={compactField}
             />
           </label>
         </div>
@@ -4105,7 +4256,7 @@ function ResourceUploadCard({
               : undefined,
           });
         }}
-        className="mt-4 rounded-xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-45"
+        className={`${compactPrimaryButton} mt-3`}
       >
         {busy
           ? "Uploading..."

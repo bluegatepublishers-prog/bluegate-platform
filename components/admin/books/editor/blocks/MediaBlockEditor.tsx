@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { CircleAlert, PlayCircle } from "lucide-react";
+import { compactField, compactPanel } from "@/components/admin/books/compact-studio-styles";
 
 import type { ContentSectionDefinitionSummary } from "@/lib/content-linked-asset-types";
 import { MEDIA_DISPLAY_MODES, type MediaBlock } from "@/lib/content-document";
@@ -31,7 +32,7 @@ type MediaBlockEditorProps = {
   onUpdate: (patch: Partial<MediaBlock>) => void;
 };
 
-const lightField = "mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100";
+const lightField = compactField;
 
 export default function MediaBlockEditor({
   block,
@@ -59,12 +60,12 @@ export default function MediaBlockEditor({
   }
 
   return (
-    <div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-3 text-slate-900 shadow-sm">
+    <div className={`${compactPanel} space-y-3 text-slate-900`}>
       <div className="flex items-center gap-2" onPointerDown={(event) => event.stopPropagation()}>
         <PlayCircle className="h-4 w-4 text-blue-700" />
         <span className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">{mediaKindLabel(block.mediaKind)}</span>
         {broken ? <span className="inline-flex items-center gap-1 text-xs font-semibold text-rose-700"><CircleAlert className="h-3.5 w-3.5" />Unavailable</span> : null}
-        <button type="button" className="ml-auto rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50" onClick={() => setPickerOpen((current) => !current)}>{pickerOpen ? "Close source picker" : "Change video"}</button>
+        <button type="button" className="ml-auto inline-flex h-9 items-center rounded-lg border border-slate-200 px-3 text-xs font-medium text-slate-600 hover:bg-slate-50" onClick={() => setPickerOpen((current) => !current)}>{pickerOpen ? "Close source picker" : "Change video"}</button>
       </div>
 
       <details className="rounded-xl border border-slate-200 bg-slate-50 p-3" onPointerDown={(event) => event.stopPropagation()}>

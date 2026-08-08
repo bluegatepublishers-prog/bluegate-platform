@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { ContentBlock, ActivityBlock } from "@/lib/content-document";
+import { compactField } from "@/components/admin/books/compact-studio-styles";
 import {
   ACTIVITY_FIELD_DEFINITIONS,
   activityFieldEditorKind,
@@ -24,7 +25,7 @@ type Props = {
   onUpdatePatch: (patch: Partial<ContentBlock>) => void;
 };
 
-const field = "mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100";
+const field = compactField.replace("focus:border-blue-400", "focus:border-emerald-400").replace("focus:ring-blue-100", "focus:ring-emerald-100");
 const control = "rounded-lg border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40";
 
 export default function ActivityBlockEditor({ block, resources, onUpdatePatch }: Props) {
@@ -57,13 +58,13 @@ export default function ActivityBlockEditor({ block, resources, onUpdatePatch }:
   }
 
   return (
-    <div className="space-y-3 rounded-2xl border border-emerald-200 bg-emerald-50/50 p-4" onPointerDown={(event) => event.stopPropagation()}>
+    <div className="space-y-3 rounded-xl border border-emerald-200 bg-emerald-50/50 p-3" onPointerDown={(event) => event.stopPropagation()}>
       <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.14em] text-emerald-800">
         <span>Activity</span>
         <span className="text-emerald-500">Optional fields</span>
       </div>
 
-      <input value={block.title ?? ""} onChange={(event) => onUpdatePatch({ title: event.target.value || undefined })} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-lg font-bold text-slate-900 outline-none focus:border-emerald-400" placeholder="Activity title (optional)" />
+      <input value={block.title ?? ""} onChange={(event) => onUpdatePatch({ title: event.target.value || undefined })} className="h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-900 outline-none focus:border-emerald-400" placeholder="Activity title (optional)" />
 
       {block.fields.map((entry, index) => (
         <ActivityFieldEditor
@@ -79,7 +80,7 @@ export default function ActivityBlockEditor({ block, resources, onUpdatePatch }:
       ))}
 
       <div className="relative">
-        <button type="button" className="rounded-xl border border-dashed border-emerald-400 bg-white px-3 py-2 text-sm font-bold text-emerald-800 hover:bg-emerald-50" onClick={() => setAddMenuOpen((current) => !current)}>+ Add field</button>
+        <button type="button" className="inline-flex h-9 items-center rounded-lg border border-dashed border-emerald-400 bg-white px-3 text-sm font-medium text-emerald-800 hover:bg-emerald-50" onClick={() => setAddMenuOpen((current) => !current)}>+ Add field</button>
         {addMenuOpen ? (
           <div className="absolute left-0 top-full z-30 mt-2 grid w-[min(34rem,calc(100vw-3rem))] grid-cols-2 gap-2 rounded-xl border border-slate-200 bg-white p-3 shadow-xl sm:grid-cols-3">
             {ACTIVITY_FIELD_DEFINITIONS.filter(([type]) => type !== "custom").map(([type, label]) => <button key={type} type="button" className="rounded-lg px-2 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-emerald-50" onClick={() => addField(type)}>{label}</button>)}

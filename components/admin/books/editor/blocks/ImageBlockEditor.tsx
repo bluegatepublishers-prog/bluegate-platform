@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import type { KeyboardEvent } from "react";
+import { compactField } from "@/components/admin/books/compact-studio-styles";
 
 import {
   sanitizeUrl,
@@ -35,8 +36,7 @@ type ImageBlockEditorProps = {
   ) => void;
 };
 
-const field =
-  "mt-2 w-full rounded-[1.25rem] border border-transparent bg-white/80 px-4 py-3 text-sm text-slate-800 outline-none ring-1 ring-slate-200 transition placeholder:text-slate-400 focus:bg-white focus:ring-2 focus:ring-blue-200";
+const field = compactField;
 
 export default function ImageBlockEditor({
   bookId,
@@ -49,7 +49,7 @@ export default function ImageBlockEditor({
 }: ImageBlockEditorProps) {
   return (
     <div className="space-y-3">
-      <details className="rounded-2xl border border-slate-200 bg-white/90 p-3 shadow-sm" onPointerDown={(event) => event.stopPropagation()}>
+      <details className="rounded-xl border border-slate-200 bg-white p-3" onPointerDown={(event) => event.stopPropagation()}>
         <summary className="cursor-pointer list-none text-sm font-semibold text-slate-700 [&::-webkit-details-marker]:hidden">Image properties <span className="float-right text-xs font-normal text-slate-400">replace · crop · fit</span></summary>
         <div className="mt-3 grid gap-3 lg:grid-cols-3">
         <label className="block text-sm font-semibold text-slate-700 lg:col-span-2">
@@ -172,7 +172,7 @@ export default function ImageBlockEditor({
           </select>
         </label>
 
-        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 lg:col-span-2">
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 lg:col-span-2">
           <div className="flex items-center justify-between gap-3">
             <span className="text-sm font-semibold text-slate-700">Non-destructive crop</span>
             <button type="button" onClick={() => onUpdatePatch({ crop: { x: 0, y: 0, width: 1, height: 1 } })} className="text-xs font-semibold text-blue-700">Reset crop</button>
@@ -205,7 +205,7 @@ export default function ImageBlockEditor({
         <button
           type="button"
           onClick={onClearImage}
-          className="self-end rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700"
+          className="inline-flex h-9 items-center rounded-lg border border-slate-200 px-3 text-sm font-medium text-slate-700"
         >
           Clear image
         </button>

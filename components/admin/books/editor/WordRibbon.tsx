@@ -56,6 +56,7 @@ import type {
   ContentBlockType,
 } from "@/lib/content-document";
 import { EDUCATIONAL_OBJECT_REGISTRY, type EducationalObjectType } from "@/lib/educational-object-registry";
+import EducationalObjectIcon from "@/components/content/EducationalObjectIcon";
 
 type RibbonTab =
   | "HOME"
@@ -1069,16 +1070,16 @@ function InsertRibbon({
             onClick={() => setTablePickerOpen((current) => !current)}
           />
           {tablePickerOpen ? (
-            <div className="absolute left-0 top-full z-40 mt-1 w-64 rounded-xl border border-slate-200 bg-white p-3 shadow-xl">
+            <div className="absolute left-0 top-full z-40 mt-1 w-60 rounded-xl border border-slate-200 bg-white p-3 shadow-lg">
               <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">Insert table</p>
               <div className="mt-2 grid grid-cols-2 gap-2">
-                <label className="text-xs font-semibold text-slate-600">Rows<input className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm" type="number" min={1} max={50} value={tableRows} onChange={(event) => setTableRows(event.target.value)} /></label>
-                <label className="text-xs font-semibold text-slate-600">Columns<input className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm" type="number" min={1} max={20} value={tableColumns} onChange={(event) => setTableColumns(event.target.value)} /></label>
+                <label className="text-xs font-semibold text-slate-600">Rows<input className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm" type="number" min={1} max={50} value={tableRows} onChange={(event) => setTableRows(event.target.value)} /></label>
+                <label className="text-xs font-semibold text-slate-600">Columns<input className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm" type="number" min={1} max={20} value={tableColumns} onChange={(event) => setTableColumns(event.target.value)} /></label>
               </div>
               <div className="mt-2 flex flex-wrap gap-1">
                 {["1×1", "2×2", "3×3", "4×5"].map((preset) => { const [rows, columns] = preset.split("×"); return <button key={preset} type="button" className="rounded-md bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-blue-50" onClick={() => { setTableRows(rows); setTableColumns(columns); }}>{preset}</button>; })}
               </div>
-              <button type="button" className="mt-3 w-full rounded-lg bg-blue-600 px-3 py-2 text-sm font-bold text-white hover:bg-blue-700" onClick={insertTable}>Insert</button>
+              <button type="button" className="mt-3 h-9 w-full rounded-lg bg-blue-600 px-3 text-sm font-medium text-white hover:bg-blue-700" onClick={insertTable}>Insert</button>
             </div>
           ) : null}
         </div>
@@ -1132,13 +1133,13 @@ function InsertRibbon({
         />
       </RibbonGroup>
 
-      <RibbonGroup label="Feature">
+      <RibbonGroup label="Educational Blocks">
         <div className="relative">
           <LargeCommand
             icon={
               <Sparkles className="h-6 w-6" />
             }
-            label="Educational Element"
+            label="Educational Blocks"
             onClick={onToggleFeature}
           />
 
@@ -1147,6 +1148,7 @@ function InsertRibbon({
               {EDUCATIONAL_OBJECT_REGISTRY.map(([variant, label]) => (
                 <DropdownButton
                   key={variant}
+                  icon={<EducationalObjectIcon type={variant} className="h-4 w-4" />}
                   label={label}
                   onClick={() => {
                     onInsertFeature(variant);
@@ -1409,9 +1411,11 @@ function DropdownPanel({
 }
 
 function DropdownButton({
+  icon,
   label,
   onClick,
 }: {
+  icon?: React.ReactNode;
   label: string;
   onClick: () => void;
 }) {
@@ -1419,13 +1423,13 @@ function DropdownButton({
     <button
       type="button"
       onClick={onClick}
-      className="block w-full rounded-lg px-3 py-2 text-left text-sm font-semibold text-slate-700 hover:bg-slate-100"
+      className="flex min-h-9 w-full items-center gap-2 rounded-lg px-3 py-1.5 text-left text-sm font-medium text-slate-700 hover:bg-slate-100"
     >
-      {label}
+      {icon ? <span className="text-slate-500">{icon}</span> : null}
+      <span>{label}</span>
     </button>
   );
 }
-
 function styleValue(
   type: ContentBlockType,
 ): ContentBlockType {
