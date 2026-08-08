@@ -100,6 +100,48 @@ test("canvas previews use final visual objects and defer editors to explicit pro
   assert.doesNotMatch(previewRoute, /published: true/);
 });
 
+test("table canvas cells stay directly editable and avoid frame dragging", () => {
+  const tableEditor = readFileSync(new URL("../components/admin/books/editor/blocks/TableBlockEditor.tsx", import.meta.url), "utf8");
+  const layoutFrame = readFileSync(new URL("../components/admin/books/editor/LayoutObjectFrame.tsx", import.meta.url), "utf8");
+  const manuscriptEditor = readFileSync(new URL("../components/admin/books/ContentManuscriptEditor.tsx", import.meta.url), "utf8");
+  assert.match(tableEditor, /contentEditable/);
+  assert.match(tableEditor, /onKeyDown/);
+  assert.match(tableEditor, /event\.key === "Tab"/);
+  assert.match(tableEditor, /onPointerDown=\{\(event\) => event\.stopPropagation\(\)\}/);
+  assert.match(manuscriptEditor, /showControls=\{selected && propertiesOpen\}/);
+  assert.match(layoutFrame, /contenteditable="true"/);
+
+  const document = createContentDocument([{ ...createTableBlock("table", undefined, { rows: 3, columns: 3 }), id: "table-edit" }]);
+  const edited = normalizeContentDocument({
+    ...document,
+    blocks: document.blocks.map((block) => block.type === "table" ? {
+      ...block,
+      rows: block.rows.map((row, rowIndex) => rowIndex === 0 ? {
+        ...row,
+        cells: row.cells.map((cell, cellIndex) => cellIndex === 0 ? { ...cell, text: "Name", spans: [{ text: "Name" }] } : cellIndex === 1 ? { ...cell, text: "Class", spans: [{ text: "Class" }] } : { ...cell, text: "Marks", spans: [{ text: "Marks" }] }),
+      } : row),
+    } : block),
+  });
+  const reloaded = normalizeContentDocument(serializeContentDocument(edited));
+  const table = reloaded.blocks[0];
+  assert.equal(table.type, "table");
+  if (table.type !== "table") return;
+  assert.deepEqual(table.rows[0].cells.slice(0, 3).map((cell) => cell.text), ["Name", "Class", "Marks"]);
+});
+
+test("image preview proxies an authorized draft image inline without changing public download rules", () => {
+  const previewRoute = readFileSync(new URL("../app/api/admin/resources/[id]/preview/route.ts", import.meta.url), "utf8");
+  const downloadPolicy = readFileSync(new URL("../lib/storage/protected-download-policy.ts", import.meta.url), "utf8");
+  const editor = readFileSync(new URL("../components/admin/books/ContentManuscriptEditor.tsx", import.meta.url), "utf8");
+  assert.match(editor, /contentResourcePreviewUrl\(block\.resourceId\)/);
+  assert.match(previewRoute, /ResourceType\.IMAGE/);
+  assert.match(previewRoute, /fetch\(signed\.url/);
+  assert.match(previewRoute, /new NextResponse\(source\.body/);
+  assert.match(previewRoute, /"Content-Type"/);
+  assert.match(previewRoute, /"Content-Disposition"/);
+  assert.doesNotMatch(previewRoute, /published: true/);
+  assert.match(downloadPolicy, /!authorized\.resource\.published/);
+});
 test("activity fields are all optional and a one-line activity survives save/reload", () => {
   const document = normalizeContentDocument({
     blocks: [{

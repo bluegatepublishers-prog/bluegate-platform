@@ -2355,7 +2355,7 @@ function BlockEditor({
 
   return (
     <article className={shell} onFocusCapture={onActivate} onMouseDown={onActivate}>
-      {!(selected && propertiesOpen && isTableBlock(block)) ? (
+      {!isTableBlock(block) ? (
         <ContentDocumentRenderer
           document={normalizeContentDocument({ blocks: [previewBlock] })}
           linkedAssets={resolvedAsset ? { [block.id]: resolvedAsset } : {}}
@@ -2365,6 +2365,9 @@ function BlockEditor({
           sectionDefinitions={sectionDefinitions}
           knowledgeDefinitions={resolvedKnowledge}
         />
+      ) : null}
+      {!collapsed && isTableBlock(block) ? (
+        <TableBlockEditor block={block} onUpdatePatch={onUpdatePatch} onDeleteTable={onDelete} showControls={selected && propertiesOpen} active={selected} />
       ) : null}
       {selected ? (
         <ObjectContextToolbar
@@ -2515,13 +2518,6 @@ function BlockEditor({
           <ImageGalleryEditor block={block} resources={resources} onUpdatePatch={onUpdatePatch} />
         ) : null}
 
-        {!collapsed && isTableBlock(block) ? (
-          <TableBlockEditor
-            block={block}
-            onUpdatePatch={onUpdatePatch}
-            onDeleteTable={onDelete}
-          />
-        ) : null}
 
         {!collapsed && isActivityBlock(block) ? (
           <ActivityBlockEditor

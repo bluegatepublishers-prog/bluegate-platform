@@ -22,7 +22,8 @@ export default function LayoutObjectFrame({ layout, enabled, selected, onChange,
 
   const current = layout ?? { x: 0, y: 0, width: 640, height: 180, zIndex: 0, digital: { width: "content" as const, alignment: "left" as const, visibility: "all" as const } };
   const begin = (event: PointerEvent<HTMLDivElement>) => {
-    if (current.locked || (event.target as HTMLElement).dataset.layoutHandle) return;
+    const target = event.target as HTMLElement;
+    if (current.locked || target.dataset.layoutHandle || target.closest('input, textarea, button, select, [contenteditable="true"], td, th')) return;
     event.currentTarget.setPointerCapture(event.pointerId);
     start.current = { x: event.clientX, y: event.clientY, layout: current };
   };

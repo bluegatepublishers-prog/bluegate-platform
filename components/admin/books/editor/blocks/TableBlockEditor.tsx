@@ -9,11 +9,13 @@ type Props = {
   block: TableBlock;
   onUpdatePatch: (patch: Partial<ContentBlock>) => void;
   onDeleteTable: () => void;
+  showControls?: boolean;
+  active?: boolean;
 };
 
 const field = "rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100";
 
-export default function TableBlockEditor({ block, onUpdatePatch, onDeleteTable }: Props) {
+export default function TableBlockEditor({ block, onUpdatePatch, onDeleteTable, showControls = true, active = true }: Props) {
   const [selection, setSelection] = useState<Selection>({ rowIndex: 0, startCellIndex: 0, endCellIndex: 0 });
   const tableRef = useRef<HTMLDivElement>(null);
   const activeRow = block.rows[selection.rowIndex] ?? block.rows[0];
@@ -135,7 +137,9 @@ export default function TableBlockEditor({ block, onUpdatePatch, onDeleteTable }
   const rowBoundaries = block.rows.slice(0, -1).map((_, index) => block.rows.slice(0, index + 1).reduce((sum, row) => sum + (row.height ?? 56), 0));
 
   return (
-    <div ref={tableRef} className="relative space-y-3 rounded-2xl border border-blue-100 bg-blue-50/30 p-3">
+    <div ref={tableRef} className={active ? "relative space-y-3 rounded-2xl border border-blue-100 bg-blue-50/30 p-3" : "relative"}>
+      {showControls ? (
+      <>
       <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-slate-200 bg-white/95 p-1.5 text-xs shadow-sm" onPointerDown={(event) => event.stopPropagation()}>
         <span className="px-2 font-bold text-slate-700">Table</span>
         <details className="relative">
@@ -188,6 +192,8 @@ export default function TableBlockEditor({ block, onUpdatePatch, onDeleteTable }
         <button type="button" className={button} onClick={() => document.execCommand("italic", false)}>Italic</button>
         <button type="button" className={button} onClick={() => document.execCommand("underline", false)}>Underline</button>
       </div>
+      </>
+      ) : null}
 
       <div className="relative overflow-x-auto">
         <table className="w-full table-fixed border-collapse text-sm" style={{ minHeight: block.layout?.height ? `${Math.max(80, block.layout.height - 80)}px` : undefined }}>
@@ -197,7 +203,7 @@ export default function TableBlockEditor({ block, onUpdatePatch, onDeleteTable }
               return <tr key={row.id} style={{ height: row.height ? `${row.height}px` : undefined }}>
                 {row.cells.map((cell, cellIndex) => {
                   const isHeader = headerRows.includes(rowIndex) || cell.header === true;
-                  const selected = rowIndex === selection.rowIndex && cellIndex >= selection.startCellIndex && cellIndex <= selection.endCellIndex;
+                  const selected = active && rowIndex === selection.rowIndex && cellIndex >= selection.startCellIndex && cellIndex <= selection.endCellIndex;
                   const CellTag = isHeader ? "th" : "td";
                   return <CellTag key={cell.id} colSpan={cell.colSpan} rowSpan={cell.rowSpan} className={`${borderClass(block.tableBorderStyle, rowIndex, cellIndex, block.rows.length, row.cells.length)} ${backgroundClass(cell.background)} ${selected ? "ring-2 ring-inset ring-blue-500" : ""} p-0`} style={{ textAlign: cell.horizontalAlign ?? "left", verticalAlign: cell.verticalAlign ?? "top" }} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); setSelection((current) => ({ rowIndex, startCellIndex: event.shiftKey && current.rowIndex === rowIndex ? Math.min(current.startCellIndex, cellIndex) : cellIndex, endCellIndex: event.shiftKey && current.rowIndex === rowIndex ? Math.max(current.startCellIndex, cellIndex) : cellIndex })); }}>
                     <CellEditor cell={cell} header={isHeader} onChange={(patch) => updateCell(rowIndex, cellIndex, patch)} onNavigate={(direction) => navigateCell(rowIndex, cellIndex, direction, block, setSelection)} />
