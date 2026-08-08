@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { requireStudent } from "@/lib/student-dashboard";
 import { requireTeacher } from "@/lib/teacher-dashboard";
 import { requireSchool } from "@/lib/school-dashboard";
+import { requireSchoolFeature } from "@/lib/school-feature-access";
 import { requirePublisherAdmin } from "@/lib/publisher-context";
 import { isPublisherFeatureEnabled, requirePublisherFeature } from "@/lib/publisher-features";
 import { getPremiumFeatureEntitlementForAuthenticatedUser } from "@/lib/entitlements/features";
@@ -47,8 +48,8 @@ export async function getTeacherAnalyticsReport() {
 
 export async function getSchoolAnalyticsReport() {
   const school = await requireSchool();
+  await requireSchoolFeature("REPORTS");
   if (!school.publisherId) return { summary: null };
-  await requirePublisherFeature(school.publisherId, PlatformFeatureKey.REPORTS);
   await recordTrustedAuditBestEffort({
     actor: accountAuditActor({ id: school.user.id, role: UserRole.SCHOOL, publisherId: school.publisherId }),
     action: "school.assessment.analytics.view",

@@ -1,0 +1,14 @@
+.shell :global(.space-y-8),
+.shell :global(.space-y-7),
+.shell :global(.space-y-6) { row-gap: 1rem; }
+.shell :global(.p-8),
+.shell :global(.p-7),
+.shell :global(.p-6) { padding: 1rem; }
+.shell :global(.sm\:p-6),
+.shell :global(.sm\:p-8),
+.shell :global(.lg\:p-8) { padding: 1.25rem; }
+.shell :global(.rounded-3xl),
+.shell :global(.rounded-2xl) { border-radius: 0.75rem; }
+.shell :global(.text-3xl),
+.shell :global(.text-2xl) { font-size: 1.25rem; line-height: 1.75rem; }
+.shell :global(.min-h-24) { min-height: 4rem; }

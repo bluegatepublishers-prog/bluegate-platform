@@ -37,16 +37,6 @@ export function buildAssignableBookWhere(
     schoolEntitlements: {
       some: { publisherId, schoolId, status: "ACTIVE" },
     },
-    schoolAdoptions: {
-      some: {
-        publisherId,
-        schoolId,
-        academicYearId,
-        sectionSubjectId,
-        status: "APPROVED",
-        active: true,
-      },
-    },
   };
 }
 

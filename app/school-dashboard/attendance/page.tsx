@@ -1,4 +1,5 @@
 import Link from "next/link";
+import SchoolFeatureUnavailable from "@/components/school/SchoolFeatureUnavailable";
 import { redirect } from "next/navigation";
 import { AttendanceSessionType } from "@prisma/client";
 
@@ -6,6 +7,7 @@ import {
   getSchoolAttendanceDashboard,
   getSchoolAttendanceReportSuite,
 } from "@/lib/attendance";
+import { getSchoolFeatureAccess } from "@/lib/school-feature-access";
 
 import {
   bulkLockAttendanceDateAction,
@@ -37,6 +39,7 @@ function summaryPercent(value: number) {
 }
 
 export default async function SchoolAttendancePage({ searchParams }: { searchParams: SearchParams }) {
+  if (!(await getSchoolFeatureAccess("ATTENDANCE")).allowed) return <SchoolFeatureUnavailable label="Attendance" />;
   const query = await searchParams;
   const date = toDateValue(query.date);
   const sessionType = toSessionType(query.sessionType);

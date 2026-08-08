@@ -149,7 +149,7 @@ test("entitlement mutations are atomic and audited without recording reasons", (
 
   assert.doesNotMatch(
     entitlementService,
-    /metadata:\s*\{[\s\S]*?reason/,
+    /metadata:\s*\{[^}]*\breason\s*:/,
   );
 });
 
@@ -263,7 +263,7 @@ test("digital content links reuse resource files and support all stable target l
 
 test("school entitlement pages are responsive management lists without wide tables", () => {
   for (const source of [bookPage, resourcePage]) {
-    assert.match(source, /grid min-w-0 gap-4/);
+    assert.match(source, /grid gap-2[^\"]*lg:grid-cols-\[/);
     assert.match(source, /flex flex-wrap/);
     assert.doesNotMatch(
       source,

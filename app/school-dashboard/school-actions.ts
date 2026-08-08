@@ -6,6 +6,7 @@ import { SchoolStaffMembershipStatus, SchoolStaffRole, SecurityAuditOutcome, Use
 import { prisma } from "@/lib/prisma";
 import { hashPassword } from "@/lib/password";
 import { requireSchool } from "@/lib/school-dashboard";
+import { issueSchoolTeacherActivation } from "@/lib/school-teacher-activation";
 import { deleteFile, isManagedFileUrl } from "@/lib/storage";
 import { normalizeAndValidateObjectKey } from "@/lib/storage/object-key";
 import { accountAuditActor, writeSecurityAuditEvent } from "@/lib/security-audit";
@@ -48,13 +49,15 @@ export async function createSchoolTeacher(form: FormData) {
   const teacherEmail = email(form);
   if (!name || !teacherEmail || !teacherEmail.includes("@")) return;
   const password = await hashPassword(randomBytes(32).toString("base64url"));
-  await prisma.$transaction(async (tx) => {
-    const user = await tx.user.create({ data: { name, email: teacherEmail, password, role: "TEACHER", phone: value(form, "phone", 30) || null } });
+  const created = await prisma.$transaction(async (tx) => {
+    const user = await tx.user.create({ data: { name, email: teacherEmail, password, role: "TEACHER", publisherId: school.publisherId, phone: value(form, "phone", 30) || null, mustChangePassword: true } });
     const teacher = await tx.teacher.create({ data: { userId: user.id, schoolId: school.id, schoolName: school.schoolName, designation: value(form, "designation", 80) || "Teacher", subject: "Assigned through school", classes: "Assigned through school", verified: true, active: true } });
     await tx.schoolStaffMembership.create({
       data: { schoolId: school.id, userId: user.id, teacherId: teacher.id, role: SchoolStaffRole.TEACHER, status: SchoolStaffMembershipStatus.ACTIVE, active: true, activeKey: `${school.id}:${user.id}`, joinedAt: new Date() },
     });
+    return { id: user.id, email: user.email };
   });
+  await issueSchoolTeacherActivation(created, school.schoolName);
   revalidatePath("/school-dashboard/teachers");
   revalidatePath("/school-dashboard/staff");
   revalidatePath("/school-dashboard");
@@ -120,11 +123,11 @@ export async function addSchoolStaffMembership(form: FormData) {
     select: {
       id: true,
       role: true,
-      teacher: { select: { id: true, schoolId: true } },
+      teacher: { select: { id: true, schoolId: true, active: true } },
     },
   });
   if (!user) return;
-  if (role === SchoolStaffRole.TEACHER && user.teacher?.schoolId !== school.id) return;
+  if (role === SchoolStaffRole.TEACHER && (user.role !== UserRole.TEACHER || user.teacher?.schoolId !== school.id || !user.teacher.active)) return;
   await prisma.schoolStaffMembership.create({
     data: {
       schoolId: school.id,
@@ -148,9 +151,10 @@ export async function updateSchoolStaffMembership(form: FormData) {
   if (!membershipId || !Object.values(SchoolStaffRole).includes(roleInput as SchoolStaffRole)) return;
   const membership = await prisma.schoolStaffMembership.findFirst({
     where: { id: membershipId, schoolId: school.id },
-    select: { id: true, userId: true, teacherId: true, active: true },
+    select: { id: true, userId: true, teacherId: true, active: true, user: { select: { role: true, teacher: { select: { id: true, schoolId: true, active: true } } } } },
   });
   if (!membership) return;
+  if (roleInput === SchoolStaffRole.TEACHER && (membership.user.role !== UserRole.TEACHER || membership.user.teacher?.schoolId !== school.id || !membership.user.teacher.active)) return;
   if (active && !membership.active) {
     await prisma.schoolStaffMembership.create({
       data: {

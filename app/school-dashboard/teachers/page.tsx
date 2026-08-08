@@ -47,9 +47,9 @@ export default async function SchoolTeachersPage({
           </button>
         </form>
         <p className="mt-4 text-sm text-slate-500">
-          A secure random password is created but never displayed. The teacher
-          establishes access through password reset, then receives classes and
-          subjects from Teacher Assignments.
+          A secure activation email is sent after account creation. The teacher
+          chooses a private password, then receives classes and subjects from
+          Teacher Assignments.
         </p>
       </details>
 

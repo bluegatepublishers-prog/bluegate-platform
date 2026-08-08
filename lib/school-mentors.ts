@@ -24,6 +24,7 @@ import { isPublisherFeatureEnabled } from "@/lib/publisher-features";
 import { effectiveSchoolAccessStatus } from "@/lib/school-access-policy";
 import { isSchoolFeatureEnabled } from "@/lib/school-feature-entitlements";
 import { requireSchool } from "@/lib/school-dashboard";
+import { requireSchoolFeature } from "@/lib/school-feature-access";
 
 export class SchoolMentorError extends Error {}
 
@@ -37,6 +38,7 @@ function accountStatus(user: { active: boolean; emailVerifiedAt: Date | null; mu
 
 export async function getSchoolMentors() {
   const school = await requireSchool();
+  await requireSchoolFeature("MENTOR_PORTAL");
   const [rows, publisherFeatureEnabled, subscription] = await Promise.all([
     prisma.schoolStaffMembership.findMany({
       where: {
@@ -100,6 +102,7 @@ export async function getSchoolMentors() {
 
 export async function getSchoolMentor(mentorId: string) {
   const school = await requireSchool();
+  await requireSchoolFeature("MENTOR_PORTAL");
   const membership = await prisma.schoolStaffMembership.findFirst({
     where: { schoolId: school.id, user: { role: UserRole.MENTOR, mentor: { is: { id: mentorId, publisherId: school.publisherId ?? "" } } } },
     include: {
@@ -226,6 +229,7 @@ async function issueActivation(user: { id: string; email: string }, schoolName: 
 
 export async function createSchoolMentor(input: Record<string, unknown>) {
   const school = await requireSchool();
+  await requireSchoolFeature("MENTOR_PORTAL");
   const publisherId = school.publisherId;
   if (!publisherId || !await isPublisherFeatureEnabled(publisherId, PlatformFeatureKey.TUTOR_PLATFORM)) {
     throw new SchoolMentorError("Mentor onboarding is not enabled for this school.");

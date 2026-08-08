@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { getSchoolResourceScope } from "@/lib/resource-audience";
 import { buildSchoolSetupChecklist } from "@/lib/school-setup-checklist";
 import { isPublisherFeatureEnabled } from "@/lib/publisher-features";
+import { getSchoolFeatureAccessForSchool, requireSchoolFeature } from "@/lib/school-feature-access";
 import { decideSchoolAccess } from "@/lib/school-access-policy";
 
 export class SchoolDashboardAccessError extends Error {}
@@ -35,9 +36,10 @@ export async function getSchoolHomeData() {
   const end = new Date(start);
   end.setDate(end.getDate() + 1);
 
-  const [students, teachers, staff, classes, sections, planner, analytics, recentStudents, recentTeachers] = await prisma.$transaction([
+  const [students, teachers, teacherAssignments, staff, classes, sections, planner, analytics, recentStudents, recentTeachers] = await prisma.$transaction([
     prisma.student.count({ where: { schoolId: school.id, active: true } }),
     prisma.teacher.count({ where: { schoolId: school.id, active: true } }),
+    prisma.teacherAssignment.count({ where: { schoolId: school.id, active: true } }),
     prisma.schoolStaffMembership.count({ where: { schoolId: school.id, active: true, status: "ACTIVE" } }),
     prisma.schoolClass.count({ where: { schoolId: school.id, academicYearId: yearId, active: true } }),
     prisma.classSection.count({ where: { active: true, schoolClass: { schoolId: school.id, academicYearId: yearId, active: true } } }),
@@ -51,6 +53,7 @@ export async function getSchoolHomeData() {
     prisma.teacher.findMany({ where: { schoolId: school.id }, select: { id: true, user: { select: { name: true, createdAt: true } } }, orderBy: { user: { createdAt: "desc" } }, take: 4 }),
   ]);
 
+  // When disabled, the home model intentionally returns attendance: null.
   let attendanceStats: {
     percentage: number | null;
     present: number;
@@ -65,7 +68,7 @@ export async function getSchoolHomeData() {
     pendingCorrections: 0,
   };
 
-  if (yearId) {
+  if (yearId && (await getSchoolFeatureAccessForSchool(school, "ATTENDANCE")).allowed) {
     const [todaySessions, pendingCorrectionsCount, sectionCount] = await prisma.$transaction([
       prisma.attendanceSession.findMany({
         where: {
@@ -106,6 +109,14 @@ export async function getSchoolHomeData() {
   }
   const scores = analytics.flatMap((item) => item.averageAssessment == null ? [] : [item.averageAssessment]);
   return {
+    checklist: buildSchoolSetupChecklist({
+      hasProfileBasics: Boolean(school.schoolName?.trim() && school.city?.trim() && school.state?.trim() && school.user?.email?.trim()),
+      hasCurrentAcademicYear: Boolean(currentYear),
+      hasSections: sections > 0,
+      hasStaff: teachers > 0 || staff > 0,
+      hasStudents: students > 0,
+      hasTeacherAssignments: teacherAssignments > 0,
+    }),
     school, currentYear,
     stats: {
       students,
@@ -137,6 +148,7 @@ export async function getSchoolHomeData() {
 
 export async function getSchoolParents() {
   const school = await requireSchool();
+  await requireSchoolFeature("PARENT_PORTAL");
   return prisma.parent.findMany({
     where: { relationships: { some: { student: { schoolId: school.id } } } },
     include: {
@@ -149,6 +161,7 @@ export async function getSchoolParents() {
 
 export async function getSchoolPlannerData() {
   const school = await requireSchool();
+  await requireSchoolFeature("PLANNER");
   const year = await prisma.academicYear.findFirst({ where: { schoolId: school.id, current: true, active: true }, select: { id: true, name: true } });
   const items = year ? await prisma.academicPlannerItem.findMany({
     where: { schoolId: school.id, academicYearId: year.id },
@@ -166,7 +179,7 @@ export async function getSchoolAcademicHub() {
     prisma.schoolClass.findMany({ where: { schoolId: school.id, academicYearId: yearId, active: true }, include: { sections: { where: { active: true }, select: { id: true, name: true } } }, orderBy: [{ sortOrder: "asc" }, { name: "asc" }] }),
     prisma.sectionSubject.findMany({ where: { active: true, section: { active: true, schoolClass: { schoolId: school.id, academicYearId: yearId, active: true } } }, include: { subject: { select: { id: true, name: true } }, section: { include: { schoolClass: { select: { name: true } } } } }, orderBy: { subject: { name: "asc" } } }),
     prisma.teacherAssignment.count({ where: { schoolId: school.id, academicYearId: yearId, active: true } }),
-    prisma.schoolBookAdoption.count({ where: { schoolId: school.id, active: true } }),
+    prisma.schoolBookEntitlement.count({ where: { schoolId: school.id, status: "ACTIVE" } }),
     prisma.schoolResourceEntitlement.count({ where: { schoolId: school.id, status: "ACTIVE" } }),
   ]);
   const uniqueSubjects = [...new Map(subjects.map((item) => [item.subject.id, item.subject])).values()];
@@ -309,10 +322,12 @@ export async function getSchoolResources(filters: { query?: string; classLevel?:
   if (
     !school.publisherId ||
     !await isPublisherFeatureEnabled(school.publisherId, PlatformFeatureKey.RESOURCES)
-  ) notFound();
+  ) return { resources: [], catalog: [], classes: [], subjects: [], schoolClasses: [] };
   const catalogWhere: Prisma.ResourceWhereInput = {
     publisherId: school.publisherId,
     published: true,
+    archived: false,
+    schoolEntitlements: { some: { schoolId: school.id, publisherId: school.publisherId, status: "ACTIVE" } },
   };
   const assignedWhere: Prisma.ResourceWhereInput = {
     ...catalogWhere,

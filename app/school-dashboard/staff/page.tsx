@@ -5,6 +5,7 @@ import { addSchoolStaffMembership, updateSchoolStaffMembership } from "../school
 export const dynamic = "force-dynamic";
 
 const input = "w-full rounded-xl border px-4 py-3";
+const STAFF_ROLES = [SchoolStaffRole.ADMINISTRATOR, SchoolStaffRole.PRINCIPAL, SchoolStaffRole.COORDINATOR, SchoolStaffRole.TEACHER, SchoolStaffRole.OTHER] as const;
 
 export default async function SchoolStaffPage({
   searchParams,
@@ -33,7 +34,7 @@ export default async function SchoolStaffPage({
         <form action={addSchoolStaffMembership} className="mt-4 grid gap-4 md:grid-cols-3">
           <input name="identifier" required placeholder="User email or ID" className={input} />
           <select name="role" required className={input} defaultValue={SchoolStaffRole.TEACHER}>
-            {Object.values(SchoolStaffRole).map((role) => (
+            {STAFF_ROLES.map((role) => (
               <option key={role} value={role}>
                 {friendlyRole(role)}
               </option>
@@ -49,7 +50,7 @@ export default async function SchoolStaffPage({
           <input name="query" defaultValue={params.query || ""} placeholder="Search by name or email" className={input} />
           <select name="role" defaultValue={params.role || ""} className={input}>
             <option value="">All roles</option>
-            {Object.values(SchoolStaffRole).map((role) => (
+            {STAFF_ROLES.map((role) => (
               <option key={role} value={role}>
                 {friendlyRole(role)}
               </option>
@@ -76,7 +77,7 @@ export default async function SchoolStaffPage({
               <form action={updateSchoolStaffMembership} className="mt-4 space-y-3">
                 <input type="hidden" name="membershipId" value={membership.id} />
                 <select name="role" defaultValue={membership.role} className={input}>
-                  {Object.values(SchoolStaffRole).map((role) => (
+                  {STAFF_ROLES.map((role) => (
                     <option key={role} value={role}>
                       {friendlyRole(role)}
                     </option>

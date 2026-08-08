@@ -13,6 +13,7 @@ import {
 
 import { prisma } from "@/lib/prisma";
 import { getPlatformFeatureAvailability } from "@/lib/publisher-features";
+import { requireSchoolFeature } from "@/lib/school-feature-access";
 import { requireSchool } from "@/lib/school-dashboard";
 import { isSchoolFeatureEnabled } from "@/lib/school-feature-entitlements";
 import { requireTeacher } from "@/lib/teacher-dashboard";
@@ -135,6 +136,7 @@ async function getSchoolAttendancePolicyBySchoolId(schoolId: string) {
 }
 
 export async function getSchoolAttendancePolicy() {
+  await requireSchoolFeature("ATTENDANCE");
   const school = await requireSchool();
   return getSchoolAttendancePolicyBySchoolId(school.id);
 }
@@ -607,6 +609,7 @@ function inWorkingDays(dayOfWeek: number, workingDays: number[]) {
 }
 
 export async function getSchoolAttendanceDashboard(input: SchoolAttendanceDashboardInput = {}) {
+  await requireSchoolFeature("ATTENDANCE");
   const school = await requireSchool();
   const date = parseDateInput(input.date);
   const { start, end } = dayBounds(date);
@@ -891,6 +894,7 @@ export async function getSchoolAttendanceDashboard(input: SchoolAttendanceDashbo
 }
 
 export async function getSchoolAttendanceSessionDetail(sessionId: string) {
+  await requireSchoolFeature("ATTENDANCE");
   const school = await requireSchool();
   const academicYearId = await currentAcademicYearId(school.id);
   if (!academicYearId) throw new Error("Current academic year is not configured.");
@@ -938,6 +942,7 @@ export async function getSchoolAttendanceSessionDetail(sessionId: string) {
 }
 
 export async function lockSchoolAttendanceSession(sessionId: string) {
+  await requireSchoolFeature("ATTENDANCE");
   const school = await requireSchool();
   const academicYearId = await currentAcademicYearId(school.id);
   if (!academicYearId) throw new Error("Current academic year is not configured.");
@@ -964,6 +969,7 @@ export async function lockSchoolAttendanceSession(sessionId: string) {
 }
 
 export async function bulkLockSchoolAttendanceByDate(input: { date: string }) {
+  await requireSchoolFeature("ATTENDANCE");
   const school = await requireSchool();
   const academicYearId = await currentAcademicYearId(school.id);
   if (!academicYearId) throw new Error("Current academic year is not configured.");
@@ -1007,6 +1013,7 @@ export async function reviewAttendanceCorrection(input: {
   decisionNote?: string;
 }) {
   const school = await requireSchool();
+  await requireSchoolFeature("ATTENDANCE");
   const policy = await getSchoolAttendancePolicyBySchoolId(school.id);
   const note = input.decisionNote?.trim() || null;
 
@@ -1096,6 +1103,7 @@ export async function getSchoolTeacherCompletion(input: {
   sessionType?: AttendanceSessionType;
 }) {
   const school = await requireSchool();
+  await requireSchoolFeature("ATTENDANCE");
   const policy = await getSchoolAttendancePolicyBySchoolId(school.id);
   const currentYearId = await currentAcademicYearId(school.id);
   const academicYearId = input.academicYearId ?? currentYearId;
@@ -1252,6 +1260,7 @@ export async function getSchoolAttendanceReport(input: {
   date?: Date;
 }) {
   const school = await requireSchool();
+  await requireSchoolFeature("ATTENDANCE");
   const policy = await getSchoolAttendancePolicyBySchoolId(school.id);
   const date = input.date ?? new Date();
   const year = await prisma.academicYear.findFirst({
@@ -1406,6 +1415,7 @@ export async function updateSchoolAttendancePolicy(input: {
   excludeHolidays: boolean;
 }) {
   const school = await requireSchool();
+  await requireSchoolFeature("ATTENDANCE");
 
   if (input.minimumAttendancePercentage < 0 || input.minimumAttendancePercentage > 100) {
     throw new Error("Minimum attendance percentage must be between 0 and 100.");

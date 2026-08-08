@@ -180,13 +180,7 @@ export async function saveSectionSubjectContent(schoolClassId: string, form: For
 
 export async function assignApprovedBook(schoolClassId: string, form: FormData) {
   const school = await requireSchool();
-  if (
-    !school.publisherId ||
-    !await isPublisherFeatureEnabled(
-      school.publisherId,
-      PlatformFeatureKey.BOOK_APPROVALS,
-    )
-  ) return;
+  if (!school.publisherId) return;
   const sectionSubjectId = text(form, "sectionSubjectId");
   const bookId = text(form, "bookId") || null;
   const link = await prisma.sectionSubject.findFirst({
