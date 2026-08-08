@@ -135,32 +135,52 @@ export default function TableBlockEditor({ block, onUpdatePatch, onDeleteTable }
   const rowBoundaries = block.rows.slice(0, -1).map((_, index) => block.rows.slice(0, index + 1).reduce((sum, row) => sum + (row.height ?? 56), 0));
 
   return (
-    <div ref={tableRef} className="relative space-y-3 rounded-2xl border border-blue-100 bg-blue-50/30 p-3" onPointerDown={(event) => event.stopPropagation()}>
-      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white p-2 text-xs">
-        <span className="font-bold text-slate-700">Table</span>
-        <button type="button" className={button} onClick={() => insertRow("above")}>Row above</button>
-        <button type="button" className={button} onClick={() => insertRow("below")}>Row below</button>
-        <button type="button" className={button} onClick={() => insertColumn("left")}>Column left</button>
-        <button type="button" className={button} onClick={() => insertColumn("right")}>Column right</button>
-        <button type="button" className={button} onClick={deleteRow} disabled={block.rows.length <= 1}>Delete row</button>
-        <button type="button" className={button} onClick={deleteColumn} disabled={columnCount(block) <= 1}>Delete column</button>
-        <button type="button" className={button} onClick={mergeCells} disabled={selection.endCellIndex <= selection.startCellIndex}>Merge</button>
-        <button type="button" className={button} onClick={splitCell} disabled={(activeCell?.colSpan ?? 1) <= 1}>Split</button>
-        <button type="button" className={button} onClick={toggleHeaderRow}>{headerRows.includes(selection.rowIndex) ? "Unset header" : "Set header"}</button>
-        <select className={field} value={block.tableBorderStyle ?? "all"} onChange={(event) => patchTable({ tableBorderStyle: event.target.value as TableBlock["tableBorderStyle"] })} aria-label="Table borders">
-          <option value="all">All borders</option><option value="outer">Outer border</option><option value="inner">Inner borders</option><option value="none">No border</option>
-        </select>
-        <select className={field} value={activeCell?.horizontalAlign ?? "left"} onChange={(event) => updateCell(selection.rowIndex, selection.startCellIndex, { horizontalAlign: event.target.value as TableCell["horizontalAlign"] })} aria-label="Cell horizontal alignment">
-          <option value="left">Left</option><option value="center">Centre</option><option value="right">Right</option>
-        </select>
-        <select className={field} value={activeCell?.verticalAlign ?? "top"} onChange={(event) => updateCell(selection.rowIndex, selection.startCellIndex, { verticalAlign: event.target.value as TableCell["verticalAlign"] })} aria-label="Cell vertical alignment">
-          <option value="top">Top</option><option value="middle">Middle</option><option value="bottom">Bottom</option>
-        </select>
-        <select className={field} value={activeCell?.background ?? "none"} onChange={(event) => updateCell(selection.rowIndex, selection.startCellIndex, { background: event.target.value as TableCell["background"] })} aria-label="Cell background">
-          <option value="none">No fill</option><option value="muted">Muted</option><option value="accent">Accent</option><option value="highlight">Highlight</option>
-        </select>
-        <span className="ml-auto text-slate-500">Cell {selection.rowIndex + 1}:{selection.startCellIndex + 1}</span>
-        <button type="button" className="rounded-lg bg-rose-50 px-2 py-1 font-semibold text-rose-700" onClick={onDeleteTable}>Delete table</button>
+    <div ref={tableRef} className="relative space-y-3 rounded-2xl border border-blue-100 bg-blue-50/30 p-3">
+      <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-slate-200 bg-white/95 p-1.5 text-xs shadow-sm" onPointerDown={(event) => event.stopPropagation()}>
+        <span className="px-2 font-bold text-slate-700">Table</span>
+        <details className="relative">
+          <summary className={menuButton}>Table <span aria-hidden="true">▾</span></summary>
+          <div className={menuPanel}>
+            <button type="button" className={button} onClick={() => insertRow("above")}>Add row above</button>
+            <button type="button" className={button} onClick={() => insertRow("below")}>Add row below</button>
+            <button type="button" className={button} onClick={() => insertColumn("left")}>Add column left</button>
+            <button type="button" className={button} onClick={() => insertColumn("right")}>Add column right</button>
+            <button type="button" className={button} onClick={deleteRow} disabled={block.rows.length <= 1}>Delete row</button>
+            <button type="button" className={button} onClick={deleteColumn} disabled={columnCount(block) <= 1}>Delete column</button>
+            <button type="button" className="rounded-lg px-2 py-1 text-left font-semibold text-rose-700 hover:bg-rose-50" onClick={onDeleteTable}>Delete table</button>
+          </div>
+        </details>
+        <details className="relative">
+          <summary className={menuButton}>Cell <span aria-hidden="true">▾</span></summary>
+          <div className={menuPanel}>
+            <button type="button" className={button} onClick={mergeCells} disabled={selection.endCellIndex <= selection.startCellIndex}>Merge cells</button>
+            <button type="button" className={button} onClick={splitCell} disabled={(activeCell?.colSpan ?? 1) <= 1}>Split cell</button>
+            <button type="button" className={button} onClick={toggleHeaderRow}>{headerRows.includes(selection.rowIndex) ? "Unset header" : "Set header"}</button>
+            <select className={field} value={activeCell?.background ?? "none"} onChange={(event) => updateCell(selection.rowIndex, selection.startCellIndex, { background: event.target.value as TableCell["background"] })} aria-label="Cell background">
+              <option value="none">No fill</option><option value="muted">Muted</option><option value="accent">Accent</option><option value="highlight">Highlight</option>
+            </select>
+          </div>
+        </details>
+        <details className="relative">
+          <summary className={menuButton}>Borders <span aria-hidden="true">▾</span></summary>
+          <div className={menuPanel}>
+            <select className={field} value={block.tableBorderStyle ?? "all"} onChange={(event) => patchTable({ tableBorderStyle: event.target.value as TableBlock["tableBorderStyle"] })} aria-label="Table borders">
+              <option value="all">All borders</option><option value="outer">Outer border</option><option value="inner">Inner borders</option><option value="none">No border</option>
+            </select>
+          </div>
+        </details>
+        <details className="relative">
+          <summary className={menuButton}>Align <span aria-hidden="true">▾</span></summary>
+          <div className={menuPanel}>
+            <select className={field} value={activeCell?.horizontalAlign ?? "left"} onChange={(event) => updateCell(selection.rowIndex, selection.startCellIndex, { horizontalAlign: event.target.value as TableCell["horizontalAlign"] })} aria-label="Cell horizontal alignment">
+              <option value="left">Left</option><option value="center">Centre</option><option value="right">Right</option>
+            </select>
+            <select className={field} value={activeCell?.verticalAlign ?? "top"} onChange={(event) => updateCell(selection.rowIndex, selection.startCellIndex, { verticalAlign: event.target.value as TableCell["verticalAlign"] })} aria-label="Cell vertical alignment">
+              <option value="top">Top</option><option value="middle">Middle</option><option value="bottom">Bottom</option>
+            </select>
+          </div>
+        </details>
+        <span className="ml-auto px-2 text-slate-500">Cell {selection.rowIndex + 1}:{selection.startCellIndex + 1}</span>
       </div>
 
       <div className="flex gap-1 rounded-xl border border-slate-200 bg-white p-1 text-xs" onMouseDown={(event) => event.preventDefault()}>
@@ -179,7 +199,7 @@ export default function TableBlockEditor({ block, onUpdatePatch, onDeleteTable }
                   const isHeader = headerRows.includes(rowIndex) || cell.header === true;
                   const selected = rowIndex === selection.rowIndex && cellIndex >= selection.startCellIndex && cellIndex <= selection.endCellIndex;
                   const CellTag = isHeader ? "th" : "td";
-                  return <CellTag key={cell.id} colSpan={cell.colSpan} rowSpan={cell.rowSpan} className={`${borderClass(block.tableBorderStyle, rowIndex, cellIndex, block.rows.length, row.cells.length)} ${backgroundClass(cell.background)} ${selected ? "ring-2 ring-inset ring-blue-500" : ""} p-0`} style={{ textAlign: cell.horizontalAlign ?? "left", verticalAlign: cell.verticalAlign ?? "top" }} onClick={(event) => { event.stopPropagation(); setSelection((current) => ({ rowIndex, startCellIndex: event.shiftKey && current.rowIndex === rowIndex ? Math.min(current.startCellIndex, cellIndex) : cellIndex, endCellIndex: event.shiftKey && current.rowIndex === rowIndex ? Math.max(current.startCellIndex, cellIndex) : cellIndex })); }}>
+                  return <CellTag key={cell.id} colSpan={cell.colSpan} rowSpan={cell.rowSpan} className={`${borderClass(block.tableBorderStyle, rowIndex, cellIndex, block.rows.length, row.cells.length)} ${backgroundClass(cell.background)} ${selected ? "ring-2 ring-inset ring-blue-500" : ""} p-0`} style={{ textAlign: cell.horizontalAlign ?? "left", verticalAlign: cell.verticalAlign ?? "top" }} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); setSelection((current) => ({ rowIndex, startCellIndex: event.shiftKey && current.rowIndex === rowIndex ? Math.min(current.startCellIndex, cellIndex) : cellIndex, endCellIndex: event.shiftKey && current.rowIndex === rowIndex ? Math.max(current.startCellIndex, cellIndex) : cellIndex })); }}>
                     <CellEditor cell={cell} header={isHeader} onChange={(patch) => updateCell(rowIndex, cellIndex, patch)} onNavigate={(direction) => navigateCell(rowIndex, cellIndex, direction, block, setSelection)} />
                   </CellTag>;
                 })}
@@ -201,7 +221,7 @@ function CellEditor({ cell, header, onChange, onNavigate }: { cell: TableCell; h
     if (!ref.current || editing.current) return;
     ref.current.innerHTML = spansToHtml(cell.spans?.length ? cell.spans : [{ text: cell.text }]);
   }, [cell.spans, cell.text]);
-  return <div ref={ref} contentEditable suppressContentEditableWarning role={header ? "columnheader" : "cell"} className="min-h-12 w-full whitespace-pre-wrap break-words px-3 py-3 outline-none" onFocus={() => { editing.current = true; }} onBlur={() => { editing.current = false; }} onKeyDown={(event) => { if (event.key === "Tab") { event.preventDefault(); onNavigate(event.shiftKey ? -1 : 1); } }} onInput={(event) => { const spans = spansFromElement(event.currentTarget); onChange({ text: spans.map((span) => span.text).join(""), spans }); }} />;
+  return <div ref={ref} contentEditable suppressContentEditableWarning role={header ? "columnheader" : "cell"} className="min-h-12 w-full whitespace-pre-wrap break-words px-3 py-3 outline-none" onPointerDown={(event) => event.stopPropagation()} onFocus={() => { editing.current = true; }} onBlur={() => { editing.current = false; }} onKeyDown={(event) => { if (event.key === "Tab") { event.preventDefault(); onNavigate(event.shiftKey ? -1 : 1); } }} onInput={(event) => { const spans = spansFromElement(event.currentTarget); onChange({ text: spans.map((span) => span.text).join(""), spans }); }} />;
 }
 
 function navigateCell(rowIndex: number, cellIndex: number, direction: -1 | 1, block: TableBlock, setSelection: (selection: Selection) => void) {
@@ -226,3 +246,5 @@ function spansFromElement(element: Element) { const spans: RichTextSpan[] = []; 
 function escapeHtml(value: string) { return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
 function createId(prefix: string) { return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`; }
 const button = "rounded-lg border border-slate-200 px-2 py-1 font-semibold text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40";
+const menuButton = "list-none cursor-pointer rounded-lg border border-slate-200 px-2.5 py-1.5 font-semibold text-slate-600 hover:bg-slate-50 [&::-webkit-details-marker]:hidden";
+const menuPanel = "absolute left-0 top-full z-30 mt-1 grid min-w-48 gap-1 rounded-xl border border-slate-200 bg-white p-2 shadow-xl";

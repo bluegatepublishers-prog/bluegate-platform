@@ -351,17 +351,28 @@ export async function POST(request: Request) {
       status: 201,
     });
   } catch (error) {
+    const errorRecord = isRecord(error) ? error : null;
     console.error("Publisher resource creation failed", {
-      name: error instanceof Error ? error.name : "UnknownError",
-      message: error instanceof Error ? error.message : String(error),
-      code: isRecord(error) && typeof error.code === "string" ? error.code : undefined,
-      meta: isRecord(error) && isRecord(error.meta) ? error.meta : undefined,
+      prismaErrorName: error instanceof Error ? error.name : "UnknownError",
+      prismaErrorCode: errorRecord && typeof errorRecord.code === "string" ? errorRecord.code : undefined,
+      prismaMessage: error instanceof Error ? error.message : String(error),
+      prismaMeta: errorRecord && isRecord(errorRecord.meta) ? errorRecord.meta : undefined,
       publisherId: actor.publisherId,
+      classId,
+      subjectId,
+      seriesId,
       bookId,
       chapterId: scopedChapterId,
       moduleId: scopedModuleId,
       resourceType: type,
+      resourceAudience: audience,
       mimeType,
+      originalFileName,
+      fileSizeBytes: fileSizeBytes?.toString() ?? null,
+      fileKey: fileUrl,
+      thumbnailKey: thumbnail,
+      published: body.published !== false,
+      lifecycleStatus: trimToNull(body.status) ?? trimToNull(body.lifecycleStatus),
     });
 
     await Promise.all([

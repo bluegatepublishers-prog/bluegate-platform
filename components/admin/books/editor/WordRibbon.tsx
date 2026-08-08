@@ -1058,7 +1058,7 @@ function InsertRibbon({
           icon={
             <PlayCircle className="h-6 w-6" />
           }
-          label="Media"
+          label="Video"
           onClick={() => onInsert("media")}
         />
 
@@ -1138,7 +1138,7 @@ function InsertRibbon({
             icon={
               <Sparkles className="h-6 w-6" />
             }
-            label="Feature Box"
+            label="Educational Element"
             onClick={onToggleFeature}
           />
 

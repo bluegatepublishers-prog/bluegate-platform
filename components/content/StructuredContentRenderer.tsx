@@ -134,7 +134,7 @@ function RenderedBlock({
   );
   return (
     <section className={`min-w-0 max-w-full ${blockShellClass(block)}`}>
-      {block.title && !block.collapsed ? (
+      {block.title && !block.collapsed && !isEducationalObjectBlock(block) ? (
         <div className="mb-3 flex items-center gap-2">
           {block.icon ? (
             <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-white/90 text-sm ring-1 ring-slate-200">
@@ -246,22 +246,45 @@ function renderBlockBody(
 
   if (isImageBlock(block)) {
     const src = sanitizeUrl(block.url);
+    const crop = normalizeImageCrop(block.crop);
+    const isCropped = crop.x > 0 || crop.y > 0 || crop.width < 1 || crop.height < 1;
+    const image = src ? (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={src}
+        alt={block.alt || "Illustration"}
+        className={`${imageWidthClass(block.width)} ${imageFloatClass(block.float)} rounded-3xl object-contain`}
+        loading="lazy"
+        referrerPolicy="no-referrer"
+      />
+    ) : (
+      <div className="flex min-h-64 items-center justify-center rounded-3xl border border-dashed border-slate-300 bg-slate-50 text-sm text-slate-500">
+        Image unavailable
+      </div>
+    );
     return (
       <figure className={alignmentWrapper(block.align)}>
-        {src ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={src}
-            alt={block.alt || "Illustration"}
-            className={`${imageWidthClass(block.width)} ${imageFloatClass(block.float)} rounded-3xl object-contain`}
-            loading="lazy"
-            referrerPolicy="no-referrer"
-          />
-        ) : (
-          <div className="flex min-h-64 items-center justify-center rounded-3xl border border-dashed border-slate-300 bg-slate-50 text-sm text-slate-500">
-            Image unavailable
+        {isCropped && src ? (
+          <div
+            className={`${imageWidthClass(block.width)} ${imageFloatClass(block.float)} relative overflow-hidden rounded-3xl`}
+            style={{ aspectRatio: `${crop.width} / ${crop.height}` }}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={src}
+              alt={block.alt || "Illustration"}
+              className="absolute max-w-none rounded-none object-contain"
+              style={{
+                width: `${100 / crop.width}%`,
+                height: `${100 / crop.height}%`,
+                left: `${-(crop.x / crop.width) * 100}%`,
+                top: `${-(crop.y / crop.height) * 100}%`,
+              }}
+              loading="lazy"
+              referrerPolicy="no-referrer"
+            />
           </div>
-        )}
+        ) : image}
         {block.caption ? (
           <figcaption className="mt-3 min-w-0 whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-sm leading-6 text-slate-500">{block.caption}</figcaption>
         ) : null}
@@ -535,7 +558,7 @@ function MediaBlockView({
           href={media.route.href}
           className="mt-2 inline-flex rounded-full bg-slate-950 px-4 py-2 text-sm font-bold text-white"
         >
-          Open {label}
+          <span aria-hidden="true">▶</span> {label}
         </a>
         {caption ? <p className="mt-3 min-w-0 whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-sm leading-6 text-slate-500">{caption}</p> : null}
       </div>
@@ -606,6 +629,13 @@ function ResponsiveTable({ block }: { block: TableBlock }) {
   );
 }
 
+function normalizeImageCrop(crop: Extract<ContentBlock, { type: "image" | "diagram" }>["crop"] | undefined) {
+  const x = Math.min(0.99, Math.max(0, crop?.x ?? 0));
+  const y = Math.min(0.99, Math.max(0, crop?.y ?? 0));
+  const width = Math.min(1 - x, Math.max(0.01, crop?.width ?? 1));
+  const height = Math.min(1 - y, Math.max(0.01, crop?.height ?? 1));
+  return { x, y, width, height };
+}
 function isLegacyTableBlock(_block: ContentBlock): _block is TableBlock {
   return Boolean(_block && false);
 }

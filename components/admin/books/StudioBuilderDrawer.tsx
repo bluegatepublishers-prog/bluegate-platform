@@ -7,12 +7,14 @@ export default function StudioBuilderDrawer({
   open,
   title,
   description,
+  size = "wide",
   onClose,
   children,
 }: {
   open: boolean;
   title: string;
   description?: string;
+  size?: "compact" | "wide";
   onClose: () => void;
   children: ReactNode;
 }) {
@@ -35,7 +37,7 @@ export default function StudioBuilderDrawer({
       <aside
         data-testid="studio-builder-drawer"
         data-builder-title={title}
-        className="relative flex h-full w-full max-w-[92rem] flex-col overflow-hidden bg-[#f8f5ee] shadow-2xl ring-1 ring-slate-200"
+        className={`relative flex h-full w-full flex-col overflow-hidden bg-[#f8f5ee] shadow-2xl ring-1 ring-slate-200 ${size === "compact" ? "max-w-[38rem]" : "max-w-[92rem]"}`}
       >
         <header className="flex items-start justify-between gap-4 border-b border-slate-200 bg-white/95 px-5 py-4 backdrop-blur sm:px-6">
           <div className="min-w-0">

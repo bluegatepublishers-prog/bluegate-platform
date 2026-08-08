@@ -47,26 +47,11 @@ export default function ImageBlockEditor({
   onUpdatePatch,
   onKeyDown,
 }: ImageBlockEditorProps) {
-  const safeImage = sanitizeUrl(block.url);
-
   return (
-    <div className="space-y-4" onPointerDown={(event) => event.stopPropagation()}>
-      {safeImage ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={safeImage}
-          alt={block.alt || "Illustration"}
-          className="max-h-[28rem] w-full rounded-3xl object-contain"
-          loading="lazy"
-          referrerPolicy="no-referrer"
-        />
-      ) : (
-        <div className="flex min-h-64 items-center justify-center rounded-3xl border border-dashed border-slate-300 bg-slate-50 text-sm text-slate-500">
-          Add an image URL or choose a resource thumbnail
-        </div>
-      )}
-
-      <div className="grid gap-3 lg:grid-cols-3">
+    <div className="space-y-3">
+      <details className="rounded-2xl border border-slate-200 bg-white/90 p-3 shadow-sm" onPointerDown={(event) => event.stopPropagation()}>
+        <summary className="cursor-pointer list-none text-sm font-semibold text-slate-700 [&::-webkit-details-marker]:hidden">Image properties <span className="float-right text-xs font-normal text-slate-400">replace · crop · fit</span></summary>
+        <div className="mt-3 grid gap-3 lg:grid-cols-3">
         <label className="block text-sm font-semibold text-slate-700 lg:col-span-2">
           Image URL
           <input
@@ -148,7 +133,7 @@ export default function ImageBlockEditor({
         </label>
 
         <label className="block text-sm font-semibold text-slate-700">
-          Width
+          Fit / width
           <select
             value={block.width ?? "full"}
             onChange={(event) =>
@@ -161,9 +146,9 @@ export default function ImageBlockEditor({
             }
             className={field}
           >
-            <option value="full">full</option>
-            <option value="wide">wide</option>
-            <option value="medium">medium</option>
+            <option value="full">Fill content</option>
+            <option value="wide">Fit wide</option>
+            <option value="medium">Fit medium</option>
           </select>
         </label>
 
@@ -224,7 +209,8 @@ export default function ImageBlockEditor({
         >
           Clear image
         </button>
-      </div>
+        </div>
+      </details>
     </div>
   );
 }

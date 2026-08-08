@@ -113,6 +113,7 @@ import { type EducationalObjectType } from "@/lib/educational-object-registry";
 import { EDUCATIONAL_OBJECT_REGISTRY, getEducationalObjectDefinition } from "@/lib/educational-object-registry";
 import type { ReleaseSummary } from "@/lib/content-release";
 import { uploadFileToR2 } from "@/lib/storage/client-upload";
+import { contentResourcePreviewUrl } from "@/lib/content-resource-preview";
 
 type ResourceChoice = {
   id: string;
@@ -355,7 +356,13 @@ export default function ContentManuscriptEditor({
   const [periodTitleDraft, setPeriodTitleDraft] = useState("");
   const [resourceChoices, setResourceChoices] = useState(resources);
   const [assetLibrary, setAssetLibrary] = useState(assetOptions);
-  const [mediaLibrary, setMediaLibrary] = useState(mediaOptions);
+  const [mediaLibrary, setMediaLibrary] = useState(() =>
+    mediaOptions.map((option) =>
+      option.targetType === "RESOURCE"
+        ? { ...option, route: { href: contentResourcePreviewUrl(option.targetId), openMode: "route" as const } }
+        : option,
+    ),
+  );
   const [activityLibraryRows] = useState(activityRows);
   const [worksheetLibraryRows] = useState(worksheetRows);
   const [exerciseLibraryRows] = useState(exerciseRows);
@@ -1036,10 +1043,7 @@ export default function ContentManuscriptEditor({
       updatePatch(blockId, { url: "", resourceId: undefined, alt: "" });
       return;
     }
-    const url =
-      sanitizeUrl(resource.thumbnail ?? "") ||
-      sanitizeUrl(resource.fileUrl ?? "") ||
-      `/api/resources/${encodeURIComponent(resource.id)}/download`;
+    const url = contentResourcePreviewUrl(resource.id);
     updatePatch(blockId, {
       resourceId: resource.id,
       url,
@@ -1325,7 +1329,7 @@ export default function ContentManuscriptEditor({
       return {
         ...block,
         mediaKind: option.mediaKind,
-        label: option.defaultLabel,
+        label: option.mediaKind === "video" ? "Watch Video" : option.defaultLabel,
         targetType: option.targetType,
         targetId: option.targetId,
         displayMode: "inline",
@@ -1342,7 +1346,7 @@ export default function ContentManuscriptEditor({
     anchorId: string,
     metadata?: ImageInsertMetadata,
   ) {
-    const safeUrl = `/api/resources/${encodeURIComponent(resource.id)}/download`;
+    const safeUrl = contentResourcePreviewUrl(resource.id);
     addBlockWithFactory(anchorId, () => {
       const block = createBlockByType("image");
       if (!isImageBlock(block)) return block;
@@ -1459,7 +1463,7 @@ export default function ContentManuscriptEditor({
       scopeLabel: nodeType,
       audienceOptions: ["TEACHER", "STUDENT"],
       defaultAudience: ["TEACHER", "STUDENT"],
-      route: { href: `/api/resources/${encodeURIComponent(resource.id)}/download`, openMode: "route" },
+      route: { href: contentResourcePreviewUrl(resource.id), openMode: "route" },
       posterRoute: null,
       durationSeconds: null,
       published: Boolean(resource.published),
@@ -1972,6 +1976,7 @@ export default function ContentManuscriptEditor({
             }}
           >
             <BlockEditor
+          selected={activeBlockId === block.id}
           bookId={bookId}
           block={block}
           index={index}
@@ -1985,6 +1990,8 @@ export default function ContentManuscriptEditor({
           resolvedMedia={
             previewMedia[block.id] ?? null
           }
+          resolvedActivities={resolvedActivities}
+          resolvedWorksheets={resolvedWorksheets}
           menuOpen={menuAnchor === block.id}
           onCloseMenu={closeMenu}
           onInsertBefore={(type) =>
@@ -2258,6 +2265,7 @@ export default function ContentManuscriptEditor({
 }
 
 function BlockEditor({
+  selected,
   bookId,
   block,
   index,
@@ -2267,6 +2275,8 @@ function BlockEditor({
   sectionDefinitions,
   resolvedAsset,
   resolvedMedia,
+  resolvedActivities,
+  resolvedWorksheets,
   menuOpen,
   onCloseMenu,
   onInsertBefore,
@@ -2289,6 +2299,7 @@ function BlockEditor({
   onKeyDown,
   onListKeyDown,
 }: {
+  selected: boolean;
   bookId: string;
   block: ContentBlock;
   index: number;
@@ -2298,6 +2309,8 @@ function BlockEditor({
   sectionDefinitions: ContentSectionDefinitionSummary[];
   resolvedAsset: ResolvedLinkedAsset | null;
   resolvedMedia: ResolvedMediaBlock | null;
+  resolvedActivities: Record<string, ResolvedActivityBlock>;
+  resolvedWorksheets: Record<string, ResolvedWorksheetBlock>;
   menuOpen: boolean;
   onCloseMenu: () => void;
   onInsertBefore: (type: ContentBlockType) => void;
@@ -2333,12 +2346,42 @@ function BlockEditor({
     itemValue: string,
   ) => void;
 }) {
-  const shell = "group py-1";
-    const collapsed = block.collapsed === true;
+  const shell = selected
+    ? "group rounded-2xl py-1 ring-2 ring-blue-300 ring-offset-2"
+    : "group py-1";
+  const collapsed = block.collapsed === true;
+  const [propertiesOpen, setPropertiesOpen] = useState(false);
+  const previewBlock = authoringPreviewBlock(block);
 
   return (
     <article className={shell} onFocusCapture={onActivate} onMouseDown={onActivate}>
-            <div className="space-y-3">
+      {!(selected && propertiesOpen && isTableBlock(block)) ? (
+        <ContentDocumentRenderer
+          document={normalizeContentDocument({ blocks: [previewBlock] })}
+          linkedAssets={resolvedAsset ? { [block.id]: resolvedAsset } : {}}
+          activities={resolvedActivities}
+          worksheets={resolvedWorksheets}
+          media={resolvedMedia ? { [block.id]: resolvedMedia } : {}}
+          sectionDefinitions={sectionDefinitions}
+          knowledgeDefinitions={resolvedKnowledge}
+        />
+      ) : null}
+      {selected ? (
+        <ObjectContextToolbar
+          block={block}
+          propertiesOpen={propertiesOpen}
+          onToggleProperties={() => setPropertiesOpen((current) => !current)}
+          onUpdatePatch={onUpdatePatch}
+          onDelete={onDelete}
+        />
+      ) : null}
+      {selected && propertiesOpen ? (
+        <div className="mt-3 rounded-2xl border border-slate-200 bg-white/95 p-3 shadow-sm" onPointerDown={(event) => event.stopPropagation()}>
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">{blockLabel(block.type)} properties</p>
+            <button type="button" onClick={() => setPropertiesOpen(false)} className="rounded-lg px-2 py-1 text-xs font-semibold text-slate-500 hover:bg-slate-100">Close</button>
+          </div>
+          <div className="space-y-3">
         <div className="hidden grid gap-3 rounded-[1.5rem] bg-slate-50 p-4 ring-1 ring-slate-200 lg:grid-cols-5">
           <label className="block text-sm font-semibold text-slate-700 lg:col-span-2">
             Optional title
@@ -2627,7 +2670,9 @@ function BlockEditor({
             Placeholder renderer foundation only. Editing logic for this component comes in a later sprint.
           </div>
         ) : null}
-      </div>
+          </div>
+        </div>
+      ) : null}
 
       {menuOpen ? (
         <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
@@ -2652,6 +2697,64 @@ function BlockEditor({
       ) : null}
     </article>
   );
+}
+
+function ObjectContextToolbar({
+  block,
+  propertiesOpen,
+  onToggleProperties,
+  onUpdatePatch,
+  onDelete,
+}: {
+  block: ContentBlock;
+  propertiesOpen: boolean;
+  onToggleProperties: () => void;
+  onUpdatePatch: (patch: Partial<ContentBlock>) => void;
+  onDelete: () => void;
+}) {
+  const button = "rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:border-blue-300 hover:bg-blue-50";
+  const openProperties = () => {
+    onToggleProperties();
+  };
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-1.5 rounded-xl border border-slate-200 bg-white/95 p-1.5 shadow-sm" onPointerDown={(event) => event.stopPropagation()}>
+      <span className="px-2 text-xs font-bold uppercase tracking-[0.12em] text-slate-500">{blockLabel(block.type)}</span>
+      {isImageBlock(block) ? (
+        <>
+          <button type="button" className={button} onClick={openProperties}>Crop</button>
+          <button type="button" className={button} onClick={() => onUpdatePatch({ width: "wide" })}>Fit</button>
+          <button type="button" className={button} onClick={() => onUpdatePatch({ width: "full" })}>Fill</button>
+          <button type="button" className={button} onClick={openProperties}>Replace</button>
+        </>
+      ) : null}
+      {isMediaBlock(block) ? (
+        <>
+          <button type="button" className={button} onClick={() => onUpdatePatch({ displayMode: "inline" })}>Player</button>
+          <button type="button" className={button} onClick={() => onUpdatePatch({ displayMode: "button" })}>Button</button>
+          <button type="button" className={button} onClick={openProperties}>Replace</button>
+        </>
+      ) : null}
+      <button type="button" className={button} onClick={onToggleProperties} aria-expanded={propertiesOpen}>Properties</button>
+      <button type="button" className="rounded-lg border border-rose-200 px-2.5 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-50" onClick={onDelete}>Delete</button>
+    </div>
+  );
+}
+
+function authoringPreviewBlock(block: ContentBlock): ContentBlock {
+  if (isImageBlock(block) && block.resourceId) {
+    return { ...block, url: contentResourcePreviewUrl(block.resourceId) };
+  }
+  if (isEducationalObjectBlock(block) && !block.text.trim()) {
+    const placeholder = ({
+      learningOutcome: "Type learning outcome here...",
+      learningObjective: "Type learning objective here...",
+      didYouKnow: "Type interesting fact here...",
+      thinkAndDiscuss: "Type discussion prompt here...",
+      thinkAndWrite: "Type writing prompt here...",
+    } as Record<string, string>)[block.objectType] ?? "Type content here...";
+    return { ...block, text: placeholder };
+  }
+  return block;
 }
 
 function ImageGalleryEditor({
@@ -3409,7 +3512,7 @@ function InsertContentDrawer({
   const linkedChoices = assetOptions.filter((option) => option.assetKind === kind);
 
   return (
-    <StudioBuilderDrawer open={open} title={`Insert ${blockLabelForDrawer(kind)}`} onClose={onClose}>
+    <StudioBuilderDrawer open={open} title={`Insert ${blockLabelForDrawer(kind)}`} size="compact" onClose={onClose}>
       <div className="space-y-5">
         {kind === "image" ? (
           <>
@@ -3443,7 +3546,7 @@ function InsertContentDrawer({
               items={mediaOptions.map((option) => ({
                 key: mediaKey(option.targetType, option.targetId),
                 title: option.title,
-                detail: `${mediaKindLabel(option.mediaKind)} · ${option.sourceBadge} · ${option.scopeLabel}`,
+                detail: mediaKindLabel(option.mediaKind),
                 onChoose: () => onChooseMedia(option),
               }))}
             />
@@ -4021,7 +4124,7 @@ function blockLabelForDrawer(kind: ToolbarInsertKind) {
     case "image":
       return "Image";
     case "media":
-      return "Media";
+      return "Video";
     case "feature":
       return "Feature Element";
     case "activity":

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
@@ -41,6 +42,62 @@ test("the educational object registry exposes the full authoring vocabulary", ()
   assert.equal(EDUCATIONAL_OBJECT_REGISTRY.length, 15);
   assert.equal(getEducationalObjectDefinition("didYouKnow").defaultTitle, "Do You Know?");
   assert.equal(getEducationalObjectDefinition("teacherNote").label, "Teacher Note");
+});
+
+test("the compact Insert ribbon exposes educational objects without a permanent button wall", () => {
+  const ribbon = readFileSync(new URL("../components/admin/books/editor/WordRibbon.tsx", import.meta.url), "utf8");
+  assert.match(ribbon, /Educational Element/);
+  assert.match(ribbon, /EDUCATIONAL_OBJECT_REGISTRY/);
+  assert.match(ribbon, /featureOpen/);
+});
+
+test("educational insertion creates an immediately editable canonical object", () => {
+  const document = createContentDocument([createEducationalObjectBlock("thinkAndDiscuss")]);
+  const block = document.blocks[0];
+  assert.equal(block.type, "educationalObject");
+  if (block.type !== "educationalObject") return;
+  assert.equal(block.objectType, "thinkAndDiscuss");
+  assert.equal(block.title, "Think and Discuss");
+  assert.equal(block.text, "");
+});
+
+test("authoring UI keeps table controls compact and media canvas free of resource administration", () => {
+  const tableEditor = readFileSync(new URL("../components/admin/books/editor/blocks/TableBlockEditor.tsx", import.meta.url), "utf8");
+  const mediaEditor = readFileSync(new URL("../components/admin/books/editor/blocks/MediaBlockEditor.tsx", import.meta.url), "utf8");
+  const renderer = readFileSync(new URL("../components/content/StructuredContentRenderer.tsx", import.meta.url), "utf8");
+  const mediaSurface = mediaEditor.split("function resolveMediaForBlock")[0];
+  assert.match(tableEditor, /<details/);
+  assert.match(tableEditor, /Add row above/);
+  assert.doesNotMatch(tableEditor, />Row above</);
+  assert.doesNotMatch(mediaSurface, /Publisher Resource|Source detail|Scope label|>Audience</);
+  assert.match(renderer, /media\.displayMode === "button"/);
+  assert.match(renderer, /aria-hidden="true">▶/);
+});
+
+test("image resource creation carries the manuscript hierarchy scope", () => {
+  const editor = readFileSync(new URL("../components/admin/books/ContentManuscriptEditor.tsx", import.meta.url), "utf8");
+  assert.match(editor, /bookId,/);
+  assert.match(editor, /chapterId,/);
+  assert.match(editor, /moduleId: nodeType === "MODULE" \? nodeId : undefined/);
+});
+
+test("the image ResourceType migration remains part of the checked-in release", () => {
+  const migration = readFileSync(new URL("../prisma/migrations/20260806000000_add_image_resource_type/migration.sql", import.meta.url), "utf8");
+  assert.match(migration, /ALTER TYPE "ResourceType" ADD VALUE IF NOT EXISTS 'IMAGE';/);
+});
+
+test("canvas previews use final visual objects and defer editors to explicit properties", () => {
+  const editor = readFileSync(new URL("../components/admin/books/ContentManuscriptEditor.tsx", import.meta.url), "utf8");
+  const imageEditor = readFileSync(new URL("../components/admin/books/editor/blocks/ImageBlockEditor.tsx", import.meta.url), "utf8");
+  const previewRoute = readFileSync(new URL("../app/api/admin/resources/[id]/preview/route.ts", import.meta.url), "utf8");
+  assert.match(editor, /<ContentDocumentRenderer/);
+  assert.match(editor, /selected && propertiesOpen/);
+  assert.match(editor, /Type learning outcome here/);
+  assert.match(editor, /contentResourcePreviewUrl\(block\.resourceId\)/);
+  assert.doesNotMatch(imageEditor, /<img/);
+  assert.match(previewRoute, /authorizePublisherAdminApi/);
+  assert.match(previewRoute, /disposition: "inline"/);
+  assert.doesNotMatch(previewRoute, /published: true/);
 });
 
 test("activity fields are all optional and a one-line activity survives save/reload", () => {
