@@ -36,19 +36,22 @@ import { addExerciseGroup as addExerciseObjectGroup, addExerciseQuestion as addE
 import {
   EDUCATIONAL_OBJECT_REGISTRY,
   getEducationalObjectDefinition,
+  getEducationalObjectPlaceholder,
 } from "../lib/educational-object-registry";
 
 test("the educational object registry exposes the full authoring vocabulary", () => {
-  assert.equal(EDUCATIONAL_OBJECT_REGISTRY.length, 15);
+  assert.equal(EDUCATIONAL_OBJECT_REGISTRY.length, 16);
   assert.equal(getEducationalObjectDefinition("didYouKnow").defaultTitle, "Do You Know?");
   assert.equal(getEducationalObjectDefinition("teacherNote").label, "Teacher Note");
+  assert.equal(getEducationalObjectDefinition("thinkAndAnswer").label, "Think and Answer");
 });
 
 test("the compact Insert ribbon exposes educational objects without a permanent button wall", () => {
   const ribbon = readFileSync(new URL("../components/admin/books/editor/WordRibbon.tsx", import.meta.url), "utf8");
-  assert.match(ribbon, /Educational Element/);
+  assert.match(ribbon, /Educational Blocks/);
   assert.match(ribbon, /EDUCATIONAL_OBJECT_REGISTRY/);
   assert.match(ribbon, /featureOpen/);
+  assert.match(ribbon, /EDUCATIONAL_OBJECT_REGISTRY\.map/);
 });
 
 test("educational insertion creates an immediately editable canonical object", () => {
@@ -59,19 +62,43 @@ test("educational insertion creates an immediately editable canonical object", (
   assert.equal(block.objectType, "thinkAndDiscuss");
   assert.equal(block.title, "Think and Discuss");
   assert.equal(block.text, "");
+  assert.equal(getEducationalObjectPlaceholder("thinkAndDiscuss"), "Type discussion prompt here...");
 });
 
+test("educational blocks render as direct-editable visual boxes and preserve Teacher Note visibility", () => {
+  const editor = readFileSync(new URL("../components/admin/books/ContentManuscriptEditor.tsx", import.meta.url), "utf8");
+  const renderer = readFileSync(new URL("../components/content/StructuredContentRenderer.tsx", import.meta.url), "utf8");
+  assert.match(editor, /EducationalObjectCanvas/);
+  assert.match(editor, /contentEditable/);
+  assert.match(editor, /getEducationalObjectPlaceholder/);
+  assert.match(editor, /setFocusTarget\(block\.id\)/);
+  assert.match(renderer, /mode === "STUDENT".*teacherNote/);
+
+  const document = createContentDocument([createEducationalObjectBlock("thinkAndAnswer")]);
+  const edited = normalizeContentDocument({
+    ...document,
+    blocks: document.blocks.map((block) => block.type === "educationalObject" ? { ...block, text: "Why does a compass needle point north?" } : block),
+  });
+  const reloaded = normalizeContentDocument(serializeContentDocument(edited));
+  const block = reloaded.blocks[0];
+  assert.equal(block.type, "educationalObject");
+  if (block.type !== "educationalObject") return;
+  assert.equal(block.objectType, "thinkAndAnswer");
+  assert.equal(block.text, "Why does a compass needle point north?");
+});
 test("authoring UI keeps table controls compact and media canvas free of resource administration", () => {
   const tableEditor = readFileSync(new URL("../components/admin/books/editor/blocks/TableBlockEditor.tsx", import.meta.url), "utf8");
   const mediaEditor = readFileSync(new URL("../components/admin/books/editor/blocks/MediaBlockEditor.tsx", import.meta.url), "utf8");
   const renderer = readFileSync(new URL("../components/content/StructuredContentRenderer.tsx", import.meta.url), "utf8");
+  const mediaButton = readFileSync(new URL("../components/content/InlineMediaButton.tsx", import.meta.url), "utf8");
   const mediaSurface = mediaEditor.split("function resolveMediaForBlock")[0];
   assert.match(tableEditor, /<details/);
   assert.match(tableEditor, /Add row above/);
   assert.doesNotMatch(tableEditor, />Row above</);
   assert.doesNotMatch(mediaSurface, /Publisher Resource|Source detail|Scope label|>Audience</);
   assert.match(renderer, /media\.displayMode === "button"/);
-  assert.match(renderer, /aria-hidden="true">▶/);
+  assert.match(renderer, /<InlineMediaButton/);
+  assert.match(mediaButton, /aria-haspopup="dialog"/);
 });
 
 test("image resource creation carries the manuscript hierarchy scope", () => {
@@ -92,7 +119,7 @@ test("canvas previews use final visual objects and defer editors to explicit pro
   const previewRoute = readFileSync(new URL("../app/api/admin/resources/[id]/preview/route.ts", import.meta.url), "utf8");
   assert.match(editor, /<ContentDocumentRenderer/);
   assert.match(editor, /selected && propertiesOpen/);
-  assert.match(editor, /Type learning outcome here/);
+  assert.match(editor, /getEducationalObjectPlaceholder/);
   assert.match(editor, /contentResourcePreviewUrl\(block\.resourceId\)/);
   assert.doesNotMatch(imageEditor, /<img/);
   assert.match(previewRoute, /authorizePublisherAdminApi/);
@@ -540,4 +567,44 @@ test("full Module authoring fixture survives normalize, serialize/reload, and ca
     assert.equal(switched.canvas.preset, preset);
     assert.equal(switchedExercise?.type === "exercise" ? switchedExercise.groups[0]?.questions[0]?.prompt : undefined, "Name two magnetic materials.");
   }
+});
+
+test("educational authoring exposes professional icons and deterministic design variants", () => {
+  const icon = readFileSync(new URL("../components/content/EducationalObjectIcon.tsx", import.meta.url), "utf8");
+  const ribbon = readFileSync(new URL("../components/admin/books/editor/WordRibbon.tsx", import.meta.url), "utf8");
+  const editor = readFileSync(new URL("../components/admin/books/ContentManuscriptEditor.tsx", import.meta.url), "utf8");
+  assert.match(icon, /thinkAndAnswer: CircleHelp/);
+  assert.match(icon, /teacherNote: UsersRound/);
+  assert.match(ribbon, /EducationalObjectIcon/);
+  assert.match(editor, /EducationalObjectIcon/);
+  assert.ok(EDUCATIONAL_OBJECT_REGISTRY.every(([type]) => getEducationalObjectDefinition(type).appearanceVariant));
+});
+
+test("selected objects use a subtle frame and keyboard deletion without a permanent action toolbar", () => {
+  const layoutFrame = readFileSync(new URL("../components/admin/books/editor/LayoutObjectFrame.tsx", import.meta.url), "utf8");
+  assert.match(layoutFrame, /ring-2 ring-blue-500/);
+  assert.match(layoutFrame, /event\.key === "Delete" \|\| event\.key === "Backspace"/);
+  assert.match(layoutFrame, /isInteractiveTarget\(event\.target\)/);
+  const frameUi = layoutFrame.slice(layoutFrame.indexOf("return <div"));
+  assert.doesNotMatch(frameUi, /Forward|Back|Duplicate|Lock/);
+});
+
+test("button media opens inline playback and never uses the resource download route", () => {
+  const button = readFileSync(new URL("../components/content/InlineMediaButton.tsx", import.meta.url), "utf8");
+  const renderer = readFileSync(new URL("../components/content/StructuredContentRenderer.tsx", import.meta.url), "utf8");
+  const media = readFileSync(new URL("../lib/content-media.ts", import.meta.url), "utf8");
+  const playRoute = readFileSync(new URL("../app/api/resources/[id]/play/route.ts", import.meta.url), "utf8");
+  assert.match(button, /role="dialog"/);
+  assert.match(button, /autoPlay/);
+  assert.doesNotMatch(button, /download/);
+  assert.match(renderer, /<InlineMediaButton/);
+  assert.match(media, /\/play/);
+  assert.match(playRoute, /disposition: "inline"/);
+});
+
+test("activity authoring is a direct visual mapping to the existing optional fields", () => {
+  const editor = readFileSync(new URL("../components/admin/books/ContentManuscriptEditor.tsx", import.meta.url), "utf8");
+  assert.match(editor, /function ActivityCanvas/);
+  assert.match(editor, /block\.fields\.map/);
+  assert.match(editor, /aria-label="Activity content"/);
 });

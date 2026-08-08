@@ -1,6 +1,8 @@
 import type { ReactNode } from "react";
 
 import LinkedAssetView from "@/components/content/LinkedAssetView";
+import InlineMediaButton from "@/components/content/InlineMediaButton";
+import EducationalObjectIcon from "@/components/content/EducationalObjectIcon";
 import KnowledgeReferenceView from "@/components/content/KnowledgeReferenceView";
 import ActivityRenderer from "@/components/content/ActivityRenderer";
 import WorksheetRenderer from "@/components/content/WorksheetRenderer";
@@ -119,6 +121,7 @@ function RenderedBlock({
   knowledgeDefinitions: Record<string, KnowledgeDefinitionSummary | null>;
 }) {
   if (block.hidden) return null;
+  if (mode === "STUDENT" && isEducationalObjectBlock(block) && block.objectType === "teacherNote") return null;
   const content = renderBlockBody(block, mode, linkedAsset, activity, worksheet, media, sectionLabel, knowledgeDefinitions);
   if (!content) return null;
   const wrapped = block.collapsed ? (
@@ -408,8 +411,11 @@ function renderBlockBody(
   if (isEducationalObjectBlock(block)) {
     const definition = getEducationalObjectDefinition(block.objectType);
     return (
-      <aside className="rounded-3xl border border-blue-200 bg-blue-50 px-5 py-4 text-slate-900">
-        <p className="text-xs font-bold uppercase tracking-[0.14em] text-blue-800">{block.title || definition.defaultTitle}</p>
+      <aside className={`rounded-3xl border px-5 py-4 text-slate-900 ${educationalObjectClass(definition.appearanceVariant)}`}>
+        <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.14em] text-blue-800">
+          <EducationalObjectIcon type={block.objectType} className="h-4 w-4 shrink-0" />
+          <p>{block.title || definition.defaultTitle}</p>
+        </div>
         {block.text ? <p className="mt-2 whitespace-pre-wrap break-words leading-7">{block.text}</p> : null}
       </aside>
     );
@@ -554,12 +560,14 @@ function MediaBlockView({
     return (
       <div className="rounded-3xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
         {sectionLabel ? <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">{sectionLabel}</p> : null}
-        <a
+        <InlineMediaButton
           href={media.route.href}
-          className="mt-2 inline-flex rounded-full bg-slate-950 px-4 py-2 text-sm font-bold text-white"
-        >
-          <span aria-hidden="true">▶</span> {label}
-        </a>
+          label={label}
+          title={media.title || label}
+          mediaKind={media.mediaKind}
+          poster={poster}
+          controls={media.controls}
+        />
         {caption ? <p className="mt-3 min-w-0 whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-sm leading-6 text-slate-500">{caption}</p> : null}
       </div>
     );
@@ -874,6 +882,21 @@ function imageFloatClass(float: string | undefined) {
       return "ml-auto";
     default:
       return "mx-auto";
+  }
+}
+
+function educationalObjectClass(variant: string) {
+  switch (variant) {
+    case "target": return "border-emerald-200 bg-emerald-50";
+    case "didYouKnow": return "border-indigo-200 bg-indigo-50";
+    case "thinkAndDiscuss": return "border-cyan-200 bg-cyan-50";
+    case "thinkAndAnswer": return "border-orange-200 bg-orange-50";
+    case "reflection": return "border-violet-200 bg-violet-50";
+    case "remember": return "border-sky-200 bg-sky-50";
+    case "teacherTip": return "border-blue-200 bg-blue-50";
+    case "lifeSkill": return "border-teal-200 bg-teal-50";
+    case "caseStudy": return "border-fuchsia-200 bg-fuchsia-50";
+    default: return "border-blue-200 bg-blue-50";
   }
 }
 

@@ -156,7 +156,7 @@ export const QUESTION_TEMPLATE_DEFINITIONS: Array<{
 ];
 
 const fieldBase =
-  "mt-2 w-full rounded-[1.1rem] border border-transparent bg-white px-3 py-2 text-sm text-slate-800 outline-none ring-1 ring-slate-200 focus:ring-2 focus:ring-blue-200";
+  "mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-800 outline-none ring-1 ring-slate-200 focus:ring-2 focus:ring-blue-200";
 
 export function fieldClass(extra = "") {
   return `${fieldBase}${extra ? ` ${extra}` : ""}`;
@@ -172,12 +172,12 @@ export function Section({
   children: ReactNode;
 }) {
   return (
-    <section className="rounded-[1.5rem] bg-[#fcfaf5] p-4 ring-1 ring-slate-200">
-      <div className="mb-4">
+    <section className="rounded-xl bg-[#fcfaf5] p-3 ring-1 ring-slate-200">
+      <div className="mb-3">
         <h3 className="text-sm font-bold text-slate-950">{title}</h3>
         {description ? <p className="mt-1 text-sm text-slate-500">{description}</p> : null}
       </div>
-      <div className="space-y-4">{children}</div>
+      <div className="space-y-3">{children}</div>
     </section>
   );
 }
@@ -192,7 +192,7 @@ export function Label({
   wide?: boolean;
 }) {
   return (
-    <label className={`block text-sm font-semibold text-slate-700 ${wide ? "lg:col-span-2" : ""}`}>
+    <label className={`block text-xs font-medium text-slate-700 ${wide ? "lg:col-span-2" : ""}`}>
       {title}
       {children}
     </label>

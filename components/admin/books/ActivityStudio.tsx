@@ -7,6 +7,7 @@ import { ArrowDown, ArrowUp, ClipboardList, Copy, Plus, Save, Trash2 } from "luc
 
 import ContentReleasePanel from "@/components/admin/books/ContentReleasePanel";
 import StudioWorkspaceShell from "@/components/admin/books/StudioWorkspaceShell";
+import { compactField } from "@/components/admin/books/compact-studio-styles";
 import type { ReleaseSummary } from "@/lib/content-release";
 import {
   ACTIVITY_AUDIENCES,
@@ -42,8 +43,7 @@ type ReleaseAction =
   | "ARCHIVE"
   | "RESTORE";
 
-const field =
-  "mt-2 w-full rounded-[1.1rem] border border-transparent bg-white/80 px-4 py-3 text-sm text-slate-800 outline-none ring-1 ring-slate-200 transition placeholder:text-slate-400 focus:bg-white focus:ring-2 focus:ring-emerald-200";
+const field = compactField.replace("focus:border-blue-400", "focus:border-emerald-400").replace("focus:ring-blue-100", "focus:ring-emerald-100");
 
 export default function ActivityStudio({
   chapterId,
@@ -133,11 +133,11 @@ export default function ActivityStudio({
             <Plus className="h-4 w-4" />
           </button>
         </div>
-        <div className="mt-5 space-y-2">
+        <div className="mt-3 space-y-2">
           <button
             type="button"
             onClick={() => setSelectedId("new")}
-            className={`w-full rounded-2xl px-4 py-3 text-left text-sm font-semibold ${
+            className={`w-full rounded-lg px-3 py-2 text-left text-sm font-semibold ${
               selectedId === "new" ? "bg-slate-950 text-white" : "bg-white text-slate-700 ring-1 ring-slate-200"
             }`}
           >
@@ -148,7 +148,7 @@ export default function ActivityStudio({
               key={activity.id}
               type="button"
               onClick={() => setSelectedId(activity.id)}
-              className={`w-full rounded-2xl px-4 py-3 text-left transition ${
+              className={`w-full rounded-lg px-3 py-2 text-left transition ${
                 selectedId === activity.id ? "bg-slate-950 text-white" : "bg-white text-slate-700 ring-1 ring-slate-200"
               }`}
             >
@@ -166,10 +166,10 @@ export default function ActivityStudio({
   );
 
   const canvas = (
-      <form key={draft.id} id={formId} action={submit} className="min-w-0 space-y-6">
+      <form key={draft.id} id={formId} action={submit} className="min-w-0 space-y-4">
         <input type="hidden" name="id" value={selected?.id ?? ""} />
         <input type="hidden" name="sortOrder" value={draft.sortOrder} />
-        <div className="mx-auto max-w-3xl rounded-[2rem] bg-[#fffdf7] p-6 shadow-sm ring-1 ring-slate-200 sm:p-9">
+        <div className="mx-auto max-w-3xl rounded-xl bg-[#fffdf7] p-4 ring-1 ring-slate-200">
           <div className="flex flex-wrap items-center gap-2">
             <span className="inline-flex items-center gap-2 rounded-full bg-emerald-100 px-3 py-1.5 text-xs font-bold uppercase tracking-[0.14em] text-emerald-800">
               <ClipboardList className="h-4 w-4" />
@@ -184,14 +184,14 @@ export default function ActivityStudio({
             required
             defaultValue={draft.title}
             placeholder="Activity title"
-            className="mt-6 w-full border-none bg-transparent text-4xl font-bold tracking-tight text-slate-950 outline-none placeholder:text-slate-300"
+            className="mt-4 h-10 w-full border-none bg-transparent text-lg font-semibold tracking-tight text-slate-950 outline-none placeholder:text-slate-300"
           />
           <textarea
             name="shortDescription"
             defaultValue={draft.shortDescription ?? ""}
             placeholder="Short description"
             rows={2}
-            className="mt-3 w-full resize-none border-none bg-transparent text-lg leading-8 text-slate-600 outline-none placeholder:text-slate-300"
+            className="mt-2 w-full resize-none border-none bg-transparent text-sm leading-6 text-slate-600 outline-none placeholder:text-slate-300"
           />
 
           <ManuscriptSection label="Objective">
@@ -223,7 +223,7 @@ export default function ActivityStudio({
               defaultValue={draft.steps.join("\n")}
               rows={5}
               placeholder="Optional ordered steps, one per line"
-              className={`${plainArea} mt-4 rounded-2xl bg-slate-50 px-4 py-3`}
+              className={`${plainArea} mt-3 rounded-xl bg-slate-50 px-3 py-2`}
             />
           </ManuscriptSection>
 
@@ -263,7 +263,7 @@ export default function ActivityStudio({
         </div>
 
         <div className="mx-auto flex max-w-3xl flex-wrap items-center justify-between gap-3">
-          <button disabled={isPending} type="submit" className="inline-flex rounded-full bg-emerald-700 px-5 py-3 text-sm font-bold text-white disabled:opacity-60">
+          <button disabled={isPending} type="submit" className="inline-flex h-9 rounded-lg bg-emerald-700 px-3 text-sm font-medium text-white disabled:opacity-60">
             <Save className="mr-2 h-4 w-4" />
             {isPending ? "Saving..." : "Save activity"}
           </button>
@@ -272,7 +272,7 @@ export default function ActivityStudio({
           </p>
         </div>
         {message ? <p className="mx-auto max-w-3xl text-sm font-semibold text-slate-500">{message}</p> : null}
-        {error ? <p className="mx-auto max-w-3xl rounded-2xl bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{error}</p> : null}
+        {error ? <p className="mx-auto max-w-3xl rounded-xl bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">{error}</p> : null}
       </form>
   );
 
@@ -522,7 +522,7 @@ function ActionForm({
         onClick={(event) => {
           if (confirmText && !window.confirm(confirmText)) event.preventDefault();
         }}
-        className={`inline-flex w-full items-center justify-center gap-2 rounded-xl px-3 py-2 text-xs font-bold ${
+        className={`inline-flex w-full items-center justify-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium ${
           danger ? "bg-rose-50 text-rose-700 ring-1 ring-rose-200" : "bg-slate-50 text-slate-700 ring-1 ring-slate-200"
         }`}
       >
@@ -535,7 +535,7 @@ function ActionForm({
 
 function ManuscriptSection({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <section className="mt-8 border-t border-slate-200 pt-6">
+    <section className="mt-5 border-t border-slate-200 pt-4">
       <h3 className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">{label}</h3>
       <div className="mt-3">{children}</div>
     </section>
@@ -544,7 +544,7 @@ function ManuscriptSection({ label, children }: { label: string; children: React
 
 function Inspector({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className="space-y-3 rounded-[1.5rem] bg-white p-4 ring-1 ring-slate-200">
+    <section className="space-y-3 rounded-xl bg-white p-3 ring-1 ring-slate-200">
       <h3 className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">{title}</h3>
       {children}
     </section>
@@ -556,7 +556,7 @@ function Badge({ label }: { label: string }) {
 }
 
 const plainArea =
-  "w-full resize-none border-none bg-transparent text-[1.05rem] leading-8 text-slate-800 outline-none placeholder:text-slate-300";
+  "w-full resize-none border-none bg-transparent text-sm leading-6 text-slate-800 outline-none placeholder:text-slate-300";
 
 function createDraft(
   chapterId: string,

@@ -200,7 +200,7 @@ async function loadMediaLibrary(scope: ContentNodeScope): Promise<MediaLibrary> 
       scopeLabel: scopeText(resource.chapterId, resource.moduleId, resource.topicId),
       audienceOptions,
       defaultAudience: audienceOptions,
-      route: { href: `/api/resources/${encodeURIComponent(resource.id)}/download`, openMode: "route" },
+      route: { href: `/api/resources/${encodeURIComponent(resource.id)}/play`, openMode: "route" },
       posterRoute: null,
       durationSeconds: null,
       published: resource.published,
@@ -267,7 +267,7 @@ async function loadPosterRoutes(scope: ContentNodeScope, document: ContentDocume
       .filter((resource) => isScopedAsset(scope, resource.chapterId, resource.moduleId, resource.topicId))
       .map((resource) => [
         resource.id,
-        { href: `/api/resources/${encodeURIComponent(resource.id)}/download`, openMode: "route" as const },
+        { href: `/api/resources/${encodeURIComponent(resource.id)}/play`, openMode: "route" as const },
       ]),
   );
 }

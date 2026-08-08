@@ -115,8 +115,8 @@ export default function StudioWorkspaceShell({
   }
 
   return (
-    <section className="flex min-h-[44rem] flex-col overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-sm">
-      <header className="border-b border-slate-200 bg-white/95 px-4 py-3 backdrop-blur">
+    <section className="flex min-h-[38rem] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white">
+      <header className="border-b border-slate-200 bg-white/95 px-3 py-2.5 backdrop-blur">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">{title}</p>
@@ -181,14 +181,14 @@ export default function StudioWorkspaceShell({
             <EdgeHandle side="right" label={`Open ${rightLabel.toLowerCase()}`} onClick={toggleRight} />
           ) : null}
 
-          <div className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 px-4 py-3 backdrop-blur">
+          <div className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 px-3 py-2.5 backdrop-blur">
             {toolbar}
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-6">
+          <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4">
             <div className="mx-auto w-full max-w-[980px]">{canvas}</div>
           </div>
           {statusBar ? (
-            <div className="border-t border-slate-200 bg-white/95 px-4 py-3 text-sm text-slate-600 backdrop-blur">
+            <div className="border-t border-slate-200 bg-white/95 px-3 py-2.5 text-xs text-slate-600 backdrop-blur">
               {statusBar}
             </div>
           ) : null}
@@ -243,13 +243,13 @@ function PanelSection({
 }) {
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+      <div className="flex items-center justify-between border-b border-slate-200 px-3 py-2.5">
         <p className="text-sm font-semibold text-slate-900">{title}</p>
         <button
           type="button"
           onClick={onClose}
           aria-label={`Close ${title.toLowerCase()}`}
-          className="rounded-lg border border-slate-200 p-2 text-slate-500 transition hover:bg-slate-50 hover:text-slate-900"
+          className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 p-0 text-slate-500 transition hover:bg-slate-50 hover:text-slate-900"
         >
           {overlay ? <X className="h-4 w-4" /> : <PanelRightClose className="h-4 w-4" />}
         </button>
@@ -281,7 +281,7 @@ function EdgeHandle({
 }
 
 function toolbarButton(active: boolean) {
-  return `inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold transition ${
+  return `inline-flex min-h-9 items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium transition ${
     active
       ? "bg-slate-950 text-white"
       : "border border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50"

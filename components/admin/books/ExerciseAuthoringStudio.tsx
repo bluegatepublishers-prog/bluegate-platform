@@ -164,7 +164,7 @@ export default function ExerciseAuthoringStudio({
   }
 
   return (
-    <section className="flex min-h-[44rem] flex-col overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-sm">
+    <section className="flex min-h-[38rem] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white">
       <header className="border-b border-slate-200 bg-white/95 px-4 py-3 backdrop-blur">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
@@ -174,14 +174,14 @@ export default function ExerciseAuthoringStudio({
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700">
+            <span className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700">
               Draft
             </span>
-            <button type="button" onClick={() => editorPanelRef.current?.save()} disabled={isPending || !activeExercise} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 disabled:opacity-40">
+            <button type="button" onClick={() => editorPanelRef.current?.save()} disabled={isPending || !activeExercise} className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 disabled:opacity-40">
               <Save className="mr-2 inline h-4 w-4" />
               Save
             </button>
-            <button type="button" onClick={() => setPreviewVisible((current) => !current)} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700">
+            <button type="button" onClick={() => setPreviewVisible((current) => !current)} className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700">
               <Eye className="mr-2 inline h-4 w-4" />
               Preview
             </button>
@@ -189,15 +189,15 @@ export default function ExerciseAuthoringStudio({
               <Trash2 className="mr-2 inline h-4 w-4" />
               Delete
             </button>
-            <button type="button" onClick={() => editorPanelRef.current?.undo()} disabled={!activeExercise} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 disabled:opacity-40">
+            <button type="button" onClick={() => editorPanelRef.current?.undo()} disabled={!activeExercise} className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 disabled:opacity-40">
               <RotateCcw className="mr-2 inline h-4 w-4" />
               Undo
             </button>
-            <button type="button" onClick={() => editorPanelRef.current?.redo()} disabled={!activeExercise} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 disabled:opacity-40">
+            <button type="button" onClick={() => editorPanelRef.current?.redo()} disabled={!activeExercise} className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 disabled:opacity-40">
               <Redo2 className="mr-2 inline h-4 w-4" />
               Redo
             </button>
-            <label className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700">
+            <label className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700">
               <Search className="h-4 w-4" />
               <input
                 value={searchQuery}
@@ -206,11 +206,11 @@ export default function ExerciseAuthoringStudio({
                 className="w-28 border-none bg-transparent outline-none"
               />
             </label>
-            <button type="button" onClick={() => setGalleryOpen(true)} disabled={!activeExercise} className="rounded-xl bg-slate-950 px-3 py-2 text-sm font-semibold text-white disabled:opacity-40">
+            <button type="button" onClick={() => setGalleryOpen(true)} disabled={!activeExercise} className="rounded-lg bg-slate-950 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40">
               <Plus className="mr-2 inline h-4 w-4" />
               Add Question
             </button>
-            <button type="button" onClick={() => setMoreOpen((current) => !current)} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700">
+            <button type="button" onClick={() => setMoreOpen((current) => !current)} className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700">
               <MoreHorizontal className="mr-2 inline h-4 w-4" />
               More
             </button>
@@ -219,12 +219,12 @@ export default function ExerciseAuthoringStudio({
       </header>
 
       <div className="flex min-h-0 flex-1 overflow-hidden bg-[#f7f4ed]">
-        <aside className="hidden w-[320px] shrink-0 border-r border-slate-200 bg-white lg:block">
+        <aside className="hidden w-[280px] shrink-0 border-r border-slate-200 bg-white lg:block">
           <div className="flex h-full flex-col">
             <div className="border-b border-slate-200 px-4 py-3">
               <p className="text-sm font-semibold text-slate-900">Question List</p>
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto p-4">
+            <div className="min-h-0 flex-1 overflow-y-auto p-3">
               <div className="space-y-2">
                 {exercises.map((exercise) => (
                   <button
@@ -234,7 +234,7 @@ export default function ExerciseAuthoringStudio({
                       setActiveExerciseId(exercise.id);
                       setSelectedQuestionId(exercise.questions[0]?.id ?? null);
                     }}
-                    className={`w-full rounded-2xl px-3 py-3 text-left text-sm font-semibold ${
+                    className={`w-full rounded-lg px-3 py-2 text-left text-sm font-medium ${
                       activeExerciseId === exercise.id ? "bg-slate-950 text-white" : "bg-slate-50 text-slate-700"
                     }`}
                   >
@@ -270,11 +270,11 @@ export default function ExerciseAuthoringStudio({
           </div>
         </aside>
 
-        <main className="min-w-0 flex-1 overflow-y-auto p-4 sm:p-6">
+        <main className="min-w-0 flex-1 overflow-y-auto p-3">
           <div className="mx-auto max-w-[980px] space-y-4">
             {activeExercise ? (
               <>
-                <section className="rounded-[1.75rem] bg-white p-5 shadow-sm ring-1 ring-slate-200">
+                <section className="rounded-xl bg-white p-4 ring-1 ring-slate-200">
                   <ExerciseMetadataForm
                     exercise={activeExercise}
                     lookups={lookups}
@@ -292,7 +292,7 @@ export default function ExerciseAuthoringStudio({
                   />
                 </section>
 
-                <section className="rounded-[1.75rem] bg-white p-5 shadow-sm ring-1 ring-slate-200">
+                <section className="rounded-xl bg-white p-4 ring-1 ring-slate-200">
                   <GroupManager
                     exercise={activeExercise}
                     disabled={isPending}
@@ -300,7 +300,7 @@ export default function ExerciseAuthoringStudio({
                   />
                 </section>
 
-                <section className="space-y-4 rounded-[1.75rem] bg-white p-5 shadow-sm ring-1 ring-slate-200">
+                <section className="space-y-4 rounded-xl bg-white p-4 ring-1 ring-slate-200">
                   <QuestionEditorPanel
                     key={`${activeExercise.id}:${selectedQuestion?.id ?? `new:${nextDisplayOrder}`}`}
                     ref={editorPanelRef}
@@ -316,10 +316,10 @@ export default function ExerciseAuthoringStudio({
                 </section>
 
                 {previewVisible ? (
-                  <section className="rounded-[1.75rem] bg-white p-5 shadow-sm ring-1 ring-slate-200">
+                  <section className="rounded-xl bg-white p-4 ring-1 ring-slate-200">
                     <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                       <h3 className="text-lg font-bold text-slate-950">Exercise Preview</h3>
-                      <label className="rounded-full bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700 ring-1 ring-slate-200">
+                      <label className="rounded-lg bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-700 ring-1 ring-slate-200">
                         <input type="checkbox" checked={showAnswers} onChange={(event) => setShowAnswers(event.target.checked)} className="mr-2" />
                         Preview answers
                       </label>
@@ -329,17 +329,17 @@ export default function ExerciseAuthoringStudio({
                 ) : null}
               </>
             ) : (
-              <section className="rounded-[1.75rem] bg-white p-8 text-center shadow-sm ring-1 ring-slate-200">
-                <h2 className="text-xl font-bold text-slate-950">Create an exercise first</h2>
+              <section className="rounded-xl bg-white p-4 text-center ring-1 ring-slate-200">
+                <h2 className="text-lg font-semibold text-slate-950">Create an exercise first</h2>
                 <p className="mt-2 text-sm text-slate-500">Question templates appear after an exercise has been created in this chapter scope.</p>
               </section>
             )}
 
-            <footer className="flex flex-wrap items-center justify-between gap-3 rounded-[1.25rem] border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
+            <footer className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
               <span>{[bookTitle, chapterTitle, moduleTitle, topicTitle].filter(Boolean).join(" / ") || currentScopeLabel || "Question studio"}</span>
               <span>{message}</span>
             </footer>
-            {error ? <p className="rounded-2xl bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{error}</p> : null}
+            {error ? <p className="rounded-xl bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">{error}</p> : null}
           </div>
         </main>
       </div>
@@ -401,9 +401,9 @@ function ExerciseMetadataForm({
         <Label title="Instructions" wide><textarea name="instructions" rows={4} defaultValue={parseInstructionText(exercise?.instructions ?? null)} className={fieldClass()} /></Label>
       </div>
       <div className="flex flex-wrap items-center gap-3">
-        <label className="rounded-full bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700 ring-1 ring-slate-200"><input name="published" type="checkbox" defaultChecked={exercise?.published} className="mr-2" />Published</label>
-        <button disabled={disabled} className="rounded-full bg-slate-950 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">Save Exercise</button>
-        {onArchive ? <button type="button" onClick={onArchive} className="rounded-full border border-rose-200 px-4 py-2 text-sm font-bold text-rose-700">Archive</button> : null}
+        <label className="rounded-lg bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-700 ring-1 ring-slate-200"><input name="published" type="checkbox" defaultChecked={exercise?.published} className="mr-2" />Published</label>
+        <button disabled={disabled} className="rounded-lg bg-slate-950 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50">Save Exercise</button>
+        {onArchive ? <button type="button" onClick={onArchive} className="rounded-lg border border-rose-200 px-3 py-1.5 text-sm font-medium text-rose-700">Archive</button> : null}
       </div>
     </form>
   );
@@ -419,7 +419,7 @@ function GroupManager({ exercise, disabled, onSubmit }: { exercise: ExerciseStud
           <input name="title" placeholder="Group title" defaultValue={group.title} className={fieldClass()} />
           <input name="instructions" placeholder="Instructions" defaultValue={group.instructions ?? ""} className={fieldClass()} />
           <input name="sortOrder" type="number" defaultValue={group.sortOrder} className={fieldClass()} />
-          <button disabled={disabled} className="mt-2 rounded-full bg-slate-950 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">{group.id ? "Save" : "Add"}</button>
+          <button disabled={disabled} className="mt-2 rounded-lg bg-slate-950 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50">{group.id ? "Save" : "Add"}</button>
         </form>
       ))}
     </div>
@@ -455,13 +455,13 @@ function QuestionMorePanel({
   return (
     <div className="fixed inset-0 z-40 flex justify-end bg-slate-950/30 backdrop-blur-sm">
       <button type="button" aria-label="Close more panel" className="absolute inset-0" onClick={onClose} />
-      <section className="relative z-10 h-full w-full max-w-[28rem] overflow-y-auto bg-white p-5 shadow-2xl">
+      <section className="relative z-10 h-full w-full max-w-[26rem] overflow-y-auto bg-white p-4 shadow-xl">
         <div className="flex items-center justify-between gap-3">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">More</p>
             <h3 className="mt-1 text-lg font-bold text-slate-950">Question Actions</h3>
           </div>
-          <button type="button" onClick={onClose} className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700">Close</button>
+          <button type="button" onClick={onClose} className="inline-flex h-9 items-center rounded-lg border border-slate-200 px-3 text-sm font-medium text-slate-700">Close</button>
         </div>
         <div className="mt-5 space-y-3">
           <button type="button" onClick={onDuplicate} disabled={!selectedQuestion} className="w-full rounded-xl border border-slate-200 px-4 py-3 text-left text-sm font-semibold text-slate-700 disabled:opacity-40"><Copy className="mr-2 inline h-4 w-4" />Duplicate Question</button>
@@ -469,7 +469,7 @@ function QuestionMorePanel({
           <button type="button" onClick={onMoveDown} disabled={!selectedQuestion} className="w-full rounded-xl border border-slate-200 px-4 py-3 text-left text-sm font-semibold text-slate-700 disabled:opacity-40"><ArrowDown className="mr-2 inline h-4 w-4" />Move Down</button>
         </div>
         {releaseSummary && transitionReleaseAction && rollbackReleaseAction ? (
-          <div className="mt-6 rounded-[1.5rem] bg-slate-50 p-3 ring-1 ring-slate-200">
+          <div className="mt-4 rounded-xl bg-slate-50 p-3 ring-1 ring-slate-200">
             <ContentReleasePanel
               summary={releaseSummary}
               transitionAction={transitionReleaseAction}
@@ -478,11 +478,11 @@ function QuestionMorePanel({
             />
           </div>
         ) : (
-          <div className="mt-6 rounded-[1.5rem] border border-dashed border-slate-200 p-4 text-sm text-slate-500">
+          <div className="mt-4 rounded-xl border border-dashed border-slate-200 p-4 text-sm text-slate-500">
             Release controls are not available for this exercise yet.
           </div>
         )}
-        <div className="mt-6 rounded-[1.5rem] bg-slate-50 p-4 ring-1 ring-slate-200">
+        <div className="mt-4 rounded-xl bg-slate-50 p-4 ring-1 ring-slate-200">
           <p className="text-sm font-semibold text-slate-900">Current exercise</p>
           <p className="mt-1 text-sm text-slate-600">{activeExercise.title}</p>
         </div>
@@ -565,7 +565,7 @@ function QuestionEditorPanel({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Current Template</p>
-          <h2 className="mt-1 text-xl font-bold text-slate-950">{questionTemplateLabel(draft.templateId)}</h2>
+          <h2 className="mt-1 text-lg font-semibold text-slate-950">{questionTemplateLabel(draft.templateId)}</h2>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
@@ -588,7 +588,7 @@ function QuestionEditorPanel({
       />
 
       <div className="flex flex-wrap items-center gap-3">
-        <label className="rounded-full bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700 ring-1 ring-slate-200">
+        <label className="rounded-lg bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-700 ring-1 ring-slate-200">
           <input
             type="checkbox"
             checked={draft.approved}
@@ -597,7 +597,7 @@ function QuestionEditorPanel({
           />
           Published
         </label>
-        <button type="button" onClick={saveCurrentQuestion} disabled={isPending} className="rounded-full bg-slate-950 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
+        <button type="button" onClick={saveCurrentQuestion} disabled={isPending} className="rounded-lg bg-slate-950 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50">
           {selectedQuestion ? "Save Question" : "Add Question"}
         </button>
       </div>

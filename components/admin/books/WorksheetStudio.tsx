@@ -7,6 +7,7 @@ import { ArrowDown, ArrowUp, Copy, FileText, Plus, Save, Trash2 } from "lucide-r
 
 import ContentReleasePanel from "@/components/admin/books/ContentReleasePanel";
 import StudioWorkspaceShell from "@/components/admin/books/StudioWorkspaceShell";
+import { compactField } from "@/components/admin/books/compact-studio-styles";
 import type { ReleaseSummary } from "@/lib/content-release";
 import {
   WORKSHEET_AUDIENCES,
@@ -32,8 +33,8 @@ type ReleaseAction =
   | "ARCHIVE"
   | "RESTORE";
 
-const field = "mt-2 w-full rounded-[1.1rem] border border-transparent bg-white/80 px-4 py-3 text-sm text-slate-800 outline-none ring-1 ring-slate-200 transition focus:bg-white focus:ring-2 focus:ring-blue-200";
-const plainArea = "w-full resize-none border-none bg-transparent text-[1.05rem] leading-8 text-slate-800 outline-none placeholder:text-slate-300";
+const field = compactField;
+const plainArea = "w-full resize-none border-none bg-transparent text-sm leading-6 text-slate-800 outline-none placeholder:text-slate-300";
 
 export default function WorksheetStudio({
   chapterId,
@@ -115,12 +116,12 @@ export default function WorksheetStudio({
           </div>
           <Plus className="h-5 w-5 text-slate-400" />
         </div>
-        <div className="mt-5 space-y-2">
-          <button type="button" onClick={() => setSelectedId("new")} className={`w-full rounded-2xl px-4 py-3 text-left text-sm font-semibold ${selected ? "bg-white text-slate-700 ring-1 ring-slate-200" : "bg-slate-950 text-white"}`}>
+        <div className="mt-3 space-y-2">
+          <button type="button" onClick={() => setSelectedId("new")} className={`w-full rounded-lg px-3 py-2 text-left text-sm font-semibold ${selected ? "bg-white text-slate-700 ring-1 ring-slate-200" : "bg-slate-950 text-white"}`}>
             New Worksheet
           </button>
           {worksheets.map((worksheet) => (
-            <button key={worksheet.id} type="button" onClick={() => setSelectedId(worksheet.id)} className={`w-full rounded-2xl px-4 py-3 text-left text-slate-700 ring-1 ring-slate-200 ${selectedId === worksheet.id ? "bg-slate-950 text-white" : "bg-white"}`}>
+            <button key={worksheet.id} type="button" onClick={() => setSelectedId(worksheet.id)} className={`w-full rounded-lg px-3 py-2 text-left text-slate-700 ring-1 ring-slate-200 ${selectedId === worksheet.id ? "bg-slate-950 text-white" : "bg-white"}`}>
               <p className="text-xs font-bold uppercase tracking-[0.14em] text-blue-700">{worksheetTypeLabel(worksheet.type)}</p>
               <h3 className="mt-1 truncate text-sm font-bold">{worksheet.title}</h3>
               <p className="mt-1 text-xs text-slate-500">{worksheet.published ? "Published" : "Draft"} - {worksheet.audience}</p>
@@ -131,33 +132,33 @@ export default function WorksheetStudio({
   );
 
   const canvas = (
-      <form id={formId} key={draft.id} action={submit} className="min-w-0 space-y-6">
+      <form id={formId} key={draft.id} action={submit} className="min-w-0 space-y-4">
         <input type="hidden" name="id" value={selected?.id ?? ""} />
         <input type="hidden" name="sortOrder" value={draft.sortOrder} />
-        <div className="mx-auto max-w-3xl rounded-[2rem] bg-[#fffdf7] p-6 shadow-sm ring-1 ring-slate-200 sm:p-9">
+        <div className="mx-auto max-w-3xl rounded-xl bg-[#fffdf7] p-4 ring-1 ring-slate-200">
           <span className="inline-flex items-center gap-2 rounded-full bg-blue-100 px-3 py-1.5 text-xs font-bold uppercase tracking-[0.14em] text-blue-800">
             <FileText className="h-4 w-4" />
             Worksheet Manuscript
           </span>
-          <input name="title" required defaultValue={draft.title} placeholder="Worksheet title" className="mt-6 w-full border-none bg-transparent text-4xl font-bold tracking-tight text-slate-950 outline-none placeholder:text-slate-300" />
+          <input name="title" required defaultValue={draft.title} placeholder="Worksheet title" className="mt-4 h-10 w-full border-none bg-transparent text-lg font-semibold tracking-tight text-slate-950 outline-none placeholder:text-slate-300" />
           <input name="slug" defaultValue={draft.slug} placeholder="worksheet-slug" className="mt-3 w-full border-none bg-transparent text-sm font-semibold text-slate-400 outline-none" />
-          <section className="mt-8 border-t border-slate-200 pt-6">
+          <section className="mt-5 border-t border-slate-200 pt-4">
             <h3 className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">Instructions</h3>
             <textarea name="instructions" defaultValue={draft.instructions ?? ""} rows={8} className={`${plainArea} mt-3`} placeholder="Write worksheet instructions naturally." />
           </section>
-          <section className="mt-8 grid gap-4 rounded-3xl bg-slate-50 p-5 ring-1 ring-slate-200 md:grid-cols-2">
+          <section className="mt-5 grid gap-3 rounded-xl bg-slate-50 p-3 ring-1 ring-slate-200 md:grid-cols-2">
             <Summary label="Interactive Exercise" value={exerciseLabel(draft.exerciseId, lookups)} />
             <Summary label="Printable Resource" value={resourceLabel(draft.printableResourceId, lookups)} />
             <Summary label="Answer Key" value={resourceLabel(draft.answerKeyResourceId, lookups)} />
             <Summary label="Supporting Resources" value={`${draft.supportingResourceIds.length} linked`} />
           </section>
         </div>
-        <button disabled={isPending} type="submit" className="mx-auto flex rounded-full bg-blue-700 px-5 py-3 text-sm font-bold text-white disabled:opacity-60">
+        <button disabled={isPending} type="submit" className="mx-auto flex h-9 rounded-lg bg-blue-700 px-4 text-sm font-medium text-white disabled:opacity-60">
           <Save className="mr-2 h-4 w-4" />
           {isPending ? "Saving..." : "Save worksheet"}
         </button>
         {message ? <p className="mx-auto max-w-3xl text-sm font-semibold text-slate-500">{message}</p> : null}
-        {error ? <p className="mx-auto max-w-3xl rounded-2xl bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{error}</p> : null}
+        {error ? <p className="mx-auto max-w-3xl rounded-xl bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">{error}</p> : null}
       </form>
   );
 
@@ -184,14 +185,14 @@ export default function WorksheetStudio({
             action={async (formData) => {
               await createExerciseAction(formData);
             }}
-            className="rounded-2xl bg-slate-50 p-3 ring-1 ring-slate-200"
+            className="rounded-xl bg-slate-50 p-3 ring-1 ring-slate-200"
           >
             <input type="hidden" name="title" value={draft.title || "Worksheet Exercise"} />
             <input type="hidden" name="moduleId" value={draft.moduleId ?? ""} />
             <input type="hidden" name="topicId" value={draft.topicId ?? ""} />
             <button className="text-sm font-bold text-blue-700">Create new BookExercise</button>
           </form>
-          <label className="flex items-center gap-3 rounded-[1.25rem] bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700 ring-1 ring-slate-200"><input form={formId} name="allowOnlineAttempt" type="checkbox" defaultChecked={draft.allowOnlineAttempt} />Allow online attempt</label>
+          <label className="flex items-center gap-3 rounded-lg bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700 ring-1 ring-slate-200"><input form={formId} name="allowOnlineAttempt" type="checkbox" defaultChecked={draft.allowOnlineAttempt} />Allow online attempt</label>
           {draft.exerciseId ? <Link href={`?selected=FOLDER:${chapterId}:exercises`} className="text-sm font-bold text-blue-700">Open Exercise Studio</Link> : null}
         </Inspector>
         <Inspector title="Printable">
@@ -206,16 +207,16 @@ export default function WorksheetStudio({
               </label>
             ))}
           </div>
-          <label className="flex items-center gap-3 rounded-[1.25rem] bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700 ring-1 ring-slate-200"><input form={formId} name="allowPrint" type="checkbox" defaultChecked={draft.allowPrint} />Allow print/download</label>
+          <label className="flex items-center gap-3 rounded-lg bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700 ring-1 ring-slate-200"><input form={formId} name="allowPrint" type="checkbox" defaultChecked={draft.allowPrint} />Allow print/download</label>
         </Inspector>
         <Inspector title="Publishing">
           <label className="block text-sm font-semibold text-slate-700">Minutes<input form={formId} name="estimatedMinutes" type="number" min="1" defaultValue={draft.estimatedMinutes ?? ""} className={field} /></label>
           <label className="block text-sm font-semibold text-slate-700">Marks<input form={formId} name="totalMarks" type="number" min="1" defaultValue={draft.totalMarks ?? ""} className={field} /></label>
           <label className="block text-sm font-semibold text-slate-700">Difficulty<select form={formId} name="difficulty" defaultValue={draft.difficulty ?? ""} className={field}><option value="">Not set</option>{WORKSHEET_DIFFICULTIES.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
           <label className="block text-sm font-semibold text-slate-700">Audience<select form={formId} name="audience" defaultValue={draft.audience} className={field}>{WORKSHEET_AUDIENCES.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
-          <label className="flex items-center gap-3 rounded-[1.25rem] bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700 ring-1 ring-slate-200"><input form={formId} name="showAnswersAfterSubmit" type="checkbox" defaultChecked={draft.showAnswersAfterSubmit} />Show answers after submit</label>
-          <label className="flex items-center gap-3 rounded-[1.25rem] bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700 ring-1 ring-slate-200"><input form={formId} name="active" type="checkbox" defaultChecked={draft.active} />Active</label>
-          <label className="flex items-center gap-3 rounded-[1.25rem] bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700 ring-1 ring-slate-200"><input form={formId} name="published" type="checkbox" defaultChecked={draft.published} />Published</label>
+          <label className="flex items-center gap-3 rounded-lg bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700 ring-1 ring-slate-200"><input form={formId} name="showAnswersAfterSubmit" type="checkbox" defaultChecked={draft.showAnswersAfterSubmit} />Show answers after submit</label>
+          <label className="flex items-center gap-3 rounded-lg bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700 ring-1 ring-slate-200"><input form={formId} name="active" type="checkbox" defaultChecked={draft.active} />Active</label>
+          <label className="flex items-center gap-3 rounded-lg bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700 ring-1 ring-slate-200"><input form={formId} name="published" type="checkbox" defaultChecked={draft.published} />Published</label>
         </Inspector>
         {selected && releaseSummaries[selected.id] && transitionReleaseAction && rollbackReleaseAction ? (
           <Inspector title="Release">
@@ -272,11 +273,11 @@ export default function WorksheetStudio({
 }
 
 function Inspector({ title, children }: { title: string; children: ReactNode }) {
-  return <section className="mb-4 space-y-3 rounded-[1.5rem] bg-white p-4 ring-1 ring-slate-200"><h3 className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">{title}</h3>{children}</section>;
+  return <section className="mb-3 space-y-3 rounded-xl bg-white p-3 ring-1 ring-slate-200"><h3 className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">{title}</h3>{children}</section>;
 }
 
 function Action({ action, label, icon, danger = false }: { action: () => Promise<void>; label: string; icon: ReactNode; danger?: boolean }) {
-  return <form action={action} className="mb-2"><button className={`inline-flex w-full items-center justify-center gap-2 rounded-xl px-3 py-2 text-xs font-bold ${danger ? "bg-rose-50 text-rose-700 ring-1 ring-rose-200" : "bg-slate-50 text-slate-700 ring-1 ring-slate-200"}`}>{icon}{label}</button></form>;
+  return <form action={action} className="mb-2"><button className={`inline-flex h-9 w-full items-center justify-center gap-2 rounded-lg px-3 text-xs font-medium ${danger ? "bg-rose-50 text-rose-700 ring-1 ring-rose-200" : "bg-slate-50 text-slate-700 ring-1 ring-slate-200"}`}>{icon}{label}</button></form>;
 }
 
 function Summary({ label, value }: { label: string; value: string }) {
