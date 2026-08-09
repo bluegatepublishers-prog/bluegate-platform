@@ -25,6 +25,7 @@ model User {
   school                      School?
   teacher                     Teacher?
   student                     Student?
+  blogPosts                   BlogPost[]
   requestedBookAdoptions      SchoolBookAdoption[]         @relation("BookAdoptionRequester")
   reviewedBookAdoptions       SchoolBookAdoption[]         @relation("BookAdoptionReviewer")
   grantedStudentAccess        StudentAccessGrant[]         @relation("StudentAccessGrantGranter")
@@ -77,6 +78,22 @@ model User {
   @@index([role, active])
 }
 
+model BlogPost {
+  id          String    @id @default(cuid())
+  title       String
+  slug        String    @unique
+  excerpt     String
+  content     String
+  coverImage  String?
+  published   Boolean   @default(false)
+  featured    Boolean   @default(false)
+  authorId    String
+  author      User      @relation(fields: [authorId], references: [id], onDelete: Restrict)
+  publishedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
 model Publisher {
   id                         String                      @id @default(cuid())
   name                       String
@@ -108,6 +125,7 @@ model Publisher {
   studentAccessGrants        StudentAccessGrant[]
   studentBookProgress        StudentBookProgress[]
   studentBookBookmarks       StudentBookBookmark[]
+  studentWorkItems           StudentWorkItem[]
   studentAiConversations     StudentAiConversation[]
   assessments                Assessment[]
   assessmentAttempts         AssessmentAttempt[]
@@ -232,6 +250,7 @@ model Teacher {
   schoolMemberships           SchoolStaffMembership[]
   attendanceSessions          AttendanceSession[]
   reviewedPracticeResponses   StudentPracticeResponse[] @relation("StudentPracticeResponseReviewer")
+  teachingPlans               TeachingPlan[]
 
   @@index([schoolId])
   @@index([schoolId, status, active])
@@ -340,11 +359,13 @@ model School {
   assignmentSubmissions   AssignmentSubmission[]
   reportCardSnapshots     ReportCardSnapshot[]
   bookEntitlements        SchoolBookEntitlement[]
+  studentWorkItems        StudentWorkItem[]
   resourceEntitlements    SchoolResourceEntitlement[]
   accessSubscription      SchoolAccessSubscription?
   portalPermissions       SchoolPortalPermission?
   sectionChatRooms        SectionChatRoom[]
   academicPlannerItems    AcademicPlannerItem[]
+  teachingPlans           TeachingPlan[]
   attendanceSessions      AttendanceSession[]
   attendancePolicy        SchoolAttendancePolicy?
 
@@ -516,6 +537,60 @@ model AcademicPlannerReschedule {
   @@index([plannerItemId, createdAt])
 }
 
+model TeachingPlan {
+  id               String           @id @default(cuid())
+  schoolId         String
+  academicYearId   String
+  sectionSubjectId String
+  teacherId        String
+  bookId           String
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  school           School           @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  academicYear     AcademicYear     @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
+  sectionSubject   SectionSubject   @relation(fields: [sectionSubjectId], references: [id], onDelete: Restrict)
+  teacher          Teacher          @relation(fields: [teacherId], references: [id], onDelete: Restrict)
+  book             Book             @relation(fields: [bookId], references: [id], onDelete: Restrict)
+  periods          TeachingPeriod[]
+
+  @@unique([schoolId, academicYearId, sectionSubjectId, teacherId, bookId])
+  @@index([schoolId, academicYearId])
+  @@index([sectionSubjectId, academicYearId])
+  @@index([teacherId, academicYearId])
+  @@index([bookId])
+}
+
+model TeachingPeriod {
+  id          String                  @id @default(cuid())
+  planId      String
+  sequence    Int
+  title       String
+  createdAt   DateTime                @default(now())
+  updatedAt   DateTime                @updatedAt
+  plan        TeachingPlan            @relation(fields: [planId], references: [id], onDelete: Cascade)
+  pageRefs    TeachingPeriodPageRef[]
+  assignments ClassroomAssignment[]
+
+  @@unique([planId, sequence])
+}
+
+model TeachingPeriodPageRef {
+  id             String         @id @default(cuid())
+  periodId       String
+  pageId         String
+  moduleId       String?
+  pageSourceHash String?
+  sequence       Int
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  period         TeachingPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
+
+  @@unique([periodId, pageId])
+  @@unique([periodId, sequence])
+  @@index([pageId])
+  @@index([moduleId])
+}
+
 model TeacherSchoolRequest {
   id           String                  @id @default(cuid())
   teacherId    String
@@ -596,6 +671,7 @@ model AcademicYear {
   studentAccessGrants     StudentAccessGrant[]
   studentBookProgresses   StudentBookProgress[]
   studentBookBookmarks    StudentBookBookmark[]
+  studentWorkItems        StudentWorkItem[]
   studentRevisionProgress StudentRevisionProgress[]
   studentPracticeAttempts StudentPracticeAttempt[]
   studentAiConversations  StudentAiConversation[]
@@ -622,6 +698,7 @@ model AcademicYear {
   reportCardSnapshots     ReportCardSnapshot[]
   sectionChatRooms        SectionChatRoom[]
   academicPlannerItems    AcademicPlannerItem[]
+  teachingPlans           TeachingPlan[]
   attendanceSessions      AttendanceSession[]
 
   @@unique([schoolId, name])
@@ -704,6 +781,7 @@ model Student {
   accessGrants          StudentAccessGrant[]
   bookProgress          StudentBookProgress[]
   bookBookmarks         StudentBookBookmark[]
+  studentWorkItems      StudentWorkItem[]
   revisionProgress      StudentRevisionProgress[]
   practiceAttempts      StudentPracticeAttempt[]
   aiConversations       StudentAiConversation[]
@@ -1128,6 +1206,7 @@ model SectionSubject {
   classMaterials       ClassMaterial[]
   classroomAssignments ClassroomAssignment[]
   academicPlannerItems AcademicPlannerItem[]
+  teachingPlans        TeachingPlan[]
   attendanceSessions   AttendanceSession[]
 
   @@unique([sectionId, subjectId])
@@ -1404,6 +1483,8 @@ model Book {
   schoolAdoptions         SchoolBookAdoption[]
   studentProgress         StudentBookProgress[]
   studentBookmarks        StudentBookBookmark[]
+  studentWorkItems          StudentWorkItem[]
+  teachingPlans             TeachingPlan[]
   publisherTenant         Publisher?                @relation(fields: [publisherId], references: [id], onDelete: Restrict)
   studentPracticeAttempts StudentPracticeAttempt[]
   studentAiConversations  StudentAiConversation[]
@@ -1557,6 +1638,71 @@ model StudentBookProgress {
   @@unique([studentId, bookId, academicYearId])
   @@index([studentId, academicYearId, lastReadAt])
   @@index([bookId, academicYearId])
+}
+
+enum StudentWorkType {
+  ANSWER
+  NOTE
+  HIGHLIGHT
+  BOOKMARK
+  COMPLETION
+  READING_POSITION
+}
+
+model StudentWorkItem {
+  id               String                   @id @default(cuid())
+  studentId        String
+  schoolId         String
+  publisherId      String
+  bookId           String
+  academicYearId   String
+  chapterId        String?
+  moduleId         String?
+  assignmentItemId String?
+  type             StudentWorkType
+  targetKey        String                   @db.VarChar(512)
+  pageId           String?                  @db.VarChar(128)
+  frameId          String?                  @db.VarChar(128)
+  childFrameId     String?                  @db.VarChar(128)
+  questionId       String?                  @db.VarChar(128)
+  segmentId        String?                  @db.VarChar(128)
+  masterSourceHash String?                  @db.VarChar(128)
+  targetSourceHash String?                  @db.VarChar(128)
+  payload          Json
+  revision         Int                      @default(1)
+  createdAt        DateTime                 @default(now())
+  updatedAt        DateTime                 @updatedAt
+  student          Student                  @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  school           School                   @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  publisher        Publisher                @relation(fields: [publisherId], references: [id], onDelete: Restrict)
+  book             Book                     @relation(fields: [bookId], references: [id], onDelete: Restrict)
+  academicYear     AcademicYear             @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
+  chapter          BookChapter?             @relation(fields: [chapterId], references: [id], onDelete: Restrict)
+  module           BookModule?              @relation(fields: [moduleId], references: [id], onDelete: Restrict)
+  assignmentItem   ClassroomAssignmentItem? @relation(fields: [assignmentItemId], references: [id], onDelete: Restrict)
+  attempts         StudentWorkAttempt[]
+
+  @@unique([studentId, schoolId, publisherId, bookId, academicYearId, type, targetKey])
+  @@index([studentId, bookId, academicYearId])
+  @@index([studentId, bookId, pageId])
+  @@index([studentId, moduleId])
+  @@index([studentId, assignmentItemId])
+  @@index([assignmentItemId])
+  @@index([bookId, targetKey])
+}
+
+model StudentWorkAttempt {
+  id               String          @id @default(cuid())
+  workItemId       String
+  attemptNumber    Int
+  payload          Json
+  masterSourceHash String?         @db.VarChar(128)
+  targetSourceHash String?         @db.VarChar(128)
+  createdAt        DateTime        @default(now())
+  workItem         StudentWorkItem @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+
+  @@unique([workItemId, attemptNumber])
+  @@index([workItemId, createdAt])
 }
 
 model StudentBookBookmark {
@@ -1744,6 +1890,7 @@ model BookChapter {
   worksheets              PublisherWorksheet[]
   studentRevisionProgress StudentRevisionProgress[]
   studentPracticeAttempts StudentPracticeAttempt[]
+  studentWorkItems        StudentWorkItem[]
   studentAiConversations  StudentAiConversation[]
   assessments             Assessment[]
   assessmentQuestions     AssessmentQuestion[]
@@ -1799,6 +1946,7 @@ model BookModule {
   topics           BookTopic[]
   exercises        BookExercise[]
   questions        BookQuestion[]
+  studentWorkItems StudentWorkItem[]
   learningOutcomes ChapterLearningOutcome[]
   activities       ChapterActivity[]
   worksheets       PublisherWorksheet[]
@@ -2925,6 +3073,7 @@ model ClassroomAssignment {
   subjectId            String?
   bookId               String?
   chapterId            String?
+  teachingPeriodId     String?
   title                String
   instructions         String?
   status               ClassroomAssignmentStatus @default(DRAFT)
@@ -2958,7 +3107,9 @@ model ClassroomAssignment {
   subject              Subject?                  @relation(fields: [subjectId], references: [id], onDelete: Restrict)
   book                 Book?                     @relation(fields: [bookId], references: [id], onDelete: Restrict)
   chapter              BookChapter?              @relation(fields: [chapterId], references: [id], onDelete: Restrict)
+  teachingPeriod       TeachingPeriod?           @relation(fields: [teachingPeriodId], references: [id], onDelete: SetNull)
   attachments          AssignmentAttachment[]
+  items                ClassroomAssignmentItem[]
   submissions          AssignmentSubmission[]
   plannerItems         AcademicPlannerItem[]
 
@@ -2968,6 +3119,28 @@ model ClassroomAssignment {
   @@index([teacherId, status, updatedAt])
   @@index([status, publishAt])
   @@index([sectionSubjectId, status])
+  @@index([teachingPeriodId])
+}
+
+model ClassroomAssignmentItem {
+  id                  String                      @id @default(cuid())
+  assignmentId        String
+  type                ClassroomAssignmentItemType
+  sequence            Int
+  moduleId            String?                     @db.VarChar(128)
+  pageId              String?                     @db.VarChar(128)
+  frameId             String?                     @db.VarChar(128)
+  childFrameId        String?                     @db.VarChar(128)
+  questionId          String?                     @db.VarChar(128)
+  targetSourceHash    String?                     @db.VarChar(128)
+  targetLabelSnapshot String?                     @db.VarChar(512)
+  payload             Json?
+  createdAt           DateTime                    @default(now())
+  updatedAt           DateTime                    @updatedAt
+  assignment          ClassroomAssignment         @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  studentWorkItems    StudentWorkItem[]
+
+  @@unique([assignmentId, sequence])
 }
 
 model AssignmentAttachment {
@@ -4070,6 +4243,13 @@ enum ClassroomAssignmentStatus {
   PUBLISHED
   CLOSED
   ARCHIVED
+}
+
+enum ClassroomAssignmentItemType {
+  PUBLISHER_PAGE
+  PUBLISHER_QUESTION
+  INSTRUCTION
+  TEACHER_QUESTION
 }
 
 enum ClassroomAssignmentType {

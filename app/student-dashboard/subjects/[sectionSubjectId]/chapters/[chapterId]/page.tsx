@@ -3,25 +3,35 @@ import type { ReactNode } from "react";
 import { notFound } from "next/navigation";
 import { Activity, BookOpen, Brain, FileText, PlayCircle, Sparkles } from "lucide-react";
 
-import StructuredContentRenderer from "@/components/content/StructuredContentRenderer";
+import StudentWorkBook from "@/components/content/StudentWorkBook";
+import StudentWorkPanel from "@/components/content/StudentWorkPanel";
+import StudentWorkProvider from "@/components/content/StudentWorkProvider";
+import V2NarrationProvider from "@/components/content/V2NarrationProvider";
+import { buildV2NarrationManifest, mergeV2NarrationManifests } from "@/lib/content-narration";
 import { loadStudentChapterStructuredContent } from "@/lib/content-delivery";
 import { getStudentChapterWorkspace } from "@/lib/student-workspaces";
 
 export default async function ChapterWorkspacePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ sectionSubjectId: string; chapterId: string }>;
+  searchParams: Promise<{ moduleId?: string; pageId?: string }>;
 }) {
   const { sectionSubjectId, chapterId } = await params;
+  const query = await searchParams;
   const data = await getStudentChapterWorkspace(sectionSubjectId, chapterId);
   if (!data) notFound();
 
-  const structured = await loadStudentChapterStructuredContent(sectionSubjectId, chapterId);
+  const structured = await loadStudentChapterStructuredContent(sectionSubjectId, chapterId, query.moduleId);
   const { chapter } = data;
   const videos = chapter.resources.filter((item) => item.type === "VIDEO");
   const notes = chapter.resources.filter((item) => item.type === "PDF" || item.type === "DOC");
   const hasPractice = chapter.exercises.length + chapter.classroomAssignments.length + chapter.assessments.length > 0;
   const completed = chapter.studentRevisionProgress[0]?.revisionCompleted;
+  const narrationManifests = structured?.items.map((item) => buildV2NarrationManifest(item.document, "STUDENT", { scopeId: item.id })) ?? [];
+  const narrationManifest = mergeV2NarrationManifests(narrationManifests, "STUDENT");
+  const narrationAudioUrls = Object.assign({}, ...(structured?.items.map((item) => item.v2ResourceUrls) ?? []));
 
   return (
     <main className="min-h-screen bg-slate-50 p-4 sm:p-8">
@@ -61,11 +71,15 @@ export default async function ChapterWorkspacePage({
 
         <Section id="read" title="Read">
           {structured?.items.length ? (
-            <div className="space-y-8">
+            <StudentWorkProvider bookId={chapter.bookId}>
+              <V2NarrationProvider manifest={narrationManifest} audioUrls={narrationAudioUrls}>
+              <div className="space-y-8">
               {structured.items.map((item) => (
                 <article key={item.id} className="rounded-[2rem] bg-[#fcfaf5] p-5 ring-1 ring-slate-200">
                   <h3 className="mb-5 text-xl font-bold text-slate-950">{item.title}</h3>
-                  <StructuredContentRenderer
+                  <StudentWorkBook
+                    chapterId={chapter.id}
+                    moduleId={item.id}
                     document={item.document}
                     mode={item.mode}
                     linkedAssets={item.linkedAssets}
@@ -74,10 +88,15 @@ export default async function ChapterWorkspacePage({
                     media={item.media}
                     sectionDefinitions={item.sections}
                     knowledgeDefinitions={item.knowledgeDefinitions}
+                    resourceUrls={item.v2ResourceUrls}
+                    focusPageId={query.moduleId === item.id ? query.pageId : undefined}
                   />
                 </article>
               ))}
             </div>
+              </V2NarrationProvider>
+              <StudentWorkPanel moduleIds={structured.items.map((item) => item.id)} progressModules={structured.items.map((item) => ({ moduleId: item.id, document: item.document }))} />
+            </StudentWorkProvider>
           ) : (
             <div className="prose prose-slate max-w-none">
               {chapter.summary ? <p>{chapter.summary}</p> : null}

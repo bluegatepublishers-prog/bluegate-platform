@@ -12,9 +12,12 @@ import {
   isTextBlock,
   isWorksheetBlock,
   isExerciseBlock,
+  isActivityBlock,
+  isEducationalObjectBlock,
 } from "@/lib/content-document";
 import type { KnowledgeDefinitionSummary } from "@/lib/content-knowledge-types";
 import type { ContentSectionDefinitionSummary, ResolvedLinkedAsset } from "@/lib/content-linked-asset-types";
+import type { LayoutV2Frame } from "@/lib/content-layout-v2";
 import type { ResolvedMediaBlock } from "@/lib/content-media-types";
 
 export const CONTENT_RENDER_MODES = ["ADMIN_PREVIEW", "TEACHER", "STUDENT"] as const;
@@ -63,6 +66,7 @@ export function filterDocumentForMode(
     ...document,
     blocks: document.blocks.filter((block) => {
       if (block.hidden) return false;
+      if (mode === "STUDENT" && isEducationalObjectBlock(block) && block.objectType === "teacherNote") return false;
       if (isMediaBlock(block)) {
         return canShowMediaBlock(
           mode,
@@ -76,10 +80,52 @@ export function filterDocumentForMode(
         block,
         block.sectionDefinitionId ? sectionsById.get(block.sectionDefinitionId) ?? null : null,
       );
-    }),
+    }).map((block) => mode === "STUDENT" ? sanitizeStudentBlock(block) : block),
+    ...(document.pageLayout ? {
+      pageLayout: {
+        ...document.pageLayout,
+        pages: document.pageLayout.pages.map((page) => ({
+          ...page,
+          frames: filterV2FramesForMode(page.frames, mode),
+        })),
+      },
+    } : {}),
   };
 }
 
+function sanitizeStudentBlock(block: ContentBlock): ContentBlock {
+  if (isWorksheetBlock(block)) {
+    const safeBlock = { ...block };
+    delete safeBlock.teacherNote;
+    return { ...safeBlock, questions: safeBlock.questions.map(sanitizeStudentQuestion) };
+  }
+  if (isExerciseBlock(block)) {
+    const safeBlock = { ...block };
+    delete safeBlock.teacherNote;
+    return { ...safeBlock, questions: safeBlock.questions.map(sanitizeStudentQuestion), groups: safeBlock.groups.map((group) => ({ ...group, questions: group.questions.map(sanitizeStudentQuestion) })) };
+  }
+  if (isActivityBlock(block)) return { ...block, fields: block.fields.filter((field) => field.visibility?.student !== false && field.type !== "teacherNote") };
+  return block;
+}
+
+function sanitizeStudentQuestion(question: Extract<ContentBlock, { type: "worksheet" }>["questions"][number]) {
+  const safeQuestion = { ...question };
+  delete safeQuestion.answer;
+  delete safeQuestion.explanation;
+  delete safeQuestion.correctOption;
+  delete safeQuestion.trueFalseAnswer;
+  delete safeQuestion.correctAssertionOption;
+  return safeQuestion;
+}
+
+
+function filterV2FramesForMode(frames: LayoutV2Frame[], mode: ContentRenderMode): LayoutV2Frame[] {
+  return frames.filter((frame) => {
+    if (mode === "STUDENT" && frame.audience === "TEACHER") return false;
+    if (mode === "TEACHER" && frame.audience === "STUDENT") return false;
+    return true;
+  }).map((frame) => frame.children?.length ? { ...frame, children: filterV2FramesForMode(frame.children, mode) } : frame);
+}
 export function filterResolvedKnowledgeForMode(
   resolved: Record<string, KnowledgeDefinitionSummary | null>,
   mode: ContentRenderMode,

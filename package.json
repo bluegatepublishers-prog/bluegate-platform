@@ -10,6 +10,7 @@
     "lint": "eslint",
     "test": "node --conditions=react-server --import tsx --test tests/*.test.ts",
     "test:e2e": "playwright test",
+    "e2e:fixture": "tsx scripts/setup-content-studio-e2e.ts",
     "gaps:backfill": "node --conditions=react-server --import tsx scripts/gap-analysis-backfill.ts",
     "provision:super-admin": "tsx scripts/provision-super-admin.ts",
     "seed": "tsx prisma/seed.ts",

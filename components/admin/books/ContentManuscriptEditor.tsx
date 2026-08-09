@@ -3,6 +3,8 @@
 import EditorShell from "@/components/admin/books/editor/EditorShell";
 import DocumentWorkspace from "@/components/admin/books/editor/DocumentWorkspace";
 import LayoutObjectFrame from "@/components/admin/books/editor/LayoutObjectFrame";
+import V2DocumentWorkspace from "@/components/admin/books/editor/V2DocumentWorkspace";
+import IdmlImportPanel from "@/components/admin/books/editor/IdmlImportPanel";
 import ContinuousTextEditor from "@/components/admin/books/editor/ContinuousTextEditor";
 import PeriodTabs from "@/components/admin/books/editor/PeriodTabs";
 import WordRibbon from "@/components/admin/books/editor/WordRibbon";
@@ -116,6 +118,7 @@ import type { ReleaseSummary } from "@/lib/content-release";
 import { uploadFileToR2 } from "@/lib/storage/client-upload";
 import { contentResourcePreviewUrl } from "@/lib/content-resource-preview";
 import EducationalObjectIcon from "@/components/content/EducationalObjectIcon";
+import { addV2FrameToPage, getContentLayoutVersion, updateV2Frame, type LayoutV2Frame } from "@/lib/content-layout-v2";
 
 type ResourceChoice = {
   id: string;
@@ -426,6 +429,7 @@ export default function ContentManuscriptEditor({
     content: contentDoc,
   });
   const dirty = snapshot !== baselineSnapshot;
+  const usesLayoutV2 = getContentLayoutVersion(contentDoc) === 2;
 
   function applyDocumentChange(updater: (current: ContentDocument) => ContentDocument) {
     setContentDoc((current) => {
@@ -1659,6 +1663,118 @@ export default function ContentManuscriptEditor({
   const toolbarAnchorId = activeBlockId && contentDoc.blocks.some((block) => block.id === activeBlockId)
     ? activeBlockId
     : contentDoc.blocks[contentDoc.blocks.length - 1]?.id ?? contentDoc.blocks[0]?.id ?? "";
+  const renderV2Block = (block: ContentBlock) => (
+    <ContentDocumentRenderer
+      document={{ ...contentDoc, blocks: [block], layout: "single" }}
+      moduleTitle={title}
+      mode="ADMIN_PREVIEW"
+      linkedAssets={previewLinkedAssets}
+      activities={resolvedActivities}
+      worksheets={resolvedWorksheets}
+      media={previewMedia}
+      sectionDefinitions={sectionDefinitions}
+      knowledgeDefinitions={knowledgeMap}
+    />
+  );
+
+  if (usesLayoutV2) {
+    return (
+      <div data-testid="content-studio-editor" data-node-id={nodeId} className="flex h-full min-h-0 flex-col">
+        <IdmlImportPanel bookId={bookId} nodeId={nodeId} nodeType={nodeType} currentDocument={contentDoc} />
+        <EditorShell shellRef={editorShellRef} ribbon={null} periodTabs={null}>
+          <V2DocumentWorkspace
+            title={title}
+            document={contentDoc}
+            resources={resourceChoices.map((resource) => ({ id: resource.id, title: resource.title, type: resource.type, mimeType: resource.mimeType }))}
+            saveState={saveState}
+            dirty={dirty}
+            error={error}
+            wordCount={wordCount}
+            zoom={zoom}
+            blocks={contentDoc.blocks}
+            renderBlock={renderV2Block}
+            onTitleChange={(value) => {
+              setTitle(value);
+              setSaveState("dirty");
+            }}
+            onSave={() => void saveDocument()}
+            onUndo={undoDocument}
+            onRedo={redoDocument}
+            onZoomChange={setZoom}
+            onDocumentChange={(next, message) => {
+              applyDocumentChange(() => next);
+              setSaveState("dirty");
+              setSaveMessage(message);
+            }}
+            onUploadImage={async (file, uploadTitle) => {
+              const resource = await createPublisherResource({
+                file,
+                scope: "resource-file",
+                title: uploadTitle,
+                type: ResourceType.IMAGE,
+                audience: ResourceAudience.BOTH,
+              });
+              return { id: resource.id, title: resource.title, type: resource.type, mimeType: resource.mimeType };
+            }}
+            onFrameTextChange={(frame, value, spans, framePatch) => {
+              applyDocumentChange((current) => {
+                const blockId = frame.contentRef?.blockId;
+                const layoutPatch = { ...(spans ? { textSpans: spans } : {}), ...(framePatch ?? {}) };
+                if (blockId) {
+                  const blocks = current.blocks.map((block) => {
+                    if (block.id !== blockId || !("text" in block)) return block;
+                    return {
+                      ...block,
+                      text: value,
+                      ...(block.type === "paragraph" || block.type === "heading" || block.type === "heading3" || block.type === "subheading" || block.type === "caption" || block.type === "quote" || block.type === "callout" ? { spans: spans ?? [{ text: value }] } : {}),
+                    } as ContentBlock;
+                  });
+                  return {
+                    ...current,
+                    blocks,
+                    ...(current.pageLayout ? { pageLayout: updateV2Frame(current.pageLayout, frame.pageId, frame.id, layoutPatch) } : {}),
+                  };
+                }
+                if (!current.pageLayout) return current;
+                return { ...current, pageLayout: updateV2Frame(current.pageLayout, frame.pageId, frame.id, { payload: value, ...layoutPatch }) };
+              });
+              setSaveState("dirty");
+              setSaveMessage("Text updated");
+            }}
+            onAddFrame={(type, pageId, frame) => {
+              applyDocumentChange((current) => {
+                if (!current.pageLayout) return current;
+                let nextFrame: LayoutV2Frame = frame;
+                let blocks = current.blocks;
+                const periodId = current.periods[0]?.id;
+                const block = type === "TEXT"
+                  ? createTextBlock("paragraph", "New text frame")
+                  : type === "TABLE"
+                    ? createTableBlock("table", undefined, { rows: 2, columns: 2 })
+                    : type === "EDUCATIONAL"
+                      ? createEducationalObjectBlock("didYouKnow")
+                      : type === "ACTIVITY"
+                        ? createActivityBlock()
+                        : type === "WORKSHEET"
+                          ? createWorksheetBlock()
+                          : type === "EXERCISE"
+                            ? createExerciseBlock()
+                            : null;
+                if (block) {
+                  const blockWithPeriod = { ...block, periodId } as ContentBlock;
+                  blocks = [...blocks, blockWithPeriod];
+                  nextFrame = { ...frame, contentRef: { blockId: blockWithPeriod.id }, payload: undefined };
+                }
+                return { ...current, blocks, pageLayout: addV2FrameToPage(current.pageLayout, pageId, nextFrame) };
+              });
+              setSaveState("dirty");
+              setSaveMessage(`${type} frame inserted`);
+            }}
+          />
+        </EditorShell>
+      </div>
+    );
+  }
   return (
     <div
       data-testid="content-studio-editor"
@@ -1683,6 +1799,7 @@ export default function ContentManuscriptEditor({
         }
       }}
     >
+      <IdmlImportPanel bookId={bookId} nodeId={nodeId} nodeType={nodeType} currentDocument={contentDoc} />
       <EditorShell
   shellRef={editorShellRef}
   ribbon={
@@ -1888,6 +2005,11 @@ export default function ContentManuscriptEditor({
     </div>
   ) : null}
 
+  {usesLayoutV2 ? (
+    <div className="mb-2 inline-flex rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-700">
+      Page Layout V2
+    </div>
+  ) : null}
   <DocumentWorkspace
     title={title}
     subtitle={subtitle}

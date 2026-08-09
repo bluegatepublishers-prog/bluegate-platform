@@ -1,4 +1,33 @@
-import { createTeachingPlanAction, rescheduleTeachingPlanAction, updateTeachingPlanStatusAction } from "./actions";
-import { getTeacherWorkspaceData } from "@/lib/teacher-experience";
+import TeachingPlanWorkspace from "@/components/teacher/TeachingPlanWorkspace";
+import { getTeachingPlanPageData } from "@/lib/teaching-plan";
 
-export default async function TeachingPlanPage({ params, searchParams }: { params: Promise<{ sectionId: string }>; searchParams: Promise<{ subject?: string }> }) { const { sectionId } = await params; const data = await getTeacherWorkspaceData(sectionId, (await searchParams).subject); return <div className="grid gap-6 xl:grid-cols-[360px_1fr]"><form action={createTeachingPlanAction} className="h-fit rounded-3xl border bg-white p-5 shadow-sm"><h2 className="text-xl font-bold">Add plan item</h2><input type="hidden" name="sectionId" value={sectionId} /><input type="hidden" name="sectionSubjectId" value={data.subject.id} /><label className="mt-4 block text-sm font-semibold">Lesson title<input name="title" required maxLength={180} className="mt-2 w-full rounded-xl border px-3 py-2.5" /></label><label className="mt-4 block text-sm font-semibold">Planned date<input name="date" type="datetime-local" required className="mt-2 w-full rounded-xl border px-3 py-2.5" /></label><label className="mt-4 block text-sm font-semibold">Instructions / notes<textarea name="description" rows={4} className="mt-2 w-full rounded-xl border px-3 py-2.5" /></label><label className="mt-4 flex items-center gap-2 text-sm"><input type="checkbox" name="fixedDate" />Fixed date</label><button className="mt-5 w-full rounded-xl bg-blue-600 px-4 py-3 font-semibold text-white">Add to plan</button></form><section className="rounded-3xl border bg-white p-6 shadow-sm"><h2 className="text-xl font-bold">{data.subject.subject.name} Teaching Plan</h2>{data.plans.length ? <div className="mt-5 space-y-4">{data.plans.map((item) => <article key={item.id} className="rounded-2xl border p-4"><div className="flex flex-wrap justify-between gap-3"><div><strong>{item.title}</strong><p className="mt-1 text-sm text-slate-500">{item.currentDate.toLocaleString("en-IN")} · {item.fixedDate ? "Fixed" : "Movable"}</p></div><span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700">{item.status.replaceAll("_", " ")}</span></div>{item.description && <p className="mt-3 text-sm text-slate-600">{item.description}</p>}<div className="mt-4 flex flex-wrap gap-2">{["IN_PROGRESS", "COMPLETED", "NOT_COMPLETED", "SKIPPED"].map((status) => <form key={status} action={updateTeachingPlanStatusAction}><input type="hidden" name="sectionId" value={sectionId} /><input type="hidden" name="sectionSubjectId" value={data.subject.id} /><input type="hidden" name="id" value={item.id} /><input type="hidden" name="status" value={status} /><button className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-semibold">{status.replaceAll("_", " ")}</button></form>)}</div>{!item.fixedDate && <form action={rescheduleTeachingPlanAction} className="mt-4 grid gap-2 sm:grid-cols-[1fr_1fr_auto]"><input type="hidden" name="sectionId" value={sectionId} /><input type="hidden" name="sectionSubjectId" value={data.subject.id} /><input type="hidden" name="id" value={item.id} /><input name="date" type="datetime-local" required className="rounded-lg border px-3 py-2 text-sm" /><input name="reason" required placeholder="Reason" className="rounded-lg border px-3 py-2 text-sm" /><button className="rounded-lg border border-blue-300 px-3 py-2 text-xs font-semibold text-blue-700">Reschedule</button></form>}</article>)}</div> : <p className="mt-6 rounded-2xl bg-slate-50 p-10 text-center text-slate-500">No lessons planned yet.</p>}</section></div>; }
+export default async function TeachingPlanPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ sectionId: string }>;
+  searchParams: Promise<{ subject?: string; bookId?: string }>;
+}) {
+  const { sectionId } = await params;
+  const query = await searchParams;
+  const data = await getTeachingPlanPageData({
+    sectionId,
+    sectionSubjectId: query.subject,
+    bookId: query.bookId,
+  });
+  return (
+    <TeachingPlanWorkspace
+      key={data.selectedBook?.id ?? "no-book"}
+      sectionId={sectionId}
+      sectionSubjectId={data.sectionSubjectId}
+      className={data.className}
+      sectionName={data.sectionName}
+      subjectName={data.subjectName}
+      academicYearName={data.academicYearName}
+      books={data.books}
+      selectedBook={data.selectedBook}
+      initialPlan={data.plan}
+      pageAvailability={data.pageAvailability}
+    />
+  );
+}

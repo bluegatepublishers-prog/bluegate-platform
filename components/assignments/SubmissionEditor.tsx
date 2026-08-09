@@ -10,6 +10,7 @@ import {
   submitAssignmentAction,
 } from "@/app/student-dashboard/assignments/actions";
 import { uploadFileToR2 } from "@/lib/storage/client-upload";
+import type { AssignmentCompletionSummary } from "@/lib/assignments/assignment-completion";
 
 type Submission = {
   id: string;
@@ -23,7 +24,7 @@ type Submission = {
   attachments: Array<{ id: string; originalFileName: string; fileSizeBytes: number }>;
 } | null;
 
-export default function SubmissionEditor({ assignmentId, allowText, allowFiles, acceptedFileTypes, maximumFileSizeBytes, maximumFiles, allowResubmission, maximumAttempts, acceptsSubmission, submission, resultsReleased, totalMarks }: {
+export default function SubmissionEditor({ assignmentId, allowText, allowFiles, acceptedFileTypes, maximumFileSizeBytes, maximumFiles, allowResubmission, maximumAttempts, acceptsSubmission, submission, resultsReleased, totalMarks, assignmentType, completion }: {
   assignmentId: string;
   allowText: boolean;
   allowFiles: boolean;
@@ -36,6 +37,8 @@ export default function SubmissionEditor({ assignmentId, allowText, allowFiles, 
   submission: Submission;
   resultsReleased: boolean;
   totalMarks: number | null;
+  assignmentType: string;
+  completion: AssignmentCompletionSummary | null;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -44,6 +47,7 @@ export default function SubmissionEditor({ assignmentId, allowText, allowFiles, 
   const [submitAfterSave, setSubmitAfterSave] = useState(false);
   const editable = acceptsSubmission && (!submission || ["DRAFT","RETURNED"].includes(submission.status));
   const draftFileCount = submission?.status === "DRAFT" ? submission.attachments.length : 0;
+  const homeworkBlocked = assignmentType === "HOMEWORK" && Boolean(completion && completion.totalAnswerable > 0 && !completion.canSubmit);
   async function save(event: FormEvent<HTMLFormElement>, submitAfter: boolean) {
     event.preventDefault();
     setMessage("");
@@ -89,8 +93,9 @@ export default function SubmissionEditor({ assignmentId, allowText, allowFiles, 
     {allowFiles && draftFileCount < maximumFiles ? <label className="mt-5 block"><span className="font-semibold">Add a file</span><input name="file" type="file" accept={acceptedFileTypes.join(",")} className="mt-2 min-h-12 w-full rounded-xl border p-3" /><span className="mt-1 block text-sm text-slate-500">Maximum {Math.round(maximumFileSizeBytes / 1024 / 1024)} MB · up to {maximumFiles} file(s)</span></label> : null}
     {progress ? <p className="mt-3 text-sm font-semibold text-blue-700">Uploading {progress}%</p> : null}
     {allowResubmission ? <p className="mt-4 text-sm text-slate-600">Attempt {(submission?.attemptNumber ?? 0) + (submission?.status === "RETURNED" ? 1 : 0)} of {maximumAttempts}</p> : null}
+    {homeworkBlocked ? <p className="mt-4 rounded-xl bg-amber-50 p-3 text-sm font-semibold text-amber-900">{completion?.staleAnswerable ? "Review saved answers after the book update before submitting." : `Answer ${completion?.remainingAnswerable ?? 0} remaining question${completion?.remainingAnswerable === 1 ? "" : "s"} before submitting.`}</p> : null}
     {message ? <p role="status" className="mt-4 rounded-xl bg-blue-50 p-3 font-semibold text-blue-800">{message}</p> : null}
-    <div className="mt-5 flex flex-wrap gap-3"><button type="submit" onClick={() => setSubmitAfterSave(false)} disabled={pending} className="min-h-12 rounded-xl border bg-white px-5 py-3 font-bold">Save draft</button><button type="submit" onClick={() => setSubmitAfterSave(true)} disabled={pending} className="min-h-12 rounded-xl bg-blue-600 px-5 py-3 font-bold text-white">{submission?.status === "RETURNED" ? "Resubmit" : "Submit"}</button></div>
+    <div className="mt-5 flex flex-wrap gap-3"><button type="submit" onClick={() => setSubmitAfterSave(false)} disabled={pending} className="min-h-12 rounded-xl border bg-white px-5 py-3 font-bold">Save draft</button><button type="submit" onClick={() => setSubmitAfterSave(true)} disabled={pending || homeworkBlocked} className="min-h-12 rounded-xl bg-blue-600 px-5 py-3 font-bold text-white">{submission?.status === "RETURNED" ? "Resubmit" : "Submit"}</button></div>
   </form>;
 }
 

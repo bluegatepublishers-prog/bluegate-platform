@@ -44,6 +44,8 @@ import {
   duplicateExerciseQuestion as duplicateExerciseObjectQuestion,
   type ExerciseBlockData,
 } from "@/lib/exercise-object";
+import type { LayoutV2PageLayout, LayoutVersion } from "@/lib/content-layout-v2";
+import { normalizePageLayoutV2 } from "@/lib/content-layout-v2";
 
 export const CONTENT_DOCUMENT_VERSION = 4 as const;
 export const DEFAULT_PERIOD_ID = "period_default";
@@ -364,10 +366,12 @@ export type ContentBlock =
 
 export type ContentDocument = {
   version: typeof CONTENT_DOCUMENT_VERSION;
+  layoutVersion?: LayoutVersion;
   blocks: ContentBlock[];
   periods: ContentPeriod[];
   layout: "single" | "double";
   canvas: CanvasConfig;
+  pageLayout?: LayoutV2PageLayout;
 };
 
 const supportedTypes = new Set<ContentBlockType>([
@@ -425,6 +429,13 @@ export function createContentDocument(
   };
 }
 
+function rebuildContentDocument(document: ContentDocument, blocks: ContentBlock[], periods = document.periods, layout = document.layout, canvas = document.canvas) {
+  const next = createContentDocument(blocks, periods, layout, canvas);
+  if (document.layoutVersion === 2 && document.pageLayout) return { ...next, layoutVersion: 2 as const, pageLayout: document.pageLayout };
+  if (document.layoutVersion === 1) return { ...next, layoutVersion: 1 as const };
+  return next;
+}
+
 export function normalizeCanvasConfig(value: unknown): CanvasConfig {
   const record = value && typeof value === "object" ? value as Record<string, unknown> : {};
   const preset = CANVAS_PRESETS.includes(record.preset as CanvasPreset) ? record.preset as CanvasPreset : "WEB";
@@ -448,21 +459,21 @@ export function normalizeCanvasConfig(value: unknown): CanvasConfig {
 export function addContentPeriod(document: ContentDocument, title?: string) {
   const sortOrder = document.periods.length;
   const period: ContentPeriod = { id: createStableId(), title: normalizeText(title) || `Period ${sortOrder + 1}`, sortOrder };
-  return createContentDocument(document.blocks, [...document.periods, period], document.layout, document.canvas);
+  return rebuildContentDocument(document, document.blocks, [...document.periods, period], document.layout, document.canvas);
 }
 
 export function moveBlockToPeriod(document: ContentDocument, blockId: string, periodId: string) {
   if (!document.periods.some((period) => period.id === periodId)) return document;
-  return createContentDocument(document.blocks.map((block) => block.id === blockId ? { ...block, periodId } : block), document.periods, document.layout, document.canvas);
+  return rebuildContentDocument(document, document.blocks.map((block) => block.id === blockId ? { ...block, periodId } : block), document.periods, document.layout, document.canvas);
 }
 
 export function renameContentPeriod(document: ContentDocument, periodId: string, title: string) {
-  return createContentDocument(document.blocks, document.periods.map((period) => period.id === periodId ? { ...period, title: normalizeText(title) || period.title } : period), document.layout, document.canvas);
+  return rebuildContentDocument(document, document.blocks, document.periods.map((period) => period.id === periodId ? { ...period, title: normalizeText(title) || period.title } : period), document.layout, document.canvas);
 }
 
 export function removeEmptyContentPeriod(document: ContentDocument, periodId: string) {
   if (document.periods.length <= 1 || document.blocks.some((block) => block.periodId === periodId)) return document;
-  return createContentDocument(document.blocks, document.periods.filter((period) => period.id !== periodId).map((period, index) => ({ ...period, sortOrder: index })), document.layout, document.canvas);
+  return rebuildContentDocument(document, document.blocks, document.periods.filter((period) => period.id !== periodId).map((period, index) => ({ ...period, sortOrder: index })), document.layout, document.canvas);
 }
 
 export function createTextBlock(
@@ -939,7 +950,12 @@ export function normalizeContentDocument(value: unknown): ContentDocument {
     const blocks = value.blocks
       .map((block) => normalizeBlock(block))
       .filter((block): block is ContentBlock => Boolean(block));
-    return createContentDocument(blocks, normalizePeriods(value.periods), value.layout === "double" ? "double" : "single", normalizeCanvasConfig(value.canvas));
+    const document = createContentDocument(blocks, normalizePeriods(value.periods), value.layout === "double" ? "double" : "single", normalizeCanvasConfig(value.canvas));
+    if (value.layoutVersion === 2) {
+      const pageLayout = normalizePageLayoutV2(value.pageLayout);
+      return pageLayout ? { ...document, layoutVersion: 2 as const, pageLayout } : document;
+    }
+    return value.layoutVersion === 1 ? { ...document, layoutVersion: 1 as const } : document;
   }
 
   if (isSupportedType(value.type)) {
@@ -970,15 +986,15 @@ export function insertBlockAfter(
   const blocks = [...document.blocks];
   if (!afterId) {
     blocks.unshift(block);
-    return createContentDocument(blocks, document.periods, document.layout, document.canvas);
+    return rebuildContentDocument(document, blocks, document.periods, document.layout, document.canvas);
   }
   const index = blocks.findIndex((entry) => entry.id === afterId);
   if (index < 0) {
     blocks.push(block);
-    return createContentDocument(blocks, document.periods, document.layout, document.canvas);
+    return rebuildContentDocument(document, blocks, document.periods, document.layout, document.canvas);
   }
   blocks.splice(index + 1, 0, block);
-  return createContentDocument(blocks, document.periods, document.layout, document.canvas);
+  return rebuildContentDocument(document, blocks, document.periods, document.layout, document.canvas);
 }
 
 export function insertBlockBefore(
@@ -989,15 +1005,15 @@ export function insertBlockBefore(
   const blocks = [...document.blocks];
   if (!beforeId) {
     blocks.push(block);
-    return createContentDocument(blocks, document.periods, document.layout, document.canvas);
+    return rebuildContentDocument(document, blocks, document.periods, document.layout, document.canvas);
   }
   const index = blocks.findIndex((entry) => entry.id === beforeId);
   if (index < 0) {
     blocks.push(block);
-    return createContentDocument(blocks, document.periods, document.layout, document.canvas);
+    return rebuildContentDocument(document, blocks, document.periods, document.layout, document.canvas);
   }
   blocks.splice(index, 0, block);
-  return createContentDocument(blocks, document.periods, document.layout, document.canvas);
+  return rebuildContentDocument(document, blocks, document.periods, document.layout, document.canvas);
 }
 
 export function updateBlock(
@@ -1006,7 +1022,7 @@ export function updateBlock(
   updater: (block: ContentBlock) => ContentBlock,
 ) {
   const blocks = document.blocks.map((block) => (block.id === blockId ? updater(block) : block));
-  return createContentDocument(blocks, document.periods, document.layout, document.canvas);
+  return rebuildContentDocument(document, blocks, document.periods, document.layout, document.canvas);
 }
 
 export function updateTableBlock(
@@ -1223,7 +1239,7 @@ export function splitTableCell(document: ContentDocument, blockId: string, rowIn
 
 export function removeBlock(document: ContentDocument, blockId: string) {
   const blocks = document.blocks.filter((block) => block.id !== blockId);
-  return createContentDocument(blocks, document.periods, document.layout, document.canvas);
+  return rebuildContentDocument(document, blocks, document.periods, document.layout, document.canvas);
 }
 
 export function moveBlock(document: ContentDocument, blockId: string, direction: -1 | 1) {
@@ -1232,7 +1248,7 @@ export function moveBlock(document: ContentDocument, blockId: string, direction:
   const next = index + direction;
   if (index < 0 || next < 0 || next >= blocks.length) return document;
   [blocks[index], blocks[next]] = [blocks[next], blocks[index]];
-  return createContentDocument(blocks, document.periods, document.layout, document.canvas);
+  return rebuildContentDocument(document, blocks, document.periods, document.layout, document.canvas);
 }
 
 export function duplicateBlock(document: ContentDocument, blockId: string) {
@@ -1244,7 +1260,7 @@ export function duplicateBlock(document: ContentDocument, blockId: string) {
   const duplicate = duplicateNestedBlockIds(copy);
   const blocks = [...document.blocks];
   blocks.splice(index + 1, 0, duplicate);
-  return createContentDocument(blocks, document.periods, document.layout, document.canvas);
+  return rebuildContentDocument(document, blocks, document.periods, document.layout, document.canvas);
 }
 
 function duplicateNestedBlockIds(block: ContentBlock): ContentBlock {

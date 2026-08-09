@@ -43,11 +43,12 @@ type Initial = {
   closeAt: string | null;
 };
 
-export default function AssignmentBuilder({ sectionId, subjects, materials, initial }: {
+export default function AssignmentBuilder({ sectionId, subjects, materials, initial, hasAssignmentItems = false }: {
   sectionId: string;
   subjects: SubjectOption[];
   materials: MaterialOption[];
   initial?: Initial;
+  hasAssignmentItems?: boolean;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -122,7 +123,8 @@ export default function AssignmentBuilder({ sectionId, subjects, materials, init
         <label className="sm:col-span-2"><span className="font-semibold">Title</span><input required maxLength={160} name="title" defaultValue={initial?.title} className={`mt-2 ${field}`} /></label>
         <label><span className="font-semibold">Type</span><select name="assignmentType" defaultValue={initial?.assignmentType ?? "HOMEWORK"} className={`mt-2 ${field}`}>{["HOMEWORK","CLASSWORK","PROJECT","WORKSHEET","READING","PRACTICAL","OTHER"].map((item) => <option key={item} value={item}>{label(item)}</option>)}</select></label>
         <label><span className="font-semibold">Assigned subject</span><select name="sectionSubjectId" required value={subjectId} onChange={(event) => { setSubjectId(event.target.value); setBookId(""); }} className={`mt-2 ${field}`}><option value="">Choose assigned subject</option>{subjects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-        <label><span className="font-semibold">Book</span><select name="bookId" value={bookId} onChange={(event) => setBookId(event.target.value)} disabled={!subjectId} className={`mt-2 ${field}`}><option value="">No book</option>{books.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label>
+        <label><span className="font-semibold">Book</span><select name="bookId" value={bookId} onChange={(event) => setBookId(event.target.value)} disabled={!subjectId || hasAssignmentItems} className={`mt-2 ${field}`}><option value="">No book</option>{books.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label>
+        <>{hasAssignmentItems ? <p className="sm:col-span-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm font-medium text-amber-900">Remove book-bound Assignment Items before changing the Assignment Book.</p> : null}</>
         <label><span className="font-semibold">Chapter</span><select name="chapterId" defaultValue={initial?.chapterId ?? ""} disabled={!bookId} className={`mt-2 ${field}`}><option value="">No chapter</option>{book?.chapters.map((item) => <option key={item.id} value={item.id}>Chapter {item.chapterNumber}: {item.title}</option>)}</select></label>
         <label className="sm:col-span-2"><span className="font-semibold">Instructions</span><textarea name="instructions" defaultValue={initial?.instructions ?? ""} maxLength={10000} rows={7} className={`mt-2 ${field}`} /></label>
         <label><span className="font-semibold">Total marks</span><input name="totalMarks" type="number" min={1} max={10000} defaultValue={initial?.totalMarks ?? ""} className={`mt-2 ${field}`} /></label>

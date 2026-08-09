@@ -137,6 +137,17 @@ export async function updateAssignment(sectionId: string, assignmentId: string, 
     throw new AssignmentMutationError("Choose a future publishing time.");
   }
   const destination = await resolveAcademicContext(scope, input);
+  if ((destination.book?.id ?? null) !== assignment.bookId) {
+    const targetBoundItems = await prisma.classroomAssignmentItem.count({
+      where: {
+        assignmentId: assignment.id,
+        type: { in: ["PUBLISHER_PAGE", "PUBLISHER_QUESTION", "TEACHER_QUESTION"] },
+      },
+    });
+    if (targetBoundItems) {
+      throw new AssignmentMutationError("Remove book content and answerable teacher questions before changing the assignment book.", "INVALID_STATE");
+    }
+  }
   return prisma.$transaction(async (tx) => {
     const updated = await tx.classroomAssignment.update({
       where: { id: assignment.id },

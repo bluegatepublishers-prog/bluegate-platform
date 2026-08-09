@@ -99,7 +99,7 @@ export async function getTeacherAssignments(sectionId: string) {
 
 export async function getTeacherAssignmentDetail(sectionId: string, assignmentId: string) {
   const { scope, assignment } = await requireOwnedTeacherAssignment(sectionId, assignmentId);
-  const [enrollments, submissions] = await Promise.all([
+  const [enrollments, submissions, assignmentAnswers] = await Promise.all([
     prisma.studentEnrollment.findMany({
       where: {
         schoolId: scope.schoolId,
@@ -130,8 +130,19 @@ export async function getTeacherAssignmentDetail(sectionId: string, assignmentId
       },
       orderBy: [{ student: { name: "asc" } }, { attemptNumber: "desc" }],
     }),
-  ]);
+    prisma.studentWorkItem.findMany({
+      where: {
+        type: "ANSWER",
+        publisherId: scope.publisherId,
+        schoolId: scope.schoolId,
+        academicYearId: scope.academicYear.id,
+       assignmentItem: { assignmentId },
+      },
+      select: { studentId: true, assignmentItemId: true, payload: true, targetSourceHash: true, updatedAt: true },
+    }),  ]);
   const latest = latestByStudent(submissions);
+  const answersByStudent = new Map<string, typeof assignmentAnswers>();
+  for (const answer of assignmentAnswers) answersByStudent.set(answer.studentId, [...(answersByStudent.get(answer.studentId) ?? []), answer]);
   return {
     scope,
     assignment: {
@@ -148,6 +159,12 @@ export async function getTeacherAssignmentDetail(sectionId: string, assignmentId
         name: enrollment.student.name,
         admissionNumber: enrollment.student.admissionNumber,
         rollNumber: enrollment.rollNumber,
+        assignmentWork: (answersByStudent.get(enrollment.studentId) ?? []).map((answer) => ({
+          assignmentItemId: answer.assignmentItemId,
+          payload: answer.payload,
+          targetSourceHash: answer.targetSourceHash,
+          updatedAt: answer.updatedAt.toISOString(),
+        })),
         submission: submission ? {
           id: submission.id,
           attemptNumber: submission.attemptNumber,

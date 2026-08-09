@@ -29,6 +29,10 @@ const missingEnvironment = requiredEnvironment
   .map(([name]) => name);
 
 test.skip(
+  process.env.E2E_FIXTURE_LAYOUT === "V2",
+  "Legacy Content Studio workflow is disabled when the disposable V2 fixture is selected.",
+);
+test.skip(
   missingEnvironment.length > 0,
   `Environment unavailable; set ${missingEnvironment.join(", ")}.`,
 );

@@ -18,6 +18,7 @@ const academics = [
   ["Subjects", "/school-dashboard/academics?tab=subjects", BookOpen],
   ["Teacher Assignments", "/school-dashboard/academics?tab=assignments", UserRoundCheck],
   ["Books & Resources", "/school-dashboard/academics?tab=content", BookOpen],
+  ["Teaching Plans", "/school-dashboard/teaching-plans", BookOpen],
 ] as const;
 type Props = { mobile?: boolean; schoolName: string; logoUrl?: string | null; branding: { shortName: string }; features: Record<string, boolean> };
 export default function SchoolNavigation({ mobile = false, schoolName, logoUrl, branding, features }: Props) {
@@ -31,7 +32,7 @@ export default function SchoolNavigation({ mobile = false, schoolName, logoUrl, 
   const links = <>
     {link("Home", "/school-dashboard", Home)}
     <details open={pathname.startsWith("/school-dashboard/people")} className="group"><summary className="flex min-h-10 cursor-pointer list-none items-center gap-3 rounded-lg px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-blue-50"><Users className="h-4 w-4"/><span className="flex-1">People</span><ChevronDown className="h-4 w-4 group-open:rotate-180"/></summary><div className="ml-4 space-y-0.5 border-l border-slate-200 pl-2">{visiblePeople.map(([label, href, Icon]) => link(label, href, Icon, true))}</div></details>
-    <details open={pathname.startsWith("/school-dashboard/academics")} className="group"><summary className="flex min-h-10 cursor-pointer list-none items-center gap-3 rounded-lg px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-blue-50"><GraduationCap className="h-4 w-4"/><span className="flex-1">Academics</span><ChevronDown className="h-4 w-4 group-open:rotate-180"/></summary><div className="ml-4 space-y-0.5 border-l border-slate-200 pl-2">{academics.map(([label, href, Icon]) => link(label, href, Icon, true))}</div></details>
+    <details open={pathname.startsWith("/school-dashboard/academics") || pathname.startsWith("/school-dashboard/teaching-plans")} className="group"><summary className="flex min-h-10 cursor-pointer list-none items-center gap-3 rounded-lg px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-blue-50"><GraduationCap className="h-4 w-4"/><span className="flex-1">Academics</span><ChevronDown className="h-4 w-4 group-open:rotate-180"/></summary><div className="ml-4 space-y-0.5 border-l border-slate-200 pl-2">{academics.map(([label, href, Icon]) => link(label, href, Icon, true))}</div></details>
     {features.PLANNER ? link("Planner", "/school-dashboard/planner", CalendarDays) : null}
     {features.ATTENDANCE ? link("Attendance", "/school-dashboard/attendance", CalendarDays) : null}
     {features.REPORTS ? link("Reports", "/school-dashboard/reports", BarChart3) : null}

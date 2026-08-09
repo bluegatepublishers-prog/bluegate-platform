@@ -13,6 +13,15 @@ import {
   updateAssignment,
 } from "@/lib/assignments/assignment-service";
 import { AssignmentAccessError } from "@/lib/assignments/access";
+import {
+  AssignmentItemServiceError,
+  createAssignmentItem,
+  deleteAssignmentItem,
+  listAssignmentItems,
+  listPublisherAssignmentQuestions,
+  reorderAssignmentItems,
+  updateAssignmentItem,
+} from "@/lib/assignments/assignment-items";
 import { gradeSubmission, returnSubmission } from "@/lib/assignments/submission-service";
 import {
   gradeSubmissionSchema,
@@ -51,7 +60,7 @@ async function safely<T>(
       await auditAssignmentDenial(sectionId, auditAction);
       return { ok: false, message: "This assignment is not available." };
     }
-    if (error instanceof AssignmentMutationError) return { ok: false, message: error.message };
+    if (error instanceof AssignmentMutationError || error instanceof AssignmentItemServiceError) return { ok: false, message: error.message };
     return { ok: false, message: "The assignment could not be saved." };
   }
 }
@@ -149,4 +158,38 @@ export async function returnSubmissionAction(sectionId: string, assignmentId: st
   );
   if (result.ok) refresh(sectionId, assignmentId);
   return result.ok ? { ok: true, message: "Returned for correction." } as const : result;
+}
+
+export async function createAssignmentItemAction(sectionId: string, assignmentId: string, item: unknown) {
+  const result = await safely(sectionId, "classroom.assignment.update", () => createAssignmentItem({ sectionId, assignmentId, item }));
+  if (result.ok) refresh(sectionId, assignmentId);
+  return result.ok ? { ok: true, message: "Assignment item added.", data: { id: result.data.id } } as const : result;
+}
+
+export async function updateAssignmentItemAction(sectionId: string, assignmentId: string, itemId: string, item: unknown) {
+  const result = await safely(sectionId, "classroom.assignment.update", () => updateAssignmentItem({ sectionId, assignmentId, itemId, item }));
+  if (result.ok) refresh(sectionId, assignmentId);
+  return result.ok ? { ok: true, message: "Assignment item updated." } as const : result;
+}
+
+export async function deleteAssignmentItemAction(sectionId: string, assignmentId: string, itemId: string) {
+  const result = await safely(sectionId, "classroom.assignment.update", () => deleteAssignmentItem({ sectionId, assignmentId, itemId }));
+  if (result.ok) refresh(sectionId, assignmentId);
+  return result.ok ? { ok: true, message: "Assignment item removed." } as const : result;
+}
+
+export async function reorderAssignmentItemsAction(sectionId: string, assignmentId: string, orderedItemIds: unknown) {
+  const result = await safely(sectionId, "classroom.assignment.update", () => reorderAssignmentItems({ sectionId, assignmentId, orderedItemIds }));
+  if (result.ok) refresh(sectionId, assignmentId);
+  return result.ok ? { ok: true, message: "Assignment items reordered.", data: result.data } as const : result;
+}
+export async function getAssignmentItemsAction(sectionId: string, assignmentId: string) {
+  return listAssignmentItems({ sectionId, assignmentId });
+}
+
+export async function listPublisherAssignmentQuestionsAction(sectionId: string, assignmentId: string, input: {
+  moduleId: string;
+  pageId?: string;
+}) {
+  return listPublisherAssignmentQuestions({ sectionId, assignmentId, ...input });
 }

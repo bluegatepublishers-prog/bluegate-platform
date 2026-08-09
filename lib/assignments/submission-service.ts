@@ -10,6 +10,7 @@ import { keyBelongsToTenant } from "@/lib/storage/upload-service";
 import { requireOwnedTeacherAssignment, requireStudentAssignment } from "./access";
 import { assignmentWindow, isAssignmentVisible } from "./timing";
 import { AssignmentMutationError } from "./assignment-service";
+import { getStudentAssignmentCompletion } from "./assignment-items";
 
 function studentActor(scope: Awaited<ReturnType<typeof requireStudentAssignment>>) {
   return accountAuditActor({
@@ -161,9 +162,20 @@ export async function submitAssignment(assignmentId: string) {
   const window = assignmentWindow(scope.assignment);
   if (!window.acceptsSubmission) throw new AssignmentMutationError("The submission window is closed.");
   const latest = scope.assignment.submissions[0];
-  if (!latest || latest.status !== "DRAFT") throw new AssignmentMutationError("Save your work before submitting.");
+  if (!latest) throw new AssignmentMutationError("Save your work before submitting.");
+  if (["SUBMITTED", "RESUBMITTED"].includes(latest.status)) return { id: latest.id, status: latest.status };
+  if (latest.status !== "DRAFT") throw new AssignmentMutationError("Save your work before submitting.");
   if (!latest.textResponse && latest.attachments.length === 0) {
     throw new AssignmentMutationError("Add a response or file before submitting.");
+  }
+  if (scope.assignment.assignmentType === "HOMEWORK") {
+    const completion = await getStudentAssignmentCompletion(assignmentId);
+    if (completion.totalAnswerable > 0 && !completion.canSubmit) {
+      if (completion.staleAnswerable > 0) {
+        throw new AssignmentMutationError(`Review ${completion.staleAnswerable} saved answer${completion.staleAnswerable === 1 ? "" : "s"} after the book content update before submitting.`);
+      }
+      throw new AssignmentMutationError(`Answer ${completion.remainingAnswerable} remaining question${completion.remainingAnswerable === 1 ? "" : "s"} before submitting.`);
+    }
   }
   return prisma.$transaction(async (tx) => {
     const status = latest.attemptNumber > 1 ? "RESUBMITTED" as const : "SUBMITTED" as const;
