@@ -205,6 +205,17 @@ export async function archiveWorksheetStudioRecord(input: {
   });
 }
 
+export async function restoreWorksheetStudioRecord(input: {
+  actor: WorksheetActor;
+  bookId: string;
+  worksheetId: string;
+}) {
+  const restored = await prisma.publisherWorksheet.updateMany({
+    where: { id: input.worksheetId, publisherId: input.actor.publisherId, bookId: input.bookId, archivedAt: { not: null } },
+    data: { archivedAt: null, active: true, published: false },
+  });
+  if (restored.count !== 1) throw new Error("Archived worksheet not found.");
+}
 export async function duplicateWorksheetStudioRecord(input: {
   actor: WorksheetActor;
   bookId: string;

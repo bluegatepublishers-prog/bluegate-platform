@@ -8,6 +8,7 @@ type Props = {
   layout?: LayoutMetadata;
   enabled: boolean;
   selected?: boolean;
+  preserveAspectRatio?: boolean;
   onChange: (layout: LayoutMetadata) => void;
   onArrange?: (direction: -1 | 1) => void;
   onDuplicate?: () => void;
@@ -16,7 +17,7 @@ type Props = {
 };
 
 /** Shared authoring interaction layer for non-manuscript objects. */
-export default function LayoutObjectFrame({ layout, enabled, selected, onChange, onDelete, children }: Props) {
+export default function LayoutObjectFrame({ layout, enabled, selected, preserveAspectRatio = false, onChange, onDelete, children }: Props) {
   const start = useRef<{ x: number; y: number; layout: LayoutMetadata } | null>(null);
   if (!enabled) return <>{children}</>;
 
@@ -40,9 +41,22 @@ export default function LayoutObjectFrame({ layout, enabled, selected, onChange,
     event.stopPropagation();
     event.currentTarget.setPointerCapture(event.pointerId);
     start.current = { x: event.clientX, y: event.clientY, layout: current };
+    const frame = event.currentTarget.parentElement;
+    const containerWidth = frame?.parentElement?.getBoundingClientRect().width ?? Number.POSITIVE_INFINITY;
+    const maxWidth = Math.max(120, containerWidth - current.x);
+    const image = preserveAspectRatio ? frame?.querySelector("img") : null;
+    const aspectRatio = image?.naturalWidth && image?.naturalHeight
+      ? image.naturalWidth / image.naturalHeight
+      : preserveAspectRatio && current.height > 0
+        ? current.width / current.height
+        : null;
     const moveResize = (moveEvent: globalThis.PointerEvent) => {
       if (!start.current) return;
-      onChange({ ...current, width: Math.max(120, start.current.layout.width + moveEvent.clientX - start.current.x), height: Math.max(60, start.current.layout.height + moveEvent.clientY - start.current.y) });
+      const width = Math.min(maxWidth, Math.max(120, start.current.layout.width + moveEvent.clientX - start.current.x));
+      const height = aspectRatio
+        ? Math.max(60, Math.round(width / aspectRatio))
+        : Math.max(60, start.current.layout.height + moveEvent.clientY - start.current.y);
+      onChange({ ...current, width, height });
     };
     const finish = () => { start.current = null; window.removeEventListener("pointermove", moveResize); window.removeEventListener("pointerup", finish); };
     window.addEventListener("pointermove", moveResize);
@@ -57,8 +71,8 @@ export default function LayoutObjectFrame({ layout, enabled, selected, onChange,
   };
 
   return <div
-    className={`relative ${selected ? "ring-2 ring-blue-500" : "ring-1 ring-transparent hover:ring-blue-200"}`}
-    style={{ width: current.width, minHeight: current.height, transform: `translate(${current.x}px, ${current.y}px)`, zIndex: current.zIndex, cursor: current.locked ? "default" : "move" }}
+    className={`relative max-w-full overflow-hidden ${selected ? "ring-2 ring-blue-500" : "ring-1 ring-transparent hover:ring-blue-200"}`}
+    style={{ width: current.width, maxWidth: `calc(100% - ${Math.max(0, current.x)}px)`, minHeight: current.height, transform: `translate(${current.x}px, ${current.y}px)`, zIndex: current.zIndex, cursor: current.locked ? "default" : "move" }}
     tabIndex={selected ? 0 : -1}
     onPointerDown={begin}
     onPointerMove={move}

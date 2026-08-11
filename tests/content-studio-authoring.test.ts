@@ -24,9 +24,11 @@ import {
   insertTableColumn,
   insertTableRow,
   mergeTableCells,
+  moveBlockWithinPeriod,
   moveActivityField,
   normalizeContentDocument,
   removeActivityField,
+  resizeImageBlock,
   serializeContentDocument,
   splitTableCell,
 } from "../lib/content-document";
@@ -580,13 +582,98 @@ test("educational authoring exposes professional icons and deterministic design 
   assert.ok(EDUCATIONAL_OBJECT_REGISTRY.every(([type]) => getEducationalObjectDefinition(type).appearanceVariant));
 });
 
-test("selected objects use a subtle frame and keyboard deletion without a permanent action toolbar", () => {
+test("selected objects use a subtle frame and keyboard deletion while V1 controls stay in the object header", () => {
   const layoutFrame = readFileSync(new URL("../components/admin/books/editor/LayoutObjectFrame.tsx", import.meta.url), "utf8");
+  const editor = readFileSync(new URL("../components/admin/books/ContentManuscriptEditor.tsx", import.meta.url), "utf8");
   assert.match(layoutFrame, /ring-2 ring-blue-500/);
   assert.match(layoutFrame, /event\.key === "Delete" \|\| event\.key === "Backspace"/);
   assert.match(layoutFrame, /isInteractiveTarget\(event\.target\)/);
+  assert.match(editor, /FloatingBoxHeader/);
+  assert.match(editor, />Move Up</);
+  assert.match(editor, />Move Down</);
+  assert.match(editor, />Add Content</);
   const frameUi = layoutFrame.slice(layoutFrame.indexOf("return <div"));
   assert.doesNotMatch(frameUi, /Forward|Back|Duplicate|Lock/);
+});
+
+test("V1 image frames and delivery images constrain oversized media to their containers", () => {
+  const layoutFrame = readFileSync(new URL("../components/admin/books/editor/LayoutObjectFrame.tsx", import.meta.url), "utf8");
+  const renderer = readFileSync(new URL("../components/content/StructuredContentRenderer.tsx", import.meta.url), "utf8");
+  assert.match(layoutFrame, /overflow-hidden/);
+  assert.match(layoutFrame, /calc\(100% - \$\{Math\.max\(0, current\.x\)\}px\)/);
+  assert.match(layoutFrame, /Math\.min\(maxWidth/);
+  assert.match(renderer, /h-auto max-w-full/);
+  assert.match(renderer, /style=\{imageLayoutStyle\(block\)\}/);
+  assert.match(renderer, /maxWidth: "100%"/);
+});
+
+test("V1 image resize updates only its layout metadata and survives save/reload", () => {
+  const image = { ...createImageBlock("image", { url: "https://example.test/large.png", alt: "Large image" }), id: "floating-image", layout: { x: 12, y: 8, width: 640, height: 400, zIndex: 0 } };
+  const neighbour = { ...createTableBlock("table", undefined, { rows: 2, columns: 2 }), id: "unrelated-table" };
+  const document = createContentDocument([image, neighbour]);
+  const resized = resizeImageBlock(document, image.id, { x: 12, y: 8, width: 420, height: 263, zIndex: 0 });
+  const resizedImage = resized.blocks.find((block) => block.id === image.id);
+  const resizedNeighbour = resized.blocks.find((block) => block.id === neighbour.id);
+  assert.equal(resizedImage?.type, "image");
+  assert.equal(resizedImage?.layout?.width, 420);
+  assert.equal(resizedImage?.layout?.height, 263);
+  assert.equal(resizedNeighbour?.type, "table");
+  assert.equal(resizedNeighbour?.layout?.width, neighbour.layout?.width);
+  assert.equal(image.layout.width, 640);
+  const reloaded = normalizeContentDocument(serializeContentDocument(resized));
+  const reloadedImage = reloaded.blocks.find((block) => block.id === image.id);
+  assert.equal(reloadedImage?.type, "image");
+  assert.equal(reloadedImage?.layout?.width, 420);
+  assert.equal(reloadedImage?.layout?.height, 263);
+});
+
+test("V1 floating-box reorder is period-local, immutable, stable, and persists", () => {
+  const periodOne = "period-one";
+  const periodTwo = "period-two";
+  const document = normalizeContentDocument({
+    periods: [{ id: periodOne, title: "One" }, { id: periodTwo, title: "Two" }],
+    blocks: [
+      { ...createTableBlock(), id: "a", periodId: periodOne },
+      { ...createImageBlock(), id: "b", periodId: periodOne },
+      { ...createMediaBlock(), id: "c", periodId: periodOne },
+      { ...createTableBlock(), id: "other-period", periodId: periodTwo },
+    ],
+  });
+  const moved = moveBlockWithinPeriod(document, "b", -1);
+  assert.deepEqual(moved.blocks.map((block) => block.id), ["b", "a", "c", "other-period"]);
+  assert.deepEqual(document.blocks.map((block) => block.id), ["a", "b", "c", "other-period"]);
+  assert.equal(moveBlockWithinPeriod(moved, "b", -1), moved);
+  assert.equal(moveBlockWithinPeriod(moved, "other-period", 1), moved);
+  const reloaded = normalizeContentDocument(serializeContentDocument(moved));
+  assert.deepEqual(reloaded.blocks.map((block) => block.id), ["b", "a", "c", "other-period"]);
+});
+
+test("V1 floating-box Add Content uses canonical text, image, video, and table blocks", () => {
+  const editor = readFileSync(new URL("../components/admin/books/ContentManuscriptEditor.tsx", import.meta.url), "utf8");
+  const fixture = createContentDocument([
+    { ...createTextBlock("paragraph", "Legacy-compatible text"), id: "floating-text", layout: { x: 0, y: 0, width: 640, height: 180, zIndex: 0 } },
+    { ...createImageBlock("image", { url: "https://example.test/image.png", alt: "Image" }), id: "floating-image", layout: { x: 0, y: 0, width: 640, height: 360, zIndex: 0 } },
+    { ...createMediaBlock({ mediaKind: "video", targetType: "RESOURCE", targetId: "video-resource" }), id: "floating-video", layout: { x: 0, y: 0, width: 640, height: 360, zIndex: 0 } },
+    { ...createTableBlock("table", undefined, { rows: 2, columns: 2 }), id: "floating-table", layout: { x: 0, y: 0, width: 640, height: 240, zIndex: 0 } },
+  ]);
+  const reloaded = normalizeContentDocument(serializeContentDocument(fixture));
+  assert.deepEqual(reloaded.blocks.map((block) => block.type), ["paragraph", "image", "media", "table"]);
+  assert.match(editor, /\["TEXT", "IMAGE", "VIDEO", "TABLE"\]/);
+  assert.match(editor, /createFloatingBoxContent/);
+  assert.match(editor, /createBlockByType\("image"\)/);
+  assert.match(editor, /createBlockByType\("media"\)/);
+});
+
+test("V1 legacy text floating content and all supported floating types remain delivery-renderable", () => {
+  const legacy = normalizeContentDocument({ blocks: [{ id: "legacy-floating-text", type: "paragraph", text: "Existing V1 text", layout: { x: 0, y: 0, width: 480, height: 160, zIndex: 0 } }] });
+  assert.equal(legacy.blocks[0]?.type, "paragraph");
+  assert.equal(legacy.blocks[0]?.type === "paragraph" ? legacy.blocks[0].text : "", "Existing V1 text");
+  const renderer = readFileSync(new URL("../components/content/StructuredContentRenderer.tsx", import.meta.url), "utf8");
+  assert.match(renderer, /if \(isImageBlock\(block\)\)/);
+  assert.match(renderer, /if \(isMediaBlock\(block\)\)/);
+  assert.match(renderer, /MediaBlockView/);
+  assert.match(renderer, /ResponsiveTable/);
+  assert.match(renderer, /case "paragraph"/);
 });
 
 test("button media opens inline playback and never uses the resource download route", () => {

@@ -1,4 +1,5 @@
-import type { WorksheetBlockData } from "@/lib/worksheet-object";
+import type { NormalizedQuestion } from "@/lib/normalized-question";
+import type { WorksheetBlockData, WorksheetQuestion } from "@/lib/worksheet-object";
 import { WORKSHEET_QUESTION_LABELS } from "@/lib/worksheet-object";
 
 export type WorksheetExportOptions = { includeAnswers?: boolean };
@@ -69,6 +70,47 @@ export function createWorksheetPdf(worksheet: WorksheetBlockData, options: Works
   }
 }
 
+export type PublisherWorksheetPdfInput = {
+  title: string;
+  instructions: string | null;
+  bookTitle: string;
+  chapterTitle: string;
+  questions: NormalizedQuestion[];
+};
+
+export function createPublisherWorksheetPdf(input: PublisherWorksheetPdfInput) {
+  const marks = input.questions.reduce((total, question) => total + (question.marks ?? 0), 0);
+  const worksheet: WorksheetBlockData = {
+    id: "publisher-worksheet-pdf",
+    type: "worksheet",
+    title: input.title,
+    description: `${input.bookTitle} | ${input.chapterTitle} | Name ____________________ | Class ____________________ | Section ____________________ | Date ____________________`,
+    instructions: input.instructions ?? undefined,
+    marks,
+    questions: input.questions.map(toPrintableQuestion),
+  };
+  return createWorksheetPdf(worksheet);
+}
+
+function toPrintableQuestion(question: NormalizedQuestion): WorksheetQuestion {
+  const options = question.options.map((option) => ({ id: option.id, text: option.text }));
+  if (question.questionType === "MCQ" || question.questionType === "MULTIPLE_SELECT") {
+    return { id: question.id, type: "mcq", prompt: question.content.plainText, marks: question.marks, options };
+  }
+  if (question.questionType === "TRUE_FALSE") {
+    return { id: question.id, type: "trueFalse", prompt: question.content.plainText, marks: question.marks };
+  }
+  if (question.questionType === "FILL_BLANK") {
+    return { id: question.id, type: "fillBlank", prompt: question.content.plainText, marks: question.marks };
+  }
+  if (question.questionType === "MATCH") {
+    return { id: question.id, type: "match", prompt: question.content.plainText, marks: question.marks, pairs: question.answer.matches?.map((pair, index) => ({ id: `${question.id}-${index}`, left: pair.left, right: pair.right })) };
+  }
+  if (question.questionType === "ORDERING") {
+    return { id: question.id, type: "short", prompt: `${question.content.plainText} ${options.map((option, index) => `${index + 1}. ${option.text}`).join(" | ")}`, marks: question.marks };
+  }
+  return { id: question.id, type: question.questionType === "LONG_ANSWER" ? "long" : "short", prompt: question.content.plainText, marks: question.marks };
+}
 export function worksheetToPrintableHtml(worksheet: WorksheetBlockData, options: WorksheetExportOptions = {}) {
   const includeAnswers = options.includeAnswers === true;
   const lines = worksheetToPlainLines(worksheet, options);

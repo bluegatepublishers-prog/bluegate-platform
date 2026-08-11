@@ -1251,6 +1251,43 @@ export function moveBlock(document: ContentDocument, blockId: string, direction:
   return rebuildContentDocument(document, blocks, document.periods, document.layout, document.canvas);
 }
 
+/** Reorders a V1 block without crossing its period boundary. */
+export function moveBlockWithinPeriod(document: ContentDocument, blockId: string, direction: -1 | 1) {
+  const index = document.blocks.findIndex((block) => block.id === blockId);
+  const block = document.blocks[index];
+  if (!block || index < 0) return document;
+
+  const periodIndexes = document.blocks
+    .map((entry, entryIndex) => entry.periodId === block.periodId ? entryIndex : -1)
+    .filter((entryIndex) => entryIndex >= 0);
+  const periodIndex = periodIndexes.indexOf(index);
+  const nextIndex = periodIndexes[periodIndex + direction];
+  if (periodIndex < 0 || nextIndex === undefined) return document;
+
+  const blocks = [...document.blocks];
+  [blocks[index], blocks[nextIndex]] = [blocks[nextIndex], blocks[index]];
+  return rebuildContentDocument(document, blocks, document.periods, document.layout, document.canvas);
+}
+
+/** Stores a resized V1 image in its existing layout metadata. */
+export function resizeImageBlock(
+  document: ContentDocument,
+  blockId: string,
+  layout: LayoutMetadata,
+) {
+  return updateBlock(document, blockId, (block) => {
+    if (!isImageBlock(block)) return block;
+    return {
+      ...block,
+      layout: {
+        ...layout,
+        width: Math.max(120, Math.round(layout.width)),
+        height: Math.max(60, Math.round(layout.height)),
+      },
+    };
+  });
+}
+
 export function duplicateBlock(document: ContentDocument, blockId: string) {
   const index = document.blocks.findIndex((block) => block.id === blockId);
   if (index < 0) return document;

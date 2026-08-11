@@ -1,4 +1,4 @@
-import type { ContentDocument } from "./content-document";
+import type { ContentBlock, ContentDocument } from "./content-document";
 
 export const LAYOUT_VERSIONS = [1, 2] as const;
 export type LayoutVersion = (typeof LAYOUT_VERSIONS)[number];
@@ -50,10 +50,15 @@ export const V2_IMAGE_ZOOM_MIN = 1;
 export const V2_IMAGE_ZOOM_MAX = 5;
 export type LayoutV2ImageFitMode = (typeof V2_IMAGE_FIT_MODES)[number];
 
+export const V2_VIDEO_DISPLAY_MODES = ["PLAYER", "BUTTON"] as const;
+export type LayoutV2VideoDisplayMode = (typeof V2_VIDEO_DISPLAY_MODES)[number];
+
 export const V2_PAGE_PRESETS = ["A3", "A4", "A5", "CUSTOM"] as const;
 export type LayoutV2PagePreset = (typeof V2_PAGE_PRESETS)[number];
 export type LayoutV2Unit = "px" | "mm" | "cm" | "inch";
-export type LayoutV2Alignment = "left" | "center" | "right";
+export type LayoutV2Alignment = "left" | "center" | "right" | "justify";
+
+export const V2_MAIN_FLOW_FRAME_PREFIX = "main-flow-";
 
 export type LayoutV2PageSize = {
   preset?: LayoutV2PagePreset;
@@ -167,6 +172,7 @@ export type LayoutV2Frame = {
   language?: string;
   narrationLabel?: string;
   altText?: string;
+  caption?: string;
   direction?: LayoutV2TextDirection;
   alignment?: LayoutV2Alignment;
   heightMode?: LayoutV2TextHeightMode;
@@ -182,6 +188,22 @@ export type LayoutV2Frame = {
   renderMode?: LayoutV2FrameRenderMode;
   audience?: LayoutV2FrameAudience;
 };
+
+/**
+ * Video presentation belongs to a document frame, not to its reusable
+ * protected resource. Missing legacy data intentionally reads as PLAYER
+ * without materialising a change merely by viewing the document.
+ */
+export function getV2VideoDisplayMode(frame: Pick<LayoutV2Frame, "payload"> | { payload?: unknown }): LayoutV2VideoDisplayMode {
+  const payload = isRecord(frame.payload) ? frame.payload : {};
+  const displayMode = typeof payload.displayMode === "string" ? payload.displayMode.toUpperCase() : "";
+  return displayMode === "BUTTON" ? "BUTTON" : "PLAYER";
+}
+
+export function withV2VideoDisplayMode(frame: Pick<LayoutV2Frame, "payload"> | { payload?: unknown }, displayMode: LayoutV2VideoDisplayMode) {
+  const payload = isRecord(frame.payload) ? frame.payload : {};
+  return { ...payload, displayMode };
+}
 
 export type LayoutV2Page = {
   id: string;
@@ -385,7 +407,7 @@ function normalizeFrame(value: unknown, pageId: string, index: number, options: 
   const layer = enumValue(V2_LAYERS, value.layer, "CONTENT");
   const contentRef = normalizeReference(value.contentRef);
   const resourceId = safeString(value.resourceId) ?? contentRef?.resourceId;
-  const children = allowChildren && type === "EDUCATIONAL" && Array.isArray(value.children)
+  const children = allowChildren && (type === "EDUCATIONAL" || type === "TEXT") && Array.isArray(value.children)
     ? value.children.map((child, childIndex) => {
       if (!isRecord(child) || !V2_CHILD_FRAME_TYPES.includes(child.type as LayoutV2ChildFrameType)) return undefined;
       return normalizeFrame(child, pageId, childIndex, options, false);
@@ -406,7 +428,11 @@ function normalizeFrame(value: unknown, pageId: string, index: number, options: 
     rotation: bounded(value.rotation, 0, -360, 360),
     locked: value.locked === true,
     hidden: value.hidden === true,
-    ...(value.aspectLocked === true ? { aspectLocked: true } : {}),
+    ...(type === "IMAGE" && typeof value.aspectLocked === "boolean"
+      ? { aspectLocked: value.aspectLocked }
+      : value.aspectLocked === true
+        ? { aspectLocked: true }
+        : {}),
     ...(typeof value.wrapPadding === "number" ? { wrapPadding: bounded(value.wrapPadding, 8, 0, 96) } : {}),
     ...(value.overset === true ? { overset: true } : {}),
     ...(contentRef ? { contentRef } : {}),
@@ -419,7 +445,7 @@ function normalizeFrame(value: unknown, pageId: string, index: number, options: 
     ...(safeString(value.altText) ? { altText: safeString(value.altText) } : {}),
     ...(type === "TEXT" ? {
       direction: enumValue(V2_TEXT_DIRECTIONS, value.direction, "LTR"),
-      alignment: enumValue(["left", "center", "right"] as const, value.alignment, "left"),
+      alignment: enumValue(["left", "center", "right", "justify"] as const, value.alignment, "left"),
       heightMode: enumValue(V2_TEXT_HEIGHT_MODES, value.heightMode, "AUTO"),
       overflow: enumValue(V2_TEXT_OVERFLOW_MODES, value.overflow, "VISIBLE"),
       ...(safeString(value.fontFamily) ? { fontFamily: safeString(value.fontFamily) } : {}),
@@ -438,7 +464,10 @@ function normalizeFrame(value: unknown, pageId: string, index: number, options: 
       zoom: bounded(value.zoom, 1, V2_IMAGE_ZOOM_MIN, V2_IMAGE_ZOOM_MAX),
       offsetX: bounded(value.offsetX, 0, -1, 1),
       offsetY: bounded(value.offsetY, 0, -1, 1),
+      ...(safeString(value.caption) ? { caption: safeString(value.caption) } : {}),
+      ...(["left", "center", "right"].includes(value.alignment as string) ? { alignment: value.alignment as "left" | "center" | "right" } : {}),
     } : {}),
+    ...(type === "VIDEO" && resourceId ? { resourceId } : {}),
     ...(safeString(value.parentId) ? { parentId: safeString(value.parentId) } : {}),
     ...(children ? { children } : {}),
     ...(value.renderMode === "SEMANTIC_ONLY" ? { renderMode: "SEMANTIC_ONLY" as const } : {}),
@@ -526,6 +555,29 @@ export function clampV2FrameGeometry(
   };
 }
 
+export function getV2InsertionGeometry(
+  page: Pick<LayoutV2Page, "width" | "height" | "frames">,
+  type: LayoutV2FrameType,
+  preferredPoint?: { x: number; y: number },
+): LayoutV2FrameGeometry {
+  const margin = Math.min(48, Math.max(12, Math.min(page.width, page.height) * 0.06));
+  const availableWidth = Math.max(24, page.width - margin * 2);
+  const availableHeight = Math.max(24, page.height - margin * 2);
+  const preferredSize = type === "TEXT"
+    ? { width: 420, height: 150 }
+    : type === "EDUCATIONAL"
+      ? { width: 520, height: 180 }
+      : type === "SHAPE"
+        ? { width: 220, height: 120 }
+        : { width: 320, height: 180 };
+  return clampV2FrameGeometry({
+    x: preferredPoint?.x ?? margin,
+    y: preferredPoint?.y ?? margin,
+    width: Math.min(preferredSize.width, availableWidth),
+    height: Math.min(preferredSize.height, availableHeight),
+  }, page.width, page.height);
+}
+
 export function createV2Frame(
   type: LayoutV2FrameType,
   pageId: string,
@@ -539,6 +591,136 @@ export function createV2Frame(
   }, pageId, 0, { createMissingIds: true });
   if (!frame) throw new Error("Unable to create V2 frame");
   return frame;
+}
+
+export function getV2MainFlowFrameId(pageId: string) {
+  return `${V2_MAIN_FLOW_FRAME_PREFIX}${pageId}`;
+}
+
+export function isV2MainFlowFrame(frame: LayoutV2Frame) {
+  return frame.type === "TEXT" && frame.layoutMode === "FLOW" && frame.id === getV2MainFlowFrameId(frame.pageId);
+}
+
+export function ensureV2MainFlowFrames(layout: LayoutV2PageLayout): LayoutV2PageLayout {
+  let changed = false;
+  const pages = layout.pages.map((page) => {
+    if (page.frames.some(isV2MainFlowFrame)) return page;
+    changed = true;
+    const margin = Math.min(48, Math.max(24, Math.min(page.width, page.height) * 0.06));
+    const frame = createV2Frame("TEXT", page.id, {
+      id: getV2MainFlowFrameId(page.id),
+      x: margin,
+      y: margin,
+      width: Math.max(24, page.width - margin * 2),
+      height: Math.max(48, page.height - margin * 2),
+      zIndex: 0,
+      layer: "CONTENT",
+      layoutMode: "FLOW",
+      wrapMode: "NONE",
+      payload: "",
+      readable: true,
+      readingOrder: 0,
+      narrationLabel: "Main content",
+      direction: "LTR",
+      alignment: "left",
+      heightMode: "FIXED",
+      overflow: "OVERSET",
+    });
+    return { ...page, frames: [frame, ...page.frames] };
+  });
+  return changed ? { ...layout, pages } : layout;
+}
+
+function isV2ChildContainer(frame: LayoutV2Frame) {
+  return frame.type === "EDUCATIONAL" || frame.type === "TEXT";
+}
+
+/**
+ * Creates an in-memory V2 workspace projection for a legacy V1 document.
+ * It deliberately does not mutate the document or set layoutVersion. Callers
+ * may persist the returned layout only after an explicit V2 editing action.
+ */
+export function createV2CompatibilityLayout(document: ContentDocument): LayoutV2PageLayout {
+  const pageWidth = Math.max(320, document.canvas?.width ?? DEFAULT_PAGE_SIZE.width);
+  const pageHeight = Math.max(420, document.canvas?.height ?? DEFAULT_PAGE_SIZE.height);
+  const pages = document.periods.map((period, periodIndex) => {
+    const pageId = `legacy-v1-period-${period.id}`;
+    const periodBlocks = document.blocks.filter((block) => block.periodId === period.id);
+    return {
+      id: pageId,
+      order: periodIndex,
+      width: pageWidth,
+      height: pageHeight,
+      unit: "px" as const,
+      frames: periodBlocks.map((block, blockIndex) => legacyBlockToV2Frame(block, pageId, blockIndex, pageWidth, pageHeight)),
+    };
+  });
+  return createV2PageLayout({
+    pageSize: { preset: "CUSTOM", width: pageWidth, height: pageHeight, unit: "px" },
+    pages: pages.length ? pages : [{ id: "legacy-v1-period-default", width: pageWidth, height: pageHeight, unit: "px", frames: [] }],
+  });
+}
+
+function legacyBlockToV2Frame(
+  block: ContentBlock,
+  pageId: string,
+  index: number,
+  pageWidth: number,
+  pageHeight: number,
+): LayoutV2Frame {
+  const source = block as unknown as Record<string, unknown>;
+  const legacyLayout = block.layout;
+  const type = legacyBlockFrameType(block);
+  const x = Math.min(Math.max(0, pageWidth - 120), Math.max(0, legacyLayout?.x ?? 36));
+  const y = Math.min(Math.max(0, pageHeight - 72), Math.max(0, legacyLayout?.y ?? 36 + index * 176));
+  const width = Math.max(120, Math.min(pageWidth - x, legacyLayout?.width ?? pageWidth - 72));
+  const height = Math.max(72, Math.min(pageHeight - y, legacyLayout?.height ?? (type === "TEXT" ? 120 : 180)));
+  const payload = type === "TEXT" && typeof source.text !== "string"
+    ? legacyBlockPlainText(block)
+    : undefined;
+  const legacyResourceId = typeof source.resourceId === "string"
+    ? source.resourceId
+    : block.type === "media" && source.targetType === "RESOURCE" && typeof source.targetId === "string"
+      ? source.targetId
+      : undefined;
+  return createV2Frame(type, pageId, {
+    id: `legacy-v1-frame-${block.id}`,
+    x,
+    y,
+    width,
+    height,
+    zIndex: legacyLayout?.zIndex ?? index,
+    layer: "CONTENT",
+    layoutMode: "ABSOLUTE",
+    readingOrder: index,
+    contentRef: { blockId: block.id },
+    ...(payload !== undefined ? { payload } : {}),
+    ...((type === "IMAGE" || type === "VIDEO") && legacyResourceId ? { resourceId: legacyResourceId } : {}),
+    ...(type === "IMAGE" && typeof source.alt === "string" ? { altText: source.alt } : {}),
+    ...(type === "IMAGE" && typeof source.caption === "string" && source.caption.trim() ? { caption: source.caption } : {}),
+    ...(type === "IMAGE" && ["left", "center", "right"].includes(source.align as string) ? { alignment: source.align as "left" | "center" | "right" } : {}),
+    ...(typeof source.fontFamily === "string" ? { fontFamily: source.fontFamily } : {}),
+    ...(typeof source.fontSize === "number" ? { fontSize: source.fontSize } : {}),
+    ...(source.bold === true ? { fontWeight: 700 } : {}),
+    ...(source.italic === true ? { fontStyle: "italic" as const } : {}),
+  });
+}
+
+function legacyBlockFrameType(block: ContentBlock): LayoutV2FrameType {
+  if (block.type === "image" || block.type === "diagram" || block.type === "imageGallery") return "IMAGE";
+  if (block.type === "table" || block.type === "comparisonTable") return "TABLE";
+  if (block.type === "media") return "VIDEO";
+  if (block.type === "educationalObject" || block.type === "infoBox" || block.type === "observationBox") return "EDUCATIONAL";
+  if (block.type === "activity") return "ACTIVITY";
+  if (block.type === "worksheet") return "WORKSHEET";
+  if (block.type === "exercise") return "EXERCISE";
+  return "TEXT";
+}
+
+function legacyBlockPlainText(block: ContentBlock) {
+  const source = block as unknown as Record<string, unknown>;
+  if (Array.isArray(source.items)) return source.items.filter((item): item is string => typeof item === "string").join("\n");
+  return typeof source.text === "string" ? source.text : "";
 }
 
 export function updateV2PageLayout(
@@ -557,13 +739,13 @@ export function updateV2Frame(
   const page = layout.pages.find((entry) => entry.id === pageId);
   const frame = getV2Frame(layout, pageId, frameId);
   if (!page || !frame) return layout;
-  const parent = page.frames.find((entry) => entry.type === "EDUCATIONAL" && entry.children?.some((child) => child.id === frameId));
+  const parent = page.frames.find((entry) => isV2ChildContainer(entry) && entry.children?.some((child) => child.id === frameId));
   const geometry = clampV2FrameGeometry({ ...frame, ...patch }, parent?.width ?? page.width, parent?.height ?? page.height);
   return updateV2PageLayout(layout, (pages) => pages.map((entry) => entry.id !== pageId ? entry : {
     ...entry,
     frames: entry.frames.map((item) => item.id === frameId
       ? { ...item, ...patch, pageId, ...geometry }
-      : item.type === "EDUCATIONAL" && item.children?.some((child) => child.id === frameId)
+      : isV2ChildContainer(item) && item.children?.some((child) => child.id === frameId)
         ? { ...item, children: item.children.map((child) => child.id === frameId ? { ...child, ...patch, pageId, parentId: item.id, ...geometry } : child) }
         : item),
   }));
@@ -591,7 +773,7 @@ export function normalizeV2LayerZIndices(layout: LayoutV2PageLayout): LayoutV2Pa
     const frames = V2_LAYERS.flatMap((layer) => normalizeScope(page.frames.filter((frame) => frame.layer === layer)));
     return {
       ...page,
-      frames: frames.map((frame) => frame.type === "EDUCATIONAL" && frame.children
+      frames: frames.map((frame) => isV2ChildContainer(frame) && frame.children
         ? { ...frame, children: V2_LAYERS.flatMap((layer) => normalizeScope(frame.children?.filter((child) => child.layer === layer) ?? [])) }
         : frame),
     };
@@ -630,7 +812,7 @@ export function arrangeV2Frame(
     if (top) return { ...page, frames: updateScopedFrames(page.frames, frameId, action) };
     return {
       ...page,
-      frames: page.frames.map((frame) => frame.type === "EDUCATIONAL" && frame.children?.some((child) => child.id === frameId)
+      frames: page.frames.map((frame) => isV2ChildContainer(frame) && frame.children?.some((child) => child.id === frameId)
         ? { ...frame, children: updateScopedFrames(frame.children, frameId, action) }
         : frame),
     };
@@ -649,7 +831,7 @@ export function updateV2FrameLayer(
     ...page,
     frames: page.frames.map((entry) => entry.id === frameId
       ? { ...entry, layer }
-      : entry.type === "EDUCATIONAL" && entry.children
+      : isV2ChildContainer(entry) && entry.children
         ? { ...entry, children: entry.children.map((child) => child.id === frameId ? { ...child, layer } : child) }
         : entry),
   }));
@@ -673,7 +855,7 @@ export function moveV2FlowFrame(layout: LayoutV2PageLayout, pageId: string, fram
 export function moveV2FrameToContainer(layout: LayoutV2PageLayout, pageId: string, frameId: string, containerId: string): LayoutV2PageLayout {
   const page = layout.pages.find((entry) => entry.id === pageId);
   const source = page?.frames.find((frame) => frame.id === frameId);
-  const container = page?.frames.find((frame) => frame.id === containerId && frame.type === "EDUCATIONAL");
+  const container = page?.frames.find((frame) => frame.id === containerId && isV2ChildContainer(frame));
   if (!page || !source || !container || !V2_CHILD_FRAME_TYPES.includes(source.type as LayoutV2ChildFrameType)) return layout;
   const local = clampV2FrameGeometry({ ...source, x: source.x - container.x, y: source.y - container.y }, container.width, container.height);
   const child = { ...source, ...local, parentId: container.id };
@@ -685,7 +867,7 @@ export function moveV2FrameToContainer(layout: LayoutV2PageLayout, pageId: strin
 
 export function moveV2ChildToPage(layout: LayoutV2PageLayout, pageId: string, containerId: string, childId: string): LayoutV2PageLayout {
   const page = layout.pages.find((entry) => entry.id === pageId);
-  const container = page?.frames.find((frame) => frame.id === containerId && frame.type === "EDUCATIONAL");
+  const container = page?.frames.find((frame) => frame.id === containerId && isV2ChildContainer(frame));
   const child = container?.children?.find((entry) => entry.id === childId);
   if (!page || !container || !child) return layout;
   const geometry = clampV2FrameGeometry({ ...child, x: container.x + child.x, y: container.y + child.y }, page.width, page.height);
@@ -709,7 +891,7 @@ export function duplicateV2Frame(layout: LayoutV2PageLayout, pageId: string, fra
 export function deleteV2Frame(layout: LayoutV2PageLayout, pageId: string, frameId: string): LayoutV2PageLayout {
   return updateV2PageLayout(layout, (pages) => pages.map((page) => page.id !== pageId ? page : {
     ...page,
-    frames: page.frames.filter((frame) => frame.id !== frameId).map((frame) => frame.type === "EDUCATIONAL" && frame.children?.some((child) => child.id === frameId)
+    frames: page.frames.filter((frame) => frame.id !== frameId).map((frame) => isV2ChildContainer(frame) && frame.children?.some((child) => child.id === frameId)
       ? { ...frame, children: frame.children.filter((child) => child.id !== frameId) }
       : frame),
   }));
@@ -724,6 +906,23 @@ export function addV2Page(layout: LayoutV2PageLayout): LayoutV2PageLayout {
     frames: [],
   } satisfies LayoutV2Page;
   return updateV2PageLayout(layout, (pages) => [...pages, page]);
+}
+
+export function deleteV2Page(layout: LayoutV2PageLayout, pageId: string): LayoutV2PageLayout {
+  if (layout.pages.length <= 1 || !layout.pages.some((page) => page.id === pageId)) return layout;
+  return {
+    ...layout,
+    pages: layout.pages.filter((page) => page.id !== pageId).map((page, order) => ({ ...page, order })),
+  };
+}
+
+export function isV2PagePopulated(page: LayoutV2Page) {
+  return page.frames.some((frame) => {
+    if (!isV2MainFlowFrame(frame)) return true;
+    if (frame.children?.length) return true;
+    if (typeof frame.payload === "string") return frame.payload.trim().length > 0;
+    return Boolean(frame.contentRef?.blockId || frame.contentRef?.resourceId || frame.resourceId);
+  });
 }
 
 export function setV2PageVisualMode(layout: LayoutV2PageLayout, pageId: string, visualMode: LayoutV2VisualMode): LayoutV2PageLayout {

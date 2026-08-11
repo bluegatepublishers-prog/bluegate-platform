@@ -6,6 +6,7 @@ import type { ReactNode } from "react";
 import { ArrowDown, ArrowUp, Copy, FileText, Plus, Save, Trash2 } from "lucide-react";
 
 import ContentReleasePanel from "@/components/admin/books/ContentReleasePanel";
+import WorksheetQuestionManager from "@/components/admin/books/WorksheetQuestionManager";
 import StudioWorkspaceShell from "@/components/admin/books/StudioWorkspaceShell";
 import { compactField } from "@/components/admin/books/compact-studio-styles";
 import type { ReleaseSummary } from "@/lib/content-release";
@@ -38,6 +39,7 @@ const plainArea = "w-full resize-none border-none bg-transparent text-sm leading
 
 export default function WorksheetStudio({
   chapterId,
+  bookId,
   worksheets,
   lookups,
   saveAction,
@@ -50,6 +52,7 @@ export default function WorksheetStudio({
   rollbackReleaseAction,
   previewBaseHref,
   initialSelectedId,
+  initialPreview = false,
   onSaveComplete,
   defaultModuleId,
   defaultTopicId,
@@ -60,6 +63,7 @@ export default function WorksheetStudio({
   currentScopeLabel,
 }: {
   chapterId: string;
+  bookId: string;
   worksheets: WorksheetStudioRecord[];
   lookups: Lookup;
   saveAction: (data: FormData) => Promise<string>;
@@ -72,6 +76,7 @@ export default function WorksheetStudio({
   rollbackReleaseAction?: (worksheetId: string, versionId: string, data: FormData) => Promise<void>;
   previewBaseHref?: string;
   initialSelectedId?: string;
+  initialPreview?: boolean;
   onSaveComplete?: (worksheetId: string) => void;
   defaultModuleId?: string | null;
   defaultTopicId?: string | null;
@@ -107,6 +112,13 @@ export default function WorksheetStudio({
     });
   }
 
+  function openAdvancedSettings() {
+    const advanced = document.getElementById("worksheet-advanced");
+    if (!advanced) return;
+    advanced.setAttribute("open", "");
+    if (advanced.getBoundingClientRect().width > 0) return;
+    advanced.closest("section")?.querySelector<HTMLButtonElement>('button[aria-label="Show inspector"], button[aria-label="Hide inspector"]')?.click();
+  }
   const outline = (
     <div>
         <div className="flex items-center justify-between">
@@ -138,21 +150,19 @@ export default function WorksheetStudio({
         <div className="mx-auto max-w-3xl rounded-xl bg-[#fffdf7] p-4 ring-1 ring-slate-200">
           <span className="inline-flex items-center gap-2 rounded-full bg-blue-100 px-3 py-1.5 text-xs font-bold uppercase tracking-[0.14em] text-blue-800">
             <FileText className="h-4 w-4" />
-            Worksheet Manuscript
+            Worksheet
           </span>
-          <input name="title" required defaultValue={draft.title} placeholder="Worksheet title" className="mt-4 h-10 w-full border-none bg-transparent text-lg font-semibold tracking-tight text-slate-950 outline-none placeholder:text-slate-300" />
-          <input name="slug" defaultValue={draft.slug} placeholder="worksheet-slug" className="mt-3 w-full border-none bg-transparent text-sm font-semibold text-slate-400 outline-none" />
+          <p className="mt-3 text-sm font-semibold text-slate-500">Chapter: {chapterTitle ?? "Current chapter"}</p>
+          <label className="mt-4 block text-xs font-bold uppercase tracking-[0.18em] text-slate-400">Title
+            <input name="title" required defaultValue={draft.title} placeholder="Worksheet title" className="mt-2 h-10 w-full border-none bg-transparent text-lg font-semibold tracking-tight text-slate-950 outline-none placeholder:text-slate-300" />
+          </label>
           <section className="mt-5 border-t border-slate-200 pt-4">
             <h3 className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">Instructions</h3>
             <textarea name="instructions" defaultValue={draft.instructions ?? ""} rows={8} className={`${plainArea} mt-3`} placeholder="Write worksheet instructions naturally." />
           </section>
-          <section className="mt-5 grid gap-3 rounded-xl bg-slate-50 p-3 ring-1 ring-slate-200 md:grid-cols-2">
-            <Summary label="Interactive Exercise" value={exerciseLabel(draft.exerciseId, lookups)} />
-            <Summary label="Printable Resource" value={resourceLabel(draft.printableResourceId, lookups)} />
-            <Summary label="Answer Key" value={resourceLabel(draft.answerKeyResourceId, lookups)} />
-            <Summary label="Supporting Resources" value={`${draft.supportingResourceIds.length} linked`} />
-          </section>
+          <p className="mt-4 text-sm font-semibold text-slate-500">Add questions below. Question count and marks are calculated from the saved worksheet items.</p>
         </div>
+        {selected ? <WorksheetQuestionManager bookId={bookId} worksheetId={selected.id} worksheetTitle={selected.title} instructions={selected.instructions} bookTitle={bookTitle} chapterTitle={chapterTitle} openPreviewInitially={initialPreview} /> : null}
         <button disabled={isPending} type="submit" className="mx-auto flex h-9 rounded-lg bg-blue-700 px-4 text-sm font-medium text-white disabled:opacity-60">
           <Save className="mr-2 h-4 w-4" />
           {isPending ? "Saving..." : "Save worksheet"}
@@ -163,8 +173,10 @@ export default function WorksheetStudio({
   );
 
   const inspector = (
-      <div>
-        <Inspector title="Scope">
+      <details id="worksheet-advanced" className="rounded-xl bg-white p-3 ring-1 ring-slate-200">
+        <summary className="cursor-pointer text-sm font-bold text-slate-800">Advanced settings</summary>
+        <div className="mt-3">
+          <Inspector title="Scope">
           <Summary label="Book" value={bookTitle ?? "Current book"} />
           <Summary label="Chapter" value={chapterTitle ?? "Current chapter"} />
           <Summary label="Module" value={moduleTitle ?? "Chapter level"} />
@@ -175,12 +187,13 @@ export default function WorksheetStudio({
           <Summary label="Where Used" value={selected ? "Current content scope" : "New record"} />
         </Inspector>
         <Inspector title="Properties">
+          <label className="block text-sm font-semibold text-slate-700">Slug<input form={formId} name="slug" defaultValue={draft.slug} placeholder="worksheet-slug" className={field} /></label>
           <label className="block text-sm font-semibold text-slate-700">Type<select form={formId} name="type" defaultValue={draft.type} className={field}>{WORKSHEET_TYPES.map((type) => <option key={type} value={type}>{worksheetTypeLabel(type)}</option>)}</select></label>
           <label className="block text-sm font-semibold text-slate-700">Module<select form={formId} name="moduleId" defaultValue={draft.moduleId ?? ""} className={field}><option value="">Whole chapter</option>{lookups.modules.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label>
           <label className="block text-sm font-semibold text-slate-700">Topic<select form={formId} name="topicId" defaultValue={draft.topicId ?? ""} className={field}><option value="">No topic</option>{lookups.topics.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label>
         </Inspector>
-        <Inspector title="Interactive">
-          <label className="block text-sm font-semibold text-slate-700">Linked Exercise<select form={formId} name="exerciseId" defaultValue={draft.exerciseId ?? ""} className={field}><option value="">No exercise</option>{lookups.exercises.map((item) => <option key={item.id} value={item.id}>{item.title} ({item._count.questions} questions)</option>)}</select></label>
+        <Inspector title="Legacy Exercise Link">
+          <label className="block text-sm font-semibold text-slate-700">Legacy linked BookExercise<select form={formId} name="exerciseId" defaultValue={draft.exerciseId ?? ""} className={field}><option value="">No exercise</option>{lookups.exercises.map((item) => <option key={item.id} value={item.id}>{item.title} ({item._count.questions} questions)</option>)}</select></label>
           <form
             action={async (formData) => {
               await createExerciseAction(formData);
@@ -229,7 +242,8 @@ export default function WorksheetStudio({
           </Inspector>
         ) : null}
         {selected ? <Inspector title="Lifecycle"><Action action={moveAction.bind(null, selected.id, -1)} label="Move up" icon={<ArrowUp className="h-4 w-4" />} /><Action action={moveAction.bind(null, selected.id, 1)} label="Move down" icon={<ArrowDown className="h-4 w-4" />} /><Action action={duplicateAction.bind(null, selected.id)} label="Duplicate" icon={<Copy className="h-4 w-4" />} /><Action action={archiveAction.bind(null, selected.id)} label="Archive" icon={<Trash2 className="h-4 w-4" />} danger /></Inspector> : null}
-      </div>
+        </div>
+      </details>
   );
 
   return (
@@ -245,6 +259,11 @@ export default function WorksheetStudio({
             <Save className="h-4 w-4" />
             {isPending ? "Saving..." : "Save"}
           </button>
+          {selected ? (
+            <button type="button" onClick={openAdvancedSettings} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700">
+              Publish
+            </button>
+          ) : null}
           {selected && previewBaseHref ? (
             <Link href={`${previewBaseHref}/${selected.id}`} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700">
               Preview
@@ -318,15 +337,4 @@ function createDraft(
     archived: false,
     updatedAt: new Date(0).toISOString(),
   };
-}
-
-function exerciseLabel(id: string | null, lookups: Lookup) {
-  if (!id) return "Not linked";
-  const exercise = lookups.exercises.find((item) => item.id === id);
-  return exercise ? `${exercise.title} (${exercise._count.questions} questions)` : "Broken link";
-}
-
-function resourceLabel(id: string | null, lookups: Lookup) {
-  if (!id) return "Not linked";
-  return lookups.resources.find((item) => item.id === id)?.title ?? "Broken link";
 }

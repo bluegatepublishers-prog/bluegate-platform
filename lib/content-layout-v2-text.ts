@@ -1,5 +1,6 @@
 import {
   clampV2FrameGeometry,
+  isV2MainFlowFrame,
   type LayoutV2Frame,
   type LayoutV2FrameGeometry,
   type LayoutV2FrameType,
@@ -179,6 +180,9 @@ export function getV2InlineFrameGeometry(
   pageHeight: number,
 ): LayoutV2FrameGeometry {
   if (!isV2InlineFrame(frame)) return clampV2FrameGeometry(frame, pageWidth, pageHeight);
+  if (frames.some((entry) => isV2MainFlowFrame(entry) && entry.readingOrder < frame.readingOrder)) {
+    return clampV2FrameGeometry(frame, pageWidth, pageHeight);
+  }
   const previousText = frames
     .filter((entry) => entry.type === "TEXT" && entry.readingOrder < frame.readingOrder)
     .sort((a, b) => b.readingOrder - a.readingOrder)[0];

@@ -4,6 +4,7 @@ import Link from "next/link";
 import {
   CalendarDays,
   CircleHelp,
+  FileQuestion,
   GraduationCap,
   Home,
   Library,
@@ -42,6 +43,11 @@ export const teacherNavigation = [
     name: "Resources",
     href: "/teacher-dashboard/resources",
     icon: Library,
+  },
+  {
+    name: "Question Bank",
+    href: "/teacher-dashboard/question-bank",
+    icon: FileQuestion,
   },
 ] as const;
 

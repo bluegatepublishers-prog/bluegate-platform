@@ -996,6 +996,7 @@ async function FolderCanvas({
       >
         <WorksheetStudio
           chapterId={chapterId}
+          bookId={bookId}
           worksheets={rows}
           lookups={lookups}
           defaultModuleId={moduleId}

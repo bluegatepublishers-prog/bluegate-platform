@@ -1,9 +1,10 @@
 "use client";
 
+import { useLayoutEffect, useMemo, useRef } from "react";
 import type { ClipboardEvent, CSSProperties, FormEvent } from "react";
 import type { ContentBlock } from "@/lib/content-document";
 import { getV2TextFramePatch, layoutV2TextFrame, type V2TextLayoutSpan } from "@/lib/content-layout-v2-text";
-import type { LayoutV2Frame } from "@/lib/content-layout-v2";
+import { isV2MainFlowFrame, type LayoutV2Frame } from "@/lib/content-layout-v2";
 
 export default function V2TextVisual({
   frame,
@@ -22,12 +23,16 @@ export default function V2TextVisual({
   editable?: boolean;
   onTextChange?: (value: string, spans: V2TextLayoutSpan[], patch: ReturnType<typeof getV2TextFramePatch>) => void;
 }) {
+  const editorRef = useRef<HTMLDivElement>(null);
+  const lastEmittedTextRef = useRef<string | null>(null);
   const text = getText(frame, block);
-  const spans = frame.textSpans ?? getBlockSpans(block) ?? [{ text }];
+  const spans = useMemo(() => frame.textSpans ?? getBlockSpans(block) ?? [{ text }], [block, frame.textSpans, text]);
   const layout = layoutV2TextFrame(frame, text, frames);
   const direction = frame.direction === "RTL" ? "rtl" : frame.direction === "AUTO" ? "auto" : "ltr";
   const style: CSSProperties = {
     direction: direction === "auto" ? undefined : direction,
+    unicodeBidi: direction === "auto" ? "plaintext" : "normal",
+    writingMode: "horizontal-tb",
     textAlign: frame.alignment ?? "left",
     fontFamily: frame.fontFamily ?? getBlockValue(block, "fontFamily"),
     fontSize: `${frame.fontSize ?? getBlockNumber(block, "fontSize") ?? 16}px`,
@@ -44,6 +49,7 @@ export default function V2TextVisual({
   const handleInput = (event: FormEvent<HTMLDivElement>) => {
     if (!onTextChange) return;
     const value = readEditableText(event.currentTarget);
+    lastEmittedTextRef.current = value;
     const nextSpans = readEditableSpans(event.currentTarget);
     onTextChange(value, nextSpans.length ? nextSpans : [{ text: value }], getV2TextFramePatch(frame, value, frames, pageWidth, pageHeight));
   };
@@ -53,8 +59,20 @@ export default function V2TextVisual({
     const plainText = event.clipboardData.getData("text/plain").replace(/\r\n/g, "\n");
     globalThis.document.execCommand("insertText", false, plainText);
   };
+  useLayoutEffect(() => {
+    if (!editable) return;
+    const root = editorRef.current;
+    if (!root) return;
+    const isFocused = root.ownerDocument.activeElement === root;
+    if (shouldSyncV2EditableDom(text, readEditableText(root), isFocused, lastEmittedTextRef.current)) {
+      writeEditableContent(root, spans);
+    }
+    lastEmittedTextRef.current = text;
+  }, [editable, spans, text]);
+
   return (
     <div
+      ref={editable ? editorRef : undefined}
       contentEditable={editable}
       suppressContentEditableWarning
       role={editable ? "textbox" : undefined}
@@ -62,21 +80,67 @@ export default function V2TextVisual({
       aria-multiline={editable ? true : undefined}
       aria-hidden={frame.readable ? undefined : true}
       dir={direction}
+      spellCheck={editable}
+      autoCorrect={editable ? "on" : undefined}
+      data-v2-normal-flow-caret={editable && isV2MainFlowFrame(frame) ? "true" : undefined}
+      data-v2-editable-native={editable ? "true" : undefined}
       onInput={editable ? handleInput : undefined}
       onPaste={editable ? handlePaste : undefined}
+      onBlur={editable ? () => { lastEmittedTextRef.current = null; } : undefined}
       className={`relative h-full w-full outline-none ${layout.overset || frame.overset ? "ring-1 ring-inset ring-rose-400" : ""}`}
       style={style}
     >
-      {layout.lines.map((line, index) => (
+      {!editable ? layout.lines.map((line, index) => (
         <span key={`${line.start}-${index}`} className="block" style={{ marginLeft: `${Math.max(0, line.x - frame.x - 12)}px`, width: `${line.width}px`, minHeight: `${line.height}px` }}>
           {renderLine(line.start, line.end, text, spans)}
           {index < layout.lines.length - 1 ? <br /> : null}
         </span>
-      ))}
-      {layout.lines.length === 0 ? <span data-v2-placeholder="true" className="text-slate-300">{editable ? "Type text" : ""}</span> : null}
+      )) : null}
+      {!editable && layout.lines.length === 0 ? <span data-v2-placeholder="true" className="text-slate-300" /> : null}
       {layout.overset || frame.overset ? <span contentEditable={false} className="pointer-events-none absolute right-1 top-1 rounded bg-rose-100 px-1 text-[10px] font-bold text-rose-700" title="Text exceeds frame capacity">+</span> : null}
     </div>
   );
+}
+
+export function shouldSyncV2EditableDom(sourceText: string, domText: string, isFocused: boolean, lastEmittedText: string | null) {
+  return !(isFocused && lastEmittedText === sourceText) && (sourceText !== domText || !domText);
+}
+
+function writeEditableContent(root: HTMLElement, spans: V2TextLayoutSpan[]) {
+  const document = root.ownerDocument;
+  const fragment = document.createDocumentFragment();
+  const content = spans.length ? spans : [{ text: "" }];
+  for (const span of content) {
+    const parts = span.text.split("\n");
+    parts.forEach((part, index) => {
+      if (part) fragment.append(createEditableSpan(document, { ...span, text: part }));
+      if (index < parts.length - 1) fragment.append(document.createElement("br"));
+    });
+  }
+  if (!fragment.childNodes.length) fragment.append(document.createElement("br"));
+  root.replaceChildren(fragment);
+}
+
+function createEditableSpan(document: Document, span: V2TextLayoutSpan) {
+  const text = document.createTextNode(span.text);
+  const marks = span.marks ?? [];
+  let node: Node = text;
+  const wrap = (tagName: string) => {
+    const element = document.createElement(tagName);
+    element.append(node);
+    node = element;
+  };
+  if (marks.includes("bold")) wrap("strong");
+  if (marks.includes("italic")) wrap("em");
+  if (marks.includes("underline")) wrap("u");
+  if (marks.includes("superscript")) wrap("sup");
+  if (marks.includes("subscript")) wrap("sub");
+  const element = document.createElement("span");
+  element.style.color = span.color ?? "";
+  element.style.backgroundColor = span.highlight ?? "";
+  element.style.fontSize = span.fontSize ? `${span.fontSize}px` : "";
+  element.append(node);
+  return element;
 }
 
 function getText(frame: LayoutV2Frame, block?: ContentBlock) {

@@ -256,7 +256,8 @@ function renderBlockBody(
       <img
         src={src}
         alt={block.alt || "Illustration"}
-        className={`${imageWidthClass(block.width)} ${imageFloatClass(block.float)} rounded-3xl object-contain`}
+        className={`${imageWidthClass(block.width)} ${imageFloatClass(block.float)} h-auto max-w-full rounded-3xl object-contain`}
+        style={imageLayoutStyle(block)}
         loading="lazy"
         referrerPolicy="no-referrer"
       />
@@ -266,11 +267,11 @@ function renderBlockBody(
       </div>
     );
     return (
-      <figure className={alignmentWrapper(block.align)}>
+      <figure className={`min-w-0 max-w-full overflow-hidden ${alignmentWrapper(block.align)}`}>
         {isCropped && src ? (
           <div
-            className={`${imageWidthClass(block.width)} ${imageFloatClass(block.float)} relative overflow-hidden rounded-3xl`}
-            style={{ aspectRatio: `${crop.width} / ${crop.height}` }}
+            className={`${imageWidthClass(block.width)} ${imageFloatClass(block.float)} relative max-w-full overflow-hidden rounded-3xl`}
+            style={{ aspectRatio: `${crop.width} / ${crop.height}`, ...imageLayoutStyle(block) }}
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
@@ -307,7 +308,7 @@ function renderBlockBody(
                 <img
                   src={src}
                   alt={image.alt || "Gallery image"}
-                  className="w-full rounded-3xl object-cover"
+                  className="h-auto max-w-full rounded-3xl object-cover"
                   loading="lazy"
                   referrerPolicy="no-referrer"
                 />
@@ -883,6 +884,11 @@ function imageFloatClass(float: string | undefined) {
     default:
       return "mx-auto";
   }
+}
+
+function imageLayoutStyle(block: Extract<ContentBlock, { type: "image" | "diagram" }>) {
+  const width = block.layout?.width;
+  return width ? { width: `${width}px`, maxWidth: "100%" } : { maxWidth: "100%" };
 }
 
 function educationalObjectClass(variant: string) {

@@ -35,6 +35,7 @@ export default async function TeacherStructuredChapterPage({
         <header className="rounded-3xl bg-white p-6 shadow-sm sm:p-8">
           <div className="flex flex-wrap gap-4 text-sm font-semibold text-blue-700">
             <Link href={planHref}>Teaching Plan</Link>
+            <Link href={`/teacher-dashboard/classes/${sectionId}/assignments/new?${new URLSearchParams({ subject: data.subject.id, chapterId, ...(query.bookId ? { bookId: query.bookId } : {}) }).toString()}`}>Create Classwork / Homework</Link>
             <Link href={`/teacher-dashboard/classes/${sectionId}${query.subject ? `?subject=${query.subject}` : ""}`}>Back to class</Link>
           </div>
           <p className="mt-5 text-sm font-semibold text-blue-600">{data.subject.subject.name}</p>

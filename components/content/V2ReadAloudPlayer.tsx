@@ -7,6 +7,21 @@ import type { BookNarrationManifest, NarrationSegment } from "@/lib/content-narr
 const SPEEDS = [0.75, 1, 1.25, 1.5] as const;
 type PlaybackStatus = "IDLE" | "PLAYING" | "PAUSED" | "UNAVAILABLE";
 
+export type V2BrowserVoiceOption = {
+  voiceURI: string;
+  label: string;
+  lang: string;
+  category: "Indian English" | "British English" | "American English" | "Other";
+};
+
+export function getV2BrowserVoiceOptions(voices: SpeechSynthesisVoice[]): V2BrowserVoiceOption[] {
+  return voices.map((voice) => {
+    const lang = voice.lang.toLowerCase();
+    const category: V2BrowserVoiceOption["category"] = lang === "en-in" ? "Indian English" : lang === "en-gb" ? "British English" : lang === "en-us" ? "American English" : "Other";
+    return { voiceURI: voice.voiceURI, label: voice.name, lang: voice.lang, category };
+  }).filter((voice) => voice.category !== "Other");
+}
+
 export default function V2ReadAloudPlayer({
   manifest,
   audioUrls = {},
@@ -22,6 +37,8 @@ export default function V2ReadAloudPlayer({
   const [segmentIndex, setSegmentIndex] = useState(0);
   const [speed, setSpeed] = useState<number>(1);
   const [status, setStatus] = useState<PlaybackStatus>("IDLE");
+  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [voiceURI, setVoiceURI] = useState("");
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
 
@@ -29,6 +46,18 @@ export default function V2ReadAloudPlayer({
   const page = segment ? manifest.pages.find((entry) => entry.pageId === segment.pageId) : undefined;
   const pageStartIndex = page ? segments.findIndex((entry) => entry.pageId === page.pageId) : 0;
   const audioUrl = segment ? resolveAudioUrl(segment, page?.audioResourceId, page?.segments.length === 1, audioUrls) : undefined;
+  const voiceOptions = useMemo(() => getV2BrowserVoiceOptions(voices), [voices]);
+  const selectedVoice = voices.find((voice) => voice.voiceURI === voiceURI);
+  const hasIndianEnglishVoice = voiceOptions.some((voice) => voice.category === "Indian English");
+
+  useEffect(() => {
+    const speech = globalThis.speechSynthesis;
+    if (!speech) return;
+    const syncVoices = () => setVoices(speech.getVoices());
+    syncVoices();
+    speech.addEventListener?.("voiceschanged", syncVoices);
+    return () => speech.removeEventListener?.("voiceschanged", syncVoices);
+  }, []);
 
   useEffect(() => {
     onActiveSegmentChange?.(segment?.id ?? null);
@@ -58,7 +87,8 @@ export default function V2ReadAloudPlayer({
     }
     stopPlayback(audioRef, utteranceRef);
     const utterance = new SpeechSynthesisUtterance(target.text);
-    utterance.lang = target.language;
+    utterance.lang = selectedVoice?.lang || target.language;
+    if (selectedVoice) utterance.voice = selectedVoice;
     utterance.rate = speed;
     utterance.onend = () => advance(target.id);
     utterance.onerror = () => setStatus("UNAVAILABLE");
@@ -145,6 +175,12 @@ export default function V2ReadAloudPlayer({
     <section aria-label="Read Aloud" className="rounded-2xl border border-blue-200 bg-white/95 p-3 shadow-lg backdrop-blur" data-v2-read-aloud-player>
       <div className="flex flex-wrap items-center gap-2">
         <span className="mr-1 text-sm font-bold text-slate-900">Read Aloud</span>
+        <label className="flex items-center gap-1 text-xs font-semibold text-slate-600">Voice
+          <select aria-label="Read Aloud voice" value={voiceURI} onChange={(event) => setVoiceURI(event.target.value)} className="rounded-lg border bg-white px-2 py-2">
+            <option value="">Device default</option>
+            {voiceOptions.map((voice) => <option key={voice.voiceURI} value={voice.voiceURI}>{voice.category}: {voice.label}</option>)}
+          </select>
+        </label>
         <button type="button" onClick={status === "PLAYING" ? pause : play} disabled={noText} aria-label={status === "PLAYING" ? "Pause Read Aloud" : "Play Read Aloud"} aria-pressed={status === "PLAYING"} className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold text-white disabled:cursor-not-allowed disabled:bg-slate-300">
           {status === "PLAYING" ? "Pause" : "Play"}
         </button>
@@ -159,6 +195,7 @@ export default function V2ReadAloudPlayer({
         <span className="ml-auto text-xs font-semibold text-slate-500">{noText ? "No readable text on this page." : (String(segmentIndex + 1) + " / " + String(segments.length))}</span>
       </div>
       {!noText ? <p className="mt-2 line-clamp-2 text-xs text-slate-600" aria-live="polite"><span className="font-semibold">{segment?.narrationLabel ? segment.narrationLabel + ": " : ""}</span>{segment?.text}</p> : null}
+      {!hasIndianEnglishVoice ? <p data-v2-indian-voice-fallback className="mt-1 text-xs text-slate-500">Indian English voice not available on this device.</p> : null}
       {status === "UNAVAILABLE" && !noText ? <p className="mt-1 text-xs font-semibold text-amber-700">Read Aloud is unavailable in this browser.</p> : null}
     </section>
   );

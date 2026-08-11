@@ -19,11 +19,13 @@ export default function ResourceMoreMenu({
   published,
   archived,
   returnTo,
+  type,
 }: {
   id: string;
   published: boolean;
   archived: boolean;
   returnTo: string;
+  type?: string;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -51,6 +53,28 @@ export default function ResourceMoreMenu({
     const url = `${window.location.origin}/admin/resources/${id}`;
     await navigator.clipboard.writeText(url);
     setMessage("Resource link copied.");
+  }
+
+  function removeVideoFromLibrary() {
+    if (!confirm("Remove this unused Video from the library? Referenced videos are protected and cannot be removed.")) return;
+    setMessage("");
+    startTransition(async () => {
+      const response = await fetch(`/api/admin/resources/${id}?library=video`, { method: "DELETE" });
+      const payload = await response.json().catch(() => ({ message: "" }));
+      setMessage(payload.message || (response.ok ? "Video archived from the library." : "Unable to remove Video."));
+      if (response.ok) router.refresh();
+    });
+  }
+
+  function removeImageFromLibrary() {
+    if (!confirm("Delete this unused Image from the library? Images currently used in book content are protected.")) return;
+    setMessage("");
+    startTransition(async () => {
+      const response = await fetch(`/api/admin/resources/${id}?library=image`, { method: "DELETE" });
+      const payload = await response.json().catch(() => ({ message: "" }));
+      setMessage(payload.message || (response.ok ? "Image archived from the library." : "Unable to delete Image."));
+      if (response.ok) router.refresh();
+    });
   }
 
   return (
@@ -96,7 +120,7 @@ export default function ResourceMoreMenu({
             <Send className="h-4 w-4" />
             {published ? "Unpublish" : "Publish"}
           </button>
-          <button
+          {type === "VIDEO" ? <button type="button" disabled={pending || archived} onClick={removeVideoFromLibrary} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-red-700 hover:bg-red-50 disabled:opacity-50"><Archive className="h-4 w-4" />Delete Video from Library</button> : type === "IMAGE" ? <button type="button" disabled={pending || archived} onClick={removeImageFromLibrary} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-red-700 hover:bg-red-50 disabled:opacity-50"><Archive className="h-4 w-4" />Delete Image from Library</button> : <button
             type="button"
             disabled={pending}
             onClick={() => update(archived ? "restore" : "archive")}
@@ -108,15 +132,13 @@ export default function ResourceMoreMenu({
               <Archive className="h-4 w-4" />
             )}
             {archived ? "Restore" : "Archive"}
-          </button>
+          </button>}
           <p className="px-3 pb-1 pt-2 text-xs text-slate-400">
             Permanent deletion is unavailable until durable storage cleanup is configured.
           </p>
         </div>
       </details>
-      <span className="sr-only" role="status" aria-live="polite">
-        {message}
-      </span>
+      {message ? <p role="status" aria-live="polite" className="absolute right-0 z-40 mt-2 w-72 rounded-lg border border-slate-200 bg-white p-2 text-xs text-slate-700 shadow-lg">{message}</p> : null}
     </div>
   );
 }

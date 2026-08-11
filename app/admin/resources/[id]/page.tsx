@@ -138,7 +138,7 @@ export default async function AdminResourceDetailsPage({
           <Link href={`/admin/resources/${id}/edit`} className="inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-semibold">
             <Pencil className="h-4 w-4" aria-hidden /> Edit
           </Link>
-          <ResourceMoreMenu id={id} published={resource.published} archived={resource.archived} returnTo={returnTo} />
+          <ResourceMoreMenu id={id} published={resource.published} archived={resource.archived} returnTo={returnTo} type={resource.type} />
         </div>
       </header>
 

@@ -17,11 +17,13 @@ import ExerciseBlockEditor from "@/components/admin/books/editor/blocks/Exercise
 import MediaBlockEditor from "@/components/admin/books/editor/blocks/MediaBlockEditor";
 import LinkedAssetEditor from "@/components/admin/books/editor/blocks/LinkedAssetEditor";
 import ListBlockEditor from "@/components/admin/books/editor/blocks/ListBlockEditor";
-import { useCallback, useEffect, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import type { ClipboardEvent, KeyboardEvent, MouseEvent } from "react";
 import { ResourceAudience, ResourceType } from "@prisma/client";
 import ActivityStudio from "@/components/admin/books/ActivityStudio";
 import ContentDocumentRenderer from "@/components/admin/books/ContentDocumentRenderer";
+import V2ContentDocumentRenderer from "@/components/content/V2ContentDocumentRenderer";
+import V2ReadAloudPlayer from "@/components/content/V2ReadAloudPlayer";
 import ContentReleasePanel from "@/components/admin/books/ContentReleasePanel";
 import ExerciseAuthoringStudio from "@/components/admin/books/ExerciseAuthoringStudio";
 import StudioBuilderDrawer from "@/components/admin/books/StudioBuilderDrawer";
@@ -96,7 +98,9 @@ import {
   renameContentPeriod,
   normalizeContentDocument,
   serializeContentDocument,
+  moveBlockWithinPeriod,
   removeBlock,
+  resizeImageBlock,
   sanitizeUrl,
   updateBlock,
   type BlockAlignment,
@@ -113,12 +117,13 @@ import {
   type MediaBlock,
 } from "@/lib/content-document";
 import { type EducationalObjectType } from "@/lib/educational-object-registry";
-import { EDUCATIONAL_OBJECT_REGISTRY, getEducationalObjectDefinition, getEducationalObjectPlaceholder } from "@/lib/educational-object-registry";
+import { EDUCATIONAL_OBJECT_REGISTRY, getEducationalObjectDefinition, getEducationalObjectPlaceholder, isEducationalObjectType } from "@/lib/educational-object-registry";
 import type { ReleaseSummary } from "@/lib/content-release";
 import { uploadFileToR2 } from "@/lib/storage/client-upload";
 import { contentResourcePreviewUrl } from "@/lib/content-resource-preview";
 import EducationalObjectIcon from "@/components/content/EducationalObjectIcon";
-import { addV2FrameToPage, getContentLayoutVersion, updateV2Frame, type LayoutV2Frame } from "@/lib/content-layout-v2";
+import { addV2FrameToPage, createV2CompatibilityLayout, ensureV2MainFlowFrames, getContentLayoutVersion, updateV2Frame, type LayoutV2Frame } from "@/lib/content-layout-v2";
+import { buildV2NarrationManifest } from "@/lib/content-narration";
 
 type ResourceChoice = {
   id: string;
@@ -384,6 +389,7 @@ export default function ContentManuscriptEditor({
   const [knowledgeMap, setKnowledgeMap] = useState(resolvedKnowledge);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewMode, setPreviewMode] = useState<PreviewSurfaceMode>("STUDENT");
+  const [importOpen, setImportOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [releasePanelOpen, setReleasePanelOpen] = useState(false);
@@ -429,7 +435,16 @@ export default function ContentManuscriptEditor({
     content: contentDoc,
   });
   const dirty = snapshot !== baselineSnapshot;
-  const usesLayoutV2 = getContentLayoutVersion(contentDoc) === 2;
+  const isLegacyV1Document = getContentLayoutVersion(contentDoc) !== 2;
+  // The legacy workspace remains in the source for data compatibility only;
+  // the visible authoring surface always uses the unified V2 workspace.
+  const usesLayoutV2 = true;
+  const workspaceDocument = useMemo(() => {
+    const base = isLegacyV1Document
+      ? { ...contentDoc, layoutVersion: 2 as const, pageLayout: createV2CompatibilityLayout(contentDoc) }
+      : contentDoc;
+    return base.pageLayout ? { ...base, pageLayout: ensureV2MainFlowFrames(base.pageLayout) } : base;
+  }, [contentDoc, isLegacyV1Document]);
 
   function applyDocumentChange(updater: (current: ContentDocument) => ContentDocument) {
     setContentDoc((current) => {
@@ -1380,25 +1395,32 @@ export default function ContentManuscriptEditor({
       file: input.file,
       scope: input.scope,
       onProgress: (value) => setUploadProgress(value),
+      ...(input.type === ResourceType.IMAGE ? { transport: "SAME_ORIGIN_PROXY" as const, failurePrefix: "IMAGE" } : {}),
+      ...(input.type === ResourceType.VIDEO ? { transport: "SAME_ORIGIN_PROXY" as const, failurePrefix: "VIDEO" } : {}),
     });
-    const response = await fetch("/api/admin/resources", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        title: input.title,
-        type: input.type,
-        audience: input.audience,
-        fileUrl: uploaded.objectKey,
-        thumbnail: "",
-        bookId,
-        chapterId,
-        moduleId: nodeType === "MODULE" ? nodeId : undefined,
-        published: false,
-        originalFileName: input.file.name,
-        mimeType: uploaded.contentType,
-        fileSizeBytes: String(uploaded.sizeBytes),
-      }),
-    });
+    let response: Response;
+    try {
+      response = await fetch("/api/admin/resources", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: input.title,
+          type: input.type,
+          audience: input.audience,
+          fileUrl: uploaded.objectKey,
+          thumbnail: "",
+          bookId,
+          chapterId,
+          moduleId: nodeType === "MODULE" ? nodeId : undefined,
+          published: false,
+          originalFileName: input.file.name,
+          mimeType: uploaded.contentType,
+          fileSizeBytes: String(uploaded.sizeBytes),
+        }),
+      });
+    } catch {
+      throw new Error(`${input.type === ResourceType.IMAGE ? "IMAGE_" : input.type === ResourceType.VIDEO ? "VIDEO_" : ""}RESOURCE_CREATE_FAILED: Network request could not be completed.`);
+    }
     const payload = (await response.json().catch(() => null)) as
       | {
           id?: string;
@@ -1413,7 +1435,7 @@ export default function ContentManuscriptEditor({
         }
       | null;
     if (!response.ok || !payload?.id || !payload.title || !payload.fileUrl) {
-      throw new Error(payload?.message || "Unable to create resource.");
+      throw new Error(`${input.type === ResourceType.IMAGE ? "IMAGE_" : input.type === ResourceType.VIDEO ? "VIDEO_" : ""}RESOURCE_CREATE_FAILED: ${payload?.message || "Unable to create resource."}`);
     }
     const nextResource: ResourceChoice = {
       id: payload.id,
@@ -1679,49 +1701,53 @@ export default function ContentManuscriptEditor({
 
   if (usesLayoutV2) {
     return (
-      <div data-testid="content-studio-editor" data-node-id={nodeId} className="flex h-full min-h-0 flex-col">
-        <IdmlImportPanel bookId={bookId} nodeId={nodeId} nodeType={nodeType} currentDocument={contentDoc} />
+      <div data-testid="content-studio-editor" data-node-id={nodeId} className="flex h-full min-h-0 flex-col overflow-hidden">
+        <div className="min-h-0 flex-1">
         <EditorShell shellRef={editorShellRef} ribbon={null} periodTabs={null}>
           <V2DocumentWorkspace
             title={title}
-            document={contentDoc}
+            document={workspaceDocument}
             resources={resourceChoices.map((resource) => ({ id: resource.id, title: resource.title, type: resource.type, mimeType: resource.mimeType }))}
             saveState={saveState}
             dirty={dirty}
             error={error}
             wordCount={wordCount}
             zoom={zoom}
-            blocks={contentDoc.blocks}
+            blocks={workspaceDocument.blocks}
             renderBlock={renderV2Block}
-            onTitleChange={(value) => {
-              setTitle(value);
-              setSaveState("dirty");
-            }}
             onSave={() => void saveDocument()}
             onUndo={undoDocument}
             onRedo={redoDocument}
+            onOpenImport={() => setImportOpen(true)}
+            assignmentsHref={`/admin/books/${bookId}/content/assignments/questions`}
+            onPreview={openPreview}
+            onPublish={() => setReleasePanelOpen(true)}
             onZoomChange={setZoom}
             onDocumentChange={(next, message) => {
               applyDocumentChange(() => next);
               setSaveState("dirty");
               setSaveMessage(message);
             }}
-            onUploadImage={async (file, uploadTitle) => {
+            onUploadResource={async (file, uploadTitle, resourceType) => {
               const resource = await createPublisherResource({
                 file,
                 scope: "resource-file",
                 title: uploadTitle,
-                type: ResourceType.IMAGE,
+                type: resourceType === "IMAGE" ? ResourceType.IMAGE : ResourceType.VIDEO,
                 audience: ResourceAudience.BOTH,
               });
               return { id: resource.id, title: resource.title, type: resource.type, mimeType: resource.mimeType };
             }}
             onFrameTextChange={(frame, value, spans, framePatch) => {
               applyDocumentChange((current) => {
+                const base = current.pageLayout
+                  ? current
+                  : { ...current, layoutVersion: 2 as const, pageLayout: createV2CompatibilityLayout(current) };
+                const baseLayout = ensureV2MainFlowFrames(base.pageLayout ?? createV2CompatibilityLayout(base));
                 const blockId = frame.contentRef?.blockId;
                 const layoutPatch = { ...(spans ? { textSpans: spans } : {}), ...(framePatch ?? {}) };
                 if (blockId) {
-                  const blocks = current.blocks.map((block) => {
+                  const blocks = base.blocks.map((block) => {
                     if (block.id !== blockId || !("text" in block)) return block;
                     return {
                       ...block,
@@ -1730,29 +1756,36 @@ export default function ContentManuscriptEditor({
                     } as ContentBlock;
                   });
                   return {
-                    ...current,
+                    ...base,
                     blocks,
-                    ...(current.pageLayout ? { pageLayout: updateV2Frame(current.pageLayout, frame.pageId, frame.id, layoutPatch) } : {}),
+                    layoutVersion: 2,
+                    pageLayout: updateV2Frame(baseLayout, frame.pageId, frame.id, layoutPatch),
                   };
                 }
-                if (!current.pageLayout) return current;
-                return { ...current, pageLayout: updateV2Frame(current.pageLayout, frame.pageId, frame.id, { payload: value, ...layoutPatch }) };
+                return { ...base, layoutVersion: 2, pageLayout: updateV2Frame(baseLayout, frame.pageId, frame.id, { payload: value, ...layoutPatch }) };
               });
               setSaveState("dirty");
               setSaveMessage("Text updated");
             }}
             onAddFrame={(type, pageId, frame) => {
               applyDocumentChange((current) => {
-                if (!current.pageLayout) return current;
+                const base = current.pageLayout
+                  ? current
+                  : { ...current, layoutVersion: 2 as const, pageLayout: createV2CompatibilityLayout(current) };
+                const baseLayout = ensureV2MainFlowFrames(base.pageLayout ?? createV2CompatibilityLayout(base));
                 let nextFrame: LayoutV2Frame = frame;
-                let blocks = current.blocks;
-                const periodId = current.periods[0]?.id;
+                let blocks = base.blocks;
+                const periodId = base.periods[0]?.id;
+                const insertionPayload = frame.payload && typeof frame.payload === "object" ? frame.payload as Record<string, unknown> : {};
+                const rows = Math.max(1, Math.min(20, Number(insertionPayload.rows) || 2));
+                const columns = Math.max(1, Math.min(12, Number(insertionPayload.columns) || 2));
+                const educationalType = isEducationalObjectType(insertionPayload.educationalObjectType) ? insertionPayload.educationalObjectType : "didYouKnow";
                 const block = type === "TEXT"
                   ? createTextBlock("paragraph", "New text frame")
                   : type === "TABLE"
-                    ? createTableBlock("table", undefined, { rows: 2, columns: 2 })
+                    ? createTableBlock("table", undefined, { rows, columns })
                     : type === "EDUCATIONAL"
-                      ? createEducationalObjectBlock("didYouKnow")
+                      ? createEducationalObjectBlock(educationalType)
                       : type === "ACTIVITY"
                         ? createActivityBlock()
                         : type === "WORKSHEET"
@@ -1765,13 +1798,40 @@ export default function ContentManuscriptEditor({
                   blocks = [...blocks, blockWithPeriod];
                   nextFrame = { ...frame, contentRef: { blockId: blockWithPeriod.id }, payload: undefined };
                 }
-                return { ...current, blocks, pageLayout: addV2FrameToPage(current.pageLayout, pageId, nextFrame) };
+                return { ...base, blocks, layoutVersion: 2, pageLayout: addV2FrameToPage(baseLayout, pageId, nextFrame) };
               });
               setSaveState("dirty");
               setSaveMessage(`${type} frame inserted`);
             }}
           />
         </EditorShell>
+        </div>
+        <IdmlImportPanel open={importOpen} onClose={() => setImportOpen(false)} bookId={bookId} nodeId={nodeId} nodeType={nodeType} currentDocument={workspaceDocument} />
+        <DraftPreviewDrawer
+          open={previewOpen}
+          onClose={() => setPreviewOpen(false)}
+          mode={previewMode}
+          title={title}
+          subtitle={subtitle}
+          description={description}
+          document={workspaceDocument}
+          linkedAssets={previewLinkedAssets}
+          activities={resolvedActivities}
+          worksheets={resolvedWorksheets}
+          media={previewMedia}
+          sectionDefinitions={sectionDefinitions}
+          knowledgeDefinitions={knowledgeMap}
+          resourceUrls={Object.fromEntries(resourceChoices.map((resource) => [resource.id, contentResourcePreviewUrl(resource.id)]))}
+        />
+        <ReleaseHistoryDrawer
+          open={releasePanelOpen}
+          onClose={() => setReleasePanelOpen(false)}
+          summary={releaseSummary}
+          transitionAction={transitionReleaseAction}
+          rollbackAction={rollbackReleaseAction}
+          bulkPublishAction={bulkPublishAction}
+          previewBaseHref={previewBaseHref}
+        />
       </div>
     );
   }
@@ -1799,7 +1859,6 @@ export default function ContentManuscriptEditor({
         }
       }}
     >
-      <IdmlImportPanel bookId={bookId} nodeId={nodeId} nodeType={nodeType} currentDocument={contentDoc} />
       <EditorShell
   shellRef={editorShellRef}
   ribbon={
@@ -2080,8 +2139,14 @@ export default function ContentManuscriptEditor({
             enabled
             layout={block.layout}
             selected={activeBlockId === block.id}
-            onChange={(layout) => updatePatch(block.id, { layout })}
-            onArrange={(direction) => updatePatch(block.id, { layout: { ...((block.layout ?? { x: 0, y: 0, width: 640, height: 180, zIndex: 0 })), zIndex: (block.layout?.zIndex ?? 0) + direction } })}
+            preserveAspectRatio={isImageBlock(block)}
+            onChange={(layout) => {
+              if (isImageBlock(block)) {
+                applyDocumentChange((current) => resizeImageBlock(current, block.id, layout));
+                return;
+              }
+              updatePatch(block.id, { layout });
+            }}
             onDuplicate={() => {
               applyDocumentChange((current) => duplicateBlock(current, block.id));
               setSaveState("dirty");
@@ -2094,6 +2159,30 @@ export default function ContentManuscriptEditor({
               setSaveMessage("Object deleted");
             }}
           >
+            <FloatingBoxHeader
+              block={block}
+              canMoveUp={index > 0}
+              canMoveDown={index < visibleBlocks.length - 1}
+              onDelete={() => {
+                applyDocumentChange((current) => removeBlock(current, block.id));
+                setActiveBlockId(null);
+                setSaveState("dirty");
+                setSaveMessage("Object deleted");
+              }}
+              onMove={(direction) => {
+                applyDocumentChange((current) => moveBlockWithinPeriod(current, block.id, direction));
+                setSaveState("dirty");
+                setSaveMessage(direction < 0 ? "Object moved up" : "Object moved down");
+              }}
+              onAddContent={(type) => {
+                const nextBlock = createFloatingBoxContent(type);
+                applyDocumentChange((current) => insertBlockAfter(current, block.id, nextBlock));
+                setActiveBlockId(nextBlock.id);
+                setFocusTarget(nextBlock.id);
+                setSaveState("dirty");
+                setSaveMessage(`${blockLabel(nextBlock.type)} added`);
+              }}
+            />
             <BlockEditor
           selected={activeBlockId === block.id}
           bookId={bookId}
@@ -2231,15 +2320,15 @@ export default function ContentManuscriptEditor({
       {error ? <p className="rounded-2xl bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{error}</p> : null}
 
       {menuAnchor ? (
-        <BlockInsertMenu onClose={closeMenu} onPick={(type) => addBlock(type, menuAnchor)} />
+        <BlockInsertMenu onClose={closeMenu} onPick={(type) => addBlock(type, menuAnchor!)} />
       ) : null}
       {knowledgePopup ? (
         <KnowledgeReferencePopup
-          selection={knowledgePopup}
+          selection={knowledgePopup!}
           definitions={knowledgeDefinitions}
           searchAction={searchKnowledgeAction}
           saveAction={saveKnowledgeAction}
-          onChoose={(definition) => addKnowledgeReference(knowledgePopup, definition)}
+          onChoose={(definition) => addKnowledgeReference(knowledgePopup!, definition)}
           onClose={() => setKnowledgePopup(null)}
         />
       ) : null}
@@ -2257,6 +2346,7 @@ export default function ContentManuscriptEditor({
         media={previewMedia}
         sectionDefinitions={sectionDefinitions}
         knowledgeDefinitions={knowledgeMap}
+        resourceUrls={Object.fromEntries(resourceChoices.map((resource) => [resource.id, contentResourcePreviewUrl(resource.id)]))}
       />
       <ReleaseHistoryDrawer
         open={releasePanelOpen}
@@ -2337,6 +2427,7 @@ export default function ContentManuscriptEditor({
         kind={builderKind}
         tab={builderTab}
         chapterId={chapterId}
+        bookId={bookId}
         activityRows={activityLibraryRows}
         activityResources={activityResources}
         worksheetRows={worksheetLibraryRows}
@@ -3479,7 +3570,6 @@ function BlockInsertMenu({
   open,
   onClose,
   mode,
-  title,
   document,
   linkedAssets,
   activities,
@@ -3487,6 +3577,7 @@ function BlockInsertMenu({
   media,
   sectionDefinitions,
   knowledgeDefinitions,
+  resourceUrls,
 }: {
   open: boolean;
   onClose: () => void;
@@ -3501,59 +3592,57 @@ function BlockInsertMenu({
   media: Record<string, ResolvedMediaBlock | null>;
   sectionDefinitions: ContentSectionDefinitionSummary[];
   knowledgeDefinitions: Record<string, KnowledgeDefinitionSummary | null>;
+  resourceUrls: Record<string, string>;
 }) {
-  const previewPeriods = document.periods;
-  const [activePreviewPeriodId, setActivePreviewPeriodId] =
-    useState(previewPeriods[0]?.id ?? "");
+  const previewPages = document.pageLayout?.pages ?? [];
+  const [activePreviewPageId, setActivePreviewPageId] =
+    useState(previewPages[0]?.id ?? "");
 
   if (!open) return null;
 
-  const requestedPeriodIndex =
-    previewPeriods.findIndex(
-      (period) =>
-        period.id === activePreviewPeriodId,
+  const requestedPageIndex =
+    previewPages.findIndex(
+      (page) =>
+        page.id === activePreviewPageId,
     );
 
-  const activePeriodIndex =
-    requestedPeriodIndex >= 0
-      ? requestedPeriodIndex
+  const activePreviewPageIndex =
+    requestedPageIndex >= 0
+      ? requestedPageIndex
       : 0;
 
-  const activePeriod =
-    previewPeriods[activePeriodIndex] ??
-    previewPeriods[0] ??
+  const activePreviewPage =
+    previewPages[activePreviewPageIndex] ??
+    previewPages[0] ??
     null;
 
-  const selectedPeriodDocument: ContentDocument = {
+  const selectedPageDocument: ContentDocument = {
     ...document,
-    periods: activePeriod ? [activePeriod] : [],
-    blocks: activePeriod
-      ? document.blocks.filter(
-          (block) =>
-            block.periodId === activePeriod.id,
-        )
-      : [],
+    pageLayout: activePreviewPage && document.pageLayout
+      ? { ...document.pageLayout, pages: [activePreviewPage] }
+      : document.pageLayout,
   };
+  const previewNarration = buildV2NarrationManifest(selectedPageDocument, mode === "STUDENT" ? "STUDENT" : mode === "TEACHER" ? "TEACHER" : "ADMIN_PREVIEW", { scopeId: `preview:${activePreviewPage?.id ?? "none"}` });
 
-  const goToPreviousPeriod = () => {
-    if (activePeriodIndex <= 0) return;
+  const goToPreviousPage = () => {
+    if (activePreviewPageIndex <= 0) return;
 
-    setActivePreviewPeriodId(
-      previewPeriods[activePeriodIndex - 1]?.id ??
+    setActivePreviewPageId(
+      previewPages[activePreviewPageIndex - 1]?.id ??
         "",
     );
   };
 
-  const goToNextPeriod = () => {
+  const goToNextPage = () => {
     if (
-      activePeriodIndex >=
-      previewPeriods.length - 1
+      activePreviewPageIndex >=
+      previewPages.length - 1
     ) {
       return;
     }
 
-    setActivePreviewPeriodId(
-      previewPeriods[activePeriodIndex + 1]?.id ??
+    setActivePreviewPageId(
+      previewPages[activePreviewPageIndex + 1]?.id ??
         "",
     );
   };
@@ -3562,25 +3651,25 @@ function BlockInsertMenu({
     <StudioBuilderDrawer
       open={open}
       title={`${previewModeLabel(mode)} Preview`}
-      description="Each period opens as a separate manuscript page."
+      description="The current V2 page layout is rendered through the shared delivery renderer."
       onClose={onClose}
     >
       <div className="min-w-0">
         <div className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 px-4 py-3 backdrop-blur">
           <div className="flex min-w-0 flex-wrap items-center gap-2">
-            {previewPeriods.map(
-              (period, index) => {
+            {previewPages.map(
+              (page, index) => {
                 const active =
-                  period.id ===
-                  activePeriod?.id;
+                  page.id ===
+                  activePreviewPage?.id;
 
                 return (
                   <button
-                    key={period.id}
+                    key={page.id}
                     type="button"
                     onClick={() =>
-                      setActivePreviewPeriodId(
-                        period.id,
+                      setActivePreviewPageId(
+                        page.id,
                       )
                     }
                     className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${
@@ -3589,8 +3678,7 @@ function BlockInsertMenu({
                         : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
                     }`}
                   >
-                    {period.title ||
-                      `Period ${index + 1}`}
+                    {`Page ${index + 1}`}
                   </button>
                 );
               },
@@ -3600,42 +3688,44 @@ function BlockInsertMenu({
           <div className="mt-3 flex items-center justify-between gap-3">
             <button
               type="button"
-              onClick={goToPreviousPeriod}
-              disabled={activePeriodIndex <= 0}
+              onClick={goToPreviousPage}
+              disabled={activePreviewPageIndex <= 0}
               className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
             >
-              Previous period
+              Previous page
             </button>
 
             <p className="text-sm font-semibold text-slate-500">
-              {previewPeriods.length
-                ? `Period ${
-                    activePeriodIndex + 1
+              {previewPages.length
+                ? `Page ${
+                    activePreviewPageIndex + 1
                   } of ${
-                    previewPeriods.length
+                    previewPages.length
                   }`
-                : "No periods available"}
+                : "No pages available"}
             </p>
 
             <button
               type="button"
-              onClick={goToNextPeriod}
+              onClick={goToNextPage}
               disabled={
-                activePeriodIndex >=
-                previewPeriods.length - 1
+                activePreviewPageIndex >=
+                previewPages.length - 1
               }
               className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
             >
-              Next period
+              Next page
             </button>
           </div>
         </div>
 
-        {activePeriod ? (
+        {activePreviewPage ? (
           <div className="overflow-auto bg-[#e7ebf0] px-6 py-8">
-            <ContentDocumentRenderer
-              document={selectedPeriodDocument}
-              moduleTitle={title}
+            <div data-v2-preview-read-aloud-bar data-v2-preview-page-id={activePreviewPage.id} className="mx-auto mb-4 max-w-[96rem]">
+              <V2ReadAloudPlayer manifest={previewNarration} audioUrls={resourceUrls} />
+            </div>
+            <V2ContentDocumentRenderer
+              document={selectedPageDocument}
               mode={
                 mode === "WHITEBOARD"
                   ? "ADMIN_PREVIEW"
@@ -3651,12 +3741,13 @@ function BlockInsertMenu({
               knowledgeDefinitions={
                 knowledgeDefinitions
               }
-              className="min-w-0 max-w-full"
+              resourceUrls={resourceUrls}
+              className={`min-w-0 max-w-full ${mode === "WHITEBOARD" ? "mx-auto max-w-[96rem]" : ""}`}
             />
           </div>
         ) : (
           <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-12 text-center text-sm font-semibold text-slate-500">
-            No period is available for preview.
+            No V2 page is available for preview.
           </div>
         )}
       </div>
@@ -3852,6 +3943,7 @@ function BuilderStudioDrawer({
   kind,
   tab,
   chapterId,
+  bookId,
   activityRows,
   activityResources,
   worksheetRows,
@@ -3883,6 +3975,7 @@ function BuilderStudioDrawer({
   kind: BuilderKind | null;
   tab: "existing" | "create";
   chapterId: string | null;
+  bookId: string;
   activityRows: ActivityStudioRecord[];
   activityResources: ActivityResourceOption[];
   worksheetRows: WorksheetStudioRecord[];
@@ -3987,6 +4080,7 @@ function BuilderStudioDrawer({
         <div data-builder-dirty="true">
           <WorksheetStudio
             chapterId={chapterId}
+            bookId={bookId}
             worksheets={worksheetRows}
             lookups={worksheetLookups}
             saveAction={saveWorksheetAction}
@@ -4463,7 +4557,62 @@ function countDocumentWords(input: {
 type ManuscriptBlock = TextBlock | ListBlock;
 
 function isManuscriptBlock(block: ContentBlock): block is ManuscriptBlock {
-  return isTextBlock(block) || isListBlock(block);
+  return (isTextBlock(block) || isListBlock(block)) && !block.layout;
+}
+
+type FloatingBoxContentType = "TEXT" | "IMAGE" | "VIDEO" | "TABLE";
+
+function createFloatingBoxContent(type: FloatingBoxContentType): ContentBlock {
+  const layout = {
+    x: 0,
+    y: 0,
+    width: 640,
+    height: type === "IMAGE" ? 360 : type === "VIDEO" ? 360 : type === "TABLE" ? 240 : 180,
+    zIndex: 0,
+    digital: { width: "content" as const, alignment: "left" as const, visibility: "all" as const },
+  };
+  const block = type === "TEXT"
+    ? createTextBlock("paragraph", "")
+    : type === "IMAGE"
+      ? createBlockByType("image")
+      : type === "VIDEO"
+        ? createBlockByType("media")
+        : createTableBlock("table", undefined, { rows: 2, columns: 2 });
+  return { ...block, layout };
+}
+
+function FloatingBoxHeader({
+  block,
+  canMoveUp,
+  canMoveDown,
+  onDelete,
+  onMove,
+  onAddContent,
+}: {
+  block: ContentBlock;
+  canMoveUp: boolean;
+  canMoveDown: boolean;
+  onDelete: () => void;
+  onMove: (direction: -1 | 1) => void;
+  onAddContent: (type: FloatingBoxContentType) => void;
+}) {
+  const button = "rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-600 hover:border-blue-300 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-40";
+  return (
+    <div className="mb-2 flex flex-wrap items-center gap-1.5 border-b border-slate-200 bg-slate-50 px-2 py-1.5" onPointerDown={(event) => event.stopPropagation()}>
+      <span className="mr-auto text-xs font-bold uppercase tracking-[0.12em] text-slate-500">Floating {blockLabel(block.type)}</span>
+      <button type="button" className={button} onClick={() => onMove(-1)} disabled={!canMoveUp}>Move Up</button>
+      <button type="button" className={button} onClick={() => onMove(1)} disabled={!canMoveDown}>Move Down</button>
+      <button type="button" className="rounded-md border border-rose-200 bg-white px-2 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-50" onClick={onDelete}>Delete</button>
+      <details className="relative">
+        <summary className={`${button} cursor-pointer list-none [&::-webkit-details-marker]:hidden`}>Add Content</summary>
+        <div className="absolute right-0 z-30 mt-1 flex min-w-40 flex-col gap-1 rounded-lg border border-slate-200 bg-white p-2 shadow-xl">
+          {(["TEXT", "IMAGE", "VIDEO", "TABLE"] as const).map((type) => (
+            <button key={type} type="button" className="rounded-md px-2 py-1.5 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50" onClick={() => onAddContent(type)}>{type[0]}{type.slice(1).toLowerCase()}</button>
+          ))}
+        </div>
+      </details>
+    </div>
+  );
 }
 
 function takeManuscriptRun(blocks: ContentBlock[], start: number) {

@@ -15,7 +15,7 @@ type AnalysisResponse = {
 
 type PageModes = Record<string, LayoutV2VisualMode>;
 
-export default function IdmlImportPanel({ bookId, nodeId, nodeType, currentDocument }: { bookId: string; nodeId: string; nodeType: string; currentDocument: ContentDocument }) {
+export default function IdmlImportPanel({ bookId, nodeId, nodeType, currentDocument, open = false, onClose }: { bookId: string; nodeId: string; nodeType: string; currentDocument: ContentDocument; open?: boolean; onClose?: () => void }) {
   const [file, setFile] = useState<File | null>(null);
   const [analysis, setAnalysis] = useState<AnalysisResponse | null>(null);
   const [pageModes, setPageModes] = useState<PageModes>({});
@@ -106,8 +106,11 @@ export default function IdmlImportPanel({ bookId, nodeId, nodeType, currentDocum
     }
   }
 
+  if (!open) return null;
+
   return (
-    <section className="rounded-2xl border border-indigo-200 bg-indigo-50/70 p-3 shadow-sm" data-testid="idml-import-panel">
+    <div className="fixed inset-0 z-[100] flex items-start justify-center overflow-y-auto bg-slate-950/40 p-4 pt-[8vh]" role="dialog" aria-modal="true" aria-label="Import InDesign package" data-v2-import-overlay>
+    <section className="w-full max-w-6xl rounded-2xl border border-indigo-200 bg-indigo-50 p-4 shadow-2xl" data-testid="idml-import-panel">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.14em] text-indigo-700">Import</p>
@@ -118,12 +121,14 @@ export default function IdmlImportPanel({ bookId, nodeId, nodeType, currentDocum
           <input type="file" accept=".zip,application/zip" className="sr-only" onChange={(event) => { setFile(event.target.files?.[0] ?? null); setAnalysis(null); setPageModes({}); setError(""); setMessage(""); }} />
         </label>
         <button type="button" disabled={!file || busy} onClick={() => void analyze()} className="rounded-lg bg-indigo-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">{busy && !analysis ? "Analyzing…" : "Analyze"}</button>
+        {onClose ? <button type="button" onClick={onClose} className="rounded-lg border border-indigo-200 bg-white px-3 py-2 text-xs font-bold text-slate-700">Close</button> : null}
       </div>
       <p className="mt-2 text-xs text-slate-600">Upload → analyze → review fidelity → preview → explicit confirmation. Existing content is unchanged until confirmation.</p>
       {error ? <p className="mt-2 rounded-lg bg-rose-100 px-3 py-2 text-xs font-semibold text-rose-800">{error}</p> : null}
       {message ? <p className="mt-2 text-xs font-semibold text-emerald-700">{message}</p> : null}
       {analysis ? <AnalysisView analysis={analysis.analysis} pageIndex={pageIndex} pageCount={pageCount} pageModes={pageModes} previewDocument={previewDocument} existingV2={existingV2} mode={mode} semanticOverlay={semanticOverlay} busy={busy} onPageChange={setPageIndex} onPageModeChange={(pageId, value) => setPageModes((current) => ({ ...current, [pageId]: value }))} onModeChange={setMode} onSemanticOverlayChange={setSemanticOverlay} onConfirm={() => void confirmImport()} /> : null}
     </section>
+    </div>
   );
 }
 

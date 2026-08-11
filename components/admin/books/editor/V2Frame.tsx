@@ -26,6 +26,7 @@ type Props = {
   renderChildren: (frame: LayoutV2Frame) => ReactNode;
   onSelect: (frameId: string) => void;
   onCommitGeometry: (frameId: string, geometry: LayoutV2FrameGeometry, parentId?: string) => void;
+  onDelete?: (frameId: string, parentId?: string) => void;
   onDraftGeometryChange?: (frameId: string, geometry: LayoutV2FrameGeometry | null, parentId?: string) => void;
   parentId?: string;
 };
@@ -39,6 +40,7 @@ export default function V2Frame({
   renderChildren,
   onSelect,
   onCommitGeometry,
+  onDelete,
   onDraftGeometryChange,
   parentId,
 }: Props) {
@@ -77,7 +79,7 @@ export default function V2Frame({
       : (() => {
           let width = interaction.geometry.width + dx;
           let height = interaction.geometry.height + dy;
-          if (frame.aspectLocked || event.shiftKey) {
+          if ((frame.type === "IMAGE" && frame.aspectLocked !== false) || frame.aspectLocked || event.shiftKey) {
             const ratio = interaction.geometry.width / Math.max(1, interaction.geometry.height);
             if (Math.abs(dx) >= Math.abs(dy)) height = width / ratio;
             else width = height * ratio;
@@ -100,8 +102,14 @@ export default function V2Frame({
   };
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (event.target instanceof HTMLElement && (event.target.isContentEditable || event.target.tagName === "INPUT" || event.target.tagName === "TEXTAREA")) return;
+    if (event.target instanceof HTMLElement && (event.target.isContentEditable || event.target.closest('input, textarea, select, [contenteditable="true"]'))) return;
     if (frame.locked || !selected) return;
+    if ((event.key === "Delete" || event.key === "Backspace") && onDelete) {
+      event.preventDefault();
+      event.stopPropagation();
+      onDelete(frame.id, parentId);
+      return;
+    }
     const step = event.shiftKey ? 10 : 1;
     const delta = event.key === "ArrowLeft"
       ? { x: -step, y: 0 }

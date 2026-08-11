@@ -514,9 +514,13 @@ async function validateReleaseTarget(
     if (targetType === "WORKSHEET") {
       const worksheet = await prisma.publisherWorksheet.findFirst({
         where: { id: targetId, publisherId, bookId, archivedAt: null },
-        select: { exerciseId: true, printableResourceId: true, allowOnlineAttempt: true, allowPrint: true, answerKeyResourceId: true },
+        select: { title: true, exerciseId: true, printableResourceId: true, allowOnlineAttempt: true, allowPrint: true, answerKeyResourceId: true, items: { select: { question: { select: { bookId: true, approved: true, archived: true } } } }, _count: { select: { items: true } } },
       });
-      if (!worksheet?.exerciseId && !worksheet?.printableResourceId) errors.push(message("ERROR", "WORKSHEET_BACKING_REQUIRED", "Worksheet needs an exercise or printable resource."));
+      if (!worksheet?.title.trim()) errors.push(message("ERROR", "WORKSHEET_TITLE_REQUIRED", "Worksheet title is required."));
+      if (!worksheet?.exerciseId && !worksheet?.printableResourceId && !worksheet?._count.items) errors.push(message("ERROR", "WORKSHEET_BACKING_REQUIRED", "Worksheet needs at least one selected question, exercise, or printable resource."));
+      if (worksheet?.items.some((item) => item.question.bookId !== bookId || !item.question.approved || item.question.archived)) {
+        errors.push(message("ERROR", "WORKSHEET_QUESTION_INVALID", "Worksheet questions must be approved, active questions from this book."));
+      }
       if (worksheet?.answerKeyResourceId) info.push(message("INFO", "ANSWER_KEY_PROTECTED", "Answer key is excluded from student renderer."));
     }
     if (targetType === "ACTIVITY") {
@@ -577,7 +581,7 @@ async function loadNonHierarchyRecord(publisherId: string, bookId: string, targe
     return row;
   }
   if (targetType === "WORKSHEET") {
-    const row = await prisma.publisherWorksheet.findFirst({ where: { id: targetId, publisherId, bookId, archivedAt: null } });
+    const row = await prisma.publisherWorksheet.findFirst({ where: { id: targetId, publisherId, bookId, archivedAt: null }, include: { items: { orderBy: [{ position: "asc" }, { id: "asc" }], include: { question: true } } } });
     if (!row) throw new Error("Worksheet not found.");
     return row;
   }

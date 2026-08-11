@@ -90,6 +90,16 @@ export default async function StudentDashboardPage() {
               detail="Check your monthly attendance, today status, and history."
               href="/student-dashboard/attendance"
             />
+            {data.subjects[0] ? (
+              <InfoCard
+                icon={BookOpen}
+                tone="blue"
+                title="My Class content"
+                value={data.subjects[0].subjectName}
+                detail="Open chapters, assigned work, read-aloud, notes, and V2 learning pages."
+                href={`/student-dashboard/subjects/${data.subjects[0].sectionSubjectId}?tab=chapters`}
+              />
+            ) : null}
           </div>
 
           <section className="rounded-3xl border border-slate-100 bg-white p-6 shadow-sm">

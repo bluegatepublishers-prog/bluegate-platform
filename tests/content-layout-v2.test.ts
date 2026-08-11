@@ -241,7 +241,8 @@ test("V2 workspace uses logical page scaling, absolute frames, clipping, and ded
   const canvas = readFileSync(new URL("../components/admin/books/editor/V2PageCanvas.tsx", import.meta.url), "utf8");
   const frame = readFileSync(new URL("../components/admin/books/editor/V2Frame.tsx", import.meta.url), "utf8");
   const editor = readFileSync(new URL("../components/admin/books/ContentManuscriptEditor.tsx", import.meta.url), "utf8");
-  assert.match(workspace, /Page Layout V2/);
+  assert.match(workspace, /data-v2-unified-workspace/);
+  assert.doesNotMatch(workspace, /Content Studio · Page Layout V2/);
   assert.match(workspace, /addV2Page/);
   assert.match(workspace, /reorderV2Page/);
   assert.match(canvas, /transform: `scale\(\$\{scale\}\)`/);
@@ -351,4 +352,4 @@ test("V2 image UI keeps crop interaction separate from frame geometry", () => {
   assert.match(canvas, /object-cover/);
   assert.match(frame, /aspectLocked \|\| event\.shiftKey/);
   assert.match(frame, /overflow-hidden/);
-});
+});

@@ -26,6 +26,8 @@ import {
 import { toResourceJson } from "@/lib/resource-json";
 import { resolveResourceLinks, trimToNull } from "@/lib/resource-relations";
 import { isSafeExternalResourceUrl } from "@/lib/admin-resource-library";
+import { findPublisherVideoContentReferences } from "@/lib/content-video-references";
+import { findPublisherImageContentReferences } from "@/lib/content-image-references";
 
 function hasOwn(payload: Record<string, unknown>, key: string) {
   return Object.prototype.hasOwnProperty.call(payload, key);
@@ -420,6 +422,51 @@ export async function DELETE(
   }
 
   const { id } = await params;
+  const libraryAction = new URL(request.url).searchParams.get("library");
+  const archiveFromVideoLibrary = libraryAction === "video";
+  const archiveFromImageLibrary = libraryAction === "image";
+  if (archiveFromImageLibrary) {
+    const image = await prisma.resource.findFirst({
+      where: { id, publisherId: actor.publisherId },
+      select: {
+        type: true,
+        _count: { select: { bookResourceLinks: { where: { active: true } } } },
+      },
+    });
+    if (!image) return publisherAdminNotFound();
+    if (image.type !== ResourceType.IMAGE) {
+      return NextResponse.json({ message: "This action is available only for Image resources." }, { status: 400 });
+    }
+    const contentReferences = await findPublisherImageContentReferences(actor.publisherId, id);
+    const references = image._count.bookResourceLinks + contentReferences.length;
+    if (references) {
+      return NextResponse.json({
+        message: "Image is currently used in " + references + " place" + (references === 1 ? "" : "s") + ".",
+        references: contentReferences,
+      }, { status: 409 });
+    }
+  }
+  if (archiveFromVideoLibrary) {
+    const video = await prisma.resource.findFirst({
+      where: { id, publisherId: actor.publisherId },
+      select: {
+        type: true,
+        _count: { select: { bookResourceLinks: { where: { active: true } } } },
+      },
+    });
+    if (!video) return publisherAdminNotFound();
+    if (video.type !== ResourceType.VIDEO) {
+      return NextResponse.json({ message: "This action is available only for Video resources." }, { status: 400 });
+    }
+    const contentReferences = await findPublisherVideoContentReferences(actor.publisherId, id);
+    const references = video._count.bookResourceLinks + contentReferences.length;
+    if (references) {
+      return NextResponse.json({
+        message: "Video cannot be deleted because it is currently used in " + references + " place" + (references === 1 ? "" : "s") + ".",
+        references: contentReferences,
+      }, { status: 409 });
+    }
+  }
   if (new URL(request.url).searchParams.get("permanent") === "true") {
     const owned = await prisma.resource.findFirst({
       where: { id, publisherId: actor.publisherId },
@@ -486,5 +533,5 @@ export async function DELETE(
     return publisherAdminNotFound();
   }
 
-  return NextResponse.json({ success: true, message: "Resource archived." });
+  return NextResponse.json({ success: true, message: archiveFromVideoLibrary ? "Unused Video archived from the library." : archiveFromImageLibrary ? "Unused Image archived from the library." : "Resource archived." });
 }

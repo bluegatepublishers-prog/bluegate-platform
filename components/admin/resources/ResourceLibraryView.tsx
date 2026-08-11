@@ -250,6 +250,7 @@ export default function ResourceLibraryView({
                         published={resource.published}
                         archived={resource.archived}
                         returnTo={returnTo}
+                        type={resource.type}
                       />
                     </td>
                   </tr>
@@ -343,6 +344,7 @@ function ResourceCard({
           published={resource.published}
           archived={resource.archived}
           returnTo={returnTo}
+          type={resource.type}
         />
       </div>
       <div className="mt-4 flex flex-wrap items-center gap-2">
