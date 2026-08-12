@@ -28,6 +28,7 @@ export default function V2TextVisual({
   const text = getText(frame, block);
   const spans = useMemo(() => frame.textSpans ?? getBlockSpans(block) ?? [{ text }], [block, frame.textSpans, text]);
   const layout = layoutV2TextFrame(frame, text, frames);
+  const hyperlinks = getHyperlinks(frame);
   const direction = frame.direction === "RTL" ? "rtl" : frame.direction === "AUTO" ? "auto" : "ltr";
   const style: CSSProperties = {
     direction: direction === "auto" ? undefined : direction,
@@ -41,7 +42,7 @@ export default function V2TextVisual({
     lineHeight: frame.lineHeight ?? getBlockNumber(block, "lineSpacing") ?? 1.4,
     letterSpacing: frame.letterSpacing ? `${frame.letterSpacing}px` : undefined,
     color: frame.textColor ?? getBlockValue(block, "textColor") ?? "#0f172a",
-    padding: "12px",
+    padding: frame.textInset ? `${frame.textInset.top}px ${frame.textInset.right}px ${frame.textInset.bottom}px ${frame.textInset.left}px` : "12px",
     overflow: "hidden",
     whiteSpace: "pre-wrap",
     overflowWrap: "anywhere",
@@ -92,7 +93,7 @@ export default function V2TextVisual({
     >
       {!editable ? layout.lines.map((line, index) => (
         <span key={`${line.start}-${index}`} className="block" style={{ marginLeft: `${Math.max(0, line.x - frame.x - 12)}px`, width: `${line.width}px`, minHeight: `${line.height}px` }}>
-          {renderLine(line.start, line.end, text, spans)}
+          {renderLine(line.start, line.end, text, spans, hyperlinks)}
           {index < layout.lines.length - 1 ? <br /> : null}
         </span>
       )) : null}
@@ -166,7 +167,7 @@ function getBlockNumber(block: ContentBlock | undefined, key: string) {
   return typeof value[key] === "number" ? value[key] : undefined;
 }
 
-function renderLine(start: number, end: number, text: string, spans: V2TextLayoutSpan[]) {
+function renderLine(start: number, end: number, text: string, spans: V2TextLayoutSpan[], hyperlinks: V2HyperlinkMetadata[]) {
   const result: Array<V2TextLayoutSpan & { text: string }> = [];
   let cursor = 0;
   for (const span of spans) {
@@ -179,22 +180,48 @@ function renderLine(start: number, end: number, text: string, spans: V2TextLayou
     if (cursor >= end) break;
   }
   if (!result.length) return text.slice(start, end);
-  return result.map((span, index) => <span key={`${index}-${span.text}`} style={spanStyle(span)}>{span.text}</span>);
+  const hyperlink = hyperlinks[0];
+  const safeUrl = hyperlink ? safeHttpUrl(hyperlink.url) : null;
+  return result.map((span, index) => {
+    const styled = <span key={index} style={spanStyle(span)}>{span.text}</span>;
+    if (hyperlink?.active && safeUrl) return <a key={index} href={safeUrl} target="_blank" rel="noopener noreferrer">{styled}</a>;
+    if (hyperlink) return <span key={index} title="Hyperlink requires review">{styled}</span>;
+    return styled;
+  });
 }
 
+type V2HyperlinkMetadata = { url: string; active: boolean; sourcePath?: string };
+
+function getHyperlinks(frame: LayoutV2Frame): V2HyperlinkMetadata[] {
+  if (!frame.payload || typeof frame.payload !== "object" || !("hyperlinks" in frame.payload) || !Array.isArray(frame.payload.hyperlinks)) return [];
+  return frame.payload.hyperlinks.filter((value): value is V2HyperlinkMetadata => Boolean(value) && typeof value === "object" && typeof value.url === "string" && typeof value.active === "boolean");
+}
+
+function safeHttpUrl(value: string) {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:" ? url.toString() : null;
+  } catch {
+    return null;
+  }
+}
 function spanStyle(span: V2TextLayoutSpan): CSSProperties {
   const marks = span.marks ?? [];
   return {
-    fontWeight: marks.includes("bold") ? 700 : undefined,
-    fontStyle: marks.includes("italic") ? "italic" : undefined,
+    fontWeight: span.fontWeight ?? (marks.includes("bold") ? 700 : undefined),
+    fontStyle: span.fontStyle ?? (marks.includes("italic") ? "italic" : undefined),
     textDecoration: marks.includes("underline") ? "underline" : undefined,
-    verticalAlign: marks.includes("superscript") ? "super" : marks.includes("subscript") ? "sub" : undefined,
+    verticalAlign: span.baselineShift ? `${span.baselineShift}px` : marks.includes("superscript") ? "super" : marks.includes("subscript") ? "sub" : undefined,
     color: span.color,
     backgroundColor: span.highlight,
     fontSize: span.fontSize ? `${span.fontSize}px` : undefined,
+    fontFamily: span.fontFamily,
+    letterSpacing: span.letterSpacing ? `${span.letterSpacing}px` : undefined,
+    textTransform: span.textTransform,
+    transform: span.horizontalScale || span.verticalScale ? `scale(${(span.horizontalScale ?? 100) / 100}, ${(span.verticalScale ?? 100) / 100})` : undefined,
+    transformOrigin: "left baseline",
   };
 }
-
 function readEditableText(root: HTMLElement) {
   return (root.innerText || root.textContent || "").replace(/\u00a0/g, " ").replace(/\n+$/, "");
 }

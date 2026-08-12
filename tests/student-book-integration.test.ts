@@ -22,10 +22,12 @@ test("reader access reuses central full-book entitlement with explicit academic 
 });
 
 test("reader receives only the protected route and exposes no download control", async () => {
-  const source = await read("components/student/StudentPdfReader.tsx");
-  assert.match(source, /url: `\/api\/books\/\$\{bookId\}\/full-pdf`/);
+  const [source, viewer] = await Promise.all([read("components/student/StudentPdfReader.tsx"), read("components/books/SmartBookViewer.tsx")]);
+  assert.match(source, /SmartBookViewer/);
+  assert.match(source, /pdfUrl=\{`\/api\/books\/\$\{bookId\}\/full-pdf`\}/);
   assert.doesNotMatch(source, /fullBookPdf|download=/);
   assert.doesNotMatch(source, /Download/);
+  assert.doesNotMatch(viewer, /Download/);
 });
 
 test("progress schema is additive, year-scoped, unique, and migration is non-destructive", async () => {

@@ -11,6 +11,7 @@ import {
 } from "@/lib/publisher-admin-authorization";
 import { validatePublisherAdminBookRelations } from "@/lib/publisher-admin-data";
 import { isPublisherStorageValue } from "@/lib/storage/upload-policy";
+import { inspectPublisherBookPdf } from "@/lib/book-pdf";
 import { publisherAdminAuditActor, recordTrustedDeniedAudit, recordTrustedFailureAudit, writeSecurityAuditEvent } from "@/lib/security-audit";
 
 function generateSlug(title: string) {
@@ -32,7 +33,8 @@ export async function GET(
     });
     if (!book) return publisherAdminNotFound();
     return NextResponse.json({ ...book, ...parseBookFormData(book) });
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && /PDF|uploaded book/i.test(error.message)) return NextResponse.json({ message: error.message }, { status: 400 });
     console.warn("Publisher Admin book read failed.", { code: "BOOK_READ_FAILED" });
     return NextResponse.json({ message: "Unable to fetch book." }, { status: 500 });
   }
@@ -93,6 +95,8 @@ export async function PUT(
       return publisherAdminNotFound();
     }
     if ((form.coverImage !== currentFiles.coverImage && !isPublisherStorageValue(form.coverImage, access.actor.publisherId, ["book-cover"])) || (form.samplePdf !== currentFiles.samplePdf && !isPublisherStorageValue(form.samplePdf, access.actor.publisherId, ["book-sample"])) || (form.publicPreviewPdf !== currentFiles.publicPreviewPdf && !isPublisherStorageValue(form.publicPreviewPdf, access.actor.publisherId, ["book-public-preview"])) || (form.fullBookPdf !== currentFiles.fullBookPdf && !isPublisherStorageValue(form.fullBookPdf, access.actor.publisherId, ["book-full"]))) return NextResponse.json({ message: "Upload files through this publisher workspace." }, { status: 400 });
+    const fullBookChanged = form.fullBookPdf !== currentFiles.fullBookPdf;
+    const fullBookInspection = fullBookChanged && form.fullBookPdf ? await inspectPublisherBookPdf(form.fullBookPdf, access.actor.publisherId) : null;
     if (!await validatePublisherAdminBookRelations({
       publisherId: access.actor.publisherId,
       classId: form.classId,
@@ -134,6 +138,7 @@ export async function PUT(
         where: { id },
         data: {
           ...toBookPersistenceData(form),
+          ...(fullBookChanged ? { pages: fullBookInspection?.pageCount ?? null } : {}),
           publisherId: access.actor.publisherId,
           subtitle: inspectorChanges ? form.subtitle || null : previous.subtitle,
           description: inspectorChanges ? form.description || null : previous.description,
@@ -184,7 +189,8 @@ export async function PUT(
     revalidatePath(`/books/${result.previous.slug}`);
     revalidatePath(`/books/${result.updated.slug}`);
     return NextResponse.json({ ...result.updated, ...parseBookFormData(result.updated) });
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && /PDF|uploaded book/i.test(error.message)) return NextResponse.json({ message: error.message }, { status: 400 });
     await recordTrustedFailureAudit({ actor: publisherAdminAuditActor(access.actor), action: "publisher.book.update", targetType: "Book" });
     console.warn("Publisher Admin book update failed.", { code: "BOOK_UPDATE_FAILED" });
     return NextResponse.json({ message: "Unable to update book." }, { status: 500 });
@@ -230,7 +236,8 @@ export async function DELETE(
     revalidatePath("/books");
     revalidatePath(`/books/${book.slug}`);
     return NextResponse.json({ success: true, message: "Book archived." });
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && /PDF|uploaded book/i.test(error.message)) return NextResponse.json({ message: error.message }, { status: 400 });
     await recordTrustedFailureAudit({ actor: publisherAdminAuditActor(access.actor), action: "publisher.book.delete", targetType: "Book" });
     console.warn("Publisher Admin book deletion failed.", { code: "BOOK_DELETE_FAILED" });
     return NextResponse.json({ message: "Unable to delete book." }, { status: 500 });

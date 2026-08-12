@@ -5,7 +5,10 @@ export type ContentNodeType =
   | "CHAPTER"
   | "MODULE"
   | "TOPIC"
-  | "FOLDER";
+  | "FOLDER"
+  | "COVER"
+  | "FRONT_MATTER"
+  | "FRONT_MATTER_ITEM";
 
 export type VirtualFolderKind =
   | "outcomes"
@@ -30,6 +33,9 @@ export type ContentTreeNode = {
   chapterId?: string;
   moduleId?: string;
   topicId?: string;
+  frontMatterType?: string;
+  startPage?: number | null;
+  endPage?: number | null;
   count?: number;
   children: ContentTreeNode[];
 };
@@ -37,8 +43,11 @@ export type ContentTreeNode = {
 type Item = {
   id: string;
   title: string;
-  archived: boolean;
+  archived?: boolean;
+  startPage?: number | null;
+  endPage?: number | null;
 };
+
 
 type Chapter = Item & {
   partId: string | null;
@@ -72,6 +81,13 @@ export type ContentTreeInput = {
   chapters: Chapter[];
   modules: Module[];
   topics: Topic[];
+  coverImage?: string | null;
+  frontMatterItems?: Array<Item & {
+    type: string;
+    displayOrder: number;
+    startPage: number | null;
+    endPage: number | null;
+  }>;
 };
 
 const chapterFolders: Array<[VirtualFolderKind, string]> = [
@@ -156,6 +172,8 @@ export function buildContentStudioTree(
     type: "MODULE",
     title: module.title,
     archived: module.archived,
+    startPage: module.startPage,
+    endPage: module.endPage,
     children: moduleFolders.map(
       ([folderKind, title]) =>
         makeFolderNode({
@@ -179,6 +197,8 @@ export function buildContentStudioTree(
     type: "CHAPTER",
     title: chapter.title,
     archived: chapter.archived,
+    startPage: chapter.startPage,
+    endPage: chapter.endPage,
     children: [
       ...byOrder(
         input.modules.filter(
@@ -209,6 +229,8 @@ export function buildContentStudioTree(
     type: "UNIT",
     title: unit.title,
     archived: unit.archived,
+    startPage: unit.startPage,
+    endPage: unit.endPage,
     children: byOrder(
       input.chapters.filter(
         (chapter) =>
@@ -225,6 +247,8 @@ export function buildContentStudioTree(
     type: "PART",
     title: part.title,
     archived: part.archived,
+    startPage: part.startPage,
+    endPage: part.endPage,
     children: [
       ...byOrder(
         input.units.filter(
@@ -250,6 +274,29 @@ export function buildContentStudioTree(
     type: "BOOK",
     title: input.book.title,
     children: [
+      ...(input.coverImage ? [{
+        key: "COVER:" + input.book.id,
+        id: input.book.id,
+        type: "COVER" as const,
+        title: "Cover",
+        children: [],
+      }] : []),
+      {
+        key: "FRONT_MATTER:" + input.book.id,
+        id: input.book.id,
+        type: "FRONT_MATTER" as const,
+        title: "Front Matter",
+        children: (input.frontMatterItems ?? []).slice().sort((a, b) => a.displayOrder - b.displayOrder || a.id.localeCompare(b.id)).map((item) => ({
+          key: "FRONT_MATTER_ITEM:" + item.id,
+          id: item.id,
+          type: "FRONT_MATTER_ITEM" as const,
+          title: item.title,
+          frontMatterType: item.type,
+          startPage: item.startPage,
+          endPage: item.endPage,
+          children: [],
+        })),
+      },
       ...byOrder(input.parts).map(partNode),
 
       // Legacy root Units/Chapters remain visible so existing data is not lost.

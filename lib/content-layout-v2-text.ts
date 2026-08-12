@@ -12,8 +12,15 @@ export type V2TextLayoutSpan = {
   color?: string;
   highlight?: string;
   fontSize?: number;
+  fontFamily?: string;
+  fontWeight?: number;
+  fontStyle?: "normal" | "italic";
+  letterSpacing?: number;
+  baselineShift?: number;
+  horizontalScale?: number;
+  verticalScale?: number;
+  textTransform?: "uppercase" | "lowercase" | "capitalize";
 };
-
 export type V2TextLayoutLine = {
   text: string;
   start: number;
@@ -40,6 +47,7 @@ const DEFAULT_FONT_SIZE = 16;
 const DEFAULT_LINE_HEIGHT = 1.4;
 const DEFAULT_WRAP_PADDING = 8;
 const MIN_TEXT_FRAME_HEIGHT = 48;
+const MAX_TEXT_LAYOUT_LINES = 512;
 const WRAP_TYPES: LayoutV2FrameType[] = ["IMAGE", "SHAPE", "EDUCATIONAL", "TABLE", "VIDEO"];
 
 const finite = (value: unknown, fallback: number) =>
@@ -109,27 +117,20 @@ export function layoutV2TextFrame(
   const lines: V2TextLayoutLine[] = [];
   const paragraphs = text.replace(/\r\n/g, "\n").split("\n");
   let sourceOffset = 0;
+  let truncated = false;
 
   for (const paragraph of paragraphs) {
+    if (lines.length >= MAX_TEXT_LAYOUT_LINES) { truncated = true; break; }
     let remaining = paragraph;
     let lineOffset = sourceOffset;
     do {
-      const y = TEXT_PADDING + lines.length * lineHeight;
+      if (lines.length >= MAX_TEXT_LAYOUT_LINES) { truncated = true; break; }      const y = TEXT_PADDING + lines.length * lineHeight;
       const box = availableLineBox(textFrame, textFrame.y + y, lineHeight, exclusions);
       if (!remaining) {
         lines.push({ text: "", start: lineOffset, end: lineOffset, x: box.x, width: box.width, y, height: lineHeight });
         break;
       }
-      let candidate = remaining;
-      while (candidate && textWidth(candidate, fontSize, letterSpacing) > box.width) {
-        const words = candidate.split(/\s+/);
-        if (words.length > 1) {
-          words.pop();
-          candidate = words.join(" ");
-        } else {
-          candidate = Array.from(candidate).slice(0, Math.max(1, Math.floor(box.width / Math.max(1, fontSize * 0.52 + letterSpacing)))).join("");
-        }
-      }
+      const candidate = fitTextToWidth(remaining, box.width, fontSize, letterSpacing);
       const consumed = candidate.length || Math.min(remaining.length, 1);
       const lineText = remaining.slice(0, consumed).replace(/\s+$/, "");
       const actualConsumed = Math.max(consumed, lineText.length);
@@ -148,11 +149,21 @@ export function layoutV2TextFrame(
     contentHeight,
     availableHeight,
     desiredHeight,
-    overset: contentHeight > availableHeight + 0.01,
+    overset: truncated || contentHeight > availableHeight + 0.01,
     exclusions,
   };
 }
 
+function fitTextToWidth(remaining: string, width: number, fontSize: number, letterSpacing: number) {
+  const averageCharacterWidth = Math.max(1, fontSize * 0.52 + letterSpacing);
+  const sampleLength = Math.max(1, Math.ceil(width / averageCharacterWidth) * 2 + 1);
+  let candidate = remaining.slice(0, sampleLength);
+  while (candidate.length > 1 && textWidth(candidate, fontSize, letterSpacing) > width) {
+    const lastSpace = candidate.lastIndexOf(" ");
+    candidate = lastSpace > 0 ? candidate.slice(0, lastSpace) : Array.from(candidate).slice(0, -1).join("");
+  }
+  return candidate || remaining.slice(0, 1);
+}
 export function getV2TextFramePatch(
   textFrame: LayoutV2Frame,
   text: string,

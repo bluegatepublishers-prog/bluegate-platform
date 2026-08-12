@@ -76,8 +76,8 @@ test("unsafe PDF actions and SVG page replicas are rejected with actionable diag
 });
 
 function referencePackage() {
-  return zip({
-    "document.idml": '<DesignMap><Spread src="Spreads/Spread.xml"/></DesignMap>',
+  return packagedIdml({
+    "designmap.xml": '<DesignMap><Spread src="Spreads/Spread.xml"/></DesignMap>',
     "Spreads/Spread.xml": '<Spread><Page Self="p1" GeometricBounds="0 0 400 600"><TextFrame Self="t1" GeometricBounds="20 40 80 340"/></Page><Page Self="p2" GeometricBounds="400 0 800 600"><Polygon Self="vector" GeometricBounds="420 40 760 560"/></Page></Spread>',
     "Pages/page-001.png": png(600, 400),
     "Pages/page-002.png": png(600, 400),
@@ -85,38 +85,40 @@ function referencePackage() {
 }
 
 function mismatchPackage() {
-  return zip({
-    "document.idml": '<DesignMap><Spread src="Spreads/Spread.xml"/></DesignMap>',
+  return packagedIdml({
+    "designmap.xml": '<DesignMap><Spread src="Spreads/Spread.xml"/></DesignMap>',
     "Spreads/Spread.xml": '<Spread><Page Self="p1" GeometricBounds="0 0 400 600"/><Page Self="p2" GeometricBounds="400 0 800 600"><Polygon Self="vector" GeometricBounds="420 40 760 560"/></Page></Spread>',
     "Pages/page-001.png": png(600, 400),
   });
 }
 
 function pdfMismatchPackage() {
-  return zip({
-    "document.idml": '<DesignMap><Spread src="Spreads/Spread.xml"/></DesignMap>',
+  return packagedIdml({
+    "designmap.xml": '<DesignMap><Spread src="Spreads/Spread.xml"/></DesignMap>',
     "Spreads/Spread.xml": '<Spread><Page Self="p1" GeometricBounds="0 0 400 600"/><Page Self="p2" GeometricBounds="400 0 800 600"/></Spread>',
     "reference.pdf": pdfBytes(""),
   });
 }
 
 function pdfPackage(body: string) {
-  return zip({
-    "document.idml": '<DesignMap><Spread src="Spreads/Spread.xml"/></DesignMap>',
+  return packagedIdml({
+    "designmap.xml": '<DesignMap><Spread src="Spreads/Spread.xml"/></DesignMap>',
     "Spreads/Spread.xml": '<Spread><Page Self="p1" GeometricBounds="0 0 400 600"><Polygon Self="vector" GeometricBounds="20 20 380 580"/></Page></Spread>',
     "reference.pdf": pdfBytes(body),
   });
 }
 
 function svgPackage() {
-  return zip({
-    "document.idml": '<DesignMap><Spread src="Spreads/Spread.xml"/></DesignMap>',
+  return packagedIdml({
+    "designmap.xml": '<DesignMap><Spread src="Spreads/Spread.xml"/></DesignMap>',
     "Spreads/Spread.xml": '<Spread><Page Self="p1" GeometricBounds="0 0 400 600"><Polygon Self="vector" GeometricBounds="20 20 380 580"/></Page></Spread>',
     "Pages/page-001.svg": '<svg><script>alert(1)</script></svg>',
   });
 }
 
 function pdfBytes(body: string) { return new TextEncoder().encode(`%PDF-1.7\n${body}\n/Type /Page\n/MediaBox [0 0 600 400]`); }
+
+function packagedIdml(entries: Record<string, string | Uint8Array>) { return zip({ "document.idml": zip(entries) }); }
 
 function zip(entries: Record<string, string | Uint8Array>) {
   const files = Object.entries(entries).map(([name, value]) => ({ name, data: typeof value === "string" ? new TextEncoder().encode(value) : value }));

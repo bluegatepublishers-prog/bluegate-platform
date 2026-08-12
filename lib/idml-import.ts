@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { inflateRawSync } from "node:zlib";
+import { SaxesParser } from "saxes";
 
 import {
   adoptLayoutV2,
@@ -10,12 +11,24 @@ import {
 } from "@/lib/content-layout-v2";
 import { createContentDocument, createTableBlock, type ContentBlock, type ContentDocument } from "@/lib/content-document";
 
+const MB = 1024 * 1024;
+
 export const IDML_LIMITS = {
-  maxPackageBytes: 100 * 1024 * 1024,
-  maxEntries: 10_000,
-  maxUncompressedBytes: 500 * 1024 * 1024,
-  maxEntryBytes: 50 * 1024 * 1024,
-  maxXmlBytes: 25 * 1024 * 1024,
+  maxOuterPackageCompressedBytes: 300 * MB,
+  maxOuterPackageEntries: 10_000,
+  maxOuterPackageTotalUncompressedBytes: 750 * MB,
+  maxOuterPackageEntryCompressedBytes: 300 * MB,
+  maxOuterPackageEntryUncompressedBytes: 300 * MB,
+  maxNestedIdmlCompressedBytes: 250 * MB,
+  maxNestedIdmlEntries: 10_000,
+  maxNestedIdmlTotalUncompressedBytes: 750 * MB,
+  maxNestedIdmlEntryCompressedBytes: 250 * MB,
+  maxNestedIdmlEntryUncompressedBytes: 300 * MB,
+  maxInternalXmlEntryBytes: 250 * MB,
+  maxTotalInternalXmlBytes: 500 * MB,
+  maxLinkedAssetBytes: 100 * MB,
+  maxStoryTextBytes: 50 * MB,
+  maxCompressionRatio: 100,
   maxXmlNodes: 500_000,
   maxXmlDepth: 128,
   maxPreviewAssetBytes: 512 * 1024,
@@ -80,22 +93,35 @@ export type IdmlIntermediateFrame = {
   zIndex: number;
   readingOrder: number;
   text?: string;
-  textSpans?: Array<{ text: string; marks?: Array<"bold" | "italic" | "underline" | "superscript" | "subscript">; fontSize?: number; color?: string }>;
+  textSpans?: Array<{ text: string; marks?: Array<"bold" | "italic" | "underline" | "superscript" | "subscript">; fontSize?: number; color?: string; fontFamily?: string; fontWeight?: number; fontStyle?: "normal" | "italic"; letterSpacing?: number; baselineShift?: number; horizontalScale?: number; verticalScale?: number; textTransform?: "uppercase" | "lowercase" | "capitalize"; justification?: string; leading?: number }>;
   fontFamily?: string;
   fontSize?: number;
   fontWeight?: number;
   fontStyle?: "normal" | "italic";
   lineHeight?: number;
   letterSpacing?: number;
-  alignment?: "left" | "center" | "right";
+  textColor?: string;
+  alignment?: "left" | "center" | "right" | "justify";
   direction?: "LTR" | "RTL" | "AUTO";
+  textInset?: { top: number; right: number; bottom: number; left: number };
   fill?: string;
   border?: string;
   borderWidth?: number;
+  shapeType?: "RECTANGLE" | "ELLIPSE" | "LINE";
   asset?: IdmlAsset;
   table?: string[][];
   sourceLabel?: string;
   altText?: string;
+  hyperlinks?: IdmlHyperlink[];
+  source?: "page" | "master";
+  masterId?: string;
+  sourceObjectId?: string;
+};
+
+export type IdmlHyperlink = {
+  url: string;
+  active: boolean;
+  sourcePath: string;
 };
 
 export type IdmlPage = {
@@ -169,46 +195,75 @@ type XmlNode = {
   attributes: Record<string, string>;
   children: XmlNode[];
   text: string;
+  parent?: XmlNode;
 };
 
 type PackageReader = {
   entries: Map<string, ZipEntry>;
+  archivePath: string;
   read(path: string): Uint8Array;
 };
 
+type PackageReaderOptions = {
+  archivePath: string;
+  label: string;
+  sizeCategory: IdmlSizeErrorDetails["category"];
+  maxArchiveBytes: number;
+  maxEntries: number;
+  maxTotalUncompressedBytes: number;
+  maxEntryCompressedBytes: number;
+  maxEntryUncompressedBytes: number;
+  allowNestedIdml: boolean;
+};
+
 export function analyzeIdmlPackage(input: Uint8Array, fileName = "package.zip"): IdmlAnalysis {
-  const sourceHash = stableHash(input);
   const diagnostics: IdmlDiagnostic[] = [];
-  if (fileName.toLowerCase().endsWith(".indd")) {
+  const sourceFileName = basename(fileName);
+  const isDirectIdml = sourceFileName.toLowerCase().endsWith(".idml");
+  if (sourceFileName.toLowerCase().endsWith(".indd")) {
     throw new IdmlImportError("Please export/package the document with IDML and linked assets.");
   }
-  const reader = createPackageReader(input, diagnostics);
-  const idmlPath = findEntry(reader.entries, (path) => path.toLowerCase().endsWith(".idml"));
-  if (!idmlPath) throw new IdmlImportError("The package must contain an IDML file.");
-  const xmlFiles = new Map<string, XmlNode>();
-  let firstXmlError: Error | null = null;
-  for (const entry of reader.entries.values()) {
-    if (!entry.path.toLowerCase().endsWith(".xml") && !entry.path.toLowerCase().endsWith(".idml")) continue;
-    if (entry.uncompressedSize > IDML_LIMITS.maxXmlBytes) {
-      diagnostics.push({ severity: "ERROR", objectType: "XML", message: `XML entry exceeds the ${Math.round(IDML_LIMITS.maxXmlBytes / 1024 / 1024)} MB safety limit.`, suggestedAction: "Reduce the package or export a smaller IDML document." });
-      continue;
+  let idmlPath = sourceFileName;
+  let reader: PackageReader;
+  if (isDirectIdml) {
+    reader = createNestedIdmlReader(input, diagnostics, idmlPath);
+  } else {
+    const outerReader = createOuterPackageReader(input, diagnostics, sourceFileName);
+    const idmlEntries = [...outerReader.entries.values()].filter((entry) => entry.path.toLowerCase().endsWith(".idml"));
+    if (idmlEntries.length !== 1) throw new IdmlImportError(idmlEntries.length ? "The package must contain exactly one IDML file." : "The package must contain an IDML file.");
+    const idmlEntry = idmlEntries[0];
+    idmlPath = idmlEntry.path;
+    if (idmlEntry.uncompressedSize > IDML_LIMITS.maxNestedIdmlCompressedBytes) {
+      throw createIdmlSizeError("NESTED_IDML", idmlPath, `The IDML document exceeds the ${formatIdmlLimit(IDML_LIMITS.maxNestedIdmlCompressedBytes)} import limit.`, IDML_LIMITS.maxNestedIdmlCompressedBytes, idmlEntry.uncompressedSize);
     }
-    try {
-      const text = decodeUtf8(reader.read(entry.path));
-      const parsed = parseSafeXml(text);
-      scanUnsafeLinks(parsed, entry.path, diagnostics);
-      xmlFiles.set(entry.path, parsed);
-    } catch (error) {
-      if (!firstXmlError) firstXmlError = error instanceof Error ? error : new IdmlImportError("Malformed XML.");
-      diagnostics.push({ severity: "ERROR", objectType: "XML", message: `${entry.path}: ${error instanceof Error ? error.message : "Malformed XML."}` });
-    }
+    reader = createNestedIdmlReader(outerReader.read(idmlPath), diagnostics, idmlPath);
   }
-  const designMap = xmlFiles.get(idmlPath) ?? xmlFiles.get(findEntry(reader.entries, (path) => path.toLowerCase().endsWith("designmap.xml")) ?? "");
-  if (!designMap) throw firstXmlError ?? new IdmlImportError("The IDML design map could not be read.");
+  const xmlFiles = new Map<string, XmlNode>();
+  const xmlEntries = [...reader.entries.values()]
+    .filter((entry) => /\.xml$/i.test(entry.path))
+    .sort((left, right) => left.path.localeCompare(right.path));
+  if (!xmlEntries.length) throw new IdmlImportError("The package does not contain IDML XML entries.");
+  const oversizedXmlEntry = xmlEntries.find((entry) => entry.uncompressedSize > IDML_LIMITS.maxInternalXmlEntryBytes);
+  if (oversizedXmlEntry) {
+    throw createIdmlSizeError("INTERNAL_XML", nestedEntryPath(idmlPath, oversizedXmlEntry.path), `This internal XML file exceeds the ${formatIdmlLimit(IDML_LIMITS.maxInternalXmlEntryBytes)} import limit.`, IDML_LIMITS.maxInternalXmlEntryBytes, oversizedXmlEntry.uncompressedSize);
+  }
+  const totalXmlBytes = xmlEntries.reduce((total, entry) => total + entry.uncompressedSize, 0);
+  if (totalXmlBytes > IDML_LIMITS.maxTotalInternalXmlBytes) {
+    throw createIdmlSizeError("INTERNAL_XML", idmlPath, `The IDML document's XML content exceeds the ${formatIdmlLimit(IDML_LIMITS.maxTotalInternalXmlBytes)} import limit.`, IDML_LIMITS.maxTotalInternalXmlBytes, totalXmlBytes);
+  }
+  for (const entry of xmlEntries) {
+    const entryPath = nestedEntryPath(idmlPath, entry.path);
+    const parsed = parseIdmlXmlEntry(reader.read(entry.path), entryPath);
+    scanUnsafeLinks(parsed, entry.path, diagnostics);
+    xmlFiles.set(entry.path, parsed);
+  }
+  const designMap = xmlFiles.get(findEntry(reader.entries, (path) => path.toLowerCase() === "designmap.xml") ?? "");
+  if (!designMap) throw new IdmlImportError("The IDML design map could not be read.");
 
   scanUnsupportedFeatures(xmlFiles, diagnostics);
-  const stories = parseStories(xmlFiles, diagnostics);
-  const pages = parsePages(designMap, xmlFiles, reader, stories, diagnostics);
+  const styles = parseStyleCatalog(xmlFiles);
+  const stories = parseStories(xmlFiles, diagnostics, idmlPath, styles);
+  const pages = parsePages(designMap, xmlFiles, reader, stories, diagnostics, styles);
   if (!pages.length) diagnostics.push({ severity: "ERROR", objectType: "PAGE", message: "No importable pages were found in the IDML package.", suggestedAction: "Check that the package contains valid Spreads and Page elements." });
   const referenceVisuals = collectReferenceVisuals(reader, pages, diagnostics);
   for (const page of pages) {
@@ -231,7 +286,7 @@ export function analyzeIdmlPackage(input: Uint8Array, fileName = "package.zip"):
     referenceVisuals: referenceVisuals.map((visual) => { const { data, ...withoutData } = visual; void data; return withoutData; }),
     pageRecommendations: pages.map((page) => ({ pageId: page.id, pageNumber: page.order + 1, level: page.fidelity?.level ?? "LOW", recommendation: page.fidelity?.recommendation ?? "EDITABLE", reasons: page.fidelity?.reasons ?? [], referenceAvailable: Boolean(page.referenceVisual?.supported) })),
     summary,
-    sourceHash,
+    sourceHash: stableHash(input),
   };
 }
 
@@ -267,7 +322,7 @@ export function mapIntermediateToV2(intermediate: IdmlDocument, pageModes: Recor
       if (sourceFrame.type === "TEXT") {
         return createV2Frame("TEXT", page.id, {
           ...base,
-          payload: { text: sourceFrame.text ?? "", source: "IDML", sourceLabel: sourceFrame.sourceLabel },
+          payload: { text: sourceFrame.text ?? "", source: "IDML", sourceLabel: sourceFrame.sourceLabel, ...(sourceFrame.hyperlinks?.length ? { hyperlinks: sourceFrame.hyperlinks } : {}) },
           textSpans: sourceFrame.textSpans,
           fontFamily: sourceFrame.fontFamily,
           fontSize: sourceFrame.fontSize,
@@ -277,6 +332,8 @@ export function mapIntermediateToV2(intermediate: IdmlDocument, pageModes: Recor
           letterSpacing: sourceFrame.letterSpacing,
           alignment: sourceFrame.alignment,
           direction: sourceFrame.direction,
+          textColor: sourceFrame.textColor,
+          textInset: sourceFrame.textInset,
         });
       }
       if (sourceFrame.type === "IMAGE") {
@@ -311,7 +368,7 @@ export function mapIntermediateToV2(intermediate: IdmlDocument, pageModes: Recor
           payload: { source: "IDML", sourceLabel: sourceFrame.sourceLabel },
         });
       }
-      return createV2Frame("SHAPE", page.id, { ...base, payload: { fill: sourceFrame.fill ?? "#e2e8f0", border: sourceFrame.border ?? "#94a3b8", borderWidth: sourceFrame.borderWidth ?? 1, source: "IDML", sourceLabel: sourceFrame.sourceLabel } });
+      return createV2Frame("SHAPE", page.id, { ...base, payload: { shapeType: sourceFrame.shapeType ?? "RECTANGLE", fill: sourceFrame.fill ?? "transparent", border: sourceFrame.border ?? "transparent", borderWidth: sourceFrame.borderWidth ?? 1, source: "IDML", sourceLabel: sourceFrame.sourceLabel } });
     });
     const reference = page.referenceVisual;
     return {
@@ -340,32 +397,106 @@ export function mapIntermediateToV2(intermediate: IdmlDocument, pageModes: Recor
   return adoptLayoutV2(createContentDocument(blocks), pageSize ? { pageSize, pages } : undefined);
 }
 
+export type IdmlXmlErrorDetails = {
+  entryPath: string;
+  fileName: string;
+  problem: string;
+  parserMessage?: string;
+  line?: number;
+  column?: number;
+  context?: string;
+};
+
+export type IdmlSizeErrorDetails = {
+  category: "OUTER_PACKAGE" | "NESTED_IDML" | "INTERNAL_XML" | "LINKED_ASSET" | "STORY_TEXT";
+  entryPath: string;
+  fileName: string;
+  problem: string;
+  allowedBytes: number;
+  detectedBytes?: number;
+};
+
 export class IdmlImportError extends Error {
-  constructor(message: string) {
+  constructor(message: string, readonly xmlError?: IdmlXmlErrorDetails, readonly sizeError?: IdmlSizeErrorDetails) {
     super(message);
     this.name = "IdmlImportError";
   }
 }
 
-function createPackageReader(input: Uint8Array, diagnostics: IdmlDiagnostic[]): PackageReader {
-  if (input.byteLength === 0 || input.byteLength > IDML_LIMITS.maxPackageBytes) throw new IdmlImportError(`Package exceeds the ${Math.round(IDML_LIMITS.maxPackageBytes / 1024 / 1024)} MB safety limit.`);
+function formatIdmlLimit(bytes: number) {
+  return `${Math.round(bytes / MB)} MB`;
+}
+
+function archiveLimitProblem(category: IdmlSizeErrorDetails["category"], limit: number) {
+  return category === "OUTER_PACKAGE"
+    ? `The uploaded package exceeds the ${formatIdmlLimit(limit)} import limit.`
+    : `The IDML document exceeds the ${formatIdmlLimit(limit)} import limit.`;
+}
+
+function createIdmlSizeError(category: IdmlSizeErrorDetails["category"], entryPath: string, problem: string, allowedBytes: number, detectedBytes?: number) {
+  return new IdmlImportError(`IDML import size limit in ${entryPath}: ${problem}`, undefined, {
+    category,
+    entryPath,
+    fileName: basename(entryPath),
+    problem,
+    allowedBytes,
+    ...(detectedBytes === undefined ? {} : { detectedBytes }),
+  });
+}
+
+function createOuterPackageReader(input: Uint8Array, diagnostics: IdmlDiagnostic[], archivePath: string) {
+  return createPackageReader(input, diagnostics, {
+    archivePath,
+    label: "outer package",
+    sizeCategory: "OUTER_PACKAGE",
+    maxArchiveBytes: IDML_LIMITS.maxOuterPackageCompressedBytes,
+    maxEntries: IDML_LIMITS.maxOuterPackageEntries,
+    maxTotalUncompressedBytes: IDML_LIMITS.maxOuterPackageTotalUncompressedBytes,
+    maxEntryCompressedBytes: IDML_LIMITS.maxOuterPackageEntryCompressedBytes,
+    maxEntryUncompressedBytes: IDML_LIMITS.maxOuterPackageEntryUncompressedBytes,
+    allowNestedIdml: true,
+  });
+}
+
+function createNestedIdmlReader(input: Uint8Array, diagnostics: IdmlDiagnostic[], archivePath: string) {
+  return createPackageReader(input, diagnostics, {
+    archivePath,
+    label: "IDML document",
+    sizeCategory: "NESTED_IDML",
+    maxArchiveBytes: IDML_LIMITS.maxNestedIdmlCompressedBytes,
+    maxEntries: IDML_LIMITS.maxNestedIdmlEntries,
+    maxTotalUncompressedBytes: IDML_LIMITS.maxNestedIdmlTotalUncompressedBytes,
+    maxEntryCompressedBytes: IDML_LIMITS.maxNestedIdmlEntryCompressedBytes,
+    maxEntryUncompressedBytes: IDML_LIMITS.maxNestedIdmlEntryUncompressedBytes,
+    allowNestedIdml: false,
+  });
+}
+
+function createPackageReader(input: Uint8Array, diagnostics: IdmlDiagnostic[], options: PackageReaderOptions): PackageReader {
+  if (input.byteLength === 0) throw new IdmlImportError(`The ${options.label} is empty.`);
+  if (input.byteLength > options.maxArchiveBytes) {
+    const problem = archiveLimitProblem(options.sizeCategory, options.maxArchiveBytes);
+    throw createIdmlSizeError(options.sizeCategory, options.archivePath, problem, options.maxArchiveBytes, input.byteLength);
+  }
   const bytes = input instanceof Uint8Array ? input : new Uint8Array(input);
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const eocd = findSignature(bytes, 0x06054b50, Math.max(0, bytes.length - 65_557));
-  if (eocd < 0) throw new IdmlImportError("The uploaded file is not a valid ZIP package.");
+  if (eocd < 0) throw new IdmlImportError(`The ${options.label} is not a valid ZIP package.`);
+  if (eocd + 22 > bytes.length) throw new IdmlImportError("The ZIP end record is malformed.");
   const disk = view.getUint16(eocd + 4, true);
   const centralDisk = view.getUint16(eocd + 6, true);
   const entriesOnDisk = view.getUint16(eocd + 8, true);
   const entries = view.getUint16(eocd + 10, true);
   const centralSize = view.getUint32(eocd + 12, true);
   const centralOffset = view.getUint32(eocd + 16, true);
-  if (disk !== 0 || centralDisk !== 0 || entriesOnDisk !== entries || entries > IDML_LIMITS.maxEntries) throw new IdmlImportError("The ZIP package has too many or unsupported archive parts.");
+  if (disk !== 0 || centralDisk !== 0 || entriesOnDisk !== entries || entries > options.maxEntries) throw new IdmlImportError("The ZIP package has too many or unsupported archive parts.");
   if (centralOffset + centralSize > bytes.length) throw new IdmlImportError("The ZIP central directory is malformed.");
   const result = new Map<string, ZipEntry>();
   let offset = centralOffset;
+  let totalCompressed = 0;
   let totalUncompressed = 0;
   for (let index = 0; index < entries; index += 1) {
-    if (view.getUint32(offset, true) !== 0x02014b50) throw new IdmlImportError("The ZIP central directory is malformed.");
+    if (offset + 46 > centralOffset + centralSize || view.getUint32(offset, true) !== 0x02014b50) throw new IdmlImportError("The ZIP central directory is malformed.");
     const flags = view.getUint16(offset + 8, true);
     const method = view.getUint16(offset + 10, true);
     const compressedSize = view.getUint32(offset + 20, true);
@@ -375,47 +506,108 @@ function createPackageReader(input: Uint8Array, diagnostics: IdmlDiagnostic[]): 
     const commentLength = view.getUint16(offset + 32, true);
     const externalAttributes = view.getUint32(offset + 38, true);
     const localOffset = view.getUint32(offset + 42, true);
+    const recordEnd = offset + 46 + nameLength + extraLength + commentLength;
+    if (recordEnd > centralOffset + centralSize) throw new IdmlImportError("The ZIP central directory is malformed.");
     const rawName = decodeUtf8(bytes.slice(offset + 46, offset + 46 + nameLength));
     const path = safePackagePath(rawName);
     if (flags & 0x1) throw new IdmlImportError(`Encrypted ZIP entries are not supported: ${path}`);
     if (method !== 0 && method !== 8) throw new IdmlImportError(`Unsupported ZIP compression for ${path}.`);
-    if (uncompressedSize > IDML_LIMITS.maxEntryBytes || compressedSize > IDML_LIMITS.maxEntryBytes) throw new IdmlImportError(`ZIP entry exceeds the per-file safety limit: ${path}`);
-    totalUncompressed += uncompressedSize;
-    if (totalUncompressed > IDML_LIMITS.maxUncompressedBytes) throw new IdmlImportError("The ZIP package exceeds the total uncompressed-size safety limit.");
-    if (path.toLowerCase().endsWith(".zip") || path.toLowerCase().endsWith(".jar") || path.toLowerCase().endsWith(".gz")) {
-      throw new IdmlImportError(`Nested archives are not supported: ${path}`);
+    if (compressedSize > options.maxEntryCompressedBytes || uncompressedSize > options.maxEntryUncompressedBytes) {
+      throw createIdmlSizeError(options.sizeCategory, nestedEntryPath(options.archivePath, path), `A ZIP entry in the ${options.label} exceeds the current import size limit.`, Math.min(options.maxEntryCompressedBytes, options.maxEntryUncompressedBytes), Math.max(compressedSize, uncompressedSize));
     }
+    const allowedNestedIdml = options.allowNestedIdml && path.toLowerCase().endsWith(".idml");
+    if (!allowedNestedIdml && uncompressedSize > 0 && (compressedSize === 0 || uncompressedSize / compressedSize > IDML_LIMITS.maxCompressionRatio)) throw new IdmlImportError(`ZIP entry exceeds the ${IDML_LIMITS.maxCompressionRatio}:1 compression-ratio safety limit: ${path}`);
+    totalCompressed += compressedSize;
+    if (totalCompressed > options.maxArchiveBytes) {
+      const problem = archiveLimitProblem(options.sizeCategory, options.maxArchiveBytes);
+      throw createIdmlSizeError(options.sizeCategory, options.archivePath, problem, options.maxArchiveBytes, totalCompressed);
+    }
+    totalUncompressed += uncompressedSize;
+    if (totalUncompressed > options.maxTotalUncompressedBytes) {
+      const problem = archiveLimitProblem(options.sizeCategory, options.maxTotalUncompressedBytes);
+      throw createIdmlSizeError(options.sizeCategory, options.archivePath, problem, options.maxTotalUncompressedBytes, totalUncompressed);
+    }
+    const nestedArchive = /\.(?:zip|jar|gz|idml)$/i.test(path);
+    if (nestedArchive && !(options.allowNestedIdml && path.toLowerCase().endsWith(".idml"))) throw new IdmlImportError(`Nested archives are not supported: ${path}`);
     const unixMode = externalAttributes >>> 16;
     if ((unixMode & 0xf000) === 0xa000) throw new IdmlImportError(`Symlink entries are not supported: ${path}`);
     if (!result.has(path)) result.set(path, { path, method, compressedSize, uncompressedSize, localOffset, externalAttributes });
-    offset += 46 + nameLength + extraLength + commentLength;
+    offset = recordEnd;
   }
   if (result.size === 0) throw new IdmlImportError("The ZIP package is empty.");
-  diagnostics.push({ severity: "INFO", objectType: "PACKAGE", message: `Read ${result.size} bounded ZIP entries without extracting them to disk.` });
+  diagnostics.push({ severity: "INFO", objectType: "PACKAGE", message: `Read ${result.size} bounded ${options.label} ZIP entries without extracting them to disk.` });
   return {
     entries: result,
+    archivePath: options.archivePath,
     read(path) {
       const entry = result.get(path);
       if (!entry) throw new IdmlImportError(`Package entry not found: ${path}`);
-      const local = view.getUint32(entry.localOffset, true) === 0x04034b50 ? entry.localOffset : -1;
-      if (local < 0) throw new IdmlImportError(`Malformed local ZIP header: ${path}`);
-      const nameLength = view.getUint16(local + 26, true);
-      const extraLength = view.getUint16(local + 28, true);
-      const start = local + 30 + nameLength + extraLength;
+      if (entry.localOffset + 30 > bytes.length || view.getUint32(entry.localOffset, true) !== 0x04034b50) throw new IdmlImportError(`Malformed local ZIP header: ${path}`);
+      const nameLength = view.getUint16(entry.localOffset + 26, true);
+      const extraLength = view.getUint16(entry.localOffset + 28, true);
+      const start = entry.localOffset + 30 + nameLength + extraLength;
       const end = start + entry.compressedSize;
       if (end > bytes.length) throw new IdmlImportError(`Malformed ZIP entry: ${path}`);
-      const compressed = bytes.slice(start, end);
-      const output = entry.method === 0 ? compressed : inflateRawSync(compressed);
-      if (output.byteLength !== entry.uncompressedSize || output.byteLength > IDML_LIMITS.maxEntryBytes) throw new IdmlImportError(`ZIP entry size validation failed: ${path}`);
-      return new Uint8Array(output);
+      const compressed = bytes.subarray(start, end);
+      let output: Uint8Array;
+      try {
+        output = entry.method === 0 ? compressed : inflateRawSync(compressed, { maxOutputLength: options.maxEntryUncompressedBytes });
+      } catch {
+        throw new IdmlImportError(`ZIP entry extraction failed safely: ${path}`);
+      }
+      if (output.byteLength !== entry.uncompressedSize || output.byteLength > options.maxEntryUncompressedBytes) throw new IdmlImportError(`ZIP entry size validation failed: ${path}`);
+      return output;
     },
   };
 }
 
-function parsePages(designMap: XmlNode, files: Map<string, XmlNode>, reader: PackageReader, stories: IdmlStory[], diagnostics: IdmlDiagnostic[]) {
+type IdmlStyleCatalog = {
+  paragraphStyles: Map<string, Record<string, string>>;
+  characterStyles: Map<string, Record<string, string>>;
+  objectStyles: Map<string, Record<string, string>>;
+  swatches: Map<string, Record<string, string>>;
+  defaultParagraph: Record<string, string>;
+  substitutedFonts: Set<string>;
+};
+
+function parseStyleCatalog(files: Map<string, XmlNode>): IdmlStyleCatalog {
+  const catalog: IdmlStyleCatalog = { paragraphStyles: new Map(), characterStyles: new Map(), objectStyles: new Map(), swatches: new Map(), defaultParagraph: {}, substitutedFonts: new Set() };
+  for (const root of files.values()) {
+    for (const node of descendants(root, "ParagraphStyle")) { const id = attr(node, "Self"); if (id) catalog.paragraphStyles.set(id, styleNodeProperties(node)); }
+    for (const node of descendants(root, "CharacterStyle")) { const id = attr(node, "Self"); if (id) catalog.characterStyles.set(id, styleNodeProperties(node)); }
+    for (const node of descendants(root, "ObjectStyle")) { const id = attr(node, "Self"); if (id) catalog.objectStyles.set(id, styleNodeProperties(node)); }
+    for (const node of descendants(root, "Color")) { const id = attr(node, "Self"); if (id) catalog.swatches.set(id, node.attributes); }
+    for (const node of descendants(root, "Font")) if (attr(node, "Status") === "Substituted") catalog.substitutedFonts.add(fontName(attr(node, "FontFamily") ?? attr(node, "Name") ?? ""));
+  }
+  catalog.defaultParagraph = resolveStyle(catalog.paragraphStyles, "ParagraphStyle/$ID/[No paragraph style]");
+  return catalog;
+}
+
+function styleNodeProperties(node: XmlNode) { const result = { ...node.attributes }; const properties = node.children.find((child) => localName(child.name) === "Properties"); for (const child of properties?.children ?? []) { const value = textContent(child).trim(); if (value) result[localName(child.name)] = value; } return result; }
+
+function resolveStyle(styles: Map<string, Record<string, string>>, reference: string | undefined, seen = new Set<string>()): Record<string, string> {
+  if (!reference || seen.has(reference)) return {};
+  const style = styles.get(reference);
+  if (!style) return {};
+  seen.add(reference);
+  const basedOn = style.BasedOn ?? style.Parent;
+  return { ...resolveStyle(styles, basedOn, seen), ...style };
+}
+
+function nearestAncestor(node: XmlNode, name: string) { let current = node.parent; while (current) { if (localName(current.name) === name) return current; current = current.parent; } return undefined; }
+function styleNumber(value: string | undefined) { const parsed = Number(value); return Number.isFinite(parsed) ? parsed : undefined; }
+function positiveStyleNumber(value: string | undefined | number) { const parsed = typeof value === "number" ? value : Number(value); return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined; }
+function parseInsetSpacing(value: string | undefined) { const values = (value ?? "").trim().split(/[\s,]+/).map(Number).filter(Number.isFinite); if (!values.length) return undefined; const [top, left = top, bottom = top, right = left] = values; return { top: Math.max(0, top), right: Math.max(0, right), bottom: Math.max(0, bottom), left: Math.max(0, left) }; }
+function fontName(value: string) { return value.split("\t")[0].split(",")[0].replace(/^Font\//, "").trim(); }
+function resolveIdmlColor(value: string | undefined, styles: IdmlStyleCatalog) { if (!value || /^None$/i.test(value) || /Swatch\/None|Unassigned/i.test(value)) return null; const color = styles.swatches.get(value); if (color) { const values = (color.ColorValue ?? "").trim().split(/[\s,]+/).map(Number); if (color.Space === "RGB" && values.length >= 3 && values.every(Number.isFinite)) return rgbHex(values[0], values[1], values[2]); if (color.Space === "CMYK" && values.length >= 4 && values.every(Number.isFinite)) return cmykHex(values[0], values[1], values[2], values[3]); } return safeColor(value); }
+function rgbHex(red: number, green: number, blue: number) { return `#${[red, green, blue].map((value) => Math.round(Math.max(0, Math.min(255, value))).toString(16).padStart(2, "0")).join("")}`; }
+function cmykHex(c: number, m: number, y: number, k: number) { const [cyan, magenta, yellow, black] = [c, m, y, k].map((value) => Math.max(0, Math.min(100, value)) / 100); return rgbHex(...([cyan, magenta, yellow].map((value) => (1 - Math.min(1, value * (1 - black) + black)) * 255) as [number, number, number])); }
+function parsePages(designMap: XmlNode, files: Map<string, XmlNode>, reader: PackageReader, stories: IdmlStory[], diagnostics: IdmlDiagnostic[], styles: IdmlStyleCatalog) {
   const spreadRefs = descendants(designMap, "Spread").map((node) => attr(node, "src")).filter(Boolean);
   const spreadPaths = spreadRefs.map((src) => resolvePackageReference("", src, files)).filter((path): path is string => Boolean(path));
   const candidates = spreadPaths.length ? spreadPaths : [...files.keys()].filter((path) => /(?:^|\/)Spreads\/.*\.xml$/i.test(path));
+  const masterSpreads = new Map<string, XmlNode>();
+  for (const root of files.values()) { const masters = localName(root.name) === "MasterSpread" ? [root] : descendants(root, "MasterSpread"); for (const master of masters) { const masterId = attr(master, "Self"); if (masterId) masterSpreads.set(masterId, master); } }
   const pages: IdmlPage[] = [];
   const usedStoryIds = new Set<string>();
   for (const spreadPath of candidates) {
@@ -424,30 +616,106 @@ function parsePages(designMap: XmlNode, files: Map<string, XmlNode>, reader: Pac
     const pageNodes = descendants(spread, "Page");
     if (!pageNodes.length) {
       const size = parseBounds(attr(spread, "GeometricBounds")) ?? [0, 0, 792, 612];
-      pages.push(parsePage(spread, spreadPath, pages.length, size, spread, reader, stories, diagnostics, usedStoryIds));
+      pages.push(parsePage(spread, spreadPath, pages.length, size, spread, masterSpreads, reader, stories, diagnostics, usedStoryIds, styles));
       continue;
     }
     for (const pageNode of pageNodes) {
       const bounds = parseBounds(attr(pageNode, "GeometricBounds")) ?? [0, 0, 792, 612];
-      pages.push(parsePage(pageNode, spreadPath, pages.length, bounds, spread, reader, stories, diagnostics, usedStoryIds));
+      pages.push(parsePage(pageNode, spreadPath, pages.length, bounds, spread, masterSpreads, reader, stories, diagnostics, usedStoryIds, styles));
     }
   }
   return pages;
 }
 
-function parsePage(pageNode: XmlNode, spreadPath: string, order: number, bounds: [number, number, number, number], spread: XmlNode, reader: PackageReader, stories: IdmlStory[], diagnostics: IdmlDiagnostic[], usedStoryIds: Set<string>): IdmlPage {
+function parsePage(pageNode: XmlNode, spreadPath: string, order: number, bounds: [number, number, number, number], spread: XmlNode, masterSpreads: Map<string, XmlNode>, reader: PackageReader, stories: IdmlStory[], diagnostics: IdmlDiagnostic[], usedStoryIds: Set<string>, styles: IdmlStyleCatalog): IdmlPage {
   const [top, left, bottom, right] = bounds;
   const sourceId = attr(pageNode, "Self") || `${spreadPath}:${order}`;
   const id = stableId("idml-page", sourceId);
-  const localNodes = descendants(pageNode, "TextFrame").concat(descendants(pageNode, "Rectangle"), descendants(pageNode, "GraphicLine"), descendants(pageNode, "Oval"), descendants(pageNode, "Polygon"), descendants(pageNode, "Table"));
-  const itemNodes = localNodes.length ? localNodes : descendants(spread, "TextFrame").concat(descendants(spread, "Rectangle"), descendants(spread, "GraphicLine"), descendants(spread, "Oval"), descendants(spread, "Polygon"), descendants(spread, "Table"));
+  const localNodes = itemDescendants(pageNode);
+  const itemNodes = localNodes.length ? localNodes : itemDescendants(spread);
   const ownItems = itemNodes.filter((node) => belongsToPage(node, pageNode, bounds));
-  const frames = ownItems.map((node, index) => parseFrame(node, id, order, index, bounds, reader, stories, diagnostics, usedStoryIds)).filter((frame): frame is IdmlIntermediateFrame => Boolean(frame));
+  const pageFrames = ownItems.map((node, index) => parseFrame(node, id, order, index, bounds, spread, spreadPath, reader, stories, diagnostics, usedStoryIds, styles, { source: "page", sourceObjectId: attr(node, "Self") })).filter((frame): frame is IdmlIntermediateFrame => Boolean(frame));
+  const masterFrames = materializeAppliedMasterFrames(pageNode, id, order, bounds, masterSpreads, reader, stories, diagnostics, styles);
+  const frames = [...masterFrames, ...pageFrames.map((frame, index) => ({ ...frame, zIndex: index + masterFrames.length, readingOrder: index + masterFrames.length }))];
   return { id, sourceId, order, width: Math.max(1, right - left), height: Math.max(1, bottom - top), left, top, frames };
 }
 
-function parseFrame(node: XmlNode, pageId: string, pageNumber: number, index: number, pageBounds: [number, number, number, number], reader: PackageReader, stories: IdmlStory[], diagnostics: IdmlDiagnostic[], usedStoryIds: Set<string>): IdmlIntermediateFrame | null {
-  const bounds = parseBounds(attr(node, "GeometricBounds"));
+function materializeAppliedMasterFrames(pageNode: XmlNode, pageId: string, pageNumber: number, pageBounds: [number, number, number, number], masterSpreads: Map<string, XmlNode>, reader: PackageReader, stories: IdmlStory[], diagnostics: IdmlDiagnostic[], styles: IdmlStyleCatalog): IdmlIntermediateFrame[] {
+  const masterId = attr(pageNode, "AppliedMaster");
+  if (!masterId || masterId === "n") return [];
+  const master = masterSpreads.get(masterId);
+  if (!master) {
+    diagnostics.push({ severity: "WARNING", pageId, pageNumber: pageNumber + 1, objectType: "MASTER_SPREAD", message: `Applied master ${masterId} was not found; master objects were not materialized.`, suggestedAction: "Review the IDML master-spread references." });
+    return [];
+  }
+  const masterPages = descendants(master, "Page");
+  const masterPage = masterPages.find((candidate) => samePageCoordinateSystem(candidate, pageNode)) ?? masterPages.find((candidate) => samePageSize(candidate, pageNode));
+  if (!masterPage) {
+    diagnostics.push({ severity: "WARNING", pageId, pageNumber: pageNumber + 1, objectType: "MASTER_SPREAD", message: `Applied master ${masterId} has no matching master page; master objects were not materialized.`, suggestedAction: "Review the master/page geometry in InDesign." });
+    return [];
+  }
+  const masterBounds = parseBounds(attr(masterPage, "GeometricBounds"));
+  if (!masterBounds) return [];
+  const overrideValue = attr(pageNode, "OverrideList") ?? "";
+  const overrideIds = new Set(overrideValue.split(/[\s,;]+/).filter(Boolean));
+  const candidates = itemDescendants(master);
+  const masterUsedStoryIds = new Set<string>();
+  return candidates
+    .filter((node) => {
+      const sourceId = attr(node, "Self");
+      return Boolean(sourceId) && !overrideIds.has(sourceId) && !overrideValue.includes(sourceId) && belongsToPage(node, masterPage, masterBounds);
+    })
+    .map((node, index) => {
+      const sourceBounds = parseBounds(attr(node, "GeometricBounds")) ?? transformedPathBounds(node);
+      const bounds = sourceBounds ? transformMasterBoundsToPage(sourceBounds, masterPage, pageNode) : undefined;
+      return parseFrame(node, pageId, pageNumber, index, pageBounds, master, `MasterSpreads/${masterId}.xml`, reader, stories, diagnostics, masterUsedStoryIds, styles, { source: "master", masterId, sourceObjectId: attr(node, "Self"), bounds });
+    })
+    .filter((frame): frame is IdmlIntermediateFrame => Boolean(frame));
+}
+
+function samePageCoordinateSystem(masterPage: XmlNode, pageNode: XmlNode) {
+  return samePageSize(masterPage, pageNode) && sameTransform(attr(masterPage, "ItemTransform"), attr(pageNode, "ItemTransform"));
+}
+
+function samePageSize(left: XmlNode, right: XmlNode) {
+  const a = parseBounds(attr(left, "GeometricBounds"));
+  const b = parseBounds(attr(right, "GeometricBounds"));
+  return Boolean(a && b && Math.abs((a[2] - a[0]) - (b[2] - b[0])) < 0.01 && Math.abs((a[3] - a[1]) - (b[3] - b[1])) < 0.01);
+}
+
+function sameTransform(left: string | undefined, right: string | undefined) {
+  const a = parseTransform(left);
+  const b = parseTransform(right);
+  return a.every((value, index) => Math.abs(value - b[index]) < 0.01);
+}
+
+function transformMasterBoundsToPage(bounds: [number, number, number, number], masterPage: XmlNode, pageNode: XmlNode): [number, number, number, number] {
+  const masterToPage = multiplyTransforms(invertTransform(parseTransform(attr(pageNode, "ItemTransform"))), parseTransform(attr(masterPage, "ItemTransform")));
+  return transformBounds(bounds, masterToPage);
+}
+
+function transformBounds(bounds: [number, number, number, number], matrix: [number, number, number, number, number, number]): [number, number, number, number] {
+  const [top, left, bottom, right] = bounds;
+  const points = [[left, top], [right, top], [left, bottom], [right, bottom]].map(([x, y]) => [matrix[0] * x + matrix[2] * y + matrix[4], matrix[1] * x + matrix[3] * y + matrix[5]] as [number, number]);
+  const xs = points.map(([x]) => x);
+  const ys = points.map(([, y]) => y);
+  return [Math.min(...ys), Math.min(...xs), Math.max(...ys), Math.max(...xs)];
+}
+
+function invertTransform(matrix: [number, number, number, number, number, number]): [number, number, number, number, number, number] {
+  const [a, b, c, d, tx, ty] = matrix;
+  const determinant = a * d - b * c;
+  if (!Number.isFinite(determinant) || Math.abs(determinant) < 1e-9) return [1, 0, 0, 1, 0, 0];
+  const inverseA = d / determinant;
+  const inverseB = -b / determinant;
+  const inverseC = -c / determinant;
+  const inverseD = a / determinant;
+  return [inverseA, inverseB, inverseC, inverseD, -(inverseA * tx + inverseC * ty), -(inverseB * tx + inverseD * ty)];
+}
+type ParseFrameOptions = { source?: "page" | "master"; masterId?: string; sourceObjectId?: string; bounds?: [number, number, number, number] };
+
+function parseFrame(node: XmlNode, pageId: string, pageNumber: number, index: number, pageBounds: [number, number, number, number], spread: XmlNode, spreadPath: string, reader: PackageReader, stories: IdmlStory[], diagnostics: IdmlDiagnostic[], usedStoryIds: Set<string>, styles: IdmlStyleCatalog, options: ParseFrameOptions = {}): IdmlIntermediateFrame | null {
+  const bounds = options.bounds ?? parseBounds(attr(node, "GeometricBounds")) ?? transformedPathBounds(node);
   if (!bounds) {
     diagnostics.push({ severity: "WARNING", pageId, pageNumber: pageNumber + 1, objectType: localName(node.name), message: "Page item has no usable geometric bounds and was skipped.", suggestedAction: "Review the object in InDesign or use Exact Replica." });
     return null;
@@ -456,16 +724,31 @@ function parseFrame(node: XmlNode, pageId: string, pageNumber: number, index: nu
   const [, pageLeft] = pageBounds;
   const sourceId = attr(node, "Self") || `${pageId}:${index}`;
   const typeName = localName(node.name);
-  const base = { id: stableId("idml-frame", sourceId), pageId, x: Math.max(0, left - pageLeft), y: Math.max(0, top - pageBounds[0]), width: Math.max(1, right - left), height: Math.max(1, bottom - top), rotation: rotationFromTransform(attr(node, "ItemTransform")), layerName: attr(node, "ItemLayer") || attr(node, "Layer") || "Content", zIndex: index, readingOrder: index, sourceLabel: attr(node, "Name") || sourceId, altText: attr(node, "AltText") || attr(node, "Label") || attr(node, "Description") || undefined };
-  if (typeName === "TextFrame") return parseTextFrame(node, base, stories, diagnostics, pageNumber, usedStoryIds);
+  const hyperlinks = collectHyperlinks(node, spreadPath);
+  const objectStyle = resolveStyle(styles.objectStyles, attr(node, "AppliedObjectStyle"));
+  const appearance = { ...objectStyle, ...node.attributes };
+  const base = { id: stableId("idml-frame", sourceId), pageId, x: Math.max(0, left - pageLeft), y: Math.max(0, top - pageBounds[0]), width: Math.max(1, right - left), height: Math.max(1, bottom - top), rotation: rotationFromTransform(attr(node, "ItemTransform")), layerName: attr(node, "ItemLayer") || attr(node, "Layer") || "Content", zIndex: index, readingOrder: index, sourceLabel: attr(node, "Name") || sourceId, source: options.source ?? "page", ...(options.masterId ? { masterId: options.masterId } : {}), sourceObjectId: options.sourceObjectId ?? sourceId, altText: attr(node, "AltText") || attr(node, "Label") || attr(node, "Description") || undefined, ...(hyperlinks.length ? { hyperlinks } : {}) };
+  if (typeName === "TextFrame") return parseTextFrame(node, base, stories, diagnostics, pageNumber, usedStoryIds, styles);
   if (typeName === "Rectangle" || typeName === "GraphicLine" || typeName === "Oval" || typeName === "Polygon") {
     const link = findLink(node);
-    if (link || typeName === "Rectangle" && attr(node, "ContentType")?.toLowerCase().includes("graphic")) return { ...base, type: "IMAGE", asset: link ? resolveAsset(link, reader, diagnostics, pageId, pageNumber) : undefined };
-    if (typeName === "Polygon" || typeName === "Oval") {
+    const graphic = typeName === "Rectangle" && attr(node, "ContentType")?.toLowerCase().includes("graphic");
+    if (link || graphic) {
+      const asset = link ? resolveAsset(link, reader, diagnostics, pageId, pageNumber) : {
+        sourcePath: `${spreadPath}#${sourceId}`,
+        entryPath: null,
+        fileName: sourceId,
+        contentType: null,
+        bytes: 0,
+        supported: false,
+      };
+      if (graphic && !link) diagnostics.push({ severity: "WARNING", pageId, pageNumber: pageNumber + 1, objectType: "IMAGE", message: `Missing linked asset for graphic object ${sourceId}.`, suggestedAction: "Add the linked asset to the package or replace the image manually." });
+      return { ...base, type: "IMAGE", asset };
+    }
+    if (typeName === "Polygon") {
       diagnostics.push({ severity: "WARNING", pageId, pageNumber: pageNumber + 1, objectType: "VECTOR", message: "Complex vector path cannot be edited; use Exact Replica.", suggestedAction: "Replace with a simple rectangle or use the future Exact Replica mode." });
       return null;
     }
-    return { ...base, type: "SHAPE", fill: safeColor(attr(node, "FillColor")) ?? "#e2e8f0", border: safeColor(attr(node, "StrokeColor")) ?? "#94a3b8", borderWidth: finite(attr(node, "StrokeWeight"), 1) };
+    return { ...base, type: "SHAPE", shapeType: typeName === "Oval" ? "ELLIPSE" : typeName === "GraphicLine" ? "LINE" : "RECTANGLE", fill: resolveIdmlColor(appearance.FillColor, styles) ?? "transparent", border: resolveIdmlColor(appearance.StrokeColor, styles) ?? "transparent", borderWidth: finite(appearance.StrokeWeight, 1) };
   }
   if (typeName === "Table") return { ...base, type: "TABLE", table: parseTableRows(node) };
   diagnostics.push({ severity: "WARNING", pageId, pageNumber: pageNumber + 1, objectType: typeName, message: `${typeName} is not supported as an editable V2 frame.`, suggestedAction: "Use Exact Replica or rebuild this object in Content Studio." });
@@ -479,21 +762,39 @@ function parseTableRows(node: XmlNode) {
   return cells.length ? [cells] : [[""]];
 }
 
-function parseTextFrame(node: XmlNode, base: Omit<IdmlIntermediateFrame, "type">, stories: IdmlStory[], diagnostics: IdmlDiagnostic[], pageNumber: number, usedStoryIds: Set<string>): IdmlIntermediateFrame {
+function parseTextFrame(node: XmlNode, base: Omit<IdmlIntermediateFrame, "type">, stories: IdmlStory[], diagnostics: IdmlDiagnostic[], pageNumber: number, usedStoryIds: Set<string>, styles: IdmlStyleCatalog): IdmlIntermediateFrame {
   const storyId = attr(node, "ParentStory");
   const story = storyId ? stories.find((item) => item.id === storyId) : undefined;
   const threaded = Boolean(storyId && usedStoryIds.has(storyId));
   const text = threaded ? "" : story?.text ?? textContent(node);
   const spans = threaded ? [{ text: "" }] : story?.spans ?? [{ text }];
   if (storyId) usedStoryIds.add(storyId);
-  const font = attr(node, "FontFamily") || attr(node, "AppliedFont");
-  const originalFont = font || "Default";
-  const mappedFont = mapFont(originalFont);
-  if (mappedFont !== originalFont) diagnostics.push({ severity: "WARNING", pageNumber: pageNumber + 1, objectType: "TEXT", message: `Font substituted. Original: ${originalFont}. Rendered using: ${mappedFont}.`, suggestedAction: "Review typography in Content Studio." });
+  const objectStyle = resolveStyle(styles.objectStyles, attr(node, "AppliedObjectStyle"));
+  const leading = positiveStyleNumber(spans[0]?.leading) ?? positiveStyleNumber(objectStyle.Leading) ?? 0;
+  const fontSize = spans[0]?.fontSize ?? positiveStyleNumber(objectStyle.PointSize) ?? 12;
+  const requestedFont = spans[0]?.fontFamily ?? objectStyle.AppliedFont ?? attr(node, "FontFamily") ?? attr(node, "AppliedFont") ?? "Default";
+  const mappedFont = mapFont(requestedFont);
+  if (styles.substitutedFonts.has(fontName(requestedFont)) || requestedFont === "Default" || mappedFont !== "Arial, sans-serif") diagnostics.push({ severity: "WARNING", pageNumber: pageNumber + 1, objectType: "FONT", message: `Font requires browser fallback. Requested: ${fontName(requestedFont)}. Rendered using: ${mappedFont}.`, suggestedAction: "Review typography in Content Studio." });
   if (attr(node, "NextTextFrame") || attr(node, "PreviousTextFrame") || attr(node, "TextFrameIndex") || threaded) diagnostics.push({ severity: "WARNING", pageNumber: pageNumber + 1, objectType: "TEXT", message: "Linked text frames detected — advanced text threading is not yet editable in Content Studio.", suggestedAction: "Review the imported text and split or reconnect it manually." });
-  return { ...base, type: "TEXT", text, textSpans: spans, fontFamily: mappedFont, fontWeight: /bold/i.test(attr(node, "FontStyle") ?? "") || Boolean(spans.some((span) => span.marks?.includes("bold"))) ? 700 : 400, fontSize: finite(attr(node, "PointSize") || attr(node, "FontSize"), spans[0]?.fontSize ?? 16), lineHeight: finite(attr(node, "Leading"), 1.4), letterSpacing: finite(attr(node, "Tracking"), 0), alignment: mapAlignment(attr(node, "Justification")), direction: mapDirection(attr(node, "Direction") || attr(node, "ParagraphDirection")) };
+  const preferences = descendants(node, "TextFramePreference")[0] ?? descendants(node, "TextFramePreferences")[0];
+  const inset = parseInsetSpacing(attr(preferences ?? node, "InsetSpacing"));
+  return {
+    ...base,
+    type: "TEXT",
+    text,
+    textSpans: spans,
+    fontFamily: mappedFont,
+    fontWeight: spans[0]?.fontWeight ?? (/bold|black|semi/i.test(objectStyle.FontStyle ?? "") ? 700 : 400),
+    fontStyle: spans[0]?.fontStyle ?? (/italic|oblique/i.test(objectStyle.FontStyle ?? "") ? "italic" : "normal"),
+    fontSize,
+    lineHeight: leading > 0 ? leading / fontSize : 1.2,
+    letterSpacing: spans[0]?.letterSpacing ?? styleNumber(objectStyle.Tracking) ?? 0,
+    textColor: spans[0]?.color ?? resolveIdmlColor(objectStyle.FillColor, styles) ?? "#111827",
+    alignment: mapAlignment(spans[0]?.justification ?? objectStyle.Justification ?? attr(node, "Justification")),
+    direction: mapDirection(objectStyle.ParagraphDirection ?? attr(node, "Direction") ?? attr(node, "ParagraphDirection")),
+    ...(inset ? { textInset: inset } : {}),
+  };
 }
-
 function scanUnsupportedFeatures(files: Map<string, XmlNode>, diagnostics: IdmlDiagnostic[]) {
   const roots = [...files.values()];
   const checks: Array<[string, string, IdmlDiagnosticSeverity]> = [
@@ -509,42 +810,65 @@ function scanUnsupportedFeatures(files: Map<string, XmlNode>, diagnostics: IdmlD
   if (roots.some((root) => Object.values(root.attributes).some((value) => /CMYK|Spot/i.test(value)))) diagnostics.push({ severity: "WARNING", objectType: "COLOR", message: "CMYK/spot color was converted for screen rendering.", suggestedAction: "Review digital colors in Content Studio." });
 }
 
-function parseStories(files: Map<string, XmlNode>, diagnostics: IdmlDiagnostic[]) {
+function parseStories(files: Map<string, XmlNode>, diagnostics: IdmlDiagnostic[], idmlPath: string, styles: IdmlStyleCatalog) {
   const stories: IdmlStory[] = [];
   for (const [path, root] of files) {
     if (!/Stories\/.*\.xml$/i.test(path) && localName(root.name) !== "Story") continue;
     for (const storyNode of localName(root.name) === "Story" ? [root] : descendants(root, "Story")) {
       const id = attr(storyNode, "Self") || stableId("story", path);
-      const spans = collectStorySpans(storyNode);
+      const spans = collectStorySpans(storyNode, styles);
       const text = spans.map((span) => span.text).join("") || textContent(storyNode);
-      if (text.length > 1_000_000) {
-        diagnostics.push({ severity: "ERROR", objectType: "STORY", message: `Story ${id} exceeds the supported text limit.` });
-        continue;
+      const textBytes = Buffer.byteLength(text, "utf8");
+      if (textBytes > IDML_LIMITS.maxStoryTextBytes) {
+        throw createIdmlSizeError("STORY_TEXT", nestedEntryPath(idmlPath, path), `Story ${id} exceeds the ${formatIdmlLimit(IDML_LIMITS.maxStoryTextBytes)} extracted-text limit.`, IDML_LIMITS.maxStoryTextBytes, textBytes);
       }
+
       stories.push({ id, text, spans: spans.length ? spans : [{ text }] });
     }
   }
   return stories;
 }
 
-function collectStorySpans(story: XmlNode) {
+function collectStorySpans(story: XmlNode, styles: IdmlStyleCatalog) {
   const result: NonNullable<IdmlStory["spans"]> = [];
   const ranges = descendants(story, "CharacterStyleRange");
   for (const range of ranges) {
-    const text = textContent(range);
+    const text = range.children.map((child) => localName(child.name) === "Content" ? textContent(child) : ["ForcedLineBreak"].includes(localName(child.name)) ? "\n" : "").join("");
     if (!text) continue;
+    const paragraph = nearestAncestor(range, "ParagraphStyleRange");
+    const paragraphStyle = resolveStyle(styles.paragraphStyles, attr(paragraph ?? range, "AppliedParagraphStyle"));
+    const characterStyle = resolveStyle(styles.characterStyles, attr(range, "AppliedCharacterStyle"));
+    const resolved = { ...styles.defaultParagraph, ...paragraphStyle, ...characterStyle, ...range.attributes };
+    const fontStyle = resolved.FontStyle ?? "";
     const marks: NonNullable<IdmlIntermediateFrame["textSpans"]>[number]["marks"] = [];
-    const fontStyle = attr(range, "FontStyle") || attr(range, "AppliedCharacterStyle");
-    if (/bold/i.test(fontStyle)) marks.push("bold");
+    if (/bold|black|semi/i.test(fontStyle)) marks.push("bold");
     if (/italic|oblique/i.test(fontStyle)) marks.push("italic");
-    if (attr(range, "Underline") === "true") marks.push("underline");
-    if (/super/i.test(attr(range, "Position"))) marks.push("superscript");
-    if (/sub/i.test(attr(range, "Position"))) marks.push("subscript");
-    result.push({ text, ...(marks.length ? { marks } : {}), ...(finite(attr(range, "PointSize"), 0) ? { fontSize: finite(attr(range, "PointSize"), 0) } : {}), ...(safeColor(attr(range, "FillColor")) ? { color: safeColor(attr(range, "FillColor")) ?? undefined } : {}) });
+    if (resolved.Underline === "true") marks.push("underline");
+    if (/super/i.test(resolved.Position ?? "")) marks.push("superscript");
+    if (/sub/i.test(resolved.Position ?? "")) marks.push("subscript");
+    const capitalization = resolved.Capitalization;
+    const textTransform = /allcaps|smallcaps/i.test(capitalization ?? "") ? "uppercase" : /lower/i.test(capitalization ?? "") ? "lowercase" : undefined;
+    const requestedFont = resolved.AppliedFont ?? resolved.FontFamily;
+    const size = positiveStyleNumber(resolved.PointSize);
+    result.push({
+      text,
+      ...(marks.length ? { marks } : {}),
+      ...(size ? { fontSize: size } : {}),
+      ...(resolveIdmlColor(resolved.FillColor, styles) ? { color: resolveIdmlColor(resolved.FillColor, styles)! } : {}),
+      ...(requestedFont ? { fontFamily: mapFont(requestedFont) } : {}),
+      ...(/bold|black|semi/i.test(fontStyle) ? { fontWeight: 700 } : {}),
+      ...(/italic|oblique/i.test(fontStyle) ? { fontStyle: "italic" as const } : {}),
+      ...(styleNumber(resolved.Tracking) !== undefined ? { letterSpacing: styleNumber(resolved.Tracking)! / 1000 * (size ?? 12) } : {}),
+      ...(styleNumber(resolved.BaselineShift) !== undefined ? { baselineShift: styleNumber(resolved.BaselineShift)! } : {}),
+      ...(styleNumber(resolved.HorizontalScale) !== undefined ? { horizontalScale: styleNumber(resolved.HorizontalScale)! } : {}),
+      ...(styleNumber(resolved.VerticalScale) !== undefined ? { verticalScale: styleNumber(resolved.VerticalScale)! } : {}),
+      ...(textTransform ? { textTransform } : {}),
+      ...(resolved.Justification ? { justification: resolved.Justification } : {}),
+      ...(positiveStyleNumber(resolved.Leading) ? { leading: positiveStyleNumber(resolved.Leading)! } : {}),
+    });
   }
   return result;
 }
-
 function resolveAsset(sourcePath: string, reader: PackageReader, diagnostics: IdmlDiagnostic[], pageId: string, pageNumber: number): IdmlAsset {
   const normalized = normalizeLinkPath(sourcePath);
   const entryPath = findEntry(reader.entries, (path) => normalizeLinkPath(path) === normalized || normalizeLinkPath(path).endsWith(`/${basename(normalized)}`));
@@ -552,6 +876,10 @@ function resolveAsset(sourcePath: string, reader: PackageReader, diagnostics: Id
   if (!entryPath) {
     diagnostics.push({ severity: "WARNING", pageId, pageNumber: pageNumber + 1, objectType: "IMAGE", message: `Missing linked asset: ${sourcePath}`, suggestedAction: "Add the asset to Links/ or replace the image manually." });
     return { sourcePath, entryPath: null, fileName, contentType: null, bytes: 0, supported: false };
+  }
+  const entry = reader.entries.get(entryPath);
+  if (entry && entry.uncompressedSize > IDML_LIMITS.maxLinkedAssetBytes) {
+    throw createIdmlSizeError("LINKED_ASSET", nestedEntryPath(reader.archivePath, entryPath), `This linked asset exceeds the ${formatIdmlLimit(IDML_LIMITS.maxLinkedAssetBytes)} import limit.`, IDML_LIMITS.maxLinkedAssetBytes, entry.uncompressedSize);
   }
   const data = reader.read(entryPath);
   const contentType = detectImageType(fileName, data);
@@ -728,7 +1056,7 @@ function summarize(document: IdmlDocument, diagnostics: IdmlDiagnostic[]): IdmlA
     shapes: frames.filter((frame) => frame.type === "SHAPE").length,
     missingLinks: diagnostics.filter((item) => item.message.startsWith("Missing linked asset")).length,
     unsupportedObjects: diagnostics.filter((item) => item.objectType === "VECTOR" || item.message.includes("not supported")).length,
-    fontSubstitutions: diagnostics.filter((item) => item.message.startsWith("Font substituted")).length,
+    fontSubstitutions: diagnostics.filter((item) => item.objectType === "FONT").length,
     warnings: diagnostics.filter((item) => item.severity === "WARNING").length,
     errors: diagnostics.filter((item) => item.severity === "ERROR").length,
     editableRecommended: document.pages.filter((page) => page.fidelity?.recommendation === "EDITABLE" && page.fidelity.level === "LOW").length,
@@ -743,6 +1071,10 @@ function findEntry(entries: Map<string, ZipEntry>, predicate: (path: string) => 
   return [...entries.keys()].find(predicate);
 }
 
+function nestedEntryPath(archivePath: string, entryPath: string) {
+  return archivePath === entryPath ? archivePath : `${archivePath} -> ${entryPath}`;
+}
+
 function findSignature(bytes: Uint8Array, signature: number, start: number) {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   for (let index = bytes.length - 22; index >= start; index -= 1) if (view.getUint32(index, true) === signature) return index;
@@ -755,73 +1087,137 @@ function safePackagePath(value: string) {
   return path.split("/").filter(Boolean).join("/");
 }
 
-function parseSafeXml(source: string): XmlNode {
-  if (source.length > IDML_LIMITS.maxXmlBytes) throw new IdmlImportError("XML exceeds the safety limit.");
-  if (/<!DOCTYPE|<!ENTITY|\b(?:SYSTEM|PUBLIC)\b/i.test(source)) throw new IdmlImportError("External XML entities and doctypes are not allowed.");
-  const root: XmlNode = { name: "#root", attributes: {}, children: [], text: "" };
-  const stack = [root];
-  let nodes = 0;
-  let cursor = 0;
-  const token = /<!--[\s\S]*?-->|<\?xml[\s\S]*?\?>|<!\[CDATA\[[\s\S]*?\]\]>|<[^>]*>|[^<]+/g;
-  let match: RegExpExecArray | null;
-  while ((match = token.exec(source))) {
-    if (match.index !== cursor && source.slice(cursor, match.index).trim()) throw new IdmlImportError("Malformed XML token stream.");
-    cursor = token.lastIndex;
-    const value = match[0];
-    if (value.startsWith("<!--") || value.startsWith("<?")) continue;
-    if (value.startsWith("<![CDATA[")) {
-      stack[stack.length - 1].text += value.slice(9, -3);
-      continue;
-    }
-    if (!value.startsWith("<")) {
-      stack[stack.length - 1].text += decodeXmlText(value);
-      continue;
-    }
-    if (value.startsWith("</")) {
-      const name = localName(value.slice(2, -1).trim());
-      if (stack.length === 1 || localName(stack[stack.length - 1].name) !== name) throw new IdmlImportError("Mismatched XML closing tag.");
-      stack.pop();
-      continue;
-    }
-    const selfClosing = /\/\s*>$/.test(value);
-    const body = value.slice(1, selfClosing ? -2 : -1).trim();
-    const nameMatch = /^([^\s/>]+)/.exec(body);
-    if (!nameMatch) throw new IdmlImportError("Malformed XML element.");
-    const name = nameMatch[1];
-    const attributes = parseXmlAttributes(body.slice(name.length));
-    const node: XmlNode = { name, attributes, children: [], text: "" };
-    stack[stack.length - 1].children.push(node);
-    nodes += 1;
-    if (nodes > IDML_LIMITS.maxXmlNodes) throw new IdmlImportError("XML contains too many nodes.");
-    if (!selfClosing) {
-      stack.push(node);
-      if (stack.length > IDML_LIMITS.maxXmlDepth) throw new IdmlImportError("XML nesting is too deep.");
-    }
+function parseIdmlXmlEntry(data: Uint8Array, entryPath: string) {
+  let source: string;
+  try {
+    source = decodeIdmlXml(data);
+  } catch (error) {
+    throw createIdmlXmlError(entryPath, error instanceof Error ? error.message : "Unable to decode XML.");
   }
-  if (cursor !== source.length || stack.length !== 1) throw new IdmlImportError("Malformed XML document.");
-  return root;
+  return parseSafeXml(source, entryPath);
 }
 
-function parseXmlAttributes(source: string) {
-  const result: Record<string, string> = {};
-  const pattern = /([^\s=/>]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
-  let match: RegExpExecArray | null;
-  while ((match = pattern.exec(source))) result[localName(match[1])] = decodeXmlText(match[2] ?? match[3] ?? "");
-  return result;
+function parseSafeXml(source: string, entryPath: string): XmlNode {
+  let parser: SaxesParser | null = null;
+  try {
+    if (/<!DOCTYPE\b|<!ENTITY\b/i.test(source)) throw new Error("External XML entities and doctypes are not allowed.");
+    const root: XmlNode = { name: "#root", attributes: {}, children: [], text: "" };
+    const stack = [root];
+    let nodes = 0;
+    parser = new SaxesParser({ position: true, fileName: entryPath });
+    parser.on("opentag", (tag) => {
+      const node: XmlNode = {
+        name: tag.name,
+        attributes: Object.fromEntries(Object.entries(tag.attributes).map(([name, value]) => [localName(name), String(value)])),
+        children: [],
+        text: "",
+        parent: stack[stack.length - 1],
+      };
+      stack[stack.length - 1].children.push(node);
+      nodes += 1;
+      if (nodes > IDML_LIMITS.maxXmlNodes) throw new Error("XML contains too many nodes.");
+      if (!tag.isSelfClosing) {
+        stack.push(node);
+        if (stack.length > IDML_LIMITS.maxXmlDepth) throw new Error("XML nesting is too deep.");
+      }
+    });
+    parser.on("closetag", (tag) => {
+      if (!tag.isSelfClosing) stack.pop();
+    });
+    parser.on("text", (value) => { stack[stack.length - 1].text += value; });
+    parser.on("cdata", (value) => { stack[stack.length - 1].text += value; });
+    parser.write(source).close();
+    return root;
+  } catch (error) {
+    throw createIdmlXmlError(
+      entryPath,
+      error instanceof Error ? error.message : "Malformed XML.",
+      source,
+      parser ? { line: parser.line, column: parser.column + 1, position: parser.position } : undefined,
+    );
+  }
 }
 
-function decodeXmlText(value: string) {
-  return value.replace(/&(amp|lt|gt|quot|apos);/g, (_, name: string) => ({ amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" }[name] ?? ""));
+function decodeIdmlXml(data: Uint8Array) {
+  const encoding = xmlEncoding(data);
+  let source: string;
+  try {
+    source = new TextDecoder(encoding, { fatal: true }).decode(data);
+  } catch {
+    throw new Error(`Unable to decode XML as ${encoding.toUpperCase()}.`);
+  }
+  const declaration = /^\s*<\?xml\b[^>]*\bencoding\s*=\s*["']([^"']+)["'][^>]*\?>/i.exec(source)?.[1]?.toLowerCase().replaceAll("_", "-");
+  if (declaration && !xmlDeclarationMatchesEncoding(declaration, encoding)) throw new Error(`XML declaration encoding ${declaration.toUpperCase()} does not match the entry bytes.`);
+  return source;
 }
 
+function xmlEncoding(data: Uint8Array): "utf-8" | "utf-16le" | "utf-16be" {
+  if (data[0] === 0xff && data[1] === 0xfe) return "utf-16le";
+  if (data[0] === 0xfe && data[1] === 0xff) return "utf-16be";
+  if (data[0] === 0x3c && data[1] === 0x00) return "utf-16le";
+  if (data[0] === 0x00 && data[1] === 0x3c) return "utf-16be";
+  return "utf-8";
+}
+
+function xmlDeclarationMatchesEncoding(declaration: string, encoding: "utf-8" | "utf-16le" | "utf-16be") {
+  if (declaration === "utf-8" || declaration === "utf8") return encoding === "utf-8";
+  if (declaration === "utf-16") return encoding === "utf-16le" || encoding === "utf-16be";
+  return declaration === encoding;
+}
+
+function createIdmlXmlError(entryPath: string, parserMessage: string, source?: string, position?: { line: number; column: number; position: number }) {
+  const problem = xmlProblem(parserMessage);
+  const line = position && Number.isFinite(position.line) ? position.line : undefined;
+  const column = position && Number.isFinite(position.column) ? position.column : undefined;
+  const context = source && position ? nearbyXmlContext(source, position.position) : undefined;
+  const location = line && column ? `\nat line ${line}, column ${column}.` : "";
+  return new IdmlImportError(`IDML XML error in ${entryPath}:\n${problem}${location}`, {
+    entryPath,
+    fileName: basename(entryPath),
+    problem,
+    parserMessage: compactXmlMessage(parserMessage),
+    ...(line && column ? { line, column } : {}),
+    ...(context ? { context } : {}),
+  });
+}
+
+function xmlProblem(message: string) {
+  if (/unexpected close tag|mismatched.*(?:close|end) tag/i.test(message)) return "Mismatched XML closing tag.";
+  return compactXmlMessage(message);
+}
+
+function compactXmlMessage(message: string) {
+  return message.replace(/^.*?:\d+:\d+:\s*/u, "").replace(/\s*\r?\n\s*/gu, " ").trim().slice(0, 320) || "Malformed XML.";
+}
+
+function nearbyXmlContext(source: string, position: number) {
+  const slice = source.slice(Math.max(0, Math.min(position, source.length) - 240), Math.min(source.length, position + 80));
+  const tags = [...slice.matchAll(/<\/?([A-Za-z_][\w:.-]*)\b[^>]*>/g)].map((match) => `${match[0].startsWith("</") ? "</" : "<"}${match[1]}>`).slice(-4);
+  return tags.length ? tags.join(" ") : undefined;
+}
 function scanUnsafeLinks(node: XmlNode, sourcePath: string, diagnostics: IdmlDiagnostic[]) {
-  for (const [key, value] of Object.entries(node.attributes)) {
-    if (!/(?:href|url|uri|link)/i.test(key)) continue;
-    if (/^(?:javascript|data|file|vbscript):/i.test(value.trim())) diagnostics.push({ severity: "ERROR", objectType: "HYPERLINK", message: `Unsafe hyperlink rejected in ${sourcePath}.`, suggestedAction: "Use a safe HTTP/HTTPS link or remove the link." });
-  }
+  for (const hyperlink of collectHyperlinks(node, sourcePath)) if (!hyperlink.active) diagnostics.push({ severity: "WARNING", objectType: "HYPERLINK", message: `Hyperlink requires review in ${sourcePath}.`, suggestedAction: "Preserved for import; unsafe activation disabled if required." });
   node.children.forEach((child) => scanUnsafeLinks(child, sourcePath, diagnostics));
 }
 
+function collectHyperlinks(node: XmlNode, sourcePath: string): IdmlHyperlink[] {
+  return Object.entries(node.attributes)
+    .filter(([key]) => /(?:href|url|uri|link)/i.test(key))
+    .map(([, value]) => value.trim())
+    .filter(Boolean)
+    .map((url) => ({ url, active: /^https?:\/\//i.test(url), sourcePath }));
+}
+
+const IMPORTABLE_ITEM_TYPES = new Set(["TextFrame", "Rectangle", "GraphicLine", "Oval", "Polygon", "Table"]);
+
+function itemDescendants(node: XmlNode): XmlNode[] {
+  const result: XmlNode[] = [];
+  for (const child of node.children) {
+    if (IMPORTABLE_ITEM_TYPES.has(localName(child.name))) result.push(child);
+    result.push(...itemDescendants(child));
+  }
+  return result;
+}
 function descendants(node: XmlNode, name: string): XmlNode[] {
   const result: XmlNode[] = [];
   for (const child of node.children) {
@@ -834,10 +1230,41 @@ function descendants(node: XmlNode, name: string): XmlNode[] {
 function localName(name: string) { return name.includes(":") ? name.slice(name.lastIndexOf(":") + 1) : name; }
 function attr(node: XmlNode, name: string) { return node.attributes[name] ?? node.attributes[localName(name)]; }
 function textContent(node: XmlNode): string { return `${node.text}${node.children.map(textContent).join("")}`.replace(/\r\n/g, "\n"); }
+function transformedPathBounds(node: XmlNode): [number, number, number, number] | null {
+  const matrix = spreadTransform(node);
+  const points = descendants(node, "PathPointType")
+    .map((point) => (attr(point, "Anchor") ?? "").trim().split(/[\s,]+/).map(Number))
+    .filter((point): point is [number, number] => point.length === 2 && point.every(Number.isFinite));
+  if (!points.length) return null;
+  const transformed = points.map(([x, y]) => [matrix[0] * x + matrix[2] * y + matrix[4], matrix[1] * x + matrix[3] * y + matrix[5]] as [number, number]);
+  const xs = transformed.map(([x]) => x);
+  const ys = transformed.map(([, y]) => y);
+  return [Math.min(...ys), Math.min(...xs), Math.max(...ys), Math.max(...xs)];
+}
+
+function spreadTransform(node: XmlNode): [number, number, number, number, number, number] {
+  let matrix = parseTransform(attr(node, "ItemTransform"));
+  let current = node.parent;
+  while (current && localName(current.name) !== "Spread") {
+    if (localName(current.name) === "Group") matrix = multiplyTransforms(parseTransform(attr(current, "ItemTransform")), matrix);
+    current = current.parent;
+  }
+  return matrix;
+}
+
+function multiplyTransforms(parent: [number, number, number, number, number, number], child: [number, number, number, number, number, number]): [number, number, number, number, number, number] {
+  const [a, b, c, d, tx, ty] = parent;
+  const [e, f, g, h, ux, uy] = child;
+  return [a * e + c * f, b * e + d * f, a * g + c * h, b * g + d * h, a * ux + c * uy + tx, b * ux + d * uy + ty];
+}
+function parseTransform(value: string | undefined): [number, number, number, number, number, number] {
+  const values = (value ?? "").trim().split(/[\s,]+/).map(Number);
+  return values.length === 6 && values.every(Number.isFinite) ? values as [number, number, number, number, number, number] : [1, 0, 0, 1, 0, 0];
+}
 function parseBounds(value: string | undefined): [number, number, number, number] | null { const values = (value ?? "").trim().split(/[\s,]+/).map(Number); return values.length === 4 && values.every(Number.isFinite) ? values as [number, number, number, number] : null; }
 function finite(value: string | undefined, fallback: number) { const parsed = Number(value); return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback; }
 function rotationFromTransform(value: string | undefined) { const values = (value ?? "").trim().split(/[\s,]+/).map(Number); return values.length >= 4 && values.slice(0, 4).every(Number.isFinite) ? Math.round(Math.atan2(values[1], values[0]) * 180 / Math.PI * 100) / 100 : 0; }
-function belongsToPage(node: XmlNode, pageNode: XmlNode, bounds: [number, number, number, number]) { const pageRef = attr(node, "ParentPage") || attr(node, "ParentPageRef"); if (pageRef) return pageRef === attr(pageNode, "Self"); const item = parseBounds(attr(node, "GeometricBounds")); if (!item) return false; const [top, left, bottom, right] = item; const [pageTop, pageLeft, pageBottom, pageRight] = bounds; const centerX = (left + right) / 2; const centerY = (top + bottom) / 2; return centerX >= pageLeft && centerX <= pageRight && centerY >= pageTop && centerY <= pageBottom; }
+function belongsToPage(node: XmlNode, pageNode: XmlNode, bounds: [number, number, number, number]) { const pageRef = attr(node, "ParentPage") || attr(node, "ParentPageRef"); if (pageRef) return pageRef === attr(pageNode, "Self"); const item = parseBounds(attr(node, "GeometricBounds")) ?? transformedPathBounds(node); if (!item) return false; const [top, left, bottom, right] = item; const [pageTop, pageLeft, pageBottom, pageRight] = bounds; const centerX = (left + right) / 2; const centerY = (top + bottom) / 2; return centerX >= pageLeft && centerX <= pageRight && centerY >= pageTop && centerY <= pageBottom; }
 function findLink(node: XmlNode) { const link = descendants(node, "Link")[0]; return link ? attr(link, "LinkResourceURI") || attr(link, "RelativeURI") || attr(link, "FilePath") || attr(link, "Name") : undefined; }
 function resolvePackageReference(base: string, value: string | undefined, files: Map<string, XmlNode>) { if (!value) return null; const normalized = normalizeLinkPath(value); return findEntry(files as unknown as Map<string, ZipEntry>, (path) => normalizeLinkPath(path) === normalizeLinkPath(`${base}/${normalized}`) || normalizeLinkPath(path).endsWith(`/${basename(normalized)}`)) ?? null; }
 function normalizeLinkPath(value: string) { try { return decodeURIComponent(value).replaceAll("\\", "/").replace(/^file:\/\//i, "").split("/").filter((part) => part && part !== ".").join("/").toLowerCase(); } catch { return value.replaceAll("\\", "/").toLowerCase(); } }
@@ -850,10 +1277,19 @@ function safeSourceReference(value: string) {
 }
 
 function mapLayer(name: string): "BACKGROUND" | "CONTENT" | "DESIGN" | "INTERACTIVE" { if (/background|backdrop|master/i.test(name)) return "BACKGROUND"; if (/interactive|button|link/i.test(name)) return "INTERACTIVE"; if (/design|decor|graphic|illustration/i.test(name)) return "DESIGN"; return "CONTENT"; }
-function mapAlignment(value: string | undefined): "left" | "center" | "right" { if (/center/i.test(value ?? "")) return "center"; if (/right|end/i.test(value ?? "")) return "right"; return "left"; }
+function mapAlignment(value: string | undefined): "left" | "center" | "right" | "justify" { if (/justify|fully/i.test(value ?? "")) return "justify"; if (/center/i.test(value ?? "")) return "center"; if (/right|end/i.test(value ?? "")) return "right"; return "left"; }
 function mapDirection(value: string | undefined): "LTR" | "RTL" | "AUTO" { if (/rtl|right.?to.?left/i.test(value ?? "")) return "RTL"; if (/auto/i.test(value ?? "")) return "AUTO"; return "LTR"; }
-function mapFont(value: string) { if (/minion|garamond|times|serif/i.test(value)) return "Georgia"; if (/helvetica|arial|univers|sans/i.test(value)) return "Arial, sans-serif"; return "Arial, sans-serif"; }
-function safeColor(value: string | undefined) { if (!value || /^None$/i.test(value)) return null; if (/^#[0-9a-f]{3,8}$/i.test(value.trim())) return value.trim(); if (/white/i.test(value)) return "#ffffff"; if (/black/i.test(value)) return "#000000"; return null; }
+function mapFont(value: string) { const requested = fontName(value).replace(/[^A-Za-z0-9 .,-]/g, "").trim(); if (!requested || /^(arial|default)$/i.test(requested)) return "Arial, sans-serif"; const fallback = /minion|garamond|times|serif|bookman|book antiqu/i.test(requested) ? "Georgia, serif" : /trebuchet/i.test(requested) ? "Trebuchet MS, Arial, sans-serif" : "Arial, sans-serif"; return `"${requested}", ${fallback}`; }
+function safeColor(value: string | undefined) {
+  if (!value || /^None$/i.test(value) || /Swatch\/None|Unassigned/i.test(value)) return null;
+  if (/^#[0-9a-f]{3,8}$/i.test(value.trim())) return value.trim();
+  if (/white|paper/i.test(value)) return "#ffffff";
+  if (/black/i.test(value)) return "#000000";
+  const cmyk = value.match(/C\s*=\s*([\d.]+)\s*M\s*=\s*([\d.]+)\s*Y\s*=\s*([\d.]+)\s*K\s*=\s*([\d.]+)/i);
+  if (!cmyk) return null;
+  const [c, m, y, k] = cmyk.slice(1).map(Number).map((component) => Math.max(0, Math.min(100, component)) / 100);
+  return `#${[c, m, y].map((component) => Math.round((1 - Math.min(1, component * (1 - k) + k)) * 255).toString(16).padStart(2, "0")).join("")}`;
+}
 export function idmlPreviewKey(sourcePath: string) { return `idml-preview:${stableHash(new TextEncoder().encode(sourcePath))}`; }
 export function idmlReplicaKey(sourcePath: string) { return `idml-replica:${stableHash(new TextEncoder().encode(sourcePath))}`; }
 function stableId(prefix: string, source: string) { return `${prefix}-${stableHash(new TextEncoder().encode(source)).slice(0, 12)}`; }

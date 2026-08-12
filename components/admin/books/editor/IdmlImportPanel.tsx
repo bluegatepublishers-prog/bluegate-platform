@@ -14,6 +14,8 @@ type AnalysisResponse = {
 };
 
 type PageModes = Record<string, LayoutV2VisualMode>;
+type IdmlXmlFailure = { entryPath: string; fileName: string; problem: string; line?: number; column?: number };
+type IdmlSizeFailure = { category: "OUTER_PACKAGE" | "NESTED_IDML" | "INTERNAL_XML" | "LINKED_ASSET" | "STORY_TEXT"; entryPath: string; fileName: string; problem: string; allowedBytes: number; detectedBytes?: number };
 
 export default function IdmlImportPanel({ bookId, nodeId, nodeType, currentDocument, open = false, onClose }: { bookId: string; nodeId: string; nodeType: string; currentDocument: ContentDocument; open?: boolean; onClose?: () => void }) {
   const [file, setFile] = useState<File | null>(null);
@@ -25,6 +27,8 @@ export default function IdmlImportPanel({ bookId, nodeId, nodeType, currentDocum
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [xmlFailure, setXmlFailure] = useState<IdmlXmlFailure | null>(null);
+  const [sizeFailure, setSizeFailure] = useState<IdmlSizeFailure | null>(null);
   const existingV2 = analysis?.hasExistingV2 ?? getContentLayoutVersion(currentDocument) === 2;
   const pageCount = analysis?.analysis.document.pageLayout?.pages.length ?? 0;
   const previewDocument = useMemo(() => {
@@ -46,6 +50,8 @@ export default function IdmlImportPanel({ bookId, nodeId, nodeType, currentDocum
     }
     setBusy(true);
     setError("");
+    setXmlFailure(null);
+    setSizeFailure(null);
     setMessage("");
     try {
       const form = new FormData();
@@ -55,8 +61,8 @@ export default function IdmlImportPanel({ bookId, nodeId, nodeType, currentDocum
       form.set("nodeType", nodeType);
       form.set("package", file);
       const response = await fetch("/api/admin/content/import/idml", { method: "POST", body: form });
-      const body = await response.json() as { ok?: boolean; message?: string } & Partial<AnalysisResponse>;
-      if (!response.ok || !body.ok || !body.analysis || !body.currentContentHash) throw new Error(body.message || "Unable to analyze the IDML package.");
+      const body = await response.json() as { ok?: boolean; message?: string; idmlXmlError?: IdmlXmlFailure; idmlSizeError?: IdmlSizeFailure } & Partial<AnalysisResponse>;
+      if (!response.ok || !body.ok || !body.analysis || !body.currentContentHash) { setXmlFailure(body.idmlXmlError ?? null); setSizeFailure(body.idmlSizeError ?? null); throw new Error(body.message || "Unable to analyze the IDML package."); }
       setAnalysis({ analysis: body.analysis, currentContentHash: body.currentContentHash, hasExistingV2: Boolean(body.hasExistingV2) });
       setPageModes(Object.fromEntries(body.analysis.pageRecommendations.map((page) => [page.pageId, page.referenceAvailable && page.recommendation === "EXACT_REPLICA" ? "EXACT_REPLICA" : "EDITABLE"])));
       setPageIndex(0);
@@ -114,17 +120,17 @@ export default function IdmlImportPanel({ bookId, nodeId, nodeType, currentDocum
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.14em] text-indigo-700">Import</p>
-          <p className="text-sm font-semibold text-slate-900">InDesign Package (.zip)</p>
+          <p className="text-sm font-semibold text-slate-900">InDesign Package (.zip or .idml)</p>
         </div>
         <label className="cursor-pointer rounded-lg border border-indigo-200 bg-white px-3 py-2 text-xs font-bold text-indigo-800">
           {file ? file.name : "Choose package"}
-          <input type="file" accept=".zip,application/zip" className="sr-only" onChange={(event) => { setFile(event.target.files?.[0] ?? null); setAnalysis(null); setPageModes({}); setError(""); setMessage(""); }} />
+          <input type="file" accept=".zip,.idml,application/zip" className="sr-only" onChange={(event) => { setFile(event.target.files?.[0] ?? null); setAnalysis(null); setPageModes({}); setError(""); setXmlFailure(null); setSizeFailure(null); setMessage(""); }} />
         </label>
         <button type="button" disabled={!file || busy} onClick={() => void analyze()} className="rounded-lg bg-indigo-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">{busy && !analysis ? "Analyzing…" : "Analyze"}</button>
         {onClose ? <button type="button" onClick={onClose} className="rounded-lg border border-indigo-200 bg-white px-3 py-2 text-xs font-bold text-slate-700">Close</button> : null}
       </div>
       <p className="mt-2 text-xs text-slate-600">Upload → analyze → review fidelity → preview → explicit confirmation. Existing content is unchanged until confirmation.</p>
-      {error ? <p className="mt-2 rounded-lg bg-rose-100 px-3 py-2 text-xs font-semibold text-rose-800">{error}</p> : null}
+      {sizeFailure ? <IdmlSizeFailureNotice failure={sizeFailure} /> : xmlFailure ? <IdmlXmlFailureNotice failure={xmlFailure} /> : error ? <p role="alert" className="mt-2 rounded-lg bg-rose-100 px-3 py-2 text-xs font-semibold text-rose-800">{error}</p> : null}
       {message ? <p className="mt-2 text-xs font-semibold text-emerald-700">{message}</p> : null}
       {analysis ? <AnalysisView analysis={analysis.analysis} pageIndex={pageIndex} pageCount={pageCount} pageModes={pageModes} previewDocument={previewDocument} existingV2={existingV2} mode={mode} semanticOverlay={semanticOverlay} busy={busy} onPageChange={setPageIndex} onPageModeChange={(pageId, value) => setPageModes((current) => ({ ...current, [pageId]: value }))} onModeChange={setMode} onSemanticOverlayChange={setSemanticOverlay} onConfirm={() => void confirmImport()} /> : null}
     </section>
@@ -154,6 +160,33 @@ function AnalysisView({ analysis, pageIndex, pageCount, pageModes, previewDocume
       <button type="button" disabled={busy || summary.errors > 0 || exactUnavailable} onClick={onConfirm} className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">{busy ? "Applying…" : "Confirm and import V2 — Editable / Hybrid"}</button>
     </div>
   );
+}
+
+function IdmlXmlFailureNotice({ failure }: { failure: IdmlXmlFailure }) {
+  return <section role="alert" className="mt-2 rounded-lg bg-rose-100 px-3 py-2 text-xs text-rose-900">
+    <p className="font-bold">Import analysis failed</p>
+    <p className="mt-1"><strong>File:</strong> {failure.entryPath}</p>
+    <p className="mt-1"><strong>Problem:</strong> {failure.problem}</p>
+    {failure.line && failure.column ? <p className="mt-1"><strong>Location:</strong> line {failure.line}, column {failure.column}</p> : null}
+    <p className="mt-1 text-rose-800">The IDML package contains invalid XML. Re-export it from InDesign or repair this file.</p>
+  </section>;
+}
+
+function IdmlSizeFailureNotice({ failure }: { failure: IdmlSizeFailure }) {
+  return <section role="alert" className="mt-2 rounded-lg bg-amber-100 px-3 py-2 text-xs text-amber-950">
+    <p className="font-bold">Import analysis stopped</p>
+    <p className="mt-1"><strong>File:</strong> {failure.entryPath}</p>
+    <p className="mt-1"><strong>Problem:</strong> {failure.problem}</p>
+    <p className="mt-1"><strong>Allowed size:</strong> {formatBytes(failure.allowedBytes)}</p>
+    {failure.detectedBytes === undefined ? null : <p className="mt-1"><strong>Detected size:</strong> {formatBytes(failure.detectedBytes)}</p>}
+    <p className="mt-1 text-amber-900">This is a safety limit, not an invalid-XML error. {failure.category === "NESTED_IDML" ? "This IDML document is larger than the current safe import limit." : failure.category === "STORY_TEXT" ? "This story contains more extracted text than the current safe import limit." : "Reduce the package or file size and analyze it again."}</p>
+  </section>;
+}
+
+function formatBytes(value: number) {
+  if (value >= 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(value % (1024 * 1024) === 0 ? 0 : 1)} MB`;
+  if (value >= 1024) return `${Math.ceil(value / 1024)} KB`;
+  return `${value} bytes`;
 }
 
 function DiagnosticList({ diagnostics }: { diagnostics: IdmlDiagnostic[] }) {

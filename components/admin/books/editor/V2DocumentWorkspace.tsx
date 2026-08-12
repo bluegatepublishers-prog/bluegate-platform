@@ -1,17 +1,21 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import type { ChangeEvent, PointerEvent, ReactNode } from "react";
 
 import V2PageCanvas from "@/components/admin/books/editor/V2PageCanvas";
+import PdfImportDialog from "@/components/admin/books/editor/PdfImportDialog";
 import ProtectedResourceThumbnail from "@/components/admin/books/editor/ProtectedResourceThumbnail";
 import V2TextFrame from "@/components/admin/books/editor/V2TextFrame";
 import V2FrameContent from "@/components/content/v2/V2FrameContent";
 import V2ReadAloudPlayer from "@/components/content/V2ReadAloudPlayer";
+import ReadAloudPageInspector from "@/components/admin/books/editor/ReadAloudPageInspector";
 import V2ImageVisual from "@/components/content/v2/V2ImageVisual";
 import type { ContentBlock, ContentDocument } from "@/lib/content-document";
 import { buildV2NarrationManifest, getNarrationStatus } from "@/lib/content-narration";
 import { EDUCATIONAL_OBJECT_REGISTRY, getEducationalObjectDefinition, isEducationalObjectType } from "@/lib/educational-object-registry";
+import { getAllBookPageViews, getBookPageViewsForRange, type BookPageScope } from "@/lib/book-page-filter";
 import type { V2TextFramePatch, V2TextLayoutSpan } from "@/lib/content-layout-v2-text";
 import {
   addV2Page,
@@ -30,6 +34,7 @@ import {
   updateV2FrameLayer,
   updateV2PageLayout,
   createV2Frame,
+  createV2PageLayout,
   normalizeV2ImageTransform,
   V2_IMAGE_ZOOM_MAX,
   V2_IMAGE_ZOOM_MIN,
@@ -42,6 +47,7 @@ import {
   type LayoutV2FrameGeometry,
   type LayoutV2FrameType,
   type LayoutV2NarrationSegment,
+  type LayoutV2Page,
 } from "@/lib/content-layout-v2";
 
 export type ResourceOption = {
@@ -77,6 +83,11 @@ const V2_SHAPE_PRESETS = [
 ] as const;
 
 type Props = {
+  bookId?: string;
+  hasFullBookPdf?: boolean;
+  onImportPdf?: () => Promise<{ pageCount: number; pages: LayoutV2Page[] }>;
+  onAttachPdf?: (uploadedPdfKey: string) => Promise<{ pageCount: number }>;
+  onPrepareReadAloud?: () => Promise<{ updatedPageCount: number; matchedPageCount: number }>;
   title: string;
   document: ContentDocument;
   resources: ResourceOption[];
@@ -99,9 +110,21 @@ type Props = {
   onFrameTextChange: (frame: LayoutV2Frame, value: string, spans?: V2TextLayoutSpan[], patch?: V2TextFramePatch) => void;
   onAddFrame: (type: LayoutV2FrameType, pageId: string, frame: LayoutV2Frame) => void;
   onUploadResource?: (file: File, title: string, type: "IMAGE" | "VIDEO") => Promise<ResourceOption>;
+  pageScope?: BookPageScope | null;
+  initialPageNumber?: number | null;
+  isBookRootContext?: boolean;
 };
 
+export function hasMeaningfulV2Content(document: ContentDocument) {
+  return document.blocks.length > 0 || Boolean(document.pageLayout?.pages.some((page) => page.frames.length > 0 || page.background?.resourceId || page.replica));
+}
+
 export default function V2DocumentWorkspace({
+  bookId,
+  hasFullBookPdf = false,
+  onImportPdf,
+  onAttachPdf,
+  onPrepareReadAloud,
   title,
   document,
   resources,
@@ -124,14 +147,22 @@ export default function V2DocumentWorkspace({
   onFrameTextChange,
   onAddFrame,
   onUploadResource,
+  pageScope = null,
+  initialPageNumber = null,
+  isBookRootContext = true,
 }: Props) {
+  const router = useRouter();
   const workspaceRef = useRef<HTMLDivElement>(null);
+  const toolbarRef = useRef<HTMLElement>(null);
+  const previewMenuRef = useRef<HTMLDivElement>(null);
   const textSelectionRef = useRef<Range | null>(null);
   const [selectedFrameId, setSelectedFrameId] = useState<string | null>(null);
   const [cropFrameId, setCropFrameId] = useState<string | null>(null);
   const [semanticOverlay, setSemanticOverlay] = useState(false);
   const [showGuides, setShowGuides] = useState(false);
   const [grammarMessage, setGrammarMessage] = useState("");
+  const [previewMenuOpen, setPreviewMenuOpen] = useState(false);
+  const [reviewSurface, setReviewSurface] = useState<"GRAMMAR" | "READ_ALOUD" | null>(null);
   const [activeRibbonTab, setActiveRibbonTab] = useState<"HOME" | "INSERT" | "ASSIGNMENTS" | "REVIEW" | "VIEW" | "IMPORT">("HOME");
   const [insertSurface, setInsertSurface] = useState<"IMAGE" | "VIDEO" | "TABLE" | "EDUCATIONAL" | null>(null);
   const [shapePickerOpen, setShapePickerOpen] = useState(false);
@@ -143,17 +174,33 @@ export default function V2DocumentWorkspace({
   const [uploadError, setUploadError] = useState("");
   const [pendingVideoDuplicate, setPendingVideoDuplicate] = useState<{ file: File; replaceFrameId?: string; matches: VideoDuplicateMatch[] } | null>(null);
   const [pendingImageDuplicate, setPendingImageDuplicate] = useState<{ file: File; replaceFrameId?: string; matches: ImageDuplicateMatch[] } | null>(null);
-  const [narrationOpen, setNarrationOpen] = useState(false);
   const [propertiesOpen, setPropertiesOpen] = useState(true);
   const [deletePageTargetId, setDeletePageTargetId] = useState<string | null>(null);
   const [deletePageConfirming, setDeletePageConfirming] = useState(false);
   const [clipboardMessage, setClipboardMessage] = useState("");
   const [pageViewMode, setPageViewMode] = useState<"WEB" | "A4" | "CUSTOM">("A4");
+  const [pdfImportOpen, setPdfImportOpen] = useState(false);
+  const [uploadedPdfIsAvailable, setUploadedPdfIsAvailable] = useState(false);
+  const [pageInputValue, setPageInputValue] = useState("1");
   const [activePageId, setActivePageId] = useState(document.pageLayout?.pages[0]?.id ?? null);
   const [activeTextFrameId, setActiveTextFrameId] = useState<string | null>(
     document.pageLayout?.pages[0]?.frames.find(isV2MainFlowFrame)?.id ?? null,
   );
   const layout = document.pageLayout;
+  const visiblePageViews = useMemo(
+    () => pageScope
+      ? getBookPageViewsForRange(document, pageScope.startPage, pageScope.endPage)
+      : getAllBookPageViews(document),
+    [document, pageScope],
+  );
+  const visiblePages = visiblePageViews.map((view) => view.page);
+  const activeVisibleIndex = Math.max(0, visiblePages.findIndex((page) => page.id === activePageId));
+  const activePageView = visiblePageViews[activeVisibleIndex] ?? visiblePageViews[0];
+  const activePageIndex = layout ? Math.max(0, layout.pages.findIndex((page) => page.id === activePageView?.page.id)) : 0;
+  const activeAbsolutePageNumber = activePageView?.absolutePageNumber ?? 0;
+  const pageCountLabel = pageScope
+    ? `${pageScope.title} page ${activePageView?.rangePageNumber ?? 0} of ${activePageView?.rangePageCount ?? 0} · Book page ${activeAbsolutePageNumber} of ${activePageView?.absolutePageCount ?? 0}`
+    : `Book page ${activeAbsolutePageNumber} of ${visiblePageViews.length}`;
   const narrationManifest = useMemo(() => buildV2NarrationManifest(document, "ADMIN_PREVIEW", { scopeId: title || "admin-preview" }), [document, title]);
   useEffect(() => {
     if (!selectedFrameId) return;
@@ -166,11 +213,49 @@ export default function V2DocumentWorkspace({
     });
     return () => cancelAnimationFrame(animationFrame);
   }, [selectedFrameId]);
+  useEffect(() => {
+    const desiredPage = initialPageNumber ?? pageScope?.startPage ?? 1;
+    const nextView = visiblePageViews.find((view) => view.absolutePageNumber === desiredPage) ?? visiblePageViews[0];
+    if (!nextView) return;
+    const frame = requestAnimationFrame(() => {
+      setActivePageId(nextView.page.id);
+      setPageInputValue(String(nextView.absolutePageNumber));
+      setSelectedFrameId(null);
+      setActiveTextFrameId(null);
+      setCropFrameId(null);
+      setInsertionPoint(null);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [initialPageNumber, pageScope?.endPage, pageScope?.startPage, visiblePageViews]);
+  useEffect(() => {
+    if (!previewMenuOpen && !shapePickerOpen && !insertSurface) return;
+    const closeWhenOutside = (event: Event) => {
+      if (previewMenuOpen && !previewMenuRef.current?.contains(event.target as Node)) setPreviewMenuOpen(false);
+      if (toolbarRef.current?.contains(event.target as Node)) return;
+      setShapePickerOpen(false);
+      setInsertSurface(null);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setPreviewMenuOpen(false);
+      setShapePickerOpen(false);
+      setInsertSurface(null);
+    };
+    globalThis.document.addEventListener("pointerdown", closeWhenOutside);
+    globalThis.document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      globalThis.document.removeEventListener("pointerdown", closeWhenOutside);
+      globalThis.document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [insertSurface, previewMenuOpen, shapePickerOpen]);
   if (!layout) return null;
+  if (pageScope && visiblePageViews.length === 0) return <div className="m-6 rounded-2xl border border-amber-200 bg-amber-50 p-6 text-sm font-semibold text-amber-900">No book pages are mapped to this item yet.</div>;
 
   const scale = Math.max(0.4, Math.min(2, zoom / 100));
-  const activePageIndex = Math.max(0, layout.pages.findIndex((page) => page.id === activePageId));
-  const activePage = layout.pages[activePageIndex] ?? layout.pages[0];
+  const activePage = activePageView?.page ?? layout.pages[0];
+  const activeOriginalPage = layout.pages.find((page) => page.pdfBackground?.pageNumber === activeAbsolutePageNumber)
+    ?? layout.pages.find((page) => page.id === activePage?.id)
+    ?? activePage;
   const deletePageTarget = deletePageTargetId ? layout.pages.find((page) => page.id === deletePageTargetId) ?? null : null;
   const deletePageTargetIndex = deletePageTarget ? layout.pages.findIndex((page) => page.id === deletePageTarget.id) : -1;
   const deletePageObjectCount = deletePageTarget ? deletePageTarget.frames.reduce((count, frame) => count + 1 + (frame.children?.length ?? 0), 0) : 0;
@@ -205,6 +290,8 @@ export default function V2DocumentWorkspace({
   const activeNarrationPage = activePage ? narrationManifest.pages.find((page) => page.pageId === activePage.id) : undefined;
   const narrationStatus = activePage && activeNarrationPage ? getNarrationStatus(activePage, activeNarrationPage) : "UNAVAILABLE";
   const narrationAudioUrls = Object.fromEntries(audioResources.map((resource) => [resource.id, "/api/admin/resources/" + encodeURIComponent(resource.id) + "/preview"]));
+  const canPrepareReadAloud = Boolean(hasFullBookPdf && onPrepareReadAloud);
+  const canEditReadAloud = Boolean(onPrepareReadAloud);
 
   const patchFrame = (frameId: string, patch: Partial<LayoutV2Frame>, message: string) => {
     const record = findV2FrameRecord(layout, frameId);
@@ -377,6 +464,7 @@ export default function V2DocumentWorkspace({
     }, "Narration segment mapping updated");
   };
   const addPage = () => {
+    if (pageScope) return;
     const nextLayout = ensureV2MainFlowFrames(addV2Page(layout));
     const nextPage = nextLayout.pages[nextLayout.pages.length - 1];
     setActivePageId(nextPage?.id ?? activePageId);
@@ -385,6 +473,7 @@ export default function V2DocumentWorkspace({
   };
 
   const deletePage = (pageId: string) => {
+    if (pageScope) return;
     const pageIndex = layout.pages.findIndex((page) => page.id === pageId);
     if (pageIndex < 0 || layout.pages.length <= 1) return;
     const nextLayout = deleteV2Page(layout, pageId);
@@ -398,7 +487,7 @@ export default function V2DocumentWorkspace({
   };
 
   const moveActivePage = (direction: -1 | 1) => {
-    if (!activePage) return;
+    if (pageScope || !activePage) return;
     const nextLayout = reorderV2Page(layout, activePage.id, direction);
     onDocumentChange({ ...document, pageLayout: nextLayout }, direction < 0 ? "Page moved up" : "Page moved down");
   };
@@ -526,11 +615,81 @@ export default function V2DocumentWorkspace({
     fitCanvas(mode === "WEB" ? "WIDTH" : "PAGE");
   };
 
-  const goToPage = (offset: number) => {
-    const page = layout.pages[activePageIndex + offset];
+
+  const navigateToPage = (page: LayoutV2Page | undefined) => {
     if (!page) return;
+    const view = visiblePageViews.find((entry) => entry.page.id === page.id);
+    if (!view) return;
     setActivePageId(page.id);
-    setActiveTextFrameId(page.frames.find(isV2MainFlowFrame)?.id ?? null);
+    setPageInputValue(String(view.absolutePageNumber));
+    setSelectedFrameId(null);
+    setActiveTextFrameId(null);
+    setCropFrameId(null);
+    setInsertionPoint(null);
+    if (typeof globalThis.location !== "undefined") {
+      const params = new URLSearchParams(globalThis.location.search);
+      params.set("page", String(view.absolutePageNumber));
+      router.replace(`${globalThis.location.pathname}?${params.toString()}`, { scroll: false });
+    }
+  };
+
+  const goToPage = (offset: number) => {
+    navigateToPage(visiblePages[activeVisibleIndex + offset]);
+  };
+
+  const commitPageInput = () => {
+    const parsed = Number.parseInt(pageInputValue, 10);
+    const firstPage = visiblePageViews[0]?.absolutePageNumber ?? 1;
+    const lastPage = visiblePageViews.at(-1)?.absolutePageNumber ?? firstPage;
+    const absolutePageNumber = Math.min(lastPage, Math.max(firstPage, Number.isFinite(parsed) ? Math.trunc(parsed) : firstPage));
+    const view = visiblePageViews.find((entry) => entry.absolutePageNumber === absolutePageNumber);
+    if (view) navigateToPage(view.page);
+  };
+
+
+  const renderPageCanvas = (page: LayoutV2Page, pageNumber: number, pdfBackgroundActive: boolean) => (
+    <div key={page.id} onClick={() => navigateToPage(page)} className={activePage?.id === page.id ? "rounded-xl ring-2 ring-indigo-300 ring-offset-2 ring-offset-[#e7ebf0]" : "rounded-xl"}>
+            <V2PageCanvas
+              page={page}
+              pdfUrl={bookId ? "/api/books/" + bookId + "/full-pdf" : undefined}
+              pdfBackgroundActive={pdfBackgroundActive}
+              scale={scale}
+              pageNumber={pageNumber}
+              selectedFrameId={selectedFrameId}
+              renderFrame={(frame, frames) => renderV2Frame(frame, frames, page.width, page.height, blocks, renderBlock, onFrameTextChange, frame.id === cropFrameId, scale, semanticOverlay, (patch: Partial<LayoutV2Frame>, message: string) => patchImage(frame.id, patch, message), () => setCropFrameId(frame.id))}
+              onSelectFrame={(frameId) => {
+                setSelectedFrameId(frameId);
+                const frame = getV2Frame(layout, page.id, frameId);
+                setActiveTextFrameId(frame?.type === "TEXT" ? frame.id : null);
+                setInsertionPoint(null);
+              }}
+              onActivateMainFlow={(frameId) => {
+                setSelectedFrameId(null);
+                setActiveTextFrameId(frameId);
+                setInsertionPoint(null);
+              }}
+              onClearSelection={() => { setSelectedFrameId(null); setActiveTextFrameId(null); }}
+              onSetInsertionPoint={(point) => { setActiveTextFrameId(null); setInsertionPoint({ pageId: page.id, ...point }); }}
+              insertionPoint={insertionPoint?.pageId === page.id ? insertionPoint : undefined}
+              onCommitGeometry={(frameId, geometry) => commitFrameGeometry(page.id, frameId, geometry)}
+              onDeleteFrame={(frameId) => deleteFrame(frameId)}
+              onDropFrame={handleDropFrame}
+              onPatchFrame={(frameId, patch, message) => patchFrame(frameId, patch, message)}
+              semanticOverlay={semanticOverlay}
+              showGuides={showGuides}
+            />
+    </div>
+  );
+
+  const applyPdfImportPages = (pages: LayoutV2Page[]) => {
+    const firstPage = pages[0];
+    if (!firstPage) return;
+    const pageLayout = createV2PageLayout({ pageSize: { preset: "CUSTOM", width: firstPage.width, height: firstPage.height, unit: firstPage.unit }, pages });
+    setActivePageId(pageLayout.pages[0]?.id ?? null);
+    setPageInputValue("1");
+    setActiveTextFrameId(null);
+    setSelectedFrameId(null);
+    onDocumentChange({ ...document, layoutVersion: 2, pageLayout }, `Import complete: ${pageLayout.pages.length} PDF page${pageLayout.pages.length === 1 ? "" : "s"} added to the V2 layout.`);
   };
 
   const rememberTextSelection = () => {
@@ -586,6 +745,8 @@ export default function V2DocumentWorkspace({
   };
 
   const openInsertSurface = (surface: "IMAGE" | "VIDEO" | "TABLE" | "EDUCATIONAL") => {
+    setPreviewMenuOpen(false);
+    setShapePickerOpen(false);
     setInsertionMode(surface === "IMAGE" || surface === "TABLE" ? (mainFlowActive || selectedFrame?.type === "TEXT" ? "FLOW" : "FLOAT") : "FLOAT");
     setInsertSurface(surface);
     setUploadError("");
@@ -596,65 +757,83 @@ export default function V2DocumentWorkspace({
     editor?.focus();
     setGrammarMessage("Browser spelling and grammar checking is active in editable text.");
   };
+  const selectRibbonTab = (tab: "HOME" | "INSERT" | "ASSIGNMENTS" | "REVIEW" | "VIEW" | "IMPORT") => {
+    if (tab === "ASSIGNMENTS" && assignmentsHref) {
+      setReviewSurface(null);
+      globalThis.location.assign(assignmentsHref);
+      return;
+    }
+    setActiveRibbonTab(tab);
+    setPreviewMenuOpen(false);
+    setInsertSurface(null);
+    if (tab !== "REVIEW") setReviewSurface(null);
+  };
 
   return (
-    <div ref={workspaceRef} data-v2-unified-workspace className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-[#e7ebf0]" onSelectCapture={rememberTextSelection} onKeyUpCapture={rememberTextSelection} onMouseUpCapture={rememberTextSelection} onKeyDown={(event) => { if (event.key === "Escape") { setCropFrameId(null); setInsertSurface(null); setShapePickerOpen(false); setNarrationOpen(false); } }}>
-      <header data-v2-sticky-header data-primary-insert-types={V2_PRIMARY_INSERT_TYPES.join(",")} className="sticky top-0 z-40 shrink-0 border-b border-slate-300 bg-white shadow-sm">
+    <div ref={workspaceRef} data-v2-unified-workspace className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-[#e7ebf0]" onSelectCapture={rememberTextSelection} onKeyUpCapture={rememberTextSelection} onMouseUpCapture={rememberTextSelection} onKeyDown={(event) => { if (event.key === "Escape") { setCropFrameId(null); setPreviewMenuOpen(false); setInsertSurface(null); setShapePickerOpen(false); } }}>
+      <header ref={toolbarRef} data-v2-sticky-header data-primary-insert-types={V2_PRIMARY_INSERT_TYPES.join(",")} className="sticky top-0 z-40 shrink-0 border-b border-slate-300 bg-white shadow-sm">
         <div className="flex min-h-11 min-w-0 items-center gap-2 px-3 py-1.5">
         <nav aria-label="Content Studio ribbon" className="flex min-w-0 items-stretch gap-1">
-          {(["HOME", "INSERT", "ASSIGNMENTS", "REVIEW", "VIEW", "IMPORT"] as const).map((tab) => <button key={tab} type="button" onClick={() => { if (tab === "ASSIGNMENTS" && assignmentsHref) { globalThis.location.assign(assignmentsHref); return; } setActiveRibbonTab(tab); setInsertSurface(null); if (tab !== "REVIEW") setNarrationOpen(false); }} className={`border-b-2 px-2 py-1 text-xs font-bold ${activeRibbonTab === tab ? "border-indigo-600 text-indigo-700" : "border-transparent text-slate-600 hover:bg-slate-50"}`}>{tab === "IMPORT" ? "Import InDesign" : tab[0] + tab.slice(1).toLowerCase()}</button>)}
+          {(["HOME", "INSERT", "ASSIGNMENTS", "REVIEW", "VIEW", "IMPORT"] as const).map((tab) => <button key={tab} type="button" onClick={() => selectRibbonTab(tab)} className={`border-b-2 px-2 py-1 text-xs font-bold ${activeRibbonTab === tab ? "border-indigo-600 text-indigo-700" : "border-transparent text-slate-600 hover:bg-slate-50"}`}>{tab === "IMPORT" ? "Import InDesign" : tab[0] + tab.slice(1).toLowerCase()}</button>)}
         </nav>
         <div data-v2-top-actions className="ml-auto flex shrink-0 items-center gap-1">
           <span data-testid="v2-save-state" className="hidden text-[11px] text-slate-500 md:inline">{saveLabel} · {wordCount.toLocaleString("en-IN")} words</span>
           <button type="button" onClick={onUndo} className="rounded-md border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50">Undo</button>
           <button type="button" onClick={onRedo} className="rounded-md border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50">Redo</button>
           <button type="button" onClick={onSave} className="rounded-md bg-slate-950 px-3 py-1 text-xs font-semibold text-white hover:bg-slate-800">Save</button>
-          <details data-v2-preview-menu className="relative">
-            <summary className="cursor-pointer list-none rounded-md border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-700">Preview ▾</summary>
-            <div className="absolute right-0 top-8 z-[70] grid w-48 gap-1 rounded-lg border border-slate-200 bg-white p-2 text-xs shadow-2xl">
-              <button type="button" onClick={() => onPreview("STUDENT")} className="text-left">Preview as Student</button>
-              <button type="button" onClick={() => onPreview("TEACHER")} className="text-left">Preview as Teacher</button>
-              <button type="button" onClick={() => onPreview("WHITEBOARD")} className="text-left">Preview on Digital Board</button>
-            </div>
-          </details>
+          <div ref={previewMenuRef} data-v2-preview-menu className="relative">
+            <button type="button" aria-expanded={previewMenuOpen} aria-haspopup="menu" onClick={() => setPreviewMenuOpen((current) => !current)} className="rounded-md border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-700">Preview {"\u25be"}</button>
+            {previewMenuOpen ? <div role="menu" className="absolute right-0 top-8 z-[90] grid w-48 gap-1 rounded-lg border border-slate-200 bg-white p-2 text-xs shadow-2xl">
+              <button type="button" role="menuitem" onClick={() => { setPreviewMenuOpen(false); onPreview("STUDENT"); }} className="text-left">Preview as Student</button>
+              <button type="button" role="menuitem" onClick={() => { setPreviewMenuOpen(false); onPreview("TEACHER"); }} className="text-left">Preview as Teacher</button>
+              <button type="button" role="menuitem" onClick={() => { setPreviewMenuOpen(false); onPreview("WHITEBOARD"); }} className="text-left">Preview on Digital Board</button>
+            </div> : null}
+          </div>
           <button type="button" onClick={onPublish} className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-700">Publish</button>
           <button type="button" aria-pressed={propertiesOpen} onClick={() => setPropertiesOpen((current) => !current)} className="rounded-md border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50">Properties</button>
         </div>
         </div>
         <div data-v2-ribbon data-active-tab={activeRibbonTab} className="flex min-h-10 min-w-0 items-center gap-2 overflow-visible border-t border-slate-200 bg-white px-3 py-1.5 text-xs">
           {activeRibbonTab === "HOME" ? selectedFormattingFrame ? <div data-v2-home-controls data-v2-command-families className="flex min-w-0 flex-1 items-center gap-2">
-            <details className="relative"><summary className="cursor-pointer list-none rounded border border-slate-200 px-2 py-1 font-semibold">Clipboard ▾</summary><div role="menu" data-v2-clipboard-menu className="absolute left-0 top-8 z-[80] grid w-32 gap-1 rounded-lg border border-slate-200 bg-white p-2 shadow-2xl"><button type="button" onClick={() => void copyOrCutText("cut")} className="text-left">Cut</button><button type="button" onClick={() => void copyOrCutText("copy")} className="text-left">Copy</button><button type="button" onClick={() => void pasteText()} className="text-left">Paste</button></div></details>
-            <details className="relative"><summary className="cursor-pointer list-none rounded border border-slate-200 px-2 py-1 font-semibold">Font ▾</summary><div role="menu" data-v2-font-menu className="absolute left-0 top-8 z-[80] grid w-56 gap-2 rounded-lg border border-slate-200 bg-white p-3 shadow-2xl"><label>Font Family<select aria-label="Font" value={selectedFormattingFrame.fontFamily ?? "Arial"} onChange={(event) => patchFrame(selectedFormattingFrame.id, { fontFamily: event.target.value }, "Font updated")} className="mt-1 w-full rounded border px-2 py-1"><option>Arial</option><option>Georgia</option><option>Times New Roman</option><option>Verdana</option></select></label><label>Font Size<input aria-label="Font size" type="number" min="8" max="96" value={selectedFormattingFrame.fontSize ?? 16} onChange={(event) => patchFrame(selectedFormattingFrame.id, { fontSize: Math.max(8, Math.min(96, Number(event.target.value) || 16)) }, "Text size updated")} className="mt-1 w-full rounded border px-2 py-1" /></label><div className="flex gap-1"><button type="button" aria-label="Bold" onClick={() => { runTextCommand("bold"); patchFrame(selectedFormattingFrame.id, { fontWeight: selectedFormattingFrame.fontWeight === 700 ? 400 : 700 }, "Bold updated"); }} className="rounded border px-2 py-1 font-bold">B</button><button type="button" aria-label="Italic" onClick={() => { runTextCommand("italic"); patchFrame(selectedFormattingFrame.id, { fontStyle: selectedFormattingFrame.fontStyle === "italic" ? "normal" : "italic" }, "Italic updated"); }} className="rounded border px-2 py-1 italic">I</button><button type="button" onClick={() => runTextCommand("underline")} className="rounded border px-2 py-1 underline">Underline</button><button type="button" onClick={() => runTextCommand("strikeThrough")} className="rounded border px-2 py-1 line-through">Strikethrough</button></div><label>Text Colour<input aria-label="Text colour" type="color" value={selectedFormattingFrame.textColor ?? "#111827"} onChange={(event) => { runTextCommand("foreColor", event.target.value); patchFrame(selectedFormattingFrame.id, { textColor: event.target.value }, "Text colour updated"); }} className="ml-2" /></label><label>Highlight Colour<input aria-label="Highlight colour" type="color" defaultValue="#fef08a" onChange={(event) => runTextCommand("hiliteColor", event.target.value)} className="ml-2" /></label><div className="flex gap-1"><button type="button" onClick={() => runTextCommand("superscript")}>Superscript</button><button type="button" onClick={() => runTextCommand("subscript")}>Subscript</button></div><button type="button" onClick={() => { runTextCommand("removeFormat"); patchFrame(selectedFormattingFrame.id, { fontWeight: 400, fontStyle: "normal", textColor: "#111827" }, "Formatting cleared"); }} className="text-left">Clear Formatting</button></div></details>
-            <details className="relative"><summary className="cursor-pointer list-none rounded border border-slate-200 px-2 py-1 font-semibold">Paragraph ▾</summary><div role="menu" data-v2-paragraph-menu className="absolute left-0 top-8 z-[80] grid w-52 gap-1 rounded-lg border border-slate-200 bg-white p-3 shadow-2xl">{([["left", "justifyLeft", "Align Left"], ["center", "justifyCenter", "Centre"], ["right", "justifyRight", "Align Right"], ["justify", "justifyFull", "Justify"]] as const).map(([alignment, command, label]) => <button key={alignment} type="button" onClick={() => { runTextCommand(command); patchFrame(selectedFormattingFrame.id, { alignment }, "Text alignment updated"); }} className="text-left">{label}</button>)}<button type="button" onClick={() => runTextCommand("insertUnorderedList")} className="text-left">Bullets</button><button type="button" onClick={() => runTextCommand("insertOrderedList")} className="text-left">Numbering</button><button type="button" onClick={() => runTextCommand("indent")} className="text-left">Increase Indent</button><button type="button" onClick={() => runTextCommand("outdent")} className="text-left">Decrease Indent</button><label>Line Spacing<input aria-label="Line spacing" type="number" min="0.8" max="3" step="0.1" value={selectedFormattingFrame.lineHeight ?? 1.5} onChange={(event) => patchFrame(selectedFormattingFrame.id, { lineHeight: Math.max(0.8, Math.min(3, Number(event.target.value) || 1.5)) }, "Line spacing updated")} className="ml-2 w-14 rounded border px-1" /></label></div></details>
-            <details className="relative"><summary className="cursor-pointer list-none rounded border border-slate-200 px-2 py-1 font-semibold">Styles ▾</summary><div role="menu" data-v2-styles-menu className="absolute left-0 top-8 z-[80] grid w-40 gap-1 rounded-lg border border-slate-200 bg-white p-2 shadow-2xl">{[["Normal", 16, 400], ["Title", 32, 700], ["Heading 1", 26, 700], ["Heading 2", 22, 700], ["Heading 3", 18, 700], ["Subtitle", 18, 400], ["Caption", 12, 400]].map(([label, fontSize, fontWeight]) => <button key={String(label)} type="button" onClick={() => patchFrame(selectedFormattingFrame.id, { fontSize: Number(fontSize), fontWeight: Number(fontWeight), lineHeight: Number(fontSize) >= 22 ? 1.2 : 1.5 }, `${label} style applied`)} className="text-left">{label}</button>)}</div></details>
+            <details className="relative"><summary className="cursor-pointer list-none rounded border border-slate-200 px-2 py-1 font-semibold">Clipboard {"\u25be"}</summary><div role="menu" data-v2-clipboard-menu className="absolute left-0 top-8 z-[80] grid w-32 gap-1 rounded-lg border border-slate-200 bg-white p-2 shadow-2xl"><button type="button" onClick={() => void copyOrCutText("cut")} className="text-left">Cut</button><button type="button" onClick={() => void copyOrCutText("copy")} className="text-left">Copy</button><button type="button" onClick={() => void pasteText()} className="text-left">Paste</button></div></details>
+            <details className="relative"><summary className="cursor-pointer list-none rounded border border-slate-200 px-2 py-1 font-semibold">Font {"\u25be"}</summary><div role="menu" data-v2-font-menu className="absolute left-0 top-8 z-[80] grid w-56 gap-2 rounded-lg border border-slate-200 bg-white p-3 shadow-2xl"><label>Font Family<select aria-label="Font" value={selectedFormattingFrame.fontFamily ?? "Arial"} onChange={(event) => patchFrame(selectedFormattingFrame.id, { fontFamily: event.target.value }, "Font updated")} className="mt-1 w-full rounded border px-2 py-1"><option>Arial</option><option>Georgia</option><option>Times New Roman</option><option>Verdana</option></select></label><label>Font Size<input aria-label="Font size" type="number" min="8" max="96" value={selectedFormattingFrame.fontSize ?? 16} onChange={(event) => patchFrame(selectedFormattingFrame.id, { fontSize: Math.max(8, Math.min(96, Number(event.target.value) || 16)) }, "Text size updated")} className="mt-1 w-full rounded border px-2 py-1" /></label><div className="flex gap-1"><button type="button" aria-label="Bold" onClick={() => { runTextCommand("bold"); patchFrame(selectedFormattingFrame.id, { fontWeight: selectedFormattingFrame.fontWeight === 700 ? 400 : 700 }, "Bold updated"); }} className="rounded border px-2 py-1 font-bold">B</button><button type="button" aria-label="Italic" onClick={() => { runTextCommand("italic"); patchFrame(selectedFormattingFrame.id, { fontStyle: selectedFormattingFrame.fontStyle === "italic" ? "normal" : "italic" }, "Italic updated"); }} className="rounded border px-2 py-1 italic">I</button><button type="button" onClick={() => runTextCommand("underline")} className="rounded border px-2 py-1 underline">Underline</button><button type="button" onClick={() => runTextCommand("strikeThrough")} className="rounded border px-2 py-1 line-through">Strikethrough</button></div><label>Text Colour<input aria-label="Text colour" type="color" value={selectedFormattingFrame.textColor ?? "#111827"} onChange={(event) => { runTextCommand("foreColor", event.target.value); patchFrame(selectedFormattingFrame.id, { textColor: event.target.value }, "Text colour updated"); }} className="ml-2" /></label><label>Highlight Colour<input aria-label="Highlight colour" type="color" defaultValue="#fef08a" onChange={(event) => runTextCommand("hiliteColor", event.target.value)} className="ml-2" /></label><div className="flex gap-1"><button type="button" onClick={() => runTextCommand("superscript")}>Superscript</button><button type="button" onClick={() => runTextCommand("subscript")}>Subscript</button></div><button type="button" onClick={() => { runTextCommand("removeFormat"); patchFrame(selectedFormattingFrame.id, { fontWeight: 400, fontStyle: "normal", textColor: "#111827" }, "Formatting cleared"); }} className="text-left">Clear Formatting</button></div></details>
+            <details className="relative"><summary className="cursor-pointer list-none rounded border border-slate-200 px-2 py-1 font-semibold">Paragraph {"\u25be"}</summary><div role="menu" data-v2-paragraph-menu className="absolute left-0 top-8 z-[80] grid w-52 gap-1 rounded-lg border border-slate-200 bg-white p-3 shadow-2xl">{([["left", "justifyLeft", "Align Left"], ["center", "justifyCenter", "Centre"], ["right", "justifyRight", "Align Right"], ["justify", "justifyFull", "Justify"]] as const).map(([alignment, command, label]) => <button key={alignment} type="button" onClick={() => { runTextCommand(command); patchFrame(selectedFormattingFrame.id, { alignment }, "Text alignment updated"); }} className="text-left">{label}</button>)}<button type="button" onClick={() => runTextCommand("insertUnorderedList")} className="text-left">Bullets</button><button type="button" onClick={() => runTextCommand("insertOrderedList")} className="text-left">Numbering</button><button type="button" onClick={() => runTextCommand("indent")} className="text-left">Increase Indent</button><button type="button" onClick={() => runTextCommand("outdent")} className="text-left">Decrease Indent</button><label>Line Spacing<input aria-label="Line spacing" type="number" min="0.8" max="3" step="0.1" value={selectedFormattingFrame.lineHeight ?? 1.5} onChange={(event) => patchFrame(selectedFormattingFrame.id, { lineHeight: Math.max(0.8, Math.min(3, Number(event.target.value) || 1.5)) }, "Line spacing updated")} className="ml-2 w-14 rounded border px-1" /></label></div></details>
+            <details className="relative"><summary className="cursor-pointer list-none rounded border border-slate-200 px-2 py-1 font-semibold">Styles {"\u25be"}</summary><div role="menu" data-v2-styles-menu className="absolute left-0 top-8 z-[80] grid w-40 gap-1 rounded-lg border border-slate-200 bg-white p-2 shadow-2xl">{[["Normal", 16, 400], ["Title", 32, 700], ["Heading 1", 26, 700], ["Heading 2", 22, 700], ["Heading 3", 18, 700], ["Subtitle", 18, 400], ["Caption", 12, 400]].map(([label, fontSize, fontWeight]) => <button key={String(label)} type="button" onClick={() => patchFrame(selectedFormattingFrame.id, { fontSize: Number(fontSize), fontWeight: Number(fontWeight), lineHeight: Number(fontSize) >= 22 ? 1.2 : 1.5 }, `${label} style applied`)} className="text-left">{label}</button>)}</div></details>
           </div> : <span className="text-slate-500">Select a text frame for formatting, or select an object for contextual actions.</span> : null}
-          {activeRibbonTab === "INSERT" ? <div data-v2-insert-controls data-v2-single-row className="flex min-w-0 flex-1 flex-nowrap items-center gap-1 overflow-visible whitespace-nowrap"><button type="button" onClick={() => addFrame("TEXT", { direction: "LTR", alignment: "left" }, "FLOAT")} className="rounded border border-slate-200 px-2 py-1 font-semibold">Text Box</button><button type="button" onClick={() => openInsertSurface("IMAGE")} className="rounded border border-slate-200 px-2 py-1 font-semibold">Image</button><button type="button" onClick={() => openInsertSurface("VIDEO")} className="rounded border border-slate-200 px-2 py-1 font-semibold">Video</button><button type="button" onClick={() => openInsertSurface("TABLE")} className="rounded border border-slate-200 px-2 py-1 font-semibold">Table</button><button type="button" onClick={() => { setShapePickerOpen((current) => !current); setInsertSurface(null); }} className="rounded border border-slate-200 px-2 py-1 font-semibold">Shape</button><button type="button" onClick={() => openInsertSurface("EDUCATIONAL")} className="rounded border border-slate-200 px-2 py-1 font-semibold">Educational Block</button></div> : null}
-          {activeRibbonTab === "IMPORT" ? <div data-v2-import-controls className="flex min-w-0 flex-1 items-center gap-2"><span className="font-semibold text-slate-700">Import an IDML package</span><button type="button" onClick={onOpenImport} className="rounded border border-indigo-200 bg-indigo-50 px-2 py-1 font-semibold text-indigo-800">Choose Package</button><span className="text-slate-500">Analyze, review fidelity, preview, and explicitly confirm before updating this V2 document.</span></div> : null}
-          {activeRibbonTab === "REVIEW" ? <div data-v2-review-controls className="flex min-w-0 flex-1 items-center gap-1.5"><button type="button" onClick={reviewGrammar} className="rounded border border-slate-200 px-2 py-1 font-semibold">Grammar</button><button type="button" aria-expanded={narrationOpen} onClick={() => { setNarrationOpen((current) => !current); setInsertSurface(null); }} className="rounded border border-slate-200 px-2 py-1 font-semibold">Read Aloud</button><span className="text-slate-500">{grammarMessage || `Page status: ${narrationStatus.replaceAll("_", " ")}`}</span></div> : null}
-          {activeRibbonTab === "VIEW" ? <div data-v2-view-controls className="flex min-w-0 flex-1 items-center gap-1.5"><button type="button" onClick={() => goToPage(-1)} disabled={activePageIndex <= 0} className="rounded border border-slate-200 px-2 py-1 font-semibold disabled:opacity-40">Previous Page</button><select aria-label="Current page" value={activePage?.id ?? ""} onChange={(event) => { const page = layout.pages.find((entry) => entry.id === event.target.value); if (page) { setActivePageId(page.id); setActiveTextFrameId(page.frames.find(isV2MainFlowFrame)?.id ?? null); } }} className="rounded border border-slate-200 bg-white px-1 py-1">{layout.pages.map((page, index) => <option key={page.id} value={page.id}>Page {index + 1}</option>)}</select><button type="button" onClick={() => goToPage(1)} disabled={activePageIndex >= layout.pages.length - 1} className="rounded border border-slate-200 px-2 py-1 font-semibold disabled:opacity-40">Next Page</button><button type="button" onClick={addPage} className="rounded border border-slate-200 px-2 py-1 font-semibold">Add Page</button><button type="button" onClick={() => { if (activePage) { setDeletePageTargetId(activePage.id); setDeletePageConfirming(false); } }} disabled={layout.pages.length <= 1} className="rounded border border-rose-200 px-2 py-1 font-semibold text-rose-700 disabled:opacity-40">Delete Page</button><label className="flex items-center gap-1 font-semibold text-slate-600">View<select aria-label="Page view" value={pageViewMode} onChange={(event) => changePageView(event.target.value as "WEB" | "A4" | "CUSTOM")} className="rounded border border-slate-200 bg-white px-1 py-1"><option value="WEB">Web</option><option value="A4">A4</option><option value="CUSTOM">Custom</option></select></label><button type="button" aria-label="Zoom out" onClick={() => onZoomChange(Math.max(40, zoom - 10))} className="rounded border border-slate-200 px-2 py-1 font-bold">−</button><span className="min-w-10 text-center font-semibold">{Math.round(scale * 100)}%</span><button type="button" aria-label="Zoom in" onClick={() => onZoomChange(Math.min(200, zoom + 10))} className="rounded border border-slate-200 px-2 py-1 font-bold">+</button><button type="button" onClick={() => fitCanvas("PAGE")} className="rounded border border-slate-200 px-2 py-1 font-semibold">Fit Page</button><button type="button" onClick={() => fitCanvas("WIDTH")} className="rounded border border-slate-200 px-2 py-1 font-semibold">Fit Width</button><button type="button" aria-pressed={showGuides} onClick={() => setShowGuides((current) => !current)} className="rounded border border-slate-200 px-2 py-1 font-semibold">Guides</button></div> : null}
-          {selectedFrame ? <div data-v2-contextual-actions className="ml-auto flex shrink-0 items-center gap-1 border-l border-slate-200 pl-2"><details data-v2-arrange-menu className="relative"><summary className="cursor-pointer list-none rounded border border-indigo-200 bg-indigo-50 px-2 py-1 font-semibold text-indigo-800">Arrange ▾</summary><div className="absolute right-0 top-8 z-50 grid w-40 gap-1 rounded-lg border border-slate-200 bg-white p-2 shadow-xl">{[["FRONT", "Bring to Front"], ["FORWARD", "Bring Forward"], ["BACKWARD", "Send Backward"], ["BACK", "Send to Back"]].map(([action, label]) => <button key={action} type="button" onClick={() => applyArrange(action as "FRONT" | "FORWARD" | "BACKWARD" | "BACK")} className="text-left">{label}</button>)}</div></details><details data-v2-object-more-menu className="relative"><summary className="cursor-pointer list-none rounded border border-slate-200 px-2 py-1 font-semibold">More ▾</summary><div className="absolute right-0 top-8 z-50 grid w-44 gap-1 rounded-lg border border-slate-200 bg-white p-2 shadow-xl">{!selectedParentId ? <button type="button" onClick={duplicateSelected} className="text-left">Duplicate</button> : <button type="button" onClick={detachSelectedChild} className="text-left">Move to Page</button>}<button type="button" onClick={() => patchFrame(selectedFrame.id, { locked: !selectedFrame.locked }, "Lock updated")} className="text-left">{selectedFrame.locked ? "Unlock" : "Lock"}</button>{(selectedFrame.layoutMode === "FLOW" || selectedFrame.layoutMode === "INLINE") && !selectedParentId ? <><button type="button" onClick={() => moveFlow(-1)} className="text-left">Move Earlier</button><button type="button" onClick={() => moveFlow(1)} className="text-left">Move Later</button></> : null}<button type="button" onClick={() => setPropertiesOpen(true)} className="text-left">Properties &amp; Layers</button></div></details><button type="button" onClick={deleteSelected} className="rounded border border-rose-200 px-2 py-1 font-semibold text-rose-700">Delete</button></div> : null}
+          {activeRibbonTab === "INSERT" ? <div data-v2-insert-controls data-v2-single-row className="flex min-w-0 flex-1 flex-nowrap items-center gap-1 overflow-visible whitespace-nowrap"><button type="button" onClick={() => addFrame("TEXT", { direction: "LTR", alignment: "left" }, "FLOAT")} className="rounded border border-slate-200 px-2 py-1 font-semibold">Text Box</button><button type="button" onClick={() => openInsertSurface("IMAGE")} className="rounded border border-slate-200 px-2 py-1 font-semibold">Image</button><button type="button" onClick={() => openInsertSurface("VIDEO")} className="rounded border border-slate-200 px-2 py-1 font-semibold">Video</button><button type="button" onClick={() => openInsertSurface("TABLE")} className="rounded border border-slate-200 px-2 py-1 font-semibold">Table</button><button type="button" onClick={() => { setPreviewMenuOpen(false); setShapePickerOpen((current) => !current); setInsertSurface(null); }} className="rounded border border-slate-200 px-2 py-1 font-semibold">Shape</button><button type="button" onClick={() => openInsertSurface("EDUCATIONAL")} className="rounded border border-slate-200 px-2 py-1 font-semibold">Educational Block</button></div> : null}
+          {activeRibbonTab === "IMPORT" ? <div data-v2-import-controls className="flex min-w-0 flex-1 items-center gap-2"><span className="font-semibold text-slate-700">Import an IDML package</span><button type="button" onClick={onOpenImport} className="rounded border border-indigo-200 bg-indigo-50 px-2 py-1 font-semibold text-indigo-800">Choose Package</button><button type="button" onClick={() => setPdfImportOpen(true)} disabled={!isBookRootContext} className="rounded border border-indigo-200 bg-indigo-50 px-2 py-1 font-semibold text-indigo-800 disabled:opacity-40">Import PDF</button><span className="text-slate-500">{isBookRootContext ? "Analyze, review fidelity, preview, and explicitly confirm before updating this V2 document." : "Return to Full Book before replacing the complete Book.content document."}</span></div> : null}
+          {activeRibbonTab === "REVIEW" ? <div data-v2-review-controls className="flex min-w-0 flex-1 items-center gap-1.5"><button type="button" aria-pressed={reviewSurface === "GRAMMAR"} onClick={() => { setReviewSurface("GRAMMAR"); reviewGrammar(); }} className="rounded border border-slate-200 px-2 py-1 font-semibold">Grammar</button><button type="button" aria-pressed={reviewSurface === "READ_ALOUD"} onClick={() => setReviewSurface("READ_ALOUD")} className="rounded border border-slate-200 px-2 py-1 font-semibold">Read Aloud</button><span className="text-slate-500">{reviewSurface === "GRAMMAR" ? grammarMessage : `Page status: ${narrationStatus.replaceAll("_", " ")}`}</span></div> : null}
+          {activeRibbonTab === "VIEW" ? <div data-v2-view-controls className="flex min-w-0 flex-1 items-center gap-1.5"><button type="button" onClick={() => goToPage(-1)} disabled={activeVisibleIndex <= 0} className="rounded border border-slate-200 px-2 py-1 font-semibold disabled:opacity-40">Previous Page</button><select aria-label="Current page" value={activePage?.id ?? ""} onChange={(event) => { const page = layout.pages.find((entry) => entry.id === event.target.value); if (page) navigateToPage(page); }} className="rounded border border-slate-200 bg-white px-1 py-1">{visiblePageViews.map((view) => <option key={view.page.id} value={view.page.id}>Page {view.absolutePageNumber}</option>)}</select><button type="button" onClick={() => goToPage(1)} disabled={activeVisibleIndex >= visiblePages.length - 1} className="rounded border border-slate-200 px-2 py-1 font-semibold disabled:opacity-40">Next Page</button><button type="button" onClick={addPage} disabled={Boolean(pageScope)} className="rounded border border-slate-200 px-2 py-1 font-semibold disabled:opacity-40">Add Page</button><button type="button" onClick={() => { if (activePage) { setDeletePageTargetId(activePage.id); setDeletePageConfirming(false); } }} disabled={Boolean(pageScope) || layout.pages.length <= 1} className="rounded border border-rose-200 px-2 py-1 font-semibold text-rose-700 disabled:opacity-40">Delete Page</button><label className="flex items-center gap-1 font-semibold text-slate-600">View<select aria-label="Page view" value={pageViewMode} onChange={(event) => changePageView(event.target.value as "WEB" | "A4" | "CUSTOM")} className="rounded border border-slate-200 bg-white px-1 py-1"><option value="WEB">Web</option><option value="A4">A4</option><option value="CUSTOM">Custom</option></select></label><button type="button" aria-label="Zoom out" onClick={() => onZoomChange(Math.max(40, zoom - 10))} className="rounded border border-slate-200 px-2 py-1 font-bold">-</button><span className="min-w-10 text-center font-semibold">{Math.round(scale * 100)}%</span><button type="button" aria-label="Zoom in" onClick={() => onZoomChange(Math.min(200, zoom + 10))} className="rounded border border-slate-200 px-2 py-1 font-bold">+</button><button type="button" onClick={() => fitCanvas("PAGE")} className="rounded border border-slate-200 px-2 py-1 font-semibold">Fit Page</button><button type="button" onClick={() => fitCanvas("WIDTH")} className="rounded border border-slate-200 px-2 py-1 font-semibold">Fit Width</button><button type="button" aria-pressed={showGuides} onClick={() => setShowGuides((current) => !current)} className="rounded border border-slate-200 px-2 py-1 font-semibold">Guides</button></div> : null}
+          {selectedFrame ? <div data-v2-contextual-actions className="ml-auto flex shrink-0 items-center gap-1 border-l border-slate-200 pl-2"><details data-v2-arrange-menu className="relative"><summary className="cursor-pointer list-none rounded border border-indigo-200 bg-indigo-50 px-2 py-1 font-semibold text-indigo-800">Arrange {"\u25be"}</summary><div className="absolute right-0 top-8 z-50 grid w-40 gap-1 rounded-lg border border-slate-200 bg-white p-2 shadow-xl">{[["FRONT", "Bring to Front"], ["FORWARD", "Bring Forward"], ["BACKWARD", "Send Backward"], ["BACK", "Send to Back"]].map(([action, label]) => <button key={action} type="button" onClick={() => applyArrange(action as "FRONT" | "FORWARD" | "BACKWARD" | "BACK")} className="text-left">{label}</button>)}</div></details><details data-v2-object-more-menu className="relative"><summary className="cursor-pointer list-none rounded border border-slate-200 px-2 py-1 font-semibold">More {"\u25be"}</summary><div className="absolute right-0 top-8 z-50 grid w-44 gap-1 rounded-lg border border-slate-200 bg-white p-2 shadow-xl">{!selectedParentId ? <button type="button" onClick={duplicateSelected} className="text-left">Duplicate</button> : <button type="button" onClick={detachSelectedChild} className="text-left">Move to Page</button>}<button type="button" onClick={() => patchFrame(selectedFrame.id, { locked: !selectedFrame.locked }, "Lock updated")} className="text-left">{selectedFrame.locked ? "Unlock" : "Lock"}</button>{(selectedFrame.layoutMode === "FLOW" || selectedFrame.layoutMode === "INLINE") && !selectedParentId ? <><button type="button" onClick={() => moveFlow(-1)} className="text-left">Move Earlier</button><button type="button" onClick={() => moveFlow(1)} className="text-left">Move Later</button></> : null}<button type="button" onClick={() => setPropertiesOpen(true)} className="text-left">Properties &amp; Layers</button></div></details><button type="button" onClick={deleteSelected} className="rounded border border-rose-200 px-2 py-1 font-semibold text-rose-700">Delete</button></div> : null}
         </div>
         {clipboardMessage ? <p role="status" data-v2-clipboard-status className="border-t border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800">{clipboardMessage}</p> : null}
         {shapePickerOpen ? <div role="dialog" aria-label="Choose shape" data-v2-shape-picker className="absolute left-3 top-full z-50 mt-1 w-72 rounded-xl border border-slate-200 bg-white p-3 text-sm shadow-2xl"><div className="mb-3 flex items-center justify-between"><p className="font-bold text-slate-900">Choose Shape</p><button type="button" onClick={() => setShapePickerOpen(false)} className="rounded px-2 py-1 text-slate-500 hover:bg-slate-100">Close</button></div><div className="grid grid-cols-2 gap-2">{V2_SHAPE_PRESETS.map(([shapeType, label]) => <button key={shapeType} type="button" onClick={() => { addFrame("SHAPE", { payload: { shapeType, fill: shapeType === "LINE" ? "transparent" : "#e0e7ff", border: "#4f46e5", borderWidth: 1, opacity: 1, lineStyle: "SOLID" } }, "FLOAT"); setShapePickerOpen(false); }} className="rounded-lg border border-slate-200 px-3 py-3 text-left font-semibold hover:border-indigo-300 hover:bg-indigo-50"><span className="mb-2 block h-5 rounded border border-indigo-500 bg-indigo-100" style={shapeType === "ELLIPSE" ? { borderRadius: "9999px" } : shapeType === "ROUNDED_RECTANGLE" ? { borderRadius: "8px" } : shapeType === "LINE" ? { height: "1px", borderWidth: 0, borderTop: "2px solid #4f46e5", backgroundColor: "transparent", marginTop: "10px", marginBottom: "10px" } : undefined} />{label}</button>)}</div></div> : null}
         {insertSurface ? <div role="dialog" aria-label={`Insert ${insertSurface.toLowerCase()}`} data-v2-insert-chooser={insertSurface} className="absolute left-3 top-full z-50 mt-1 max-h-[65vh] w-[min(28rem,calc(100vw-2rem))] overflow-y-auto rounded-xl border border-slate-200 bg-white p-3 text-sm shadow-2xl">
           <div className="mb-3 flex items-center justify-between"><p className="font-bold text-slate-900">Insert {insertSurface === "EDUCATIONAL" ? "Educational Block" : insertSurface[0] + insertSurface.slice(1).toLowerCase()}</p><button type="button" onClick={() => setInsertSurface(null)} className="rounded px-2 py-1 text-slate-500 hover:bg-slate-100">Close</button></div>
           {insertSurface === "IMAGE" || insertSurface === "TABLE" ? <div className="mb-3 flex gap-1 rounded-lg bg-slate-100 p-1" data-v2-insertion-mode><button type="button" aria-pressed={insertionMode === "FLOW"} onClick={() => setInsertionMode("FLOW")} className={`flex-1 rounded px-2 py-1 text-xs font-semibold ${insertionMode === "FLOW" ? "bg-white text-indigo-700 shadow-sm" : "text-slate-600"}`}>Insert in Flow</button><button type="button" aria-pressed={insertionMode === "FLOAT"} onClick={() => setInsertionMode("FLOAT")} className={`flex-1 rounded px-2 py-1 text-xs font-semibold ${insertionMode === "FLOAT" ? "bg-white text-indigo-700 shadow-sm" : "text-slate-600"}`}>Float on Page</button></div> : null}
-          {insertSurface === "IMAGE" || insertSurface === "VIDEO" ? <><p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">Choose existing {insertSurface.toLowerCase()}</p><div className="max-h-52 space-y-1 overflow-y-auto">{insertSurface === "IMAGE" ? imageResources.map((resource) => <V2ImageResourceChoice key={resource.id} resource={resource} onUse={() => chooseResource("IMAGE", resource.id)} />) : videoResources.map((resource) => <button key={resource.id} type="button" onClick={() => chooseResource("VIDEO", resource.id)} className="block w-full rounded-lg border border-slate-200 px-3 py-2 text-left font-semibold hover:border-indigo-300 hover:bg-indigo-50"><span className="block">{resource.title}</span><span className="mt-0.5 block text-xs font-normal text-slate-500">{[resource.originalFileName, resource.mimeType, resource.fileSizeBytes ? formatV2ResourceSize(resource.fileSizeBytes) : null].filter(Boolean).join(" · ") || "Video resource"}</span></button>)}{!(insertSurface === "IMAGE" ? imageResources : videoResources).length ? <p className="rounded-lg bg-slate-50 p-3 text-slate-500">No compatible {insertSurface.toLowerCase()} resources are available.</p> : null}</div>{onUploadResource ? <label className="mt-3 flex cursor-pointer items-center justify-center rounded-lg border border-dashed border-indigo-300 bg-indigo-50 px-3 py-3 font-semibold text-indigo-700">{uploadingResource ? "Uploading…" : `Upload New ${insertSurface === "IMAGE" ? "Image" : "Video"}`}<input type="file" accept={insertSurface === "IMAGE" ? "image/*" : "video/*"} disabled={uploadingResource} className="sr-only" onChange={(event) => void handleResourceUpload(event, insertSurface)} /></label> : null}{uploadError ? <p role="alert" className="mt-2 text-xs font-semibold text-rose-700">{uploadError}</p> : null}</> : null}
+          {insertSurface === "IMAGE" || insertSurface === "VIDEO" ? <><p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">Choose existing {insertSurface.toLowerCase()}</p><div className="max-h-52 space-y-1 overflow-y-auto">{insertSurface === "IMAGE" ? imageResources.map((resource) => <V2ImageResourceChoice key={resource.id} resource={resource} onUse={() => chooseResource("IMAGE", resource.id)} />) : videoResources.map((resource) => <button key={resource.id} type="button" onClick={() => chooseResource("VIDEO", resource.id)} className="block w-full rounded-lg border border-slate-200 px-3 py-2 text-left font-semibold hover:border-indigo-300 hover:bg-indigo-50"><span className="block">{resource.title}</span><span className="mt-0.5 block text-xs font-normal text-slate-500">{[resource.originalFileName, resource.mimeType, resource.fileSizeBytes ? formatV2ResourceSize(resource.fileSizeBytes) : null].filter(Boolean).join(" · ") || "Video resource"}</span></button>)}{!(insertSurface === "IMAGE" ? imageResources : videoResources).length ? <p className="rounded-lg bg-slate-50 p-3 text-slate-500">No compatible {insertSurface.toLowerCase()} resources are available.</p> : null}</div>{onUploadResource ? <label className="mt-3 flex cursor-pointer items-center justify-center rounded-lg border border-dashed border-indigo-300 bg-indigo-50 px-3 py-3 font-semibold text-indigo-700">{uploadingResource ? "Uploading..." : `Upload New ${insertSurface === "IMAGE" ? "Image" : "Video"}`}<input type="file" accept={insertSurface === "IMAGE" ? "image/*" : "video/*"} disabled={uploadingResource} className="sr-only" onChange={(event) => void handleResourceUpload(event, insertSurface)} /></label> : null}{uploadError ? <p role="alert" className="mt-2 text-xs font-semibold text-rose-700">{uploadError}</p> : null}</> : null}
           {insertSurface === "TABLE" ? <div data-v2-table-chooser className="space-y-3"><div className="grid grid-cols-2 gap-3"><label className="text-xs font-semibold text-slate-600">Rows<input type="number" min="1" max="20" value={tableRows} onChange={(event) => setTableRows(Math.max(1, Math.min(20, Number(event.target.value) || 1)))} className="mt-1 w-full rounded border border-slate-200 px-2 py-1.5" /></label><label className="text-xs font-semibold text-slate-600">Columns<input type="number" min="1" max="12" value={tableColumns} onChange={(event) => setTableColumns(Math.max(1, Math.min(12, Number(event.target.value) || 1)))} className="mt-1 w-full rounded border border-slate-200 px-2 py-1.5" /></label></div><button type="button" onClick={() => { const payload = { rows: tableRows, columns: tableColumns, cells: Array.from({ length: tableRows * tableColumns }, () => "") }; if (selectedFrame && ["TEXT", "EDUCATIONAL"].includes(selectedFrame.type) && !isV2MainFlowFrame(selectedFrame)) addChildFrame("TABLE", undefined, payload); else addFrame("TABLE", { payload }, insertionMode); setInsertSurface(null); }} className="w-full rounded-lg bg-indigo-600 px-3 py-2 font-bold text-white">Create Table</button></div> : null}
           {insertSurface === "EDUCATIONAL" ? <div data-v2-educational-picker className="grid gap-2 sm:grid-cols-2">{EDUCATIONAL_OBJECT_REGISTRY.map(([type]) => { const definition = getEducationalObjectDefinition(type); return <button key={type} type="button" onClick={() => { addFrame("EDUCATIONAL", { payload: { educationalObjectType: type, title: definition.defaultTitle, body: "" } }); setInsertSurface(null); }} className="rounded-lg border border-slate-200 px-3 py-2 text-left hover:border-indigo-300 hover:bg-indigo-50"><span className="flex items-center gap-2 font-semibold"><span aria-hidden className="grid h-5 w-5 place-items-center rounded-full border text-xs" style={{ color: definition.theme.accent, borderColor: definition.theme.border, backgroundColor: definition.theme.tint }}>{definition.icon}</span>{definition.label}</span><span className="mt-1 block text-xs font-normal text-slate-500">{definition.description}</span></button>; })}</div> : null}
         </div> : null}
-        {narrationOpen ? <div data-v2-read-aloud-panel className="absolute left-3 right-3 top-full z-[70] mt-1 max-h-[70vh] overflow-y-auto rounded-xl border border-blue-200 bg-white p-3 shadow-2xl">
-          <div className="flex flex-wrap items-center gap-2 text-xs"><span className="font-bold text-blue-900">Read Aloud Authoring</span><span className="rounded-full bg-blue-50 px-2 py-1 font-semibold text-blue-800">Segment-level mapping</span><label className="flex items-center gap-1 font-semibold text-blue-800">Page audio<select aria-label="Attach human narration" value={activePage?.narration?.resourceId ?? ""} onChange={(event) => attachNarration(event.target.value)} className="rounded border border-blue-200 bg-white px-2 py-1"><option value="">Browser TTS only</option>{audioResources.map((resource) => <option key={resource.id} value={resource.id}>{resource.title}</option>)}</select></label><button type="button" onClick={() => attachNarration("")} className="rounded border border-blue-200 px-2 py-1 font-semibold text-blue-800">Remove page audio</button><button type="button" onClick={() => setNarrationOpen(false)} className="ml-auto rounded px-2 py-1 text-slate-500">Close</button></div>
-          <p className="mt-2 text-xs text-slate-500">Browser TTS previews semantic text. Human audio can be attached to the page or stable narration segment IDs; exact word timing is not represented by the current model.</p>
-          <div className="mt-2"><V2ReadAloudPlayer manifest={narrationManifest} audioUrls={narrationAudioUrls} /></div>
-          <div data-v2-narration-segments className="mt-3 space-y-2">
-            {(activeNarrationPage?.segments ?? []).map((segment) => <div key={segment.id} className="grid gap-2 rounded-lg border border-slate-200 p-2 text-xs lg:grid-cols-[minmax(0,1fr)_12rem_6rem_6rem]"><div className="min-w-0"><p className="truncate font-bold text-slate-700">{segment.narrationLabel || segment.id}</p><p className="line-clamp-2 text-slate-500">{segment.text}</p><code className="text-[10px] text-slate-400">{segment.id}</code></div><label className="font-semibold text-slate-600">Segment audio<select aria-label={`Audio for ${segment.id}`} value={segment.audioResourceId ?? ""} onChange={(event) => patchNarrationSegment(segment.id, segment.sourceHash, { resourceId: event.target.value || undefined })} className="mt-1 w-full rounded border border-slate-200 bg-white px-2 py-1"><option value="">Use page/TTS</option>{audioResources.map((resource) => <option key={resource.id} value={resource.id}>{resource.title}</option>)}</select></label><label className="font-semibold text-slate-600">Start ms<input type="number" min="0" value={segment.startMs ?? ""} onChange={(event) => patchNarrationSegment(segment.id, segment.sourceHash, { startMs: event.target.value ? Math.max(0, Number(event.target.value)) : undefined })} className="mt-1 w-full rounded border border-slate-200 px-2 py-1" /></label><label className="font-semibold text-slate-600">End ms<input type="number" min="0" value={segment.endMs ?? ""} onChange={(event) => patchNarrationSegment(segment.id, segment.sourceHash, { endMs: event.target.value ? Math.max(0, Number(event.target.value)) : undefined })} className="mt-1 w-full rounded border border-slate-200 px-2 py-1" /></label></div>)}
-            {!activeNarrationPage?.segments.length ? <p className="rounded-lg bg-slate-50 p-3 text-xs text-slate-500">No narratable semantic text exists on this page yet.</p> : null}
-          </div>
-        </div> : null}
-      </header>
+        {activeRibbonTab === "REVIEW" && reviewSurface === "GRAMMAR" ? <div data-v2-grammar-review-panel className="absolute left-3 right-3 top-full z-[70] mt-1 rounded-xl border border-indigo-200 bg-white p-3 text-xs shadow-2xl"><div className="flex items-center justify-between"><span className="font-bold text-indigo-900">Grammar</span><button type="button" onClick={() => setReviewSurface(null)} className="rounded px-2 py-1 text-slate-500">Close</button></div><p className="mt-2 text-slate-600">{grammarMessage || "Browser spelling and grammar checking is active in editable text."}</p></div> : null}
+        {activeRibbonTab === "REVIEW" && reviewSurface === "READ_ALOUD" ? <div data-v2-read-aloud-panel className="absolute left-3 right-3 top-full z-[70] mt-1 max-h-[70vh] overflow-y-auto rounded-xl border border-blue-200 bg-white p-2 shadow-2xl">
+          <div className="mb-1 flex items-center justify-between text-xs"><span className="font-bold text-blue-900">Read Aloud</span><button type="button" onClick={() => setReviewSurface(null)} className="rounded px-2 py-1 text-slate-500">Close</button></div>
+          <V2ReadAloudPlayer manifest={narrationManifest} audioUrls={narrationAudioUrls} pageContext={pageCountLabel} pageText={activeOriginalPage?.readAloud?.text ?? ""} onPrepare={canPrepareReadAloud ? async () => { const result = await onPrepareReadAloud!(); globalThis.location.reload(); return result; } : undefined} />
+          {canEditReadAloud && activeOriginalPage ? <ReadAloudPageInspector key={activeOriginalPage.id} page={activeOriginalPage} onSave={(text) => onDocumentChange({ ...document, pageLayout: updateV2PageLayout(layout, (pages) => pages.map((page) => page.id === activeOriginalPage.id ? { ...page, readAloud: { text, source: "MANUAL", reviewed: true } } : page)) }, "Reading text saved as manual text")} /> : null}
+          <details data-v2-read-aloud-advanced className="mt-2 rounded-lg border border-slate-200 text-xs">
+            <summary className="cursor-pointer px-3 py-2 font-bold text-slate-700">Advanced</summary>
+            <div className="space-y-2 border-t border-slate-200 p-2">
+              <p className="text-[11px] text-slate-500">Browser TTS previews semantic text. Human audio can be attached to the page or stable narration segment IDs; exact word timing is not represented by the current model.</p>
+              <div className="flex flex-wrap items-center gap-2"><span className="rounded-full bg-blue-50 px-2 py-1 font-semibold text-blue-800">Segment-level mapping</span><label className="flex items-center gap-1 font-semibold text-blue-800">Page audio<select aria-label="Attach human narration" value={activePage?.narration?.resourceId ?? ""} onChange={(event) => attachNarration(event.target.value)} className="rounded border border-blue-200 bg-white px-2 py-1"><option value="">Browser TTS only</option>{audioResources.map((resource) => <option key={resource.id} value={resource.id}>{resource.title}</option>)}</select></label><button type="button" onClick={() => attachNarration("")} className="rounded border border-blue-200 px-2 py-1 font-semibold text-blue-800">Remove page audio</button></div>
+              <div data-v2-narration-segments className="space-y-2">
+                {(activeNarrationPage?.segments ?? []).map((segment) => <div key={segment.id} className="grid gap-2 rounded-lg border border-slate-200 p-2 text-xs lg:grid-cols-[minmax(0,1fr)_12rem_6rem_6rem]"><div className="min-w-0"><p className="truncate font-bold text-slate-700">{segment.narrationLabel || segment.id}</p><p className="line-clamp-2 text-slate-500">{segment.text}</p><code className="text-[10px] text-slate-400">{segment.id}</code></div><label className="font-semibold text-slate-600">Segment audio<select aria-label={"Audio for " + segment.id} value={segment.audioResourceId ?? ""} onChange={(event) => patchNarrationSegment(segment.id, segment.sourceHash, { resourceId: event.target.value || undefined })} className="mt-1 w-full rounded border border-slate-200 bg-white px-2 py-1"><option value="">Use page/TTS</option>{audioResources.map((resource) => <option key={resource.id} value={resource.id}>{resource.title}</option>)}</select></label><label className="font-semibold text-slate-600">Start ms<input type="number" min="0" value={segment.startMs ?? ""} onChange={(event) => patchNarrationSegment(segment.id, segment.sourceHash, { startMs: event.target.value ? Math.max(0, Number(event.target.value)) : undefined })} className="mt-1 w-full rounded border border-slate-200 px-2 py-1" /></label><label className="font-semibold text-slate-600">End ms<input type="number" min="0" value={segment.endMs ?? ""} onChange={(event) => patchNarrationSegment(segment.id, segment.sourceHash, { endMs: event.target.value ? Math.max(0, Number(event.target.value)) : undefined })} className="mt-1 w-full rounded border border-slate-200 px-2 py-1" /></label></div>)}
+                {!activeNarrationPage?.segments.length ? <p className="rounded-lg bg-slate-50 p-3 text-xs text-slate-500">No narratable semantic text exists on this page yet.</p> : null}
+              </div>
+            </div>
+          </details>
+        </div> : null}      </header>
 
-      {deletePageTarget ? <div role="dialog" aria-modal="true" aria-label="Delete Page" data-v2-delete-page-dialog className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/50 p-4"><div className="w-full max-w-md rounded-xl bg-white p-5 shadow-2xl"><h2 className="text-lg font-bold text-slate-900">Delete Page</h2><label className="mt-4 block text-sm font-semibold text-slate-700">Page<select aria-label="Page to delete" value={deletePageTarget.id} onChange={(event) => { setDeletePageTargetId(event.target.value); setDeletePageConfirming(false); }} className="mt-1 w-full rounded border border-slate-200 px-3 py-2">{layout.pages.map((page, index) => <option key={page.id} value={page.id}>Page {index + 1}</option>)}</select></label><p data-v2-delete-page-summary className="mt-3 rounded bg-slate-50 px-3 py-2 text-sm text-slate-700">Page {deletePageTargetIndex + 1}<br />{deletePageObjectCount} objects</p>{deletePageConfirming ? <p className="mt-3 rounded border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-900">Delete Page {deletePageTargetIndex + 1}? This page contains {deletePageObjectCount} objects.</p> : null}<div className="mt-5 flex justify-end gap-2">{deletePageConfirming ? <button type="button" onClick={() => setDeletePageConfirming(false)} className="rounded border px-3 py-2 text-sm font-semibold">Cancel</button> : <button type="button" onClick={() => setDeletePageTargetId(null)} className="rounded border px-3 py-2 text-sm font-semibold">Cancel</button>}<button type="button" onClick={() => { if (deletePageConfirming) deletePage(deletePageTarget.id); else setDeletePageConfirming(true); }} className="rounded bg-rose-600 px-3 py-2 text-sm font-semibold text-white">Delete Page {deletePageTargetIndex + 1}</button></div></div></div> : null}
+      {deletePageTarget ? <div role="dialog" aria-modal="true" aria-label="Delete Page" data-v2-delete-page-dialog className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/50 p-4"><div className="w-full max-w-md rounded-xl bg-white p-5 shadow-2xl"><h2 className="text-lg font-bold text-slate-900">Delete Page</h2><label className="mt-4 block text-sm font-semibold text-slate-700">Page<select aria-label="Page to delete" value={deletePageTarget.id} onChange={(event) => { setDeletePageTargetId(event.target.value); setDeletePageConfirming(false); }} className="mt-1 w-full rounded border border-slate-200 px-3 py-2">{visiblePageViews.map((view) => <option key={view.page.id} value={view.page.id}>Page {view.absolutePageNumber}</option>)}</select></label><p data-v2-delete-page-summary className="mt-3 rounded bg-slate-50 px-3 py-2 text-sm text-slate-700">Page {deletePageTargetIndex + 1}<br />{deletePageObjectCount} objects</p>{deletePageConfirming ? <p className="mt-3 rounded border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-900">Delete Page {deletePageTargetIndex + 1}? This page contains {deletePageObjectCount} objects.</p> : null}<div className="mt-5 flex justify-end gap-2">{deletePageConfirming ? <button type="button" onClick={() => setDeletePageConfirming(false)} className="rounded border px-3 py-2 text-sm font-semibold">Cancel</button> : <button type="button" onClick={() => setDeletePageTargetId(null)} className="rounded border px-3 py-2 text-sm font-semibold">Cancel</button>}<button type="button" onClick={() => { if (deletePageConfirming) deletePage(deletePageTarget.id); else setDeletePageConfirming(true); }} className="rounded bg-rose-600 px-3 py-2 text-sm font-semibold text-white">Delete Page {deletePageTargetIndex + 1}</button></div></div></div> : null}
 
       <div className="hidden flex-wrap items-center gap-2 border-b border-slate-300 bg-white px-3 py-2 text-xs">
         <span className="font-semibold text-slate-500">Insert:</span>
@@ -663,7 +842,7 @@ export default function V2DocumentWorkspace({
         ))}
         <button type="button" onClick={addPage} className="ml-2 rounded-md border border-indigo-200 bg-indigo-50 px-2 py-1 font-semibold text-indigo-700 hover:bg-indigo-100">Add Page</button>
         <span className="ml-auto flex items-center gap-1 text-slate-500">
-          <button type="button" onClick={() => onZoomChange(Math.max(50, zoom - 10))} className="rounded px-1 font-bold hover:bg-slate-100" aria-label="Zoom out">−</button>
+          <button type="button" onClick={() => onZoomChange(Math.max(50, zoom - 10))} className="rounded px-1 font-bold hover:bg-slate-100" aria-label="Zoom out">-</button>
           <span className="min-w-12 text-center">{Math.round(scale * 100)}%</span>
           <button type="button" onClick={() => onZoomChange(Math.min(200, zoom + 10))} className="rounded px-1 font-bold hover:bg-slate-100" aria-label="Zoom in">+</button>
           <button type="button" onClick={() => onZoomChange(70)} className="ml-1 rounded-md border border-slate-200 px-2 py-1 font-semibold hover:bg-slate-50">Fit page</button>
@@ -677,8 +856,8 @@ export default function V2DocumentWorkspace({
             <button key={mode} type="button" onClick={() => { if (mode === "CROP") setCropFrameId(selectedImageFrame.id); else setCropFrameId(null); patchImage(selectedImageFrame.id, { fitMode: mode }, `${mode} mode selected`); }} className={`rounded-md border px-2 py-1 font-semibold ${selectedImageFrame.fitMode === mode ? "border-amber-500 bg-amber-200 text-amber-950" : "border-amber-200 bg-white text-amber-800"}`}>{mode[0] + mode.slice(1).toLowerCase()}</button>
           ))}
           <span className="ml-1 text-amber-700">Zoom</span>
-          <button type="button" onClick={() => patchImage(selectedImageFrame.id, { fitMode: "CROP", zoom: Math.max(V2_IMAGE_ZOOM_MIN, (selectedImageFrame.zoom ?? 1) - 0.25) }, "Image zoom updated")} className="rounded-md border border-amber-200 bg-white px-2 py-1 font-bold" aria-label="Zoom image out">−</button>
-          <span className="min-w-10 text-center font-semibold text-amber-900">{(selectedImageFrame.zoom ?? 1).toFixed(2)}×</span>
+          <button type="button" onClick={() => patchImage(selectedImageFrame.id, { fitMode: "CROP", zoom: Math.max(V2_IMAGE_ZOOM_MIN, (selectedImageFrame.zoom ?? 1) - 0.25) }, "Image zoom updated")} className="rounded-md border border-amber-200 bg-white px-2 py-1 font-bold" aria-label="Zoom image out">-</button>
+          <span className="min-w-10 text-center font-semibold text-amber-900">{(selectedImageFrame.zoom ?? 1).toFixed(2)}·</span>
           <button type="button" onClick={() => patchImage(selectedImageFrame.id, { fitMode: "CROP", zoom: Math.min(V2_IMAGE_ZOOM_MAX, (selectedImageFrame.zoom ?? 1) + 0.25) }, "Image zoom updated")} className="rounded-md border border-amber-200 bg-white px-2 py-1 font-bold" aria-label="Zoom image in">+</button>
           <button type="button" onClick={() => { setCropFrameId(null); patchImage(selectedImageFrame.id, { fitMode: "FIT", crop: { x: 0, y: 0, width: 1, height: 1 }, zoom: 1, offsetX: 0, offsetY: 0 }, "Image reset"); }} className="rounded-md border border-amber-200 bg-white px-2 py-1 font-semibold text-amber-900">Reset</button>
           <label className="flex items-center gap-1 rounded-md border border-amber-200 bg-white px-2 py-1 font-semibold text-amber-900">
@@ -686,7 +865,7 @@ export default function V2DocumentWorkspace({
             Aspect lock
           </label>
           <select aria-label="Replace image" value="" onChange={(event) => { const resource = imageResources.find((entry) => entry.id === event.target.value); if (resource) { setCropFrameId(null); patchImage(selectedImageFrame.id, { resourceId: resource.id, fitMode: "FIT", crop: { x: 0, y: 0, width: 1, height: 1 }, zoom: 1, offsetX: 0, offsetY: 0 }, "Image replaced"); } }} className="rounded-md border border-amber-200 bg-white px-2 py-1 font-semibold text-amber-900"><option value="">Replace Image</option>{imageResources.map((resource) => <option key={resource.id} value={resource.id}>{resource.title}</option>)}</select>
-          {onUploadResource ? <label className="cursor-pointer rounded-md border border-amber-200 bg-white px-2 py-1 font-semibold text-amber-900">{uploadingResource ? "Uploading…" : "Upload Image"}<input type="file" accept="image/*" className="sr-only" disabled={uploadingResource} onChange={(event) => void handleResourceUpload(event, "IMAGE", selectedImageFrame.id)} /></label> : null}
+          {onUploadResource ? <label className="cursor-pointer rounded-md border border-amber-200 bg-white px-2 py-1 font-semibold text-amber-900">{uploadingResource ? "Uploading..." : "Upload Image"}<input type="file" accept="image/*" className="sr-only" disabled={uploadingResource} onChange={(event) => void handleResourceUpload(event, "IMAGE", selectedImageFrame.id)} /></label> : null}
           {cropFrameId === selectedImageFrame.id ? <span className="font-semibold text-amber-800">Crop mode · drag image</span> : null}
         </div>
       ) : null}
@@ -750,8 +929,8 @@ export default function V2DocumentWorkspace({
       <div className="hidden items-center gap-2 border-b border-slate-300 bg-slate-50 px-3 py-2 text-xs">
         <span className="font-semibold text-slate-600">Active page {activePageIndex + 1}</span>
         <button type="button" onClick={() => moveActivePage(-1)} disabled={activePageIndex === 0} className="rounded-md border border-slate-200 bg-white px-2 py-1 font-semibold disabled:opacity-40">Move up</button>
-        <button type="button" onClick={() => moveActivePage(1)} disabled={activePageIndex >= layout.pages.length - 1} className="rounded-md border border-slate-200 bg-white px-2 py-1 font-semibold disabled:opacity-40">Move down</button>
-        <span data-testid="v2-save-state" className="ml-auto text-slate-500">{saveLabel} � {wordCount.toLocaleString("en-IN")} words</span>
+        <button type="button" onClick={() => moveActivePage(1)} disabled={activeVisibleIndex >= visiblePages.length - 1} className="rounded-md border border-slate-200 bg-white px-2 py-1 font-semibold disabled:opacity-40">Move down</button>
+        <span data-testid="v2-save-state" className="ml-auto text-slate-500">{saveLabel} ? {wordCount.toLocaleString("en-IN")} words</span>
       </div>
 
       <details className="mx-3 mt-3 hidden rounded-lg border border-slate-300 bg-white text-xs" data-v2-object-navigator>
@@ -763,7 +942,7 @@ export default function V2DocumentWorkspace({
               {(["BACKGROUND", "CONTENT", "DESIGN", "INTERACTIVE"] as const).map((layer) => {
                 const layerFrames = page.frames.filter((frame) => frame.layer === layer).sort((a, b) => a.zIndex - b.zIndex);
                 if (!layerFrames.length) return null;
-                return <div key={layer} className="mb-1"><div className="px-1 text-[10px] font-bold uppercase tracking-wide text-slate-400">{layerLabel(layer)}</div>{layerFrames.map((frame) => <div key={frame.id} className="pl-2"><button type="button" onClick={() => { setActivePageId(page.id); setSelectedFrameId(frame.id); }} className={`block max-w-full truncate rounded px-1 py-0.5 text-left font-semibold ${selectedFrameId === frame.id ? "bg-indigo-100 text-indigo-800" : "text-slate-600 hover:bg-slate-50"}`}>{frame.narrationLabel || frame.type}</button>{frame.children?.map((child) => <button key={child.id} type="button" onClick={() => { setActivePageId(page.id); setSelectedFrameId(child.id); }} className={`ml-3 block max-w-[90%] truncate rounded px-1 py-0.5 text-left text-[11px] ${selectedFrameId === child.id ? "bg-amber-100 text-amber-900" : "text-slate-500 hover:bg-slate-50"}`}>↳ {child.narrationLabel || child.type}</button>)}</div>)}</div>;
+                return <div key={layer} className="mb-1"><div className="px-1 text-[10px] font-bold uppercase tracking-wide text-slate-400">{layerLabel(layer)}</div>{layerFrames.map((frame) => <div key={frame.id} className="pl-2"><button type="button" onClick={() => { setActivePageId(page.id); setSelectedFrameId(frame.id); }} className={`block max-w-full truncate rounded px-1 py-0.5 text-left font-semibold ${selectedFrameId === frame.id ? "bg-indigo-100 text-indigo-800" : "text-slate-600 hover:bg-slate-50"}`}>{frame.narrationLabel || frame.type}</button>{frame.children?.map((child) => <button key={child.id} type="button" onClick={() => { setActivePageId(page.id); setSelectedFrameId(child.id); }} className={`ml-3 block max-w-[90%] truncate rounded px-1 py-0.5 text-left text-[11px] ${selectedFrameId === child.id ? "bg-amber-100 text-amber-900" : "text-slate-500 hover:bg-slate-50"}`}>? {child.narrationLabel || child.type}</button>)}</div>)}</div>;
               })}
             </div>
           ))}
@@ -774,59 +953,25 @@ export default function V2DocumentWorkspace({
         {activePage.visualMode === "EXACT_REPLICA" ? <><span className="rounded-full bg-fuchsia-200 px-2 py-1 font-bold text-fuchsia-900">Exact Replica</span><button type="button" onClick={() => onDocumentChange({ ...document, pageLayout: setV2PageVisualMode(layout, activePage.id, "EDITABLE") }, "Page switched to Editable; replica source preserved")} className="rounded-md border border-fuchsia-200 bg-white px-2 py-1 font-semibold text-fuchsia-800">View as Editable</button></> : activePage.replica?.resourceId ? <button type="button" onClick={() => onDocumentChange({ ...document, pageLayout: setV2PageVisualMode(layout, activePage.id, "EXACT_REPLICA") }, "Page switched to Exact Replica; semantic frames preserved")} className="rounded-md border border-fuchsia-200 bg-white px-2 py-1 font-semibold text-fuchsia-800">Use Replica</button> : <span className="text-slate-500">Editable</span>}
         {activePage.visualMode === "EXACT_REPLICA" ? <label className="ml-auto flex items-center gap-1 font-semibold text-fuchsia-800"><input type="checkbox" checked={semanticOverlay} onChange={(event) => setSemanticOverlay(event.target.checked)} /> Semantic Overlay</label> : null}
       </div>
-      <div className="hidden flex-wrap items-center gap-3 border-b border-blue-200 bg-blue-50 px-3 py-2 text-xs">
-        <span className="font-bold text-blue-900">Read Aloud</span>
-        <span className="rounded-full bg-white px-2 py-1 font-semibold text-slate-600">Page status: {narrationStatus.replaceAll("_", " ")}</span>
-        <label className="flex items-center gap-1 font-semibold text-blue-800">Human audio
-          <select aria-label="Attach human narration" value={activePage?.narration?.resourceId ?? ""} onChange={(event) => attachNarration(event.target.value)} className="rounded border border-blue-200 bg-white px-2 py-1">
-            <option value="">No attached audio</option>
-            {audioResources.map((resource) => <option key={resource.id} value={resource.id}>{resource.title}</option>)}
-          </select>
-        </label>
-        <div className="min-w-[18rem] flex-1"><V2ReadAloudPlayer manifest={narrationManifest} audioUrls={narrationAudioUrls} /></div>
-      </div>
+      {pdfImportOpen ? <PdfImportDialog open bookId={bookId} hasFullBookPdf={hasFullBookPdf || uploadedPdfIsAvailable} hasMeaningfulContent={hasMeaningfulV2Content(document)} onClose={() => setPdfImportOpen(false)} onImportExistingPdf={onImportPdf} onAttachUploadedPdf={onAttachPdf} onBookPdfAttached={() => { setUploadedPdfIsAvailable(true); router.refresh(); }} onComplete={applyPdfImportPages} /> : null}
       {pendingImageDuplicate ? <div role="dialog" aria-modal="true" aria-label="Possible duplicate image" className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/50 p-4"><div className="w-full max-w-md rounded-xl bg-white p-5 shadow-2xl"><h2 className="text-lg font-bold text-slate-900">This image may already exist.</h2><p className="mt-1 text-sm text-slate-600">Use an existing protected Image resource or deliberately upload another copy.</p><div className="mt-3 max-h-72 space-y-2 overflow-y-auto">{pendingImageDuplicate.matches.map((match) => <div key={match.id} className="flex gap-3 rounded-lg border border-slate-200 p-3"><span className="relative h-16 w-20 shrink-0 overflow-hidden rounded bg-slate-100"><ProtectedResourceThumbnail src={`/api/admin/resources/${encodeURIComponent(match.id)}/preview`} className="h-full w-full object-contain" /></span><span className="min-w-0 flex-1"><span className="block truncate font-semibold text-slate-800">{match.title}</span><span className="mt-1 block text-xs text-slate-500">{[match.originalFileName, match.mimeType, match.fileSizeBytes ? formatV2ResourceSize(match.fileSizeBytes) : null].filter(Boolean).join(" · ")}</span><button type="button" onClick={() => selectExistingImage(match.id, pendingImageDuplicate.replaceFrameId)} className="mt-2 rounded border border-amber-200 bg-amber-50 px-3 py-1.5 text-sm font-semibold text-amber-900">Use Existing Image</button></span></div>)}</div><div className="mt-4 flex flex-wrap gap-2"><button type="button" onClick={() => void uploadImageAnyway()} className="rounded bg-amber-600 px-3 py-2 text-sm font-semibold text-white">Upload Anyway</button><button type="button" onClick={() => setPendingImageDuplicate(null)} className="rounded border px-3 py-2 text-sm font-semibold text-slate-700">Cancel</button></div></div></div> : null}
       {pendingVideoDuplicate ? <div role="dialog" aria-modal="true" aria-label="Possible duplicate video" className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/50 p-4"><div className="w-full max-w-md rounded-xl bg-white p-5 shadow-2xl"><h2 className="text-lg font-bold text-slate-900">This video may already exist.</h2><p className="mt-1 text-sm text-slate-600">Use the existing protected Video resource to avoid a duplicate upload.</p><div className="mt-3 space-y-2">{pendingVideoDuplicate.matches.map((match) => <div key={match.id} className="rounded-lg border border-slate-200 p-3"><p className="font-semibold text-slate-800">{match.title}</p><p className="mt-1 text-xs text-slate-500">{[match.originalFileName, match.fileSizeBytes ? formatV2ResourceSize(match.fileSizeBytes) : null].filter(Boolean).join(" · ")}</p><button type="button" onClick={() => selectExistingVideo(match.id, pendingVideoDuplicate.replaceFrameId)} className="mt-2 rounded border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-sm font-semibold text-indigo-800">Use Existing Video</button></div>)}</div><div className="mt-4 flex flex-wrap gap-2"><button type="button" onClick={() => void uploadVideoAnyway()} className="rounded bg-indigo-600 px-3 py-2 text-sm font-semibold text-white">Upload Anyway</button><button type="button" onClick={() => setPendingVideoDuplicate(null)} className="rounded border px-3 py-2 text-sm font-semibold text-slate-700">Cancel</button></div></div></div> : null}
       <div data-v2-editor-body className={`grid min-h-0 flex-1 grid-cols-1 ${propertiesOpen ? "xl:grid-cols-[minmax(0,1fr)_18rem]" : "xl:grid-cols-[minmax(0,1fr)]"}`}>
-      <main data-v2-canvas-scroll data-v2-page-view={pageViewMode} className="min-h-0 min-w-0 overflow-auto p-2">
-        <div className={`mx-auto flex min-w-[min(100%,520px)] flex-col gap-3 ${pageViewMode === "WEB" ? "w-full" : "w-fit"}`}>
-          {layout.pages.map((page, index) => (
-            <div key={page.id} onClick={() => setActivePageId(page.id)} className={activePage?.id === page.id ? "rounded-xl ring-2 ring-indigo-300 ring-offset-2 ring-offset-[#e7ebf0]" : "rounded-xl"}>
-              <V2PageCanvas
-                page={page}
-                scale={scale}
-                pageNumber={index + 1}
-                selectedFrameId={selectedFrameId}
-                renderFrame={(frame, frames) => renderV2Frame(frame, frames, page.width, page.height, blocks, renderBlock, onFrameTextChange, frame.id === cropFrameId, scale, semanticOverlay, (patch: Partial<LayoutV2Frame>, message: string) => patchImage(frame.id, patch, message), () => setCropFrameId(frame.id))}
-                onSelectFrame={(frameId) => {
-                  setActivePageId(page.id);
-                  setSelectedFrameId(frameId);
-                  const frame = getV2Frame(layout, page.id, frameId);
-                  setActiveTextFrameId(frame?.type === "TEXT" ? frame.id : null);
-                  setInsertionPoint(null);
-                }}
-                onActivateMainFlow={(frameId) => {
-                  setActivePageId(page.id);
-                  setSelectedFrameId(null);
-                  setActiveTextFrameId(frameId);
-                  setInsertionPoint(null);
-                }}
-                onClearSelection={() => { setSelectedFrameId(null); setActiveTextFrameId(null); }}
-                onSetInsertionPoint={(point) => { setActivePageId(page.id); setActiveTextFrameId(null); setInsertionPoint({ pageId: page.id, ...point }); }}
-                insertionPoint={insertionPoint?.pageId === page.id ? insertionPoint : undefined}
-                onCommitGeometry={(frameId, geometry) => commitFrameGeometry(page.id, frameId, geometry)}
-                onDeleteFrame={(frameId) => deleteFrame(frameId)}
-                onDropFrame={handleDropFrame}
-                onPatchFrame={(frameId, patch, message) => patchFrame(frameId, patch, message)}
-                semanticOverlay={semanticOverlay}
-                showGuides={showGuides}
-              />
-            </div>
-          ))}
+      <main data-v2-canvas-scroll data-v2-page-view={pageViewMode} className="min-h-0 min-w-0 overflow-auto p-2">        <div data-v2-page-navigation className="flex flex-wrap items-center justify-center gap-3 border-b border-slate-300 bg-slate-50 px-3 py-2 text-xs">
+          <button type="button" aria-label="Previous page" onClick={() => goToPage(-1)} disabled={activeVisibleIndex <= 0} className="rounded border border-slate-200 bg-white px-3 py-1.5 font-semibold disabled:opacity-40">Previous</button>
+          <span data-v2-page-indicator className="font-bold text-slate-700">{pageCountLabel}</span>
+          <label className="flex items-center gap-1 font-semibold text-slate-600">Page
+            <input aria-label="Page number" inputMode="numeric" type="number" min={visiblePageViews[0]?.absolutePageNumber ?? 1} max={visiblePageViews.at(-1)?.absolutePageNumber ?? visiblePageViews.length} value={pageInputValue} onChange={(event) => setPageInputValue(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") commitPageInput(); }} onBlur={commitPageInput} className="w-16 rounded border border-slate-200 bg-white px-2 py-1 text-center" />
+            <span>{pageScope ? "absolute" : `of ${visiblePageViews.length}`}</span>
+          </label>
+          <button type="button" aria-label="Next page" onClick={() => goToPage(1)} disabled={activeVisibleIndex >= visiblePages.length - 1} className="rounded border border-slate-200 bg-white px-3 py-1.5 font-semibold disabled:opacity-40">Next</button>
+        </div>
+        <div className={pageViewMode === "WEB" ? "mx-auto flex min-w-[min(100%,520px)] flex-col gap-3 w-full" : "mx-auto flex min-w-[min(100%,520px)] flex-col gap-3 w-fit"}>
+          {pageViewMode === "WEB" ? visiblePageViews.map((view) => renderPageCanvas(view.page, view.absolutePageNumber, activePage?.id === view.page.id)) : activePage ? renderPageCanvas(activePage, activeAbsolutePageNumber, true) : null}
         </div>
       </main>
       <aside data-v2-right-panel className={`${propertiesOpen ? "block" : "hidden"} h-full min-h-0 min-w-0 overflow-y-auto border-t border-slate-300 bg-white p-3 xl:border-l xl:border-t-0`}>
-        <div className="flex items-center justify-between"><p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">Properties &amp; Layers</p><button type="button" aria-label="Collapse properties" onClick={() => setPropertiesOpen(false)} className="rounded px-2 py-1 text-slate-400 hover:bg-slate-100">×</button></div>
+        <div className="flex items-center justify-between"><p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">Properties &amp; Layers</p><button type="button" aria-label="Collapse properties" onClick={() => setPropertiesOpen(false)} className="rounded px-2 py-1 text-slate-400 hover:bg-slate-100">x</button></div>
         <p className="mt-2 text-xs text-slate-500">{selectedFrame ? `${selectedFrame.type} selected · reading order ${selectedFrame.readingOrder}` : `Page ${activePageIndex + 1} · click the page to set an insertion point.`}</p>
         {selectedFrame ? <details open data-v2-selected-properties className="mt-3 rounded-lg border border-slate-200 text-xs"><summary className="cursor-pointer px-3 py-2 font-bold text-slate-700">Selected Object</summary><div className="space-y-3 border-t border-slate-200 p-3">
           <label className="block font-semibold text-slate-600">Layer<select aria-label="Frame layer" value={selectedFrame.layer} onChange={(event) => applyLayer(event.target.value as LayoutV2Frame["layer"])} className="mt-1 w-full rounded border border-slate-200 bg-white px-2 py-1.5"><option value="BACKGROUND">Background</option><option value="CONTENT">Content</option><option value="DESIGN">Design</option><option value="INTERACTIVE">Interactive</option></select></label>
@@ -844,7 +989,6 @@ export default function V2DocumentWorkspace({
             <label className="block font-semibold text-slate-600">Body / Matter<textarea aria-label="Educational Block body properties" value={typeof selectedEducationalPayload.body === "string" ? selectedEducationalPayload.body : typeof selectedEducationalPayload.text === "string" ? selectedEducationalPayload.text : ""} onChange={(event) => patchFrame(selectedEducationalFrame.id, { payload: { ...selectedEducationalPayload, educationalObjectType: selectedEducationalType, body: event.target.value } }, "Educational Block body updated")} rows={4} className="mt-1 w-full resize-y rounded border px-2 py-1.5" placeholder={selectedEducationalDefinition.defaultPlaceholder} /></label>
             <p className="text-[11px] text-slate-500">Child objects: {selectedEducationalFrame.children?.length ?? 0}. Use Insert Image, Video, or Table while this block is selected to add bounded child content.</p>
           </div>
-        </details> : null}
         {selectedShapeFrame ? <details open className="mt-3 rounded-lg border border-violet-200 text-xs">
           <summary className="cursor-pointer px-3 py-2 font-bold text-violet-900">Shape Properties</summary>
           <div className="space-y-3 border-t border-violet-100 p-3">
@@ -869,19 +1013,21 @@ export default function V2DocumentWorkspace({
             {imageSupportsFlowControls ? <><label className="block font-semibold text-slate-600">Text flow<select aria-label="Image text flow" value={selectedImageFrame.wrapMode === "WRAP_LEFT" || selectedImageFrame.wrapMode === "WRAP_RIGHT" ? selectedImageFrame.wrapMode : "INLINE"} onChange={(event) => { const value = event.target.value as "INLINE" | "WRAP_LEFT" | "WRAP_RIGHT"; patchImage(selectedImageFrame.id, value === "INLINE" ? { layoutMode: "INLINE", wrapMode: "INLINE" } : { layoutMode: "FLOAT", wrapMode: value }, "Image text flow updated"); }} className="mt-1 w-full rounded border px-2 py-1.5"><option value="INLINE">Inline</option><option value="WRAP_LEFT">Wrap Left</option><option value="WRAP_RIGHT">Wrap Right</option></select></label>
             <div><p className="mb-1 font-semibold text-slate-600">Alignment</p><div className="grid grid-cols-3 gap-1">{(["left", "center", "right"] as const).map((alignment) => <button key={alignment} type="button" aria-pressed={(selectedImageFrame.alignment ?? "left") === alignment} onClick={() => alignImage(selectedImageFrame, alignment)} className="rounded border border-amber-200 px-2 py-1 font-semibold capitalize">{alignment === "center" ? "Centre" : alignment}</button>)}</div></div></> : <p className="rounded bg-slate-50 p-2 text-[11px] text-slate-500">Floating page image: position it directly on the page. Flow wrapping and alignment apply only to flow or container images.</p>}
             <div><p className="mb-1 font-semibold text-slate-600">Fit</p><div className="flex gap-1">{(["FIT", "FILL", "CROP"] as const).map((mode) => <button key={mode} type="button" aria-pressed={selectedImageFrame.fitMode === mode} onClick={() => { setCropFrameId(mode === "CROP" ? selectedImageFrame.id : null); patchImage(selectedImageFrame.id, { fitMode: mode }, `${mode} mode selected`); }} className="flex-1 rounded border border-amber-200 px-2 py-1">{mode[0] + mode.slice(1).toLowerCase()}</button>)}</div></div>
-            <div className="flex items-center gap-1"><button type="button" aria-label="Zoom image out" onClick={() => patchImage(selectedImageFrame.id, { fitMode: "CROP", zoom: Math.max(V2_IMAGE_ZOOM_MIN, (selectedImageFrame.zoom ?? 1) - 0.25) }, "Image zoom updated")} className="rounded border px-2 py-1">−</button><span className="flex-1 text-center">{(selectedImageFrame.zoom ?? 1).toFixed(2)}×</span><button type="button" aria-label="Zoom image in" onClick={() => patchImage(selectedImageFrame.id, { fitMode: "CROP", zoom: Math.min(V2_IMAGE_ZOOM_MAX, (selectedImageFrame.zoom ?? 1) + 0.25) }, "Image zoom updated")} className="rounded border px-2 py-1">+</button></div>
+            <div className="flex items-center gap-1"><button type="button" aria-label="Zoom image out" onClick={() => patchImage(selectedImageFrame.id, { fitMode: "CROP", zoom: Math.max(V2_IMAGE_ZOOM_MIN, (selectedImageFrame.zoom ?? 1) - 0.25) }, "Image zoom updated")} className="rounded border px-2 py-1">-</button><span className="flex-1 text-center">{(selectedImageFrame.zoom ?? 1).toFixed(2)}·</span><button type="button" aria-label="Zoom image in" onClick={() => patchImage(selectedImageFrame.id, { fitMode: "CROP", zoom: Math.min(V2_IMAGE_ZOOM_MAX, (selectedImageFrame.zoom ?? 1) + 0.25) }, "Image zoom updated")} className="rounded border px-2 py-1">+</button></div>
             <button type="button" onClick={() => { setCropFrameId(null); patchImage(selectedImageFrame.id, { fitMode: "FIT", crop: { x: 0, y: 0, width: 1, height: 1 }, zoom: 1, offsetX: 0, offsetY: 0 }, "Image reset"); }} className="w-full rounded border px-2 py-1">Reset crop</button>
             <select aria-label="Replace Image" value="" onChange={(event) => { if (event.target.value) patchImage(selectedImageFrame.id, { resourceId: event.target.value, fitMode: "FIT", crop: { x: 0, y: 0, width: 1, height: 1 }, zoom: 1, offsetX: 0, offsetY: 0 }, "Image replaced"); }} className="w-full rounded border px-2 py-1.5"><option value="">Replace Image</option>{imageResources.map((resource) => <option key={resource.id} value={resource.id}>{resource.title}</option>)}</select>
-            {onUploadResource ? <label className="block cursor-pointer rounded border border-dashed border-amber-300 px-2 py-2 text-center font-semibold text-amber-800">{uploadingResource ? "Uploading…" : "Upload Image"}<input type="file" accept="image/*" className="sr-only" disabled={uploadingResource} onChange={(event) => void handleResourceUpload(event, "IMAGE", selectedImageFrame.id)} /></label> : null}
+            {onUploadResource ? <label className="block cursor-pointer rounded border border-dashed border-amber-300 px-2 py-2 text-center font-semibold text-amber-800">{uploadingResource ? "Uploading..." : "Upload Image"}<input type="file" accept="image/*" className="sr-only" disabled={uploadingResource} onChange={(event) => void handleResourceUpload(event, "IMAGE", selectedImageFrame.id)} /></label> : null}
             <p className="text-[11px] text-slate-500">Delete removes this image frame only. The shared library Image remains available unless separately archived from Resources.</p>
           </div>
         </details> : null}
-        {selectedVideoFrame ? <details open className="mt-3 rounded-lg border border-indigo-200 text-xs"><summary className="cursor-pointer px-3 py-2 font-bold text-indigo-900">Video Properties</summary><div className="space-y-3 border-t border-indigo-100 p-3"><div><p className="mb-1 font-semibold text-slate-600">Display</p><div className="flex gap-1"><button type="button" aria-pressed={getV2VideoDisplayMode(selectedVideoFrame) === "PLAYER"} onClick={() => patchFrame(selectedVideoFrame.id, { payload: withV2VideoDisplayMode(selectedVideoFrame, "PLAYER") }, "Video display set to Player")} className="flex-1 rounded border border-indigo-200 bg-white px-2 py-1.5 font-semibold text-indigo-900">Player</button><button type="button" aria-pressed={getV2VideoDisplayMode(selectedVideoFrame) === "BUTTON"} onClick={() => patchFrame(selectedVideoFrame.id, { payload: withV2VideoDisplayMode(selectedVideoFrame, "BUTTON") }, "Video display set to Button")} className="flex-1 rounded border border-indigo-200 bg-white px-2 py-1.5 font-semibold text-indigo-900">Button</button></div></div><label className="block font-semibold text-slate-600">Video label<input aria-label="Video label" value={selectedVideoFrame.narrationLabel ?? ""} onChange={(event) => patchFrame(selectedVideoFrame.id, { narrationLabel: event.target.value || undefined }, "Video label updated")} className="mt-1 w-full rounded border px-2 py-1.5" placeholder="Play Video" /></label><select aria-label="Replace Video" value={selectedVideoFrame.resourceId ?? ""} onChange={(event) => patchFrame(selectedVideoFrame.id, { resourceId: event.target.value || undefined }, "Video replaced")} className="w-full rounded border px-2 py-1.5"><option value="">Choose video</option>{videoResources.map((resource) => <option key={resource.id} value={resource.id}>{resource.title}</option>)}</select>{onUploadResource ? <label className="block cursor-pointer rounded border border-dashed border-indigo-300 px-2 py-2 text-center font-semibold text-indigo-700">{uploadingResource ? "Uploading…" : "Upload Video"}<input type="file" accept="video/*" className="sr-only" disabled={uploadingResource} onChange={(event) => void handleResourceUpload(event, "VIDEO", selectedVideoFrame.id)} /></label> : null}<p className="text-[11px] text-slate-500">Delete removes this video frame only. The shared library resource remains available for other pages.</p></div></details> : null}
-        <details className="mt-3 rounded-lg border border-slate-200 text-xs"><summary className="cursor-pointer px-3 py-2 font-bold text-slate-700">Page Properties</summary><div className="space-y-2 border-t border-slate-200 p-3"><p className="font-semibold text-slate-600">Active page {activePageIndex + 1}</p><div className="flex gap-1"><button type="button" onClick={() => moveActivePage(-1)} disabled={activePageIndex === 0} className="rounded border px-2 py-1 disabled:opacity-40">Move up</button><button type="button" onClick={() => moveActivePage(1)} disabled={activePageIndex >= layout.pages.length - 1} className="rounded border px-2 py-1 disabled:opacity-40">Move down</button></div><div className="border-t border-slate-100 pt-2"><span className="font-semibold text-fuchsia-800">Page visual: </span>{activePage.visualMode === "EXACT_REPLICA" ? <><span>Exact Replica</span><button type="button" onClick={() => onDocumentChange({ ...document, pageLayout: setV2PageVisualMode(layout, activePage.id, "EDITABLE") }, "Page switched to Editable; replica source preserved")} className="ml-2 rounded border px-2 py-1">View as Editable</button></> : activePage.replica?.resourceId ? <button type="button" onClick={() => onDocumentChange({ ...document, pageLayout: setV2PageVisualMode(layout, activePage.id, "EXACT_REPLICA") }, "Page switched to Exact Replica; semantic frames preserved")} className="rounded border px-2 py-1">Use Replica</button> : <span>Editable</span>}</div></div></details>
+        {selectedVideoFrame ? <details open className="mt-3 rounded-lg border border-indigo-200 text-xs"><summary className="cursor-pointer px-3 py-2 font-bold text-indigo-900">Video Properties</summary><div className="space-y-3 border-t border-indigo-100 p-3"><div><p className="mb-1 font-semibold text-slate-600">Display</p><div className="flex gap-1"><button type="button" aria-pressed={getV2VideoDisplayMode(selectedVideoFrame) === "PLAYER"} onClick={() => patchFrame(selectedVideoFrame.id, { payload: withV2VideoDisplayMode(selectedVideoFrame, "PLAYER") }, "Video display set to Player")} className="flex-1 rounded border border-indigo-200 bg-white px-2 py-1.5 font-semibold text-indigo-900">Player</button><button type="button" aria-pressed={getV2VideoDisplayMode(selectedVideoFrame) === "BUTTON"} onClick={() => patchFrame(selectedVideoFrame.id, { payload: withV2VideoDisplayMode(selectedVideoFrame, "BUTTON") }, "Video display set to Button")} className="flex-1 rounded border border-indigo-200 bg-white px-2 py-1.5 font-semibold text-indigo-900">Button</button></div></div><label className="block font-semibold text-slate-600">Video label<input aria-label="Video label" value={selectedVideoFrame.narrationLabel ?? ""} onChange={(event) => patchFrame(selectedVideoFrame.id, { narrationLabel: event.target.value || undefined }, "Video label updated")} className="mt-1 w-full rounded border px-2 py-1.5" placeholder="Play Video" /></label><select aria-label="Replace Video" value={selectedVideoFrame.resourceId ?? ""} onChange={(event) => patchFrame(selectedVideoFrame.id, { resourceId: event.target.value || undefined }, "Video replaced")} className="w-full rounded border px-2 py-1.5"><option value="">Choose video</option>{videoResources.map((resource) => <option key={resource.id} value={resource.id}>{resource.title}</option>)}</select>{onUploadResource ? <label className="block cursor-pointer rounded border border-dashed border-indigo-300 px-2 py-2 text-center font-semibold text-indigo-700">{uploadingResource ? "Uploading..." : "Upload Video"}<input type="file" accept="video/*" className="sr-only" disabled={uploadingResource} onChange={(event) => void handleResourceUpload(event, "VIDEO", selectedVideoFrame.id)} /></label> : null}<p className="text-[11px] text-slate-500">Delete removes this video frame only. The shared library resource remains available for other pages.</p></div></details> : null}
+
+        </details> : null}
+        <details className="mt-3 rounded-lg border border-slate-200 text-xs"><summary className="cursor-pointer px-3 py-2 font-bold text-slate-700">Page Properties</summary><div className="space-y-2 border-t border-slate-200 p-3"><p className="font-semibold text-slate-600">Active page {activePageIndex + 1}</p><div className="flex gap-1"><button type="button" onClick={() => moveActivePage(-1)} disabled={activePageIndex === 0} className="rounded border px-2 py-1 disabled:opacity-40">Move up</button><button type="button" onClick={() => moveActivePage(1)} disabled={activeVisibleIndex >= visiblePages.length - 1} className="rounded border px-2 py-1 disabled:opacity-40">Move down</button></div><div className="border-t border-slate-100 pt-2"><span className="font-semibold text-fuchsia-800">Page visual: </span>{activePage.visualMode === "EXACT_REPLICA" ? <><span>Exact Replica</span><button type="button" onClick={() => onDocumentChange({ ...document, pageLayout: setV2PageVisualMode(layout, activePage.id, "EDITABLE") }, "Page switched to Editable; replica source preserved")} className="ml-2 rounded border px-2 py-1">View as Editable</button></> : activePage.replica?.resourceId ? <button type="button" onClick={() => onDocumentChange({ ...document, pageLayout: setV2PageVisualMode(layout, activePage.id, "EXACT_REPLICA") }, "Page switched to Exact Replica; semantic frames preserved")} className="rounded border px-2 py-1">Use Replica</button> : <span>Editable</span>}</div></div></details>
         <details open className="mt-3 rounded-lg border border-slate-200 text-xs">
           <summary className="cursor-pointer px-3 py-2 font-bold text-slate-700">Page Objects</summary>
           <div className="max-h-[55vh] space-y-2 overflow-y-auto border-t border-slate-200 p-2">
-            {layout.pages.map((page) => <div key={page.id}><button type="button" onClick={() => setActivePageId(page.id)} className="font-bold text-slate-700">Page {layout.pages.indexOf(page) + 1}</button>{[...page.frames].sort((left, right) => left.zIndex - right.zIndex).map((frame) => <button key={frame.id} type="button" onClick={() => { setActivePageId(page.id); setSelectedFrameId(frame.id); }} className={`mt-1 block max-w-full truncate rounded px-2 py-1 text-left ${selectedFrameId === frame.id ? "bg-indigo-100 font-bold text-indigo-800" : "text-slate-600 hover:bg-slate-50"}`}>{frame.narrationLabel || frame.type}</button>)}</div>)}
+            {activePage ? <div key={activePage.id}><p className="font-bold text-slate-700">Page {activePageIndex + 1}</p>{[...activePage.frames].sort((left, right) => left.zIndex - right.zIndex).map((frame) => <button key={frame.id} type="button" onClick={() => { setSelectedFrameId(frame.id); setActiveTextFrameId(frame.type === "TEXT" ? frame.id : null); }} className={selectedFrameId === frame.id ? "mt-1 block max-w-full truncate rounded px-2 py-1 text-left bg-indigo-100 font-bold text-indigo-800" : "mt-1 block max-w-full truncate rounded px-2 py-1 text-left text-slate-600 hover:bg-slate-50"}>{frame.narrationLabel || frame.type}</button>)}</div> : null}
           </div>
         </details>
       </aside>

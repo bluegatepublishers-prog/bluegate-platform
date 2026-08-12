@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import type { PointerEvent, ReactNode } from "react";
 
+import PdfPageBackground from "@/components/admin/books/editor/PdfPageBackground";
 import V2EducationalFrame from "@/components/admin/books/editor/V2EducationalFrame";
 import V2Frame from "@/components/admin/books/editor/V2Frame";
 import V2TextContainerFrame from "@/components/admin/books/editor/V2TextContainerFrame";
@@ -32,6 +33,8 @@ type Props = {
   showGuides?: boolean;
   onActivateMainFlow?: (frameId: string) => void;
   onPatchFrame?: (frameId: string, patch: Partial<LayoutV2Frame>, message: string) => void;
+  pdfUrl?: string;
+  pdfBackgroundActive?: boolean;
 };
 
 export default function V2PageCanvas({
@@ -51,6 +54,8 @@ export default function V2PageCanvas({
   showGuides = false,
   onActivateMainFlow,
   onPatchFrame,
+  pdfUrl,
+  pdfBackgroundActive = false,
 }: Props) {
   const [draftGeometryById, setDraftGeometryById] = useState<Record<string, LayoutV2FrameGeometry>>({});
   const frames = useMemo(
@@ -106,6 +111,8 @@ export default function V2PageCanvas({
                 className="pointer-events-none absolute inset-0 h-full w-full object-cover"
               />
             ) : null}
+
+            {page.pdfBackground?.source === "BOOK_FULL_PDF" && pdfUrl ? <PdfPageBackground pdfUrl={pdfUrl} pageNumber={page.pdfBackground.pageNumber} pageWidth={page.width} pageHeight={page.height} active={pdfBackgroundActive} /> : null}
 
             {showGuides ? (
               <div

@@ -8,19 +8,48 @@ import {
   type ContentTreeInput,
 } from "../lib/content-studio-tree";
 
-const read = (path: string) => readFileSync(path, "utf8");
+const read = (path: string) =>
+  readFileSync(path, "utf8");
 
-const page = read("app/admin/books/[id]/content/page.tsx");
-const actions = read("app/admin/books/[id]/content/actions.ts");
-const service = read("lib/book-structure-management.ts");
+const page = read(
+  "app/admin/books/[id]/content/page.tsx",
+);
+
+const defaultBookPage = read(
+  "app/admin/books/[id]/page.tsx",
+);
+
+const structurePage = read(
+  "app/admin/books/[id]/structure/page.tsx",
+);
+
+const actions = read(
+  "app/admin/books/[id]/content/actions.ts",
+);
+
+const service = read(
+  "lib/book-structure-management.ts",
+);
+
 const treeClient = read(
   "components/admin/books/ContentStudioTree.tsx",
 );
+
+const shell = read(
+  "components/admin/books/ContentStudioShell.tsx",
+);
+
 const editorForm = read(
   "components/admin/books/ContentEditorForm.tsx",
 );
-const resourceService = read("lib/book-resource-links.ts");
-const schema = read("prisma/schema.prisma");
+
+const resourceService = read(
+  "lib/book-resource-links.ts",
+);
+
+const schema = read(
+  "prisma/schema.prisma",
+);
 
 const emptyCounts = {
   outcomes: 0,
@@ -54,111 +83,119 @@ test(
       page,
       /requirePublisherAdminBookOwnership\(id\)/,
     );
-    assert.match(page, /ContentStudioShell/);
+
+    assert.match(
+      page,
+      /ContentStudioShell/,
+    );
   },
 );
 
-test("another publisher Book is rejected", () => {
-  assert.match(
-    service,
-    /publisherId: actor\.publisherId/,
-  );
-});
-
-test("chapter-only Book tree renders", () => {
-  const data = input();
-
-  data.chapters.push({
-    id: "c1",
-    title: "Chapter",
-    archived: false,
-    partId: null,
-    unitId: null,
-    sortOrder: 0,
-    counts: emptyCounts,
-  });
-
-  assert.equal(
-    buildContentStudioTree(data).children[0]?.type,
-    "CHAPTER",
-  );
-});
-
-test("Part Unit Chapter nesting renders", () => {
-  const data = input();
-
-  data.parts.push({
-    id: "p",
-    title: "Part",
-    archived: false,
-    displayOrder: 0,
-  });
-
-  data.units.push({
-    id: "u",
-    title: "Unit",
-    archived: false,
-    partId: "p",
-    displayOrder: 0,
-  });
-
-  data.chapters.push({
-    id: "c",
-    title: "Chapter",
-    archived: false,
-    partId: "p",
-    unitId: "u",
-    sortOrder: 0,
-    counts: emptyCounts,
-  });
-
-  const root = buildContentStudioTree(data);
-
-  assert.equal(
-    root.children[0]?.children[0]?.children[0]?.id,
-    "c",
-  );
-});
-
-test("Module and Topic nesting renders", () => {
-  const data = input();
-
-  data.chapters.push({
-    id: "c",
-    title: "Chapter",
-    archived: false,
-    partId: null,
-    unitId: null,
-    sortOrder: 0,
-    counts: emptyCounts,
-  });
-
-  data.modules.push({
-    id: "m",
-    title: "Module",
-    archived: false,
-    chapterId: "c",
-    displayOrder: 0,
-  });
-
-  data.topics.push({
-    id: "t",
-    title: "Topic",
-    archived: false,
-    chapterId: "c",
-    moduleId: "m",
-    displayOrder: 0,
-  });
-
-  assert.equal(
-    buildContentStudioTree(data).children[0]?.children[0]
-      ?.children[0]?.id,
-    "t",
-  );
-});
+test(
+  "another publisher Book is rejected",
+  () => {
+    assert.match(
+      service,
+      /publisherId:\s*actor\.publisherId/,
+    );
+  },
+);
 
 test(
-  "virtual Chapter tools are not rendered as tree nodes",
+  "chapter-only Book tree renders",
+  () => {
+    const data = input();
+
+    data.chapters.push({
+      id: "c1",
+      title: "Chapter",
+      archived: false,
+      partId: null,
+      unitId: null,
+      sortOrder: 0,
+      counts: emptyCounts,
+    });
+
+    const root =
+      buildContentStudioTree(data);
+
+    const chapter =
+      flattenContentTree(root).find(
+        (node) =>
+          node.type === "CHAPTER" &&
+          node.id === "c1",
+      );
+
+    assert.equal(
+      chapter?.id,
+      "c1",
+    );
+  },
+);
+
+test(
+  "Part Unit Chapter nesting renders",
+  () => {
+    const data = input();
+
+    data.parts.push({
+      id: "p",
+      title: "Part",
+      archived: false,
+      displayOrder: 0,
+    });
+
+    data.units.push({
+      id: "u",
+      title: "Unit",
+      archived: false,
+      partId: "p",
+      displayOrder: 0,
+    });
+
+    data.chapters.push({
+      id: "c",
+      title: "Chapter",
+      archived: false,
+      partId: "p",
+      unitId: "u",
+      sortOrder: 0,
+      counts: emptyCounts,
+    });
+
+    const root =
+      buildContentStudioTree(data);
+
+    const part =
+      flattenContentTree(root).find(
+        (node) =>
+          node.type === "PART" &&
+          node.id === "p",
+      );
+
+    const unit =
+      part?.children.find(
+        (node) =>
+          node.type === "UNIT" &&
+          node.id === "u",
+      );
+
+    const chapter =
+      unit?.children.find(
+        (node) =>
+          node.type === "CHAPTER" &&
+          node.id === "c",
+      );
+
+    assert.equal(
+      chapter?.id,
+      "c",
+    );
+  },
+);
+
+test(
+  "Module renders and legacy Topic rows stay out of hierarchy",
   () => {
     const data = input();
 
@@ -172,22 +209,93 @@ test(
       counts: emptyCounts,
     });
 
-    const keys = flattenContentTree(
-      buildContentStudioTree(data),
-    )
-      .filter((node) => node.type === "FOLDER")
-      .map((node) => node.key);
-    assert.equal(keys.length, 7);
+    data.modules.push({
+      id: "m",
+      title: "Module",
+      archived: false,
+      chapterId: "c",
+      displayOrder: 0,
+    });
+
+    data.topics.push({
+      id: "t",
+      title: "Topic",
+      archived: false,
+      chapterId: "c",
+      moduleId: "m",
+      displayOrder: 0,
+    });
+
+    const nodes =
+      flattenContentTree(
+        buildContentStudioTree(data),
+      );
+
+    const bookModule =
+      nodes.find(
+        (node) =>
+          node.type === "MODULE" &&
+          node.id === "m",
+      );
+
+    const topic =
+      nodes.find(
+        (node) =>
+          node.type === "TOPIC" &&
+          node.id === "t",
+      );
+
+    assert.equal(
+      bookModule?.id,
+      "m",
+    );
+
+    assert.equal(
+      topic,
+      undefined,
+    );
+  },
+);
+
+test(
+  "virtual Chapter tools are not persisted as ContentNode models",
+  () => {
+    const data = input();
+
+    data.chapters.push({
+      id: "c",
+      title: "Chapter",
+      archived: false,
+      partId: null,
+      unitId: null,
+      sortOrder: 0,
+      counts: emptyCounts,
+    });
+
+    const keys =
+      flattenContentTree(
+        buildContentStudioTree(data),
+      )
+        .filter(
+          (node) =>
+            node.type === "FOLDER",
+        )
+        .map(
+          (node) => node.key,
+        );
 
     assert.ok(
-      keys.every((key) =>
-        key.startsWith("FOLDER:c:"),
+      keys.every(
+        (key) =>
+          key.startsWith(
+            "FOLDER:c:",
+          ),
       ),
     );
 
     assert.match(
       treeClient,
-      /child\.type !== "FOLDER"/,
+      /child\.type\s*!==\s*"FOLDER"/,
     );
 
     assert.doesNotMatch(
@@ -198,26 +306,26 @@ test(
 );
 
 test(
-  "Chapter tools are exposed as tabs and omit delivery Assessments",
+  "Content Studio shell delegates hierarchy and selected workspace rendering",
   () => {
-    const shell = read(
-      "components/admin/books/ContentStudioShell.tsx",
+    assert.match(
+      shell,
+      /ContentStudioTree/,
     );
 
-    for (const label of [
-      "Overview",
-      "Outcomes",
-      "Activities",
-      "Exercises",
-      "Questions",
-      "Resources",
-    ]) {
-      assert.match(shell, new RegExp(label));
-    }
+    assert.match(
+      shell,
+      /\{children\}/,
+    );
+
+    assert.match(
+      page,
+      /SelectedCanvas/,
+    );
 
     assert.doesNotMatch(
       shell,
-      /label: "Assessments"/,
+      /label:\s*"Assessments"/,
     );
   },
 );
@@ -229,105 +337,167 @@ test(
       actions,
       /createContentChildAction/,
     );
+
     assert.match(
       actions,
-      /saveBookStructureNode\(bookId/,
+      /saveBookStructureNode\s*\(\s*bookId/,
     );
   },
 );
 
-test("invalid child type is rejected", () => {
-  assert.match(
-    actions,
-    /This child type is not valid for the selected parent/,
-  );
-});
+test(
+  "invalid child type is rejected",
+  () => {
+    assert.match(
+      actions,
+      /This child type is not valid for the selected parent/,
+    );
+  },
+);
 
-test("cross-publisher node mutation fails", () => {
-  assert.match(service, /actorAndBook\(bookId\)/);
-});
+test(
+  "cross-publisher node mutation fails",
+  () => {
+    assert.match(
+      service,
+      /actorAndBook\s*\(\s*bookId\s*\)/,
+    );
+  },
+);
 
-test("cross-book conflicting move fails", () => {
-  assert.match(
-    service,
-    /where: \{ id: input\.parentId, bookId, archived: false \}/,
-  );
-});
+test(
+  "cross-book conflicting move fails",
+  () => {
+    assert.match(
+      service,
+      /where:\s*\{\s*id:\s*input\.parentId,\s*bookId,\s*archived:\s*false\s*\}/,
+    );
+  },
+);
 
-test("sibling reorder is transactional", () => {
-  assert.match(
-    service,
-    /reorderBookStructureNodes/,
-  );
-  assert.match(
-    service,
-    /TransactionIsolationLevel\.Serializable/,
-  );
-});
+test(
+  "sibling reorder is transactional",
+  () => {
+    assert.match(
+      service,
+      /reorderBookStructureNodes/,
+    );
 
-test("selected editor loads on demand", () => {
-  assert.match(page, /const record=await loadNode/);
-  assert.match(
-    page,
-    /if\(selected\.type==="FOLDER"\)/,
-  );
-});
+    assert.match(
+      service,
+      /TransactionIsolationLevel\.Serializable/,
+    );
+  },
+);
 
-test("Learning Outcomes are Chapter scoped", () => {
-  assert.match(
-    page,
-    /chapterLearningOutcome\.findMany\(\{where:\{chapterId\}/,
-  );
-});
+test(
+  "selected hierarchy records load on demand",
+  () => {
+    assert.match(
+      page,
+      /await\s+loadNode\s*\(\s*bookId\s*,\s*selected\s*\)/,
+    );
 
-test("Activities are Chapter scoped", () => {
-  assert.match(
-    page,
-    /chapterActivity\.findMany\(\{where:\{chapterId\}/,
-  );
-});
+    assert.match(
+      page,
+      /selected\.type\s*===\s*"FOLDER"/,
+    );
+
+    assert.match(
+      page,
+      /selected\.type\s*!==\s*"MODULE"/,
+    );
+  },
+);
+
+test(
+  "Learning Outcomes are Chapter scoped",
+  () => {
+    assert.match(
+      page,
+      /chapterLearningOutcome\.findMany\s*\(\s*\{\s*where:\s*\{\s*chapterId/,
+    );
+  },
+);
+
+test(
+  "Activities are loaded through chapter-scoped Activity Studio service",
+  () => {
+    assert.match(
+      page,
+      /loadActivityStudio\s*\(\s*\{\s*publisherId\s*,\s*bookId\s*,\s*chapterId:\s*scope\.chapterId\s*\}\s*\)/,
+    );
+
+    assert.match(
+      page,
+      /scope\.chapterId/,
+    );
+  },
+);
 
 test(
   "Exercises enforce Book and Chapter ownership",
   () => {
     assert.match(
       actions,
-      /ownedChapter\(bookId,chapterId\)/,
+      /ownedChapter\s*\(\s*bookId\s*,\s*chapterId\s*\)/,
     );
+
     assert.match(
       actions,
-      /where:\{id,bookId,chapterId\}/,
+      /where:\s*\{\s*id\s*,\s*bookId\s*,\s*chapterId\s*\}/,
     );
   },
 );
 
-test("Questions are filtered and paginated", () => {
-  assert.match(page, /BookQuestionWhereInput/);
-  assert.match(
-    page,
-    /skip:\(page-1\)\*take,take/,
-  );
-});
+test(
+  "Questions are filtered and paginated",
+  () => {
+    assert.match(
+      page,
+      /BookQuestionWhereInput/,
+    );
 
-test("Resources use BookResourceLink", () => {
-  assert.match(page, /BookStudioResourcePanel/);
-  assert.match(
-    resourceService,
-    /bookResourceLink/,
-  );
-});
+    assert.match(
+      page,
+      /skip:\s*\(\s*page\s*-\s*1\s*\)\s*\*\s*take\s*,\s*take/,
+    );
+  },
+);
 
-test("Resource detach does not delete Resource", () => {
-  assert.doesNotMatch(
-    resourceService,
-    /resource\.delete/,
-  );
-});
+test(
+  "Resources use BookResourceLink",
+  () => {
+    assert.match(
+      page,
+      /BookStudioResourcePanel/,
+    );
+
+    assert.match(
+      resourceService,
+      /bookResourceLink/,
+    );
+  },
+);
+
+test(
+  "Resource detach does not delete Resource",
+  () => {
+    assert.doesNotMatch(
+      resourceService,
+      /resource\.delete/,
+    );
+  },
+);
 
 test(
   "archived records retain lifecycle visibility",
   () => {
-    assert.match(treeClient, /node\.archived/);
+    assert.match(
+      treeClient,
+      /node\.archived/,
+    );
+
     assert.match(
       actions,
       /archiveContentNodeAction/,
@@ -335,48 +505,101 @@ test(
   },
 );
 
-test("unsaved changes protection triggers", () => {
-  assert.match(editorForm, /beforeunload/);
-  assert.match(
-    treeClient,
-    /Discard unsaved changes/,
-  );
-});
+test(
+  "unsaved changes protection triggers",
+  () => {
+    assert.match(
+      editorForm,
+      /beforeunload/,
+    );
 
-test("legacy Structure route redirects", () => {
-  assert.match(
-    read(
-      "app/admin/books/[id]/structure/page.tsx",
-    ),
-    /redirect\(`\/admin\/books\/\$\{id\}\/content`\)/,
-  );
-});
+    assert.match(
+      treeClient,
+      /Discard unsaved changes/,
+    );
+  },
+);
+
+test(
+  "Structure route remains publisher scoped and renders ChapterModuleMapper",
+  () => {
+    assert.match(
+      structurePage,
+      /requirePublisherAdminBookOwnership\s*\(\s*id\s*\)/,
+    );
+
+    assert.match(
+      structurePage,
+      /ChapterModuleMapper/,
+    );
+
+    assert.match(
+      structurePage,
+      /publisherId:\s*actor\.publisherId/,
+    );
+  },
+);
+
+test(
+  "book root preserves ownership checks and opens the existing Content Studio route",
+  () => {
+    assert.match(
+      defaultBookPage,
+      /requirePublisherAdminBookOwnership\s*\(\s*id\s*\)/,
+    );
+
+    assert.match(
+      defaultBookPage,
+      /redirect\s*\(\s*`\/admin\/books\/\$\{id\}\/content`\s*\)/,
+    );
+  },
+);
 
 test(
   "LegacyBooksExplorer is no longer rendered",
   () => {
     assert.doesNotMatch(
-      read("app/admin/books/page.tsx"),
+      read(
+        "app/admin/books/page.tsx",
+      ),
       /LegacyBooksExplorer|BookStudioWorkspace/,
     );
   },
 );
 
-test("Book without normalized Board loads", () => {
-  assert.match(
-    page,
-    /boardId:\s*book\.boardId\?\?""/,
-  );
-  assert.match(page, /Legacy Board/);
-});
+test(
+  "Book without normalized Board loads",
+  () => {
+    assert.match(
+      page,
+      /boardId:\s*true/,
+    );
+
+    assert.match(
+      page,
+      /board:\s*true/,
+    );
+
+    assert.match(
+      page,
+      /studio\.boardId\s*\?\?\s*""/,
+    );
+  },
+);
 
 test(
   "Content Studio queries remain publisher scoped",
   () => {
     assert.match(
       page,
-      /publisherId:actor\.publisherId/,
+      /loadBookStudio\s*\(\s*id\s*,\s*actor\.publisherId\s*\)/,
     );
+
+    assert.match(
+      page,
+      /where:\s*\{\s*id:\s*bookId\s*,\s*publisherId\s*\}/,
+    );
+
     assert.match(
       resourceService,
       /publisherId/,

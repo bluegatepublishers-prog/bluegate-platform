@@ -7,6 +7,7 @@ import { authorizePublisherAdminApi } from "@/lib/publisher-admin-authorization"
 import { validatePublisherAdminBookRelations } from "@/lib/publisher-admin-data";
 import { parseBookFormData, toBookPersistenceData } from "@/lib/book-form-data";
 import { isPublisherStorageValue } from "@/lib/storage/upload-policy";
+import { inspectPublisherBookPdf } from "@/lib/book-pdf";
 import { publisherAdminAuditActor, recordTrustedFailureAudit, writeSecurityAuditEvent } from "@/lib/security-audit";
 
 function generateSlug(title: string) {
@@ -24,7 +25,8 @@ export async function GET() {
       orderBy: { createdAt: "desc" },
     });
     return NextResponse.json(books.map((book) => ({ ...book, ...parseBookFormData(book) })));
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && /PDF|uploaded book/i.test(error.message)) return NextResponse.json({ message: error.message }, { status: 400 });
     console.warn("Publisher Admin book list failed.", { code: "BOOK_LIST_FAILED" });
     return NextResponse.json({ message: "Unable to fetch books." }, { status: 500 });
   }
@@ -40,6 +42,7 @@ export async function POST(request: NextRequest) {
     if (!form.classId) return NextResponse.json({ message: "Please select a class." }, { status: 400 });
     if (!form.subjectId) return NextResponse.json({ message: "Please select a subject." }, { status: 400 });
     if (!isPublisherStorageValue(form.coverImage, access.actor.publisherId, ["book-cover"]) || !isPublisherStorageValue(form.samplePdf, access.actor.publisherId, ["book-sample"]) || !isPublisherStorageValue(form.publicPreviewPdf, access.actor.publisherId, ["book-public-preview"]) || !isPublisherStorageValue(form.fullBookPdf, access.actor.publisherId, ["book-full"]) || form.galleryImages.some((url) => !isPublisherStorageValue(url, access.actor.publisherId, ["book-gallery"]))) return NextResponse.json({ message: "Upload files through this publisher workspace." }, { status: 400 });
+    const fullBookInspection = form.fullBookPdf ? await inspectPublisherBookPdf(form.fullBookPdf, access.actor.publisherId) : null;
 
     const relationsAllowed = await validatePublisherAdminBookRelations({
       publisherId: access.actor.publisherId,
@@ -63,7 +66,7 @@ export async function POST(request: NextRequest) {
     const selectedBoard = form.boardId ? await prisma.board.findFirst({ where: { id: form.boardId, publisherId: access.actor.publisherId, active: true }, select: { name: true } }) : null;
     const book = await prisma.$transaction(async (tx) => {
       const created = await tx.book.create({
-        data: { ...toBookPersistenceData(form), board: selectedBoard?.name ?? null, slug, publisherId: access.actor.publisherId },
+        data: { ...toBookPersistenceData(form), ...(fullBookInspection ? { pages: fullBookInspection.pageCount } : {}), board: selectedBoard?.name ?? null, slug, publisherId: access.actor.publisherId },
         include: { class: true, subject: true, series: true, boardRecord: true },
       });
       await writeSecurityAuditEvent(tx, {
@@ -76,7 +79,8 @@ export async function POST(request: NextRequest) {
     revalidatePath("/admin/books");
     revalidatePath("/books");
     return NextResponse.json({ ...book, ...parseBookFormData(book) }, { status: 201 });
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && /PDF|uploaded book/i.test(error.message)) return NextResponse.json({ message: error.message }, { status: 400 });
     await recordTrustedFailureAudit({ actor: publisherAdminAuditActor(access.actor), action: "publisher.book.create", targetType: "Book" });
     console.warn("Publisher Admin book creation failed.", { code: "BOOK_CREATE_FAILED" });
     return NextResponse.json({ message: "Unable to create book." }, { status: 500 });

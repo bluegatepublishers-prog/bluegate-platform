@@ -39,11 +39,26 @@ export default function ContentStudioShell({
   const storageKey = `bluegate:studio:${bookId}:hierarchy-collapsed`;
 
   useEffect(() => {
-    try {
-      setHierarchyCollapsed(
-        localStorage.getItem(storageKey) === "1",
-      );
-    } catch {}
+    let cancelled = false;
+
+    const timer = window.setTimeout(() => {
+      if (cancelled) {
+        return;
+      }
+
+      try {
+        setHierarchyCollapsed(
+          localStorage.getItem(storageKey) === "1",
+        );
+      } catch {
+        // localStorage can be unavailable in restricted browser contexts.
+      }
+    }, 0);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
   }, [storageKey]);
 
   function toggleHierarchy() {
@@ -55,7 +70,9 @@ export default function ContentStudioShell({
           storageKey,
           next ? "1" : "0",
         );
-      } catch {}
+      } catch {
+        // localStorage can be unavailable in restricted browser contexts.
+      }
 
       return next;
     });
@@ -102,7 +119,7 @@ export default function ContentStudioShell({
 
               <div className="flex items-center gap-1">
                 <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[9px] font-semibold text-slate-500">
-                  Structure
+                  Structure / Overview
                 </span>
 
                 <button
@@ -186,13 +203,11 @@ export default function ContentStudioShell({
               })
             ) : (
               <span className="truncate font-bold text-slate-900">
-                {selectedTitle ||
-                  bookTitle}
+                {selectedTitle || bookTitle}
               </span>
             )}
           </nav>
 
-          {/* Desktop quick-open button when hierarchy is collapsed */}
           {hierarchyCollapsed ? (
             <button
               type="button"
@@ -218,6 +233,7 @@ export default function ContentStudioShell({
             <div className="flex h-12 shrink-0 items-center justify-between border-b border-slate-200 px-3">
               <div className="flex items-center gap-2">
                 <PanelLeft className="h-4 w-4 text-blue-700" />
+
                 <span className="text-xs font-bold text-slate-900">
                   Hierarchy
                 </span>
@@ -258,10 +274,7 @@ function findPath(
   }
 
   for (const child of root.children) {
-    const path = findPath(
-      child,
-      key,
-    );
+    const path = findPath(child, key);
 
     if (path.length) {
       return [

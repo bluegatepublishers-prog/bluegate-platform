@@ -17,6 +17,7 @@ import {
   CreateSignedUploadInput,
   DeleteObjectInput,
   HeadObjectInput,
+  GetObjectBytesInput,
   SignedUploadResult,
   StorageObjectMetadata,
   SignedDownloadResult,
@@ -195,6 +196,18 @@ export class R2StorageProvider implements StorageProvider {
     }
   }
 
+  async getObjectBytes(input: GetObjectBytesInput): Promise<Uint8Array> {
+    const key = normalizeAndValidateObjectKey(input.key);
+    if (!Number.isInteger(input.maxBytes) || input.maxBytes <= 0) throw new AppError({ code: "INVALID_STORAGE_REQUEST", message: "A positive read limit is required." });
+    try {
+      const response = await this.client.send(new GetObjectCommand({ Bucket: this.config.bucketName, Key: key }));
+      const declared = response.ContentLength ?? 0;
+      if (!response.Body || declared <= 0 || declared > input.maxBytes) throw new AppError({ code: "INVALID_STORAGE_REQUEST", message: "Object exceeds the permitted inspection size." });
+      const data = new Uint8Array(await response.Body.transformToByteArray());
+      if (!data.byteLength || data.byteLength > input.maxBytes || data.byteLength !== declared) throw new AppError({ code: "INVALID_STORAGE_REQUEST", message: "Object could not be read safely." });
+      return data;
+    } catch (error) { throw error instanceof AppError ? error : this.handleS3Error(error, "getObjectBytes", key); }
+  }
   async putObject(input: PutObjectInput): Promise<StorageObjectMetadata> {
     const key = normalizeAndValidateObjectKey(input.key);
     if (!input.body.byteLength) {

@@ -91,6 +91,10 @@ import {
 import { prisma } from "@/lib/prisma";
 import { requireLivePublisherAdmin } from "@/lib/publisher-admin-authorization";
 import { publisherAdminAuditActor, writeSecurityAuditEvent } from "@/lib/security-audit";
+import { createOwnedBookPdfV2Pages } from "@/lib/book-pdf-v2-import";
+import { prepareOwnedBookReadAloud } from "@/lib/book-read-aloud";
+import { inspectPublisherBookPdf } from "@/lib/book-pdf";
+import { normalizeAndValidateObjectKey } from "@/lib/storage/object-key";
 
 const text = (form: FormData, key: string, max = 4000) =>
   String(form.get(key) ?? "").trim().slice(0, max);
@@ -110,6 +114,29 @@ const signedInteger = (form: FormData, key: string) => {
 
 function refresh(bookId: string) {
   revalidatePath(`/admin/books/${bookId}/content`);
+}
+
+
+export async function prepareBookReadAloudAction(bookId: string) {
+  const result = await prepareOwnedBookReadAloud(bookId);
+  refresh(bookId);
+  return result;
+}
+export async function importOwnedBookPdfV2PagesAction(bookId: string) {
+  return createOwnedBookPdfV2Pages(bookId);
+}
+
+export async function attachOwnedBookFullPdfAction(bookId: string, objectKey: string) {
+  const actor = await requireLivePublisherAdmin();
+  const key = normalizeAndValidateObjectKey(objectKey);
+  const inspection = await inspectPublisherBookPdf(key, actor.publisherId);
+  const updated = await prisma.book.updateMany({
+    where: { id: bookId, publisherId: actor.publisherId },
+    data: { fullBookPdf: key, pages: inspection.pageCount },
+  });
+  if (updated.count !== 1) throw new Error("The selected book is unavailable.");
+  refresh(bookId);
+  return { pageCount: inspection.pageCount };
 }
 
 function slugCode(value: string) {
@@ -206,6 +233,18 @@ async function normalizeFormContent(
   return (await validateKnowledgeDocument(scope, mediaDocument)) as unknown as Prisma.InputJsonValue;
 }
 
+export async function saveBookContentAction(bookId: string, form: FormData) {
+  const actor = await requireLivePublisherAdmin();
+  const scope = await getContentNodeScope(actor.publisherId, bookId, "BOOK", bookId);
+  const content = await normalizeFormContent(scope, form, null);
+  const updated = await prisma.book.updateMany({
+    where: { id: bookId, publisherId: actor.publisherId },
+    data: { content: content ?? Prisma.JsonNull },
+  });
+  if (updated.count !== 1) throw new Error("Book not found.");
+  refresh(bookId);
+  return { savedAt: new Date().toISOString(), nodeId: bookId };
+}
 export async function saveContentNodeAction(
   bookId: string,
   type: BookStructureNodeType,

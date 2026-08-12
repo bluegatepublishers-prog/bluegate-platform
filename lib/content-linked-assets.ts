@@ -3,6 +3,8 @@ import "server-only";
 import { ResourceAudience, ResourceType } from "@prisma/client";
 
 import type { BookStructureNodeType } from "@/lib/book-structure-management";
+
+export type ContentDocumentScopeType = "BOOK" | BookStructureNodeType;
 import {
   type ContentDocument,
   isLinkedAssetBlock,
@@ -27,7 +29,7 @@ import { prisma } from "@/lib/prisma";
 export type ContentNodeScope = {
   publisherId: string;
   bookId: string;
-  nodeType: BookStructureNodeType;
+  nodeType: ContentDocumentScopeType;
   nodeId: string;
   chapterId: string | null;
   moduleId: string | null;
@@ -48,9 +50,14 @@ type ValidationError = {
 export async function getContentNodeScope(
   publisherId: string,
   bookId: string,
-  nodeType: BookStructureNodeType,
+  nodeType: ContentDocumentScopeType,
   nodeId: string,
 ): Promise<ContentNodeScope> {
+  if (nodeType === "BOOK") {
+    const row = await prisma.book.findFirst({ where: { id: nodeId, publisherId }, select: { id: true } });
+    if (!row || row.id !== bookId) throw new Error("Book not found.");
+    return { publisherId, bookId, nodeType, nodeId, chapterId: null, moduleId: null, topicId: null };
+  }
   if (nodeType === "PART") {
     const row = await prisma.bookPart.findFirst({
       where: { id: nodeId, bookId, book: { publisherId } },
@@ -590,7 +597,7 @@ export function isScopedAsset(
   moduleId: string | null,
   topicId: string | null,
 ) {
-  if (scope.nodeType === "PART" || scope.nodeType === "UNIT") return true;
+  if (scope.nodeType === "BOOK" || scope.nodeType === "PART" || scope.nodeType === "UNIT") return true;
   if (scope.nodeType === "CHAPTER") {
     return chapterId === null || chapterId === scope.chapterId;
   }

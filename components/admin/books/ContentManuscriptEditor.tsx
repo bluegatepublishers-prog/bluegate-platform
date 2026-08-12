@@ -33,6 +33,7 @@ import {
   deleteContentNodeAction,
 } from "@/app/admin/books/[id]/content/actions";
 import type { BookStructureNodeType } from "@/lib/book-structure-management";
+import type { BookPageScope } from "@/lib/book-page-filter";
 import type { ContentRenderMode } from "@/lib/content-audience";
 import type {
   KnowledgeDefinitionSummary,
@@ -122,7 +123,7 @@ import type { ReleaseSummary } from "@/lib/content-release";
 import { uploadFileToR2 } from "@/lib/storage/client-upload";
 import { contentResourcePreviewUrl } from "@/lib/content-resource-preview";
 import EducationalObjectIcon from "@/components/content/EducationalObjectIcon";
-import { addV2FrameToPage, createV2CompatibilityLayout, ensureV2MainFlowFrames, getContentLayoutVersion, updateV2Frame, type LayoutV2Frame } from "@/lib/content-layout-v2";
+import { addV2FrameToPage, createV2CompatibilityLayout, ensureV2MainFlowFrames, getContentLayoutVersion, updateV2Frame, type LayoutV2Frame, type LayoutV2Page } from "@/lib/content-layout-v2";
 import { buildV2NarrationManifest } from "@/lib/content-narration";
 
 type ResourceChoice = {
@@ -288,12 +289,20 @@ export default function ContentManuscriptEditor({
   rollbackReleaseAction,
   bulkPublishAction,
   previewBaseHref,
+  importPdfAction,
+  attachPdfAction,
+  prepareReadAloudAction,
+  hasFullBookPdf,
   saveAction,
+  pageScope = null,
+  initialPageNumber = null,
+  workspaceTitle,
+  isBookRootContext = true,
 }: {
   bookId: string;
   nodeId: string;
   chapterId: string | null;
-  nodeType: BookStructureNodeType;
+  nodeType: BookStructureNodeType | "BOOK";
   nodeTitle: string;
   nodeSubtitle: string;
   nodeDescription: string;
@@ -347,7 +356,15 @@ export default function ContentManuscriptEditor({
   rollbackReleaseAction: ((versionId: string, form: FormData) => Promise<void>) | null;
   bulkPublishAction: ((form: FormData) => Promise<void>) | null;
   previewBaseHref: string;
+  importPdfAction: () => Promise<{ pageCount: number; pages: LayoutV2Page[] }>;
+  attachPdfAction: (objectKey: string) => Promise<{ pageCount: number }>;
+  prepareReadAloudAction?: () => Promise<{ updatedPageCount: number; matchedPageCount: number }>;
+  hasFullBookPdf: boolean;
   saveAction: (data: FormData) => Promise<ContentNodeSaveResult>;
+  pageScope?: BookPageScope | null;
+  initialPageNumber?: number | null;
+  workspaceTitle?: string;
+  isBookRootContext?: boolean;
 }) {
   const [title, setTitle] = useState(nodeTitle);
   const [subtitle, setSubtitle] = useState(nodeSubtitle);
@@ -1092,6 +1109,7 @@ export default function ContentManuscriptEditor({
   }
 
   function deleteCurrentNode() {
+    if (nodeType === "BOOK") return;
     const name = nodeTitle;
     if (!confirm(`Delete "${name}"?`)) return;
     if (!confirm(`Permanently delete "${name}"? This cannot be undone.`)) return;
@@ -1705,7 +1723,16 @@ export default function ContentManuscriptEditor({
         <div className="min-h-0 flex-1">
         <EditorShell shellRef={editorShellRef} ribbon={null} periodTabs={null}>
           <V2DocumentWorkspace
-            title={title}
+            bookId={bookId}
+            hasFullBookPdf={hasFullBookPdf}
+            onImportPdf={importPdfAction}
+            onAttachPdf={attachPdfAction}
+            onPrepareReadAloud={prepareReadAloudAction}
+            title={workspaceTitle ?? title}
+            pageScope={pageScope}
+            initialPageNumber={initialPageNumber}
+            isBookRootContext={isBookRootContext}
+
             document={workspaceDocument}
             resources={resourceChoices.map((resource) => ({ id: resource.id, title: resource.title, type: resource.type, mimeType: resource.mimeType }))}
             saveState={saveState}
@@ -1883,7 +1910,7 @@ export default function ContentManuscriptEditor({
       onSave={() => void saveDocument()}
       onUndo={undoDocument}
       onRedo={redoDocument}
-      onDelete={deleteCurrentNode}
+      onDelete={nodeType === "BOOK" ? undefined : deleteCurrentNode}
       onPublish={publishCurrentNode}
       onPreview={openPreview}
       onSearch={() => setSearchOpen(true)}
@@ -3061,7 +3088,7 @@ function ActivityCanvas({
   return (
     <article className="rounded-3xl border border-emerald-200 bg-emerald-50/70 px-5 py-4 text-slate-900">
       <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-emerald-700">
-        <span aria-hidden="true">🧪</span>
+        <span aria-hidden="true">??</span>
         <div
           ref={titleRef}
           contentEditable
@@ -3905,7 +3932,7 @@ function InsertContentDrawer({
               items={linkedChoices.map((option) => ({
                 key: linkedAssetKey(option.targetType, option.targetId),
                 title: option.title,
-                detail: `${option.sourceBadge} · ${option.sourceDetail} · ${option.scopeLabel}`,
+                detail: `${option.sourceBadge} ? ${option.sourceDetail} ? ${option.scopeLabel}`,
                 onChoose: () => onChooseAsset(option),
               }))}
             />
@@ -3927,7 +3954,7 @@ function InsertContentDrawer({
             items={linkedChoices.map((option) => ({
               key: linkedAssetKey(option.targetType, option.targetId),
               title: option.title,
-              detail: `${option.sourceBadge} · ${option.sourceDetail} · ${option.scopeLabel}`,
+              detail: `${option.sourceBadge} ? ${option.sourceDetail} ? ${option.scopeLabel}`,
               onChoose: () => onChooseAsset(option),
             }))}
             emptyText={`No ${blockLabelForDrawer(kind).toLowerCase()} records are available in this scope.`}

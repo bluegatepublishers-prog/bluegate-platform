@@ -11,13 +11,37 @@ export type V2BrowserVoiceOption = {
   voiceURI: string;
   label: string;
   lang: string;
-  category: "Indian English" | "British English" | "American English" | "Other";
+  category: "Indian English" | "British English" | "American English" | "Hindi" | "Other";
 };
 
+export type V2AuthoringVoiceOption = {
+  voiceURI: string;
+  label: string;
+  lang: string;
+  category: "Indian English" | "British English" | "American English" | "English" | "Hindi" | "Other";
+};
+
+export function getV2AuthoringVoiceOptions(voices: SpeechSynthesisVoice[]): V2AuthoringVoiceOption[] {
+  return voices.map((voice) => {
+    const lang = voice.lang.toLowerCase();
+    const category: V2AuthoringVoiceOption["category"] = lang.startsWith("en-in")
+      ? "Indian English"
+      : lang.startsWith("en-gb")
+        ? "British English"
+        : lang.startsWith("en-us")
+          ? "American English"
+          : lang.startsWith("en")
+            ? "English"
+            : lang.startsWith("hi")
+              ? "Hindi"
+              : "Other";
+    return { voiceURI: voice.voiceURI, label: voice.name, lang: voice.lang, category };
+  }).filter((voice) => voice.category !== "Other");
+}
 export function getV2BrowserVoiceOptions(voices: SpeechSynthesisVoice[]): V2BrowserVoiceOption[] {
   return voices.map((voice) => {
     const lang = voice.lang.toLowerCase();
-    const category: V2BrowserVoiceOption["category"] = lang === "en-in" ? "Indian English" : lang === "en-gb" ? "British English" : lang === "en-us" ? "American English" : "Other";
+    const category: V2BrowserVoiceOption["category"] = lang.startsWith("en-in") ? "Indian English" : lang.startsWith("en-gb") ? "British English" : lang.startsWith("en-us") ? "American English" : lang.startsWith("hi") ? "Hindi" : "Other";
     return { voiceURI: voice.voiceURI, label: voice.name, lang: voice.lang, category };
   }).filter((voice) => voice.category !== "Other");
 }
@@ -27,11 +51,17 @@ export default function V2ReadAloudPlayer({
   audioUrls = {},
   onActiveSegmentChange,
   requestedSegment,
+  pageContext,
+  pageText,
+  onPrepare,
 }: {
   manifest: BookNarrationManifest;
   audioUrls?: Record<string, string>;
   onActiveSegmentChange?: (segmentId: string | null) => void;
   requestedSegment?: { segmentId: string; token: number } | null;
+  pageContext?: string;
+  pageText?: string;
+  onPrepare?: () => Promise<{ updatedPageCount: number; matchedPageCount: number }>;
 }) {
   const segments = useMemo(() => manifest.segments, [manifest]);
   const [segmentIndex, setSegmentIndex] = useState(0);
@@ -46,9 +76,10 @@ export default function V2ReadAloudPlayer({
   const page = segment ? manifest.pages.find((entry) => entry.pageId === segment.pageId) : undefined;
   const pageStartIndex = page ? segments.findIndex((entry) => entry.pageId === page.pageId) : 0;
   const audioUrl = segment ? resolveAudioUrl(segment, page?.audioResourceId, page?.segments.length === 1, audioUrls) : undefined;
-  const voiceOptions = useMemo(() => getV2BrowserVoiceOptions(voices), [voices]);
+  const authoringVoiceOptions = useMemo(() => getV2AuthoringVoiceOptions(voices), [voices]);
   const selectedVoice = voices.find((voice) => voice.voiceURI === voiceURI);
-  const hasIndianEnglishVoice = voiceOptions.some((voice) => voice.category === "Indian English");
+  const hasIndianEnglishVoice = authoringVoiceOptions.some((voice) => voice.category === "Indian English");
+  const hasHindiVoice = authoringVoiceOptions.some((voice) => voice.category === "Hindi");
 
   useEffect(() => {
     const speech = globalThis.speechSynthesis;
@@ -56,7 +87,12 @@ export default function V2ReadAloudPlayer({
     const syncVoices = () => setVoices(speech.getVoices());
     syncVoices();
     speech.addEventListener?.("voiceschanged", syncVoices);
-    return () => speech.removeEventListener?.("voiceschanged", syncVoices);
+    const previousOnVoicesChanged = speech.onvoiceschanged;
+    speech.onvoiceschanged = syncVoices;
+    return () => {
+      speech.removeEventListener?.("voiceschanged", syncVoices);
+      if (speech.onvoiceschanged === syncVoices) speech.onvoiceschanged = previousOnVoicesChanged;
+    };
   }, []);
 
   useEffect(() => {
@@ -79,6 +115,23 @@ export default function V2ReadAloudPlayer({
 
   useEffect(() => () => stopPlayback(audioRef, utteranceRef), []);
 
+  const speakPageText = (text: string) => {
+    const speech = globalThis.speechSynthesis;
+    if (!speech || typeof globalThis.SpeechSynthesisUtterance === "undefined") {
+      setStatus("UNAVAILABLE");
+      return;
+    }
+    stopPlayback(audioRef, utteranceRef);
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = selectedVoice?.lang || "en";
+    if (selectedVoice) utterance.voice = selectedVoice;
+    utterance.rate = speed;
+    utterance.onend = () => setStatus("IDLE");
+    utterance.onerror = () => setStatus("UNAVAILABLE");
+    utteranceRef.current = utterance;
+    speech.speak(utterance);
+    setStatus("PLAYING");
+  };
   const speak = (target: NarrationSegment) => {
     const speech = globalThis.speechSynthesis;
     if (!speech || typeof globalThis.SpeechSynthesisUtterance === "undefined") {
@@ -97,7 +150,12 @@ export default function V2ReadAloudPlayer({
     setStatus("PLAYING");
   };
 
-  const play = () => {
+   const play = () => {
+    if (pageText !== undefined) {
+      if (pageText.trim()) speakPageText(pageText);
+      else setStatus("IDLE");
+      return;
+    }
     if (!segment) {
       setStatus("UNAVAILABLE");
       return;
@@ -124,19 +182,31 @@ export default function V2ReadAloudPlayer({
     setStatus("PAUSED");
   };
 
-  const restart = () => {
+  const resume = () => {
+    if (audioRef.current) {
+      void audioRef.current.play().then(() => setStatus("PLAYING")).catch(() => setStatus("UNAVAILABLE"));
+      return;
+    }
+    globalThis.speechSynthesis?.resume();
+    setStatus("PLAYING");
+  };
+
+  const stop = () => {
+    stopPlayback(audioRef, utteranceRef);
+    setStatus("IDLE");
+  };
+
+   const restart = () => {
+    if (pageText !== undefined) {
+      stopPlayback(audioRef, utteranceRef);
+      setStatus("IDLE");
+      window.setTimeout(() => play(), 0);
+      return;
+    }
     const nextIndex = pageStartIndex >= 0 ? pageStartIndex : 0;
     setSegmentIndex(nextIndex);
     setStatus("IDLE");
     window.setTimeout(() => play(), 0);
-  };
-
-  const move = (direction: -1 | 1) => {
-    if (!segments.length) return;
-    const nextIndex = Math.max(0, Math.min(segments.length - 1, segmentIndex + direction));
-    setSegmentIndex(nextIndex);
-    if (status === "PLAYING") window.setTimeout(() => play(), 0);
-    else setStatus("IDLE");
   };
 
   const advance = (currentId: string) => {
@@ -165,42 +235,71 @@ export default function V2ReadAloudPlayer({
     }, 0);
   };
 
+  const move = (direction: -1 | 1) => {
+    if (!segments.length) return;
+    const nextIndex = Math.max(0, Math.min(segments.length - 1, segmentIndex + direction));
+    setSegmentIndex(nextIndex);
+    if (status === "PLAYING") window.setTimeout(() => play(), 0);
+    else setStatus("IDLE");
+  };
   const changeSpeed = (nextSpeed: number) => {
     setSpeed(nextSpeed);
     if (audioRef.current) audioRef.current.playbackRate = nextSpeed;
   };
 
-  const noText = segments.length === 0;
+  const [preparing, setPreparing] = useState(false);
+  const [prepareMessage, setPrepareMessage] = useState("");
+  const prepare = async () => {
+    if (!onPrepare || preparing) return;
+    setPreparing(true);
+    setPrepareMessage("");
+    try {
+      const result = await onPrepare();
+      setPrepareMessage(`Prepared ${result.updatedPageCount} page${result.updatedPageCount === 1 ? "" : "s"}. Refreshing book content...`);
+    } catch {
+      setPrepareMessage("Read Aloud could not be prepared. Check the book PDF and try again.");
+    } finally {
+      setPreparing(false);
+    }
+  };
+  const pageTextProvided = pageText !== undefined;
+  const currentPageText = pageText ?? "";
+  const noText = pageTextProvided ? !currentPageText.trim() : segments.length === 0;
+  const wordCount = currentPageText.trim() ? currentPageText.trim().split(/\s+/u).length : 0;
+  const groupedVoiceCategories = ["Indian English", "British English", "American English", "English", "Hindi"] as const;
   return (
-    <section aria-label="Read Aloud" className="rounded-2xl border border-blue-200 bg-white/95 p-3 shadow-lg backdrop-blur" data-v2-read-aloud-player>
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="mr-1 text-sm font-bold text-slate-900">Read Aloud</span>
-        <label className="flex items-center gap-1 text-xs font-semibold text-slate-600">Voice
-          <select aria-label="Read Aloud voice" value={voiceURI} onChange={(event) => setVoiceURI(event.target.value)} className="rounded-lg border bg-white px-2 py-2">
+    <section aria-label="Read Aloud" className="rounded-xl border border-blue-200 bg-white/95 p-2 shadow-lg backdrop-blur" data-v2-read-aloud-player>
+      <div className="flex flex-wrap items-center gap-1.5 text-xs">
+        <span className="mr-1 font-bold text-slate-900">Read Aloud</span>
+        <label className="flex items-center gap-1 font-semibold text-slate-600">Voice
+          <select aria-label="Read Aloud voice" value={voiceURI} onChange={(event) => setVoiceURI(event.target.value)} className="max-w-56 rounded border bg-white px-1.5 py-1">
             <option value="">Device default</option>
-            {voiceOptions.map((voice) => <option key={voice.voiceURI} value={voice.voiceURI}>{voice.category}: {voice.label}</option>)}
+            {groupedVoiceCategories.map((category) => {
+              const categoryVoices = authoringVoiceOptions.filter((voice) => voice.category === category);
+              return <optgroup key={category} label={category}>{categoryVoices.map((voice) => <option key={voice.voiceURI} value={voice.voiceURI}>{voice.label} ({voice.lang})</option>)}{category === "Hindi" && !hasHindiVoice ? <option disabled>Hindi voice unavailable on this device.</option> : null}</optgroup>;
+            })}
           </select>
         </label>
-        <button type="button" onClick={status === "PLAYING" ? pause : play} disabled={noText} aria-label={status === "PLAYING" ? "Pause Read Aloud" : "Play Read Aloud"} aria-pressed={status === "PLAYING"} className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold text-white disabled:cursor-not-allowed disabled:bg-slate-300">
-          {status === "PLAYING" ? "Pause" : "Play"}
-        </button>
-        <button type="button" onClick={() => move(-1)} disabled={noText || segmentIndex === 0} aria-label="Previous sentence" className="rounded-lg border px-2 py-2 text-xs font-semibold disabled:opacity-40">Previous</button>
-        <button type="button" onClick={() => move(1)} disabled={noText || segmentIndex >= segments.length - 1} aria-label="Next sentence" className="rounded-lg border px-2 py-2 text-xs font-semibold disabled:opacity-40">Next</button>
-        <button type="button" onClick={restart} disabled={noText} aria-label="Restart Read Aloud" className="rounded-lg border px-2 py-2 text-xs font-semibold disabled:opacity-40">Restart</button>
-        <label className="flex items-center gap-1 text-xs font-semibold text-slate-600">Speed
-          <select value={speed} onChange={(event) => changeSpeed(Number(event.target.value))} aria-label="Read Aloud speed" className="rounded-lg border bg-white px-2 py-2">
-            {SPEEDS.map((value) => <option key={value} value={value}>{value.toFixed(value === 1 ? 1 : 2)}×</option>)}
+        <button type="button" onClick={play} disabled={noText} aria-label="Play Read Aloud" className="rounded bg-blue-600 px-2.5 py-1 font-bold text-white disabled:cursor-not-allowed disabled:bg-slate-300">Play</button>
+        {!pageTextProvided ? <><button type="button" onClick={() => move(-1)} disabled={noText || segmentIndex === 0} aria-label="Previous sentence" className="rounded border px-2 py-1 font-semibold disabled:opacity-40">Previous</button>
+        <button type="button" onClick={() => move(1)} disabled={noText || segmentIndex >= segments.length - 1} aria-label="Next sentence" className="rounded border px-2 py-1 font-semibold disabled:opacity-40">Next</button></> : null}
+        <button type="button" onClick={status === "PAUSED" ? resume : pause} disabled={status === "IDLE" || status === "UNAVAILABLE"} aria-label={status === "PAUSED" ? "Resume Read Aloud" : "Pause Read Aloud"} className="rounded border px-2 py-1 font-semibold disabled:opacity-40">{status === "PAUSED" ? "Resume" : "Pause"}</button>
+        <button type="button" onClick={stop} disabled={status === "IDLE" || status === "UNAVAILABLE"} aria-label="Stop Read Aloud" className="rounded border px-2 py-1 font-semibold disabled:opacity-40">Stop</button>
+        <button type="button" onClick={restart} disabled={noText} aria-label="Restart Read Aloud" className="rounded border px-2 py-1 font-semibold disabled:opacity-40">Restart</button>
+        <label className="flex items-center gap-1 font-semibold text-slate-600">Speed
+          <select value={speed} onChange={(event) => changeSpeed(Number(event.target.value))} aria-label="Read Aloud speed" className="rounded border bg-white px-1.5 py-1">
+            {SPEEDS.map((value) => <option key={value} value={value}>{value}x</option>)}
           </select>
         </label>
-        <span className="ml-auto text-xs font-semibold text-slate-500">{noText ? "No readable text on this page." : (String(segmentIndex + 1) + " / " + String(segments.length))}</span>
+        <span className="ml-auto font-semibold text-slate-500">{pageContext ?? (noText ? "No readable text on this page." : `${segmentIndex + 1} / ${segments.length}`)}</span>
       </div>
-      {!noText ? <p className="mt-2 line-clamp-2 text-xs text-slate-600" aria-live="polite"><span className="font-semibold">{segment?.narrationLabel ? segment.narrationLabel + ": " : ""}</span>{segment?.text}</p> : null}
-      {!hasIndianEnglishVoice ? <p data-v2-indian-voice-fallback className="mt-1 text-xs text-slate-500">Indian English voice not available on this device.</p> : null}
+      {pageTextProvided && !noText ? <p className="mt-1 text-[11px] text-slate-600" aria-live="polite">Reading text ready · ${wordCount} words</p> : !pageTextProvided && !noText ? <p className="mt-1 line-clamp-1 text-[11px] text-slate-600" aria-live="polite"><span className="font-semibold">{segment?.narrationLabel ? segment.narrationLabel + ": " : ""}</span>{segment?.text}</p> : null}
+      {pageTextProvided && noText ? <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-slate-600"><span>Reading text has not been prepared for this book/page.</span>{onPrepare ? <button type="button" onClick={() => void prepare()} disabled={preparing} className="rounded border border-blue-300 bg-white px-2 py-1 font-semibold text-blue-900 disabled:opacity-40">{preparing ? "Preparing..." : "Prepare Read Aloud"}</button> : null}</div> : null}
+      {prepareMessage ? <p role="status" className="mt-1 text-[11px] text-slate-600">{prepareMessage}</p> : null}      {!hasIndianEnglishVoice ? <p data-v2-indian-voice-fallback className="mt-1 text-[11px] text-slate-500">Indian English voice not available on this device.</p> : null}
       {status === "UNAVAILABLE" && !noText ? <p className="mt-1 text-xs font-semibold text-amber-700">Read Aloud is unavailable in this browser.</p> : null}
     </section>
   );
 }
-
 function resolveAudioUrl(segment: NarrationSegment, pageAudioResourceId: string | undefined, pageHasOneSegment: boolean, audioUrls: Record<string, string>) {
   const resourceId = segment.audioResourceId || (pageHasOneSegment ? pageAudioResourceId : undefined);
   return resourceId ? audioUrls[resourceId] : undefined;

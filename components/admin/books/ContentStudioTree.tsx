@@ -334,6 +334,7 @@ function TreeBranch({
   const draggable = node.type !== "BOOK";
   const addOptions = childTypesFor(node.type);
   const actionableType = node.type as BookStructureNodeType;
+  const structuralNode = ["BOOK", "PART", "UNIT", "CHAPTER", "MODULE", "TOPIC"].includes(node.type);
 
   function persistSiblingOrder(sourceId: string, targetId: string) {
     const sourceIndex = siblings.findIndex((entry) => entry.id === sourceId);
@@ -514,7 +515,7 @@ function TreeBranch({
             </span>
           </Link>
 
-          {node.type !== "FOLDER" ? (
+          {structuralNode ? (
             <div className="mr-0.5 mt-0.5 flex shrink-0 items-center opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100">
               {childTypesFor(node.type).length ? (
                 <button
@@ -663,7 +664,7 @@ function TreeBranch({
           </form>
         ) : null}
 
-        {activeAdd.key === node.key && addOptions.length ? (
+        {structuralNode && activeAdd.key === node.key && addOptions.length ? (
           <form
             onSubmit={submitQuickAdd}
             className="mb-1.5 ml-8 mr-1 rounded-lg border border-slate-200 bg-white p-1.5 shadow-sm"
@@ -773,6 +774,9 @@ function childTypesFor(type: ContentNodeType) {
     MODULE: [],
     TOPIC: [],
     FOLDER: [],
+    COVER: [],
+    FRONT_MATTER: [],
+    FRONT_MATTER_ITEM: [],
   };
 
   return options[type] ?? [];

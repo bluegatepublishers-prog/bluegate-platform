@@ -1,8 +1,6 @@
-import { redirect } from "next/navigation";
+import { notFound } from "next/navigation";
+import ChapterModuleMapper from "@/components/admin/books/ChapterModuleMapper";
+import { prisma } from "@/lib/prisma";
 import { requirePublisherAdminBookOwnership } from "@/lib/publisher-admin-data";
-
-export default async function LegacyStructureRedirect({ params }:{ params:Promise<{id:string}> }) {
-  const { id }=await params;
-  await requirePublisherAdminBookOwnership(id);
-  redirect(`/admin/books/${id}/content`);
-}
+export const dynamic="force-dynamic";
+export default async function Page({params}:{params:Promise<{id:string}>}){const{id}=await params;const actor=await requirePublisherAdminBookOwnership(id);const book=await prisma.book.findFirst({where:{id,publisherId:actor.publisherId},select:{id:true,title:true,fullBookPdf:true,pages:true,chapters:{where:{archived:false},select:{id:true,title:true,chapterNumber:true,startPage:true,endPage:true},orderBy:{sortOrder:"asc"}},modules:{where:{archived:false},select:{id:true,chapterId:true,title:true,startPage:true,endPage:true},orderBy:{displayOrder:"asc"}}}});if(!book)notFound();if(!book.fullBookPdf)return <p className="rounded-2xl border bg-white p-6">Upload the full book PDF before mapping chapters and modules.</p>;if(!book.pages)return <p className="rounded-2xl border bg-white p-6">The uploaded PDF page count is unavailable. Re-save the full book PDF before mapping.</p>;return <ChapterModuleMapper bookId={book.id} title={book.title} chapters={book.chapters} modules={book.modules}/>}

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { Prisma, ResourceAudience, ResourceType } from "@prisma/client";
 
-import { analyzeIdmlPackage, hashJsonValue, idmlPreviewKey, idmlReplicaKey, mapIntermediateToV2, type IdmlAnalysis } from "@/lib/idml-import";
+import { analyzeIdmlPackage, hashJsonValue, IDML_LIMITS, idmlPreviewKey, idmlReplicaKey, IdmlImportError, mapIntermediateToV2, type IdmlAnalysis, type IdmlSizeErrorDetails, type IdmlXmlErrorDetails } from "@/lib/idml-import";
 import { normalizeContentDocument, type ContentDocument } from "@/lib/content-document";
 import { getContentLayoutVersion, type LayoutV2VisualMode } from "@/lib/content-layout-v2";
 import { prisma } from "@/lib/prisma";
@@ -22,8 +22,23 @@ export async function POST(request: Request) {
     const nodeType = String(form.get("nodeType") ?? "") as BookStructureNodeType;
     if (!bookId || !nodeId || !NODE_TYPES.includes(nodeType)) return jsonError("A valid Content Studio target is required.", 400);
     const file = form.get("package");
-    if (!(file instanceof File)) return jsonError("Upload an InDesign Package ZIP.", 400);
-    if (file.name.toLowerCase().endsWith(".indd")) return jsonError("Please export/package the document with IDML and linked assets.", 400);
+    if (!(file instanceof File)) return jsonError("Upload an InDesign package ZIP or IDML file.", 400);
+    const lowerFileName = file.name.toLowerCase();
+    if (lowerFileName.endsWith(".indd")) return jsonError("Please export/package the document with IDML and linked assets.", 400);
+    if (!lowerFileName.endsWith(".zip") && !lowerFileName.endsWith(".idml")) return jsonError("Upload an InDesign package ZIP or IDML file.", 400);
+    const directIdml = lowerFileName.endsWith(".idml");
+    const uploadLimit = directIdml ? IDML_LIMITS.maxNestedIdmlCompressedBytes : IDML_LIMITS.maxOuterPackageCompressedBytes;
+    if (file.size > uploadLimit) {
+      const sizeError: IdmlSizeErrorDetails = {
+        category: directIdml ? "NESTED_IDML" : "OUTER_PACKAGE",
+        entryPath: file.name,
+        fileName: file.name,
+        problem: directIdml ? "The IDML document exceeds the 250 MB import limit." : "The uploaded package exceeds the 300 MB import limit.",
+        allowedBytes: uploadLimit,
+        detectedBytes: file.size,
+      };
+      return jsonError("Import analysis stopped because the uploaded file exceeds the current safe size limit.", 400, undefined, sizeError);
+    }
     const bytes = new Uint8Array(await file.arrayBuffer());
     const target = await loadImportTarget(actor.publisherId, bookId, nodeType, nodeId);
     if (!target) return jsonError("The selected Content Studio item was not found.", 404);
@@ -54,8 +69,20 @@ export async function POST(request: Request) {
       throw error;
     }
   } catch (error) {
-    const status = error instanceof Error && /safety limit|not a valid ZIP|must contain|Malformed|external XML|Unsafe ZIP|not supported|Please export/i.test(error.message) ? 400 : 500;
-    return jsonError(error instanceof Error ? error.message : "Import failed safely. Existing content was not changed.", status);
+    const xmlError = error instanceof IdmlImportError ? error.xmlError : undefined;
+    const sizeError = error instanceof IdmlImportError ? error.sizeError : undefined;
+    if (xmlError) {
+      console.error("IDML XML analysis failed", {
+        entryPath: xmlError.entryPath,
+        line: xmlError.line,
+        column: xmlError.column,
+        context: xmlError.context,
+        parserMessage: xmlError.parserMessage,
+      });
+    }
+    if (sizeError) console.error("IDML import stopped at a size limit", sizeError);
+    const status = error instanceof IdmlImportError || error instanceof Error && /safety limit|not a valid ZIP|must contain|Malformed|external XML|Unsafe ZIP|not supported|Please export/i.test(error.message) ? 400 : 500;
+    return jsonError(error instanceof Error ? error.message : "Import failed safely. Existing content was not changed.", status, xmlError, sizeError);
   }
 }
 
@@ -236,4 +263,20 @@ function setFramePageId(frame: NonNullable<ContentDocument["pageLayout"]>["pages
   return { ...frame, pageId, ...(contentRef ? { contentRef } : {}), children: frame.children?.map((child) => ({ ...setFramePageId(child, pageId, blockIdMap), parentId: frame.id })) };
 }
 
-function jsonError(message: string, status: number) { return NextResponse.json({ ok: false, message }, { status }); }
+function jsonError(message: string, status: number, xmlError?: IdmlXmlErrorDetails, sizeError?: IdmlSizeErrorDetails) {
+  const idmlXmlError = xmlError ? {
+    entryPath: xmlError.entryPath,
+    fileName: xmlError.fileName,
+    problem: xmlError.problem,
+    ...(xmlError.line && xmlError.column ? { line: xmlError.line, column: xmlError.column } : {}),
+  } : undefined;
+  const idmlSizeError = sizeError ? {
+    category: sizeError.category,
+    entryPath: sizeError.entryPath,
+    fileName: sizeError.fileName,
+    problem: sizeError.problem,
+    allowedBytes: sizeError.allowedBytes,
+    ...(sizeError.detectedBytes === undefined ? {} : { detectedBytes: sizeError.detectedBytes }),
+  } : undefined;
+  return NextResponse.json({ ok: false, message, ...(idmlXmlError ? { idmlXmlError } : {}), ...(idmlSizeError ? { idmlSizeError } : {}) }, { status });
+}

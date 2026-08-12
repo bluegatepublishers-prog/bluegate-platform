@@ -543,9 +543,9 @@ async function buildTargetSnapshot(
   targetId: string,
 ): Promise<Snapshot> {
   if (targetType === "BOOK") {
-    const row = await prisma.book.findFirst({ where: { id: targetId, publisherId }, select: { id: true, title: true, slug: true, published: true, archived: true, updatedAt: true } });
+    const row = await prisma.book.findFirst({ where: { id: targetId, publisherId }, select: { id: true, title: true, slug: true, content: true, published: true, archived: true, updatedAt: true } });
     if (!row) throw new Error("Book not found.");
-    return { schemaVersion: 1, targetType, targetId, bookId: row.id, title: row.title, record: toJsonRecord(row) };
+    return { schemaVersion: 1, targetType, targetId, bookId: row.id, title: row.title, record: toJsonRecord(omitContent(row)), contentDocument: row.content ? normalizeContentDocument(row.content) : undefined };
   }
   if (targetType === "CHAPTER") {
     const row = await prisma.bookChapter.findFirst({ where: { id: targetId, bookId, book: { publisherId } }, select: { id: true, title: true, content: true, published: true, archived: true, updatedAt: true } });

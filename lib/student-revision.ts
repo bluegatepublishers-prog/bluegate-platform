@@ -62,6 +62,8 @@ export async function getStudentRevisionChapters(bookId: string) {
       id: true,
       chapterNumber: true,
       title: true,
+      startPage: true,
+      endPage: true,
       studentRevisionProgress: {
         where: { studentId: identity.student.id, academicYearId: identity.academicYear.id },
         select: { revisionCompleted: true },
@@ -73,6 +75,8 @@ export async function getStudentRevisionChapters(bookId: string) {
     id: chapter.id,
     chapterNumber: chapter.chapterNumber,
     title: chapter.title,
+    startPage: chapter.startPage,
+    endPage: chapter.endPage,
     revisionCompleted: chapter.studentRevisionProgress[0]?.revisionCompleted ?? false,
   }));
 }
@@ -156,4 +160,10 @@ export function saveStudentRevisionChecklist(input: { bookId: string; chapterId:
       return progress;
     },
   });
+}
+
+export async function getStudentMappedModules(bookId: string) {
+  const book = await getStudentBook(bookId);
+  if (!book) return [];
+  return prisma.bookModule.findMany({ where: { bookId, archived: false }, select: { id: true, title: true, chapterId: true, startPage: true, endPage: true }, orderBy: [{ chapter: { sortOrder: "asc" } }, { displayOrder: "asc" }] });
 }

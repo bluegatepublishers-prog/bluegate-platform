@@ -112,7 +112,7 @@ type WordRibbonProps = {
   onSave: () => void;
   onUndo: () => void;
   onRedo: () => void;
-  onDelete: () => void;
+  onDelete?: () => void;
   onPublish: () => void;
 
   onPreview: (mode: PreviewMode) => void;
@@ -352,15 +352,17 @@ export default function WordRibbon({
             Publish
           </button>
 
-          <button
-            type="button"
-            onClick={onDelete}
-            className={squareButton}
-            title="Delete"
-            aria-label="Delete current manuscript"
-          >
-            <Trash2 className="h-5 w-5 text-rose-600" />
-          </button>
+          {onDelete ? (
+            <button
+              type="button"
+              onClick={onDelete}
+              className={squareButton}
+              title="Delete"
+              aria-label="Delete current manuscript"
+            >
+              <Trash2 className="h-5 w-5 text-rose-600" />
+            </button>
+          ) : null}
         </div>
       </div>
 

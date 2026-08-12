@@ -7,6 +7,7 @@ import {
 } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
+import { validateChapterPageRange } from "@/lib/book-page-range";
 import { requireLivePublisherAdmin } from "@/lib/publisher-admin-authorization";
 import {
   publisherAdminAuditActor,
@@ -64,7 +65,7 @@ async function actorAndBook(bookId: string) {
   const actor = await requireLivePublisherAdmin();
   const book = await prisma.book.findFirst({
     where: { id: bookId, publisherId: actor.publisherId },
-    select: { id: true },
+    select: { id: true, pages: true },
   });
   if (!book) throw new BookStructureError("Book not found.");
   return { actor, book };

@@ -107,6 +107,12 @@ export type LayoutV2NarrationSegment = {
   endMs?: number;
 };
 
+export type LayoutV2PageReadAloud = {
+  text: string;
+  source: "PDF_TEXT" | "MANUAL";
+  reviewed?: boolean;
+};
+
 export type LayoutV2PageNarration = {
   sourceHash: string;
   resourceId?: string;
@@ -130,8 +136,15 @@ export type LayoutV2TextSpan = {
   color?: string;
   highlight?: string;
   fontSize?: number;
-};
-export type LayoutV2ImageTransform = {
+  fontFamily?: string;
+  fontWeight?: number;
+  fontStyle?: "normal" | "italic";
+  letterSpacing?: number;
+  baselineShift?: number;
+  horizontalScale?: number;
+  verticalScale?: number;
+  textTransform?: "uppercase" | "lowercase" | "capitalize";
+};export type LayoutV2ImageTransform = {
   crop: LayoutV2Crop;
   zoom: number;
   offsetX: number;
@@ -162,6 +175,7 @@ export type LayoutV2Frame = {
   letterSpacing?: number;
   textColor?: string;
   textSpans?: LayoutV2TextSpan[];
+  textInset?: { top: number; right: number; bottom: number; left: number };
   overset?: boolean;
   wrapPadding?: number;
   contentRef?: LayoutV2ContentReference;
@@ -205,6 +219,8 @@ export function withV2VideoDisplayMode(frame: Pick<LayoutV2Frame, "payload"> | {
   return { ...payload, displayMode };
 }
 
+export type LayoutV2PdfBackground = { source: "BOOK_FULL_PDF"; pageNumber: number; };
+
 export type LayoutV2Page = {
   id: string;
   order: number;
@@ -212,9 +228,11 @@ export type LayoutV2Page = {
   height: number;
   unit: LayoutV2Unit;
   background?: LayoutV2Background;
+  pdfBackground?: LayoutV2PdfBackground;
   frames: LayoutV2Frame[];
   visualMode?: LayoutV2VisualMode;
   replica?: LayoutV2ReplicaVisual;
+  readAloud?: LayoutV2PageReadAloud;
   narration?: LayoutV2PageNarration;
 };
 
@@ -320,6 +338,8 @@ export function getV2CropImagePercentages(value: Partial<LayoutV2ImageTransform>
   };
 }
 
+function normalizeTextInset(value: unknown) { if (!isRecord(value)) return undefined; const top = bounded(value.top, 12, 0, 96); const right = bounded(value.right, 12, 0, 96); const bottom = bounded(value.bottom, 12, 0, 96); const left = bounded(value.left, 12, 0, 96); return { top, right, bottom, left }; }
+
 function normalizeTextSpans(value: unknown): LayoutV2TextSpan[] | undefined {
   if (!Array.isArray(value)) return undefined;
   const allowedMarks = ["bold", "italic", "underline", "superscript", "subscript"] as const;
@@ -332,8 +352,16 @@ function normalizeTextSpans(value: unknown): LayoutV2TextSpan[] | undefined {
       ...(safeString(entry.color) ? { color: safeString(entry.color) } : {}),
       ...(safeString(entry.highlight) ? { highlight: safeString(entry.highlight) } : {}),
       ...(typeof entry.fontSize === "number" && Number.isFinite(entry.fontSize) ? { fontSize: bounded(entry.fontSize, 16, 8, 96) } : {}),
+      ...(safeString(entry.fontFamily) ? { fontFamily: safeString(entry.fontFamily) } : {}),
+      ...(typeof entry.fontWeight === "number" && Number.isFinite(entry.fontWeight) ? { fontWeight: bounded(entry.fontWeight, 400, 100, 900) } : {}),
+      ...(entry.fontStyle === "italic" ? { fontStyle: "italic" as const } : {}),
+      ...(typeof entry.letterSpacing === "number" && Number.isFinite(entry.letterSpacing) ? { letterSpacing: bounded(entry.letterSpacing, 0, -4, 16) } : {}),
+      ...(typeof entry.baselineShift === "number" && Number.isFinite(entry.baselineShift) ? { baselineShift: bounded(entry.baselineShift, 0, -96, 96) } : {}),
+      ...(typeof entry.horizontalScale === "number" && Number.isFinite(entry.horizontalScale) ? { horizontalScale: bounded(entry.horizontalScale, 100, 20, 300) } : {}),
+      ...(typeof entry.verticalScale === "number" && Number.isFinite(entry.verticalScale) ? { verticalScale: bounded(entry.verticalScale, 100, 20, 300) } : {}),
+      ...(["uppercase", "lowercase", "capitalize"].includes(entry.textTransform as string) ? { textTransform: entry.textTransform as "uppercase" | "lowercase" | "capitalize" } : {}),
     };
-  }).filter((entry): entry is LayoutV2TextSpan => Boolean(entry));
+  }).filter(Boolean) as LayoutV2TextSpan[];
   return spans.length ? spans : undefined;
 }
 
@@ -374,6 +402,17 @@ function normalizeReplica(value: unknown): LayoutV2ReplicaVisual | undefined {
     } : {}),
   };
 }
+function normalizeReadAloud(value: unknown): LayoutV2PageReadAloud | undefined {
+  if (!isRecord(value) || typeof value.text !== "string") return undefined;
+  const source = value.source === "PDF_TEXT" || value.source === "MANUAL" ? value.source : undefined;
+  if (!source) return undefined;
+  return {
+    text: value.text.trim(),
+    source,
+    ...(typeof value.reviewed === "boolean" ? { reviewed: value.reviewed } : {}),
+  };
+}
+
 function normalizeNarration(value: unknown): LayoutV2PageNarration | undefined {
   if (!isRecord(value) || !safeString(value.sourceHash)) return undefined;
   const segments = Array.isArray(value.segments)
@@ -456,6 +495,7 @@ function normalizeFrame(value: unknown, pageId: string, index: number, options: 
       ...(typeof value.letterSpacing === "number" && Number.isFinite(value.letterSpacing) ? { letterSpacing: bounded(value.letterSpacing, 0, -4, 16) } : {}),
       ...(safeString(value.textColor) ? { textColor: safeString(value.textColor) } : {}),
       ...(normalizeTextSpans(value.textSpans) ? { textSpans: normalizeTextSpans(value.textSpans) } : {}),
+      ...(normalizeTextInset(value.textInset) ? { textInset: normalizeTextInset(value.textInset)! } : {}),
     } : {}),
     ...(type === "IMAGE" ? {
       ...(resourceId ? { resourceId } : {}),
@@ -475,6 +515,8 @@ function normalizeFrame(value: unknown, pageId: string, index: number, options: 
   };
 }
 
+function normalizePdfBackground(value: unknown): LayoutV2PdfBackground | undefined { if (!isRecord(value) || value.source !== "BOOK_FULL_PDF" || typeof value.pageNumber !== "number" || !Number.isInteger(value.pageNumber) || value.pageNumber < 1) return undefined; return { source: "BOOK_FULL_PDF", pageNumber: value.pageNumber }; }
+
 function normalizePage(value: unknown, index: number, options: NormalizationOptions): LayoutV2Page | undefined {
   if (!isRecord(value)) return undefined;
   const id = normalizedId(value.id, "page", index, options.createMissingIds === true);
@@ -483,6 +525,7 @@ function normalizePage(value: unknown, index: number, options: NormalizationOpti
     ? value.frames.map((frame, frameIndex) => normalizeFrame(frame, id, frameIndex, options)).filter((frame): frame is LayoutV2Frame => Boolean(frame))
     : [];
   const replica = normalizeReplica(value.replica);
+  const readAloud = normalizeReadAloud(value.readAloud);
   const narration = normalizeNarration(value.narration);
   const visualMode = value.visualMode === "EXACT_REPLICA" ? "EXACT_REPLICA" as const : undefined;
   return {
@@ -492,9 +535,11 @@ function normalizePage(value: unknown, index: number, options: NormalizationOpti
     height: positive(value.height, DEFAULT_PAGE_SIZE.height),
     unit: enumValue(["px", "mm", "cm", "inch"] as const, value.unit, DEFAULT_PAGE_SIZE.unit),
     ...(normalizeBackground(value.background) ? { background: normalizeBackground(value.background) } : {}),
+    ...(normalizePdfBackground(value.pdfBackground) ? { pdfBackground: normalizePdfBackground(value.pdfBackground) } : {}),
     frames,
     ...(visualMode ? { visualMode } : {}),
     ...(replica ? { replica } : {}),
+    ...(readAloud ? { readAloud } : {}),
     ...(narration ? { narration } : {}),
   };
 }

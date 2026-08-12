@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import { notFound } from "next/navigation";
 import { Prisma } from "@prisma/client";
 
@@ -9,6 +10,8 @@ import ContentManuscriptEditor from "@/components/admin/books/ContentManuscriptE
 import ContentReleasePanel from "@/components/admin/books/ContentReleasePanel";
 import ContentSectionManager from "@/components/admin/books/ContentSectionManager";
 import ContentStudioShell from "@/components/admin/books/ContentStudioShell";
+import BookPageRangeInspector from "@/components/admin/books/BookPageRangeInspector";
+import FrontMatterManager from "@/components/admin/books/FrontMatterManager";
 import ActivityStudio from "@/components/admin/books/ActivityStudio";
 import ExerciseAuthoringStudio from "@/components/admin/books/ExerciseAuthoringStudio";
 import WorksheetStudio from "@/components/admin/books/WorksheetStudio";
@@ -81,6 +84,10 @@ import {
   saveKnowledgeDefinitionAction,
   searchKnowledgeDefinitionsAction,
   rollbackContentReleaseAction,
+  attachOwnedBookFullPdfAction,
+  importOwnedBookPdfV2PagesAction,
+  prepareBookReadAloudAction,
+  saveBookContentAction,
 } from "./actions";
 import { moveOutcome, saveOutcome } from "../knowledge-actions";
 import type { BookStructureNodeType } from "@/lib/book-structure-management";
@@ -97,6 +104,7 @@ type Params = {
   bloom?: string;
   status?: string;
   page?: string;
+  bookEditor?: string;
 };
 
 type BookPageData = NonNullable<Awaited<ReturnType<typeof loadBookStudio>>>;
@@ -116,12 +124,15 @@ export default async function ContentStudioPage({
   const actor = await requirePublisherAdminBookOwnership(id);
   const studio = await loadBookStudio(id, actor.publisherId);
   if (!studio) notFound();
+  const hasFullBookPdf = Boolean((await prisma.book.findFirst({ where: { id, publisherId: actor.publisherId }, select: { fullBookPdf: true } }))?.fullBookPdf);
   const sectionDefinitions = await loadContentSectionDefinitions(actor.publisherId, id);
   const knowledgeScope = await requireKnowledgeBookScope(actor.publisherId, id);
   const knowledgeDefinitions = await searchKnowledgeDefinitions(knowledgeScope, "");
 
   const root = buildContentStudioTree({
     book: { id: studio.id, title: studio.title },
+    coverImage: studio.coverImage,
+    frontMatterItems: studio.frontMatterItems,
     parts: studio.parts,
     units: studio.units,
     chapters: studio.chapters.map((chapter) => ({
@@ -162,6 +173,7 @@ export default async function ContentStudioPage({
           sectionDefinitions={sectionDefinitions}
           knowledgeDefinitions={knowledgeDefinitions}
           query={query}
+          hasFullBookPdf={hasFullBookPdf}
         />
       </ContentStudioShell>
     </main>
@@ -179,6 +191,9 @@ async function loadBookStudio(bookId: string, publisherId: string) {
       isbn: true,
       description: true,
       aboutBook: true,
+      content: true,
+      coverImage: true,
+      pages: true,
       classId: true,
       subjectId: true,
       seriesId: true,
@@ -190,7 +205,7 @@ async function loadBookStudio(bookId: string, publisherId: string) {
       author: true,
       updatedAt: true,
       parts: {
-        select: { id: true, title: true, archived: true, displayOrder: true },
+        select: { id: true, title: true, archived: true, displayOrder: true, startPage: true, endPage: true },
       },
       units: {
         select: {
@@ -199,6 +214,8 @@ async function loadBookStudio(bookId: string, publisherId: string) {
           archived: true,
           partId: true,
           displayOrder: true,
+          startPage: true,
+          endPage: true,
         },
       },
       chapters: {
@@ -212,6 +229,8 @@ async function loadBookStudio(bookId: string, publisherId: string) {
           chapterNumber: true,
           published: true,
           approved: true,
+          startPage: true,
+          endPage: true,
           summary: true,
           keywords: true,
           _count: {
@@ -234,7 +253,13 @@ async function loadBookStudio(bookId: string, publisherId: string) {
           archived: true,
           chapterId: true,
           displayOrder: true,
+          startPage: true,
+          endPage: true,
         },
+      },
+      frontMatterItems: {
+        orderBy: [{ displayOrder: "asc" }, { id: "asc" }],
+        select: { id: true, title: true, type: true, displayOrder: true, startPage: true, endPage: true },
       },
       topics: {
         select: {
@@ -262,6 +287,7 @@ async function SelectedCanvas({
   sectionDefinitions,
   knowledgeDefinitions,
   query,
+  hasFullBookPdf,
 }: {
   studio: BookPageData;
   selected: ContentTreeNode;
@@ -271,9 +297,29 @@ async function SelectedCanvas({
   sectionDefinitions: Awaited<ReturnType<typeof loadContentSectionDefinitions>>;
   knowledgeDefinitions: Awaited<ReturnType<typeof searchKnowledgeDefinitions>>;
   query: Params;
+  hasFullBookPdf: boolean;
 }) {
-  if (selected.type === "BOOK") {
+  const editingBook = selected.type === "BOOK" && query.bookEditor === "1";
+  const rangeNode = ["PART", "UNIT", "CHAPTER", "MODULE", "FRONT_MATTER_ITEM"].includes(selected.type);
+  const hasMappedRange = selected.startPage != null && selected.endPage != null;
+  const mappingMode = rangeNode && query.bookEditor === "1";
+  const bookEditorContext = editingBook || (rangeNode && (hasMappedRange || mappingMode));
+  const currentPage = Number.isInteger(Number(query.page)) && Number(query.page) >= 1 ? Number(query.page) : null;
+  if (selected.type === "BOOK" && !editingBook) {
     return <BookCanvas studio={studio} />;
+  }
+  if (selected.type === "COVER") {
+    return <CoverCanvas bookId={bookId} title={studio.title} coverImage={studio.coverImage} />;
+  }
+  if (selected.type === "FRONT_MATTER") {
+    return <FrontMatterManager bookId={bookId} items={studio.frontMatterItems} />;
+  }
+  if (rangeNode && !hasMappedRange && query.bookEditor !== "1") {
+    return <UnmappedPageRangeCanvas bookId={bookId} node={selected} />;
+  }
+  if (selected.type === "FRONT_MATTER_ITEM" && !bookEditorContext) {
+    const item = studio.frontMatterItems.find((entry) => entry.id === selected.id);
+    return item ? <div className="mx-auto max-w-3xl space-y-4"><section className="rounded-2xl bg-white p-5 ring-1 ring-slate-200"><h2 className="text-lg font-bold text-slate-950">{item.title}</h2><p className="mt-1 text-sm text-slate-500">{item.type.replaceAll("_", " ")}</p></section><BookPageRangeInspector bookId={bookId} type="FRONT_MATTER" nodeId={item.id} title={item.title} startPage={item.startPage} endPage={item.endPage} totalPages={studio.pages} currentPage={currentPage} /></div> : <Empty text="This front-matter item is unavailable." />;
   }
   if (selected.type === "FOLDER") {
     return (
@@ -287,28 +333,42 @@ async function SelectedCanvas({
       />
     );
   }
-  const record = await loadNode(bookId, selected);
+  const record: EditorRecord | null = bookEditorContext
+    ? {
+        id: studio.id,
+        title: studio.title,
+        subtitle: studio.subtitle,
+        slug: studio.slug,
+        description: studio.description,
+        estimatedMinutes: null,
+        published: studio.published,
+        archived: false,
+        content: studio.content,
+        updatedAt: studio.updatedAt,
+        label: null,
+      }
+    : await loadNode(bookId, selected);
   if (!record) {
     return <Empty text="This content item is unavailable." />;
   }
 
-  if (
+  if (!bookEditorContext && (
     selected.type === "PART" ||
     selected.type === "UNIT" ||
     selected.type === "CHAPTER"
-  ) {
+  )) {
     return (
-      <StructureOnlyCanvas
+      <div className="mx-auto max-w-5xl space-y-4"><StructureOnlyCanvas
         selected={selected}
         record={record}
-      />
+      /><BookPageRangeInspector bookId={bookId} type={selected.type} nodeId={selected.id} title={selected.title} startPage={selected.startPage ?? null} endPage={selected.endPage ?? null} totalPages={studio.pages} currentPage={currentPage} /></div>
     );
   }
 
   // Module is the final editable hierarchy level.
   // Legacy Topic rows remain in the database for compatibility,
   // but Topic is no longer reachable from the Content Studio tree.
-  if (selected.type !== "MODULE") {
+  if (!bookEditorContext && selected.type !== "MODULE") {
     return (
       <Empty text="Select a module to open the writing editor." />
     );
@@ -317,16 +377,16 @@ async function SelectedCanvas({
   const scope = await getContentNodeScope(
     publisherId,
     bookId,
-    selected.type as BookStructureNodeType,
-    selected.id,
+    bookEditorContext ? "BOOK" : selected.type as BookStructureNodeType,
+    bookEditorContext ? bookId : selected.id,
   );
-  const releaseTarget = releaseTargetForNode(selected.type as BookStructureNodeType);
+  const releaseTarget = bookEditorContext ? "BOOK" : releaseTargetForNode(selected.type as BookStructureNodeType);
   const releaseSummary = releaseTarget
     ? await loadReleaseSummary({
         actor: { userId, publisherId },
         bookId,
         targetType: releaseTarget,
-        targetId: selected.id,
+        targetId: bookEditorContext ? bookId : selected.id,
       })
     : null;
   const resources = await loadEditorResources(publisherId);
@@ -407,8 +467,22 @@ async function SelectedCanvas({
       exerciseRows={exerciseRows}
       exerciseLookups={exerciseLookups}
       releaseSummary={releaseSummary}
+      hasFullBookPdf={hasFullBookPdf}
+      totalPages={studio.pages}
+      currentPage={currentPage}
+      bookEditor={bookEditorContext}
+      mappingMode={mappingMode}
+      pageScope={!mappingMode && bookEditorContext && !editingBook && hasMappedRange ? { title: selected.title, startPage: selected.startPage!, endPage: selected.endPage! } : null}
+      initialPageNumber={currentPage}
     />
   );
+}
+
+function UnmappedPageRangeCanvas({ bookId, node }: { bookId: string; node: ContentTreeNode }) {
+  return <div className="mx-auto max-w-3xl space-y-4"><section className="rounded-2xl bg-white p-6 ring-1 ring-slate-200"><p className="text-[10px] font-bold uppercase tracking-[0.14em] text-blue-700">{node.title}</p><h2 className="mt-1 text-xl font-bold text-slate-950">No book pages are mapped to this item yet.</h2><p className="mt-2 text-sm text-slate-600">Map an absolute page range before opening this hierarchy item in the filtered Book Editor.</p><div className="mt-4 flex flex-wrap gap-2"><Link href={`/admin/books/${bookId}/content?bookEditor=1&selected=${encodeURIComponent(node.key)}`} className="rounded-lg bg-slate-950 px-3 py-2 text-sm font-semibold text-white">Map Pages</Link><Link href={`/admin/books/${bookId}/content?bookEditor=1`} className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700">Open Full Book</Link></div></section></div>
+}
+function CoverCanvas({ bookId, title, coverImage }: { bookId: string; title: string; coverImage: string | null }) {
+  return <div className="mx-auto max-w-3xl space-y-4"><section className="rounded-2xl bg-white p-5 ring-1 ring-slate-200"><p className="text-[10px] font-bold uppercase tracking-[0.14em] text-blue-700">Cover</p><h2 className="mt-1 text-xl font-bold text-slate-950">{title}</h2><p className="mt-1 text-sm text-slate-500">Cover is outside inner PDF page numbering.</p></section>{coverImage ? <Image src={`/api/books/${bookId}/asset/cover`} alt={`${title} cover`} width={800} height={1100} unoptimized className="max-h-[70vh] w-auto rounded-2xl border bg-white object-contain shadow-sm" /> : <Empty text="No cover image is available." />}</div>
 }
 
 function BookCanvas({
@@ -448,6 +522,15 @@ function BookCanvas({
         </div>
       </section>
 
+      <div>
+        <Link
+          href={`/admin/books/${studio.id}/content?bookEditor=1`}
+          className="inline-flex rounded-xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white"
+        >
+          Open Book Editor
+        </Link>
+      </div>
+
       <section className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
         <CanvasMetric
           label="Parts"
@@ -475,9 +558,7 @@ function StructureOnlyCanvas({
   record,
 }: {
   selected: ContentTreeNode;
-  record: NonNullable<
-    Awaited<ReturnType<typeof loadNode>>
-  >;
+  record: Pick<EditorRecord, "title" | "description">;
 }) {
   const children =
     selected.children.filter(
@@ -589,11 +670,18 @@ async function NodeCanvas({
   exerciseRows,
   exerciseLookups,
   releaseSummary,
+  hasFullBookPdf,
+  totalPages,
+  currentPage,
+  bookEditor = false,
+  pageScope = null,
+  initialPageNumber = null,
+  mappingMode = false,
 }: {
   bookId: string;
   selected: ContentTreeNode;
   scope: Awaited<ReturnType<typeof getContentNodeScope>>;
-  record: Awaited<ReturnType<typeof loadNode>>;
+  record: EditorRecord | null;
   resources: Awaited<ReturnType<typeof loadEditorResources>>;
   assetOptions: Awaited<ReturnType<typeof loadLinkedAssetOptions>>;
   mediaOptions: Awaited<ReturnType<typeof loadContentStudioMediaOptions>>;
@@ -611,13 +699,27 @@ async function NodeCanvas({
   exerciseRows: Awaited<ReturnType<typeof loadExerciseStudio>>;
   exerciseLookups: Awaited<ReturnType<typeof loadExerciseStudioLookups>> | null;
   releaseSummary: Awaited<ReturnType<typeof loadReleaseSummary>> | null;
+  hasFullBookPdf: boolean;
+  totalPages: number | null;
+  currentPage: number | null;
+  bookEditor?: boolean;
+  pageScope?: { title: string; startPage: number; endPage: number } | null;
+  initialPageNumber?: number | null;
+  mappingMode?: boolean;
 }) {
   if (!record) return null;
   return (
-    <ContentManuscriptEditor
+    <div className="space-y-3">
+      {bookEditor ? (
+        <Link href={`/admin/books/${bookId}/content`} className="inline-flex rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700">
+          Back to Book Summary
+        </Link>
+      ) : null}
+      {["PART", "UNIT", "CHAPTER", "MODULE", "FRONT_MATTER_ITEM"].includes(selected.type) ? <BookPageRangeInspector bookId={bookId} type={selected.type === "FRONT_MATTER_ITEM" ? "FRONT_MATTER" : selected.type as "PART" | "UNIT" | "CHAPTER" | "MODULE"} nodeId={selected.id} chapterId={selected.chapterId} title={selected.title} startPage={selected.startPage ?? null} endPage={selected.endPage ?? null} totalPages={totalPages} currentPage={currentPage} mappingMode={mappingMode} /> : null}
+      <ContentManuscriptEditor
       bookId={bookId}
       nodeId={selected.id}
-      nodeType={selected.type as BookStructureNodeType}
+      nodeType={bookEditor ? "BOOK" : selected.type as BookStructureNodeType}
       chapterId={scope.chapterId}
       nodeTitle={record.title}
       nodeSubtitle={record.subtitle ?? ""}
@@ -704,12 +806,12 @@ async function NodeCanvas({
       releaseSummary={releaseSummary}
       transitionReleaseAction={
         releaseSummary
-          ? changeContentReleaseAction.bind(null, bookId, releaseSummary.targetType, selected.id)
+          ? changeContentReleaseAction.bind(null, bookId, releaseSummary.targetType, bookEditor ? bookId : selected.id)
           : null
       }
       rollbackReleaseAction={
         releaseSummary
-          ? rollbackContentReleaseAction.bind(null, bookId, releaseSummary.targetType, selected.id)
+          ? rollbackContentReleaseAction.bind(null, bookId, releaseSummary.targetType, bookEditor ? bookId : selected.id)
           : null
       }
       bulkPublishAction={
@@ -718,13 +820,26 @@ async function NodeCanvas({
           : null
       }
       previewBaseHref={`/admin/books/${bookId}/content/releases`}
-      saveAction={saveContentNodeAction.bind(
-        null,
-        bookId,
-        selected.type as BookStructureNodeType,
-        selected.id,
-      )}
-    />
+      importPdfAction={importOwnedBookPdfV2PagesAction.bind(null, bookId)}
+      prepareReadAloudAction={bookEditor ? prepareBookReadAloudAction.bind(null, bookId) : undefined}
+      attachPdfAction={attachOwnedBookFullPdfAction.bind(null, bookId)}
+      hasFullBookPdf={hasFullBookPdf}
+      pageScope={pageScope}
+      initialPageNumber={initialPageNumber}
+      workspaceTitle={bookEditor && !pageScope ? undefined : selected.title}
+      isBookRootContext={bookEditor && !pageScope && !mappingMode}
+      saveAction={
+        bookEditor
+          ? saveBookContentAction.bind(null, bookId)
+          : saveContentNodeAction.bind(
+              null,
+              bookId,
+              selected.type as BookStructureNodeType,
+              selected.id,
+            )
+      }
+      />
+    </div>
   );
 }
 
@@ -1587,6 +1702,19 @@ function InspectorSummary({
   );
 }
 
+type EditorRecord = {
+  id: string;
+  title: string;
+  subtitle: string | null;
+  slug: string | null;
+  description: string | null;
+  estimatedMinutes: number | null;
+  published: boolean;
+  archived: boolean;
+  content: Prisma.JsonValue | null;
+  updatedAt: Date;
+  label: string | null;
+};
 async function loadNode(bookId: string, node: ContentTreeNode) {
   const select = {
     id: true,

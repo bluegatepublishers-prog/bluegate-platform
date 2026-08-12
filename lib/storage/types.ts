@@ -45,6 +45,11 @@ export interface HeadObjectInput {
   key: string;
 }
 
+export interface GetObjectBytesInput {
+  key: string;
+  maxBytes: number;
+}
+
 export interface PutObjectInput {
   key: string;
   body: Uint8Array;
@@ -84,6 +89,8 @@ export interface StorageProvider {
   deleteObject(input: DeleteObjectInput): Promise<void>;
   /** Retrieves object metadata. Returns null if the object does not exist. */
   headObject(input: HeadObjectInput): Promise<StorageObjectMetadata | null>;
+  /** Reads a bounded object body for server-side inspection. */
+  getObjectBytes(input: GetObjectBytesInput): Promise<Uint8Array>;
   /** Uploads bytes from trusted server-side maintenance code. */
   putObject(input: PutObjectInput): Promise<StorageObjectMetadata>;
   /** Lists object metadata without returning object bodies. */

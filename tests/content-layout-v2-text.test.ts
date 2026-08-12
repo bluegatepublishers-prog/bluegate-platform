@@ -36,6 +36,14 @@ test("V2 text auto height grows and fixed text reports overset without losing co
   assert.equal(fixed.height, 48);
 });
 
+test("large imported story layout remains bounded while retaining visible text", () => {
+  const frame = createV2Frame("TEXT", "page-one", { x: 20, y: 20, width: 280, height: 120, heightMode: "AUTO", fontSize: 16, lineHeight: 1.4 });
+  const text = "A".repeat(1_500_000);
+  const layout = layoutV2TextFrame(frame, text, [frame]);
+  assert.equal(layout.lines.length <= 512, true);
+  assert.equal(layout.lines[0]?.text.length > 0, true);
+  assert.equal(layout.overset, true);
+});
 test("V2 rectangular wrap is local, logical-coordinate, and mode-specific", () => {
   const text = createV2Frame("TEXT", "page-one", { x: 20, y: 20, width: 420, height: 300, fontSize: 16, lineHeight: 1.4 });
   const image = createV2Frame("IMAGE", "page-one", { x: 160, y: 20, width: 120, height: 100, layoutMode: "FLOAT", wrapMode: "WRAP_LEFT", wrapPadding: 10 });
