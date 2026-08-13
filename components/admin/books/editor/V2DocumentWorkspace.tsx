@@ -14,7 +14,7 @@ import ReadAloudPageInspector from "@/components/admin/books/editor/ReadAloudPag
 import V2ImageVisual from "@/components/content/v2/V2ImageVisual";
 import type { ContentBlock, ContentDocument } from "@/lib/content-document";
 import { buildV2NarrationManifest, getNarrationStatus } from "@/lib/content-narration";
-import { EDUCATIONAL_OBJECT_REGISTRY, getEducationalObjectDefinition, isEducationalObjectType } from "@/lib/educational-object-registry";
+import { EDUCATIONAL_OBJECT_REGISTRY, getEducationalObjectDefinition } from "@/lib/educational-object-registry";
 import { getAllBookPageViews, getBookPageViewsForRange, type BookPageScope } from "@/lib/book-page-filter";
 import type { V2TextFramePatch, V2TextLayoutSpan } from "@/lib/content-layout-v2-text";
 import {
@@ -157,6 +157,7 @@ export default function V2DocumentWorkspace({
   const previewMenuRef = useRef<HTMLDivElement>(null);
   const textSelectionRef = useRef<Range | null>(null);
   const [selectedFrameId, setSelectedFrameId] = useState<string | null>(null);
+  const [educationalInsertTargetId, setEducationalInsertTargetId] = useState<string | null>(null);
   const [cropFrameId, setCropFrameId] = useState<string | null>(null);
   const [semanticOverlay, setSemanticOverlay] = useState(false);
   const [showGuides, setShowGuides] = useState(false);
@@ -264,13 +265,35 @@ export default function V2DocumentWorkspace({
   const selectedFrame = selectedRecord?.frame;
   const selectedParentId = selectedRecord?.parentId;
   const selectedPageId = selectedRecord?.pageId;
+  const selectedParentRecord = selectedParentId
+    ? findV2FrameRecord(layout, selectedParentId)
+    : undefined;
+  const stableEducationalRecord = educationalInsertTargetId
+    ? findV2FrameRecord(layout, educationalInsertTargetId)
+    : undefined;
+  const selectedContainerFrame =
+    stableEducationalRecord?.frame?.type === "EDUCATIONAL"
+      ? stableEducationalRecord.frame
+      : selectedFrame &&
+          ["EDUCATIONAL", "TEXT"].includes(selectedFrame.type) &&
+          !isV2MainFlowFrame(selectedFrame)
+        ? selectedFrame
+        : selectedParentRecord?.frame &&
+            ["EDUCATIONAL", "TEXT"].includes(selectedParentRecord.frame.type) &&
+            !isV2MainFlowFrame(selectedParentRecord.frame)
+          ? selectedParentRecord.frame
+          : null;
+  const selectedContainerPageId =
+    stableEducationalRecord?.frame?.type === "EDUCATIONAL"
+      ? stableEducationalRecord.pageId
+      : selectedContainerFrame
+        ? selectedPageId
+        : undefined;
   const selectedImageFrame = selectedFrame?.type === "IMAGE" ? selectedFrame : null;
   const selectedShapeFrame = selectedFrame?.type === "SHAPE" ? selectedFrame : null;
   const selectedShapePayload = selectedShapeFrame?.payload && typeof selectedShapeFrame.payload === "object" ? selectedShapeFrame.payload as Record<string, unknown> : {};
   const selectedEducationalFrame = selectedFrame?.type === "EDUCATIONAL" ? selectedFrame : null;
-  const selectedEducationalPayload = selectedEducationalFrame?.payload && typeof selectedEducationalFrame.payload === "object" ? selectedEducationalFrame.payload as Record<string, unknown> : {};
-  const selectedEducationalType = isEducationalObjectType(selectedEducationalPayload.educationalObjectType) ? selectedEducationalPayload.educationalObjectType : "didYouKnow";
-  const selectedEducationalDefinition = getEducationalObjectDefinition(selectedEducationalType);
+  const showPropertiesPanel = propertiesOpen && !selectedEducationalFrame;
   const imageSupportsFlowControls = Boolean(selectedImageFrame && (
     selectedParentId ||
     selectedImageFrame.layoutMode === "INLINE" ||
@@ -323,30 +346,102 @@ export default function V2DocumentWorkspace({
     }
   };
 
-  const addChildFrame = (type: "TEXT" | "IMAGE" | "VIDEO" | "TABLE", resourceId?: string, payload?: Record<string, unknown>) => {
-    if (!selectedFrame || !["EDUCATIONAL", "TEXT"].includes(selectedFrame.type) || isV2MainFlowFrame(selectedFrame) || !selectedPageId) return;
-    const childGeometry = clampV2FrameGeometry({
-      x: 18,
-      y: (selectedFrame.type === "EDUCATIONAL" ? 48 : 28) + (selectedFrame.children?.length ?? 0) * 22,
-      width: Math.min(type === "TEXT" ? 260 : 180, Math.max(24, selectedFrame.width - 36)),
-      height: Math.min(type === "TEXT" ? 72 : 110, Math.max(24, selectedFrame.height - 40)),
-    }, selectedFrame.width, selectedFrame.height);
-    const child = createV2Frame(type, selectedPageId, {
+  const addChildFrame = (
+    type: "TEXT" | "IMAGE" | "VIDEO" | "TABLE",
+    resourceId?: string,
+    payload?: Record<string, unknown>,
+  ) => {
+    const targetFrame = selectedContainerFrame;
+    const targetPageId = selectedContainerPageId;
+    if (!targetFrame || !targetPageId) return;
+
+    const existingChildren = targetFrame.children ?? [];
+    const availableWidth = Math.max(120, targetFrame.width - 36);
+    const availableHeight = Math.max(90, targetFrame.height - 150);
+
+    const childGeometry = clampV2FrameGeometry(
+      {
+        x: 18 + (existingChildren.length % 2) * 24,
+        y: 18 + (existingChildren.length % 3) * 18,
+        width: Math.min(
+          type === "TEXT" ? 260 : type === "TABLE" ? 280 : 180,
+          availableWidth,
+        ),
+        height: Math.min(
+          type === "TEXT" ? 72 : type === "TABLE" ? 120 : 110,
+          availableHeight,
+        ),
+      },
+      targetFrame.width,
+      targetFrame.height,
+    );
+
+    const child = createV2Frame(type, targetPageId, {
       ...childGeometry,
-      zIndex: selectedFrame.children?.length ?? 0,
+      zIndex: existingChildren.length,
       layer: "CONTENT",
       layoutMode: "ABSOLUTE",
-      ...(type === "IMAGE" || type === "VIDEO" ? { resourceId: resourceId ?? (type === "VIDEO" ? videoResources[0]?.id : imageResources[0]?.id) } : {}),
-      ...(type === "IMAGE" ? { aspectLocked: true } : {}),
+      wrapMode: "NONE",
+      ...(type === "IMAGE" || type === "VIDEO"
+        ? {
+            resourceId:
+              resourceId ??
+              (type === "VIDEO"
+                ? videoResources[0]?.id
+                : imageResources[0]?.id),
+          }
+        : {}),
+      ...(type === "IMAGE" ? { aspectLocked: true, fitMode: "FIT" as const } : {}),
       ...(type === "TEXT" ? { payload: "New container text" } : {}),
-      ...(type === "TABLE" ? { payload: payload ?? { rows: tableRows, columns: tableColumns, cells: Array.from({ length: tableRows * tableColumns }, () => "") } } : {}),
+      ...(type === "TABLE"
+        ? {
+            payload:
+              payload ?? {
+                rows: tableRows,
+                columns: tableColumns,
+                cells: Array.from(
+                  { length: tableRows * tableColumns },
+                  () => "",
+                ),
+              },
+          }
+        : {}),
     });
-    const nextLayout = updateV2PageLayout(layout, (pages) => pages.map((page) => page.id !== selectedPageId ? page : {
-      ...page,
-      frames: page.frames.map((frame) => frame.id === selectedFrame.id ? { ...frame, children: [...(frame.children ?? []), { ...child, parentId: frame.id }] } : frame),
-    }));
-    setSelectedFrameId(child.id);
-    onDocumentChange({ ...document, pageLayout: nextLayout }, `${type[0]}${type.slice(1).toLowerCase()} child added`);
+
+    const nextLayout = updateV2PageLayout(layout, (pages) =>
+      pages.map((page) =>
+        page.id !== targetPageId
+          ? page
+          : {
+              ...page,
+              frames: page.frames.map((pageFrame) =>
+                pageFrame.id === targetFrame.id
+                  ? {
+                      ...pageFrame,
+                      children: [
+                        ...(pageFrame.children ?? []),
+                        { ...child, parentId: pageFrame.id },
+                      ],
+                    }
+                  : pageFrame,
+              ),
+            },
+      ),
+    );
+
+    /*
+     * Keep the container selected after Insert-ribbon actions.
+     * If the user had selected an Image/Video/Table child, its parent
+     * educational frame remains the insertion target instead of creating
+     * a new top-level page object.
+     */
+    setSelectedFrameId(
+      targetFrame.type === "EDUCATIONAL" ? targetFrame.id : child.id,
+    );
+    onDocumentChange(
+      { ...document, pageLayout: nextLayout },
+      `${type[0]}${type.slice(1).toLowerCase()} child added`,
+    );
   };
   const patchImage = (frameId: string, patch: Partial<LayoutV2Frame>, message: string) => {
     patchFrame(frameId, patch, message);
@@ -431,6 +526,9 @@ export default function V2DocumentWorkspace({
     if (!record) return;
     onDocumentChange({ ...document, pageLayout: deleteV2Frame(layout, record.pageId, frameId) }, "Frame deleted");
     setSelectedFrameId(null);
+    if (frameId === educationalInsertTargetId || record.parentId === educationalInsertTargetId) {
+      setEducationalInsertTargetId(null);
+    }
   };
 
   const deleteSelected = () => {
@@ -527,8 +625,61 @@ export default function V2DocumentWorkspace({
     onAddFrame(type, activePage.id, frame);
   }
 
+  const addEducationalFrame = (objectType: (typeof EDUCATIONAL_OBJECT_REGISTRY)[number][0]) => {
+    if (!activePage) return;
+    const definition = getEducationalObjectDefinition(objectType);
+    const blockId = `educational-${globalThis.crypto.randomUUID()}`;
+    const block: ContentBlock = {
+      id: blockId,
+      type: "educationalObject",
+      objectType,
+      title: definition.label,
+      text: "",
+    };
+    const insertion = getV2InsertionGeometry(
+      activePage,
+      "EDUCATIONAL",
+      insertionPoint?.pageId === activePage.id
+        ? { x: insertionPoint.x, y: insertionPoint.y }
+        : undefined,
+    );
+    const geometry = clampV2FrameGeometry(
+      {
+        ...insertion,
+        width: Math.min(440, Math.max(240, activePage.width - 24)),
+        height: Math.min(280, Math.max(180, activePage.height - 24)),
+      },
+      activePage.width,
+      activePage.height,
+    );
+    const frame = createV2Frame("EDUCATIONAL", activePage.id, {
+      ...geometry,
+      zIndex: activePage.frames.reduce((maximum, entry) => Math.max(maximum, entry.zIndex), 0) + 1,
+      layer: "INTERACTIVE",
+      layoutMode: "ABSOLUTE",
+      wrapMode: "NONE",
+      readingOrder: activePage.frames.length,
+      contentRef: { blockId },
+      payload: { educationalObjectType: objectType },
+      narrationLabel: definition.label,
+    });
+    const nextLayout = updateV2PageLayout(layout, (pages) => pages.map((page) =>
+      page.id === activePage.id ? { ...page, frames: [...page.frames, frame] } : page,
+    ));
+    setActivePageId(activePage.id);
+    setSelectedFrameId(frame.id);
+    setEducationalInsertTargetId(frame.id);
+    setActiveTextFrameId(null);
+    setInsertionPoint(null);
+    setInsertSurface(null);
+    onDocumentChange(
+      { ...document, blocks: [...blocks, block], pageLayout: nextLayout },
+      `${definition.label} block added`,
+    );
+  };
+
   const chooseResource = (type: "IMAGE" | "VIDEO", resourceId: string) => {
-    if (selectedFrame && ["TEXT", "EDUCATIONAL"].includes(selectedFrame.type) && !isV2MainFlowFrame(selectedFrame)) {
+    if (selectedContainerFrame) {
       addChildFrame(type, resourceId);
     } else {
       addFrame(type, { resourceId, ...(type === "IMAGE" ? { aspectLocked: true } : {}) }, type === "IMAGE" ? insertionMode : "FLOAT");
@@ -556,7 +707,7 @@ export default function V2DocumentWorkspace({
       const resource = await onUploadResource(pending.file, pending.file.name.replace(/\.[^.]+$/, "") || "Video", "VIDEO");
       if (pending.replaceFrameId) {
         patchFrame(pending.replaceFrameId, { resourceId: resource.id }, "Video replaced");
-      } else if (selectedFrame && ["TEXT", "EDUCATIONAL"].includes(selectedFrame.type) && !isV2MainFlowFrame(selectedFrame)) {
+      } else if (selectedContainerFrame) {
         addChildFrame("VIDEO", resource.id);
       } else {
         addFrame("VIDEO", { resourceId: resource.id }, "FLOAT");
@@ -588,7 +739,7 @@ export default function V2DocumentWorkspace({
       const resource = await onUploadResource(pending.file, pending.file.name.replace(/\.[^.]+$/, "") || "Image", "IMAGE");
       if (pending.replaceFrameId) {
         patchImage(pending.replaceFrameId, { resourceId: resource.id, fitMode: "FIT", crop: { x: 0, y: 0, width: 1, height: 1 }, zoom: 1, offsetX: 0, offsetY: 0 }, "Image replaced");
-      } else if (selectedFrame && ["TEXT", "EDUCATIONAL"].includes(selectedFrame.type) && !isV2MainFlowFrame(selectedFrame)) {
+      } else if (selectedContainerFrame) {
         addChildFrame("IMAGE", resource.id);
       } else {
         addFrame("IMAGE", { resourceId: resource.id, aspectLocked: true }, insertionMode);
@@ -623,6 +774,7 @@ export default function V2DocumentWorkspace({
     setActivePageId(page.id);
     setPageInputValue(String(view.absolutePageNumber));
     setSelectedFrameId(null);
+    setEducationalInsertTargetId(null);
     setActiveTextFrameId(null);
     setCropFrameId(null);
     setInsertionPoint(null);
@@ -648,27 +800,44 @@ export default function V2DocumentWorkspace({
 
 
   const renderPageCanvas = (page: LayoutV2Page, pageNumber: number, pdfBackgroundActive: boolean) => (
-    <div key={page.id} onClick={() => navigateToPage(page)} className={activePage?.id === page.id ? "rounded-xl ring-2 ring-indigo-300 ring-offset-2 ring-offset-[#e7ebf0]" : "rounded-xl"}>
+    <div key={page.id} onClick={() => { if (activePage?.id !== page.id) navigateToPage(page); }} className={activePage?.id === page.id ? "rounded-xl ring-2 ring-indigo-300 ring-offset-2 ring-offset-[#e7ebf0]" : "rounded-xl"}>
             <V2PageCanvas
               page={page}
               pdfUrl={bookId ? "/api/books/" + bookId + "/full-pdf" : undefined}
               pdfBackgroundActive={pdfBackgroundActive}
               scale={scale}
               pageNumber={pageNumber}
+              blocks={blocks}
+              onBlockChange={(block) => onDocumentChange({ ...document, blocks: blocks.map((entry) => entry.id === block.id ? block : entry) }, "Educational content updated")}
               selectedFrameId={selectedFrameId}
               renderFrame={(frame, frames) => renderV2Frame(frame, frames, page.width, page.height, blocks, renderBlock, onFrameTextChange, frame.id === cropFrameId, scale, semanticOverlay, (patch: Partial<LayoutV2Frame>, message: string) => patchImage(frame.id, patch, message), () => setCropFrameId(frame.id))}
+              renderEducationalPreview={(frame) => { const block = frame.contentRef?.blockId ? blocks.find((entry) => entry.id === frame.contentRef?.blockId) : undefined; return block ? renderBlock(block) : undefined; }}
               onSelectFrame={(frameId) => {
                 setSelectedFrameId(frameId);
-                const frame = getV2Frame(layout, page.id, frameId);
+                const record = findV2FrameRecord(layout, frameId);
+                const frame = record?.frame;
+                const parent = record?.parentId
+                  ? findV2FrameRecord(layout, record.parentId)?.frame
+                  : undefined;
+
+                if (frame?.type === "EDUCATIONAL") {
+                  setEducationalInsertTargetId(frame.id);
+                } else if (parent?.type === "EDUCATIONAL") {
+                  setEducationalInsertTargetId(parent.id);
+                } else {
+                  setEducationalInsertTargetId(null);
+                }
+
                 setActiveTextFrameId(frame?.type === "TEXT" ? frame.id : null);
                 setInsertionPoint(null);
               }}
               onActivateMainFlow={(frameId) => {
                 setSelectedFrameId(null);
+                setEducationalInsertTargetId(null);
                 setActiveTextFrameId(frameId);
                 setInsertionPoint(null);
               }}
-              onClearSelection={() => { setSelectedFrameId(null); setActiveTextFrameId(null); }}
+              onClearSelection={() => { setSelectedFrameId(null); setEducationalInsertTargetId(null); setActiveTextFrameId(null); }}
               onSetInsertionPoint={(point) => { setActiveTextFrameId(null); setInsertionPoint({ pageId: page.id, ...point }); }}
               insertionPoint={insertionPoint?.pageId === page.id ? insertionPoint : undefined}
               onCommitGeometry={(frameId, geometry) => commitFrameGeometry(page.id, frameId, geometry)}
@@ -812,8 +981,8 @@ export default function V2DocumentWorkspace({
           <div className="mb-3 flex items-center justify-between"><p className="font-bold text-slate-900">Insert {insertSurface === "EDUCATIONAL" ? "Educational Block" : insertSurface[0] + insertSurface.slice(1).toLowerCase()}</p><button type="button" onClick={() => setInsertSurface(null)} className="rounded px-2 py-1 text-slate-500 hover:bg-slate-100">Close</button></div>
           {insertSurface === "IMAGE" || insertSurface === "TABLE" ? <div className="mb-3 flex gap-1 rounded-lg bg-slate-100 p-1" data-v2-insertion-mode><button type="button" aria-pressed={insertionMode === "FLOW"} onClick={() => setInsertionMode("FLOW")} className={`flex-1 rounded px-2 py-1 text-xs font-semibold ${insertionMode === "FLOW" ? "bg-white text-indigo-700 shadow-sm" : "text-slate-600"}`}>Insert in Flow</button><button type="button" aria-pressed={insertionMode === "FLOAT"} onClick={() => setInsertionMode("FLOAT")} className={`flex-1 rounded px-2 py-1 text-xs font-semibold ${insertionMode === "FLOAT" ? "bg-white text-indigo-700 shadow-sm" : "text-slate-600"}`}>Float on Page</button></div> : null}
           {insertSurface === "IMAGE" || insertSurface === "VIDEO" ? <><p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">Choose existing {insertSurface.toLowerCase()}</p><div className="max-h-52 space-y-1 overflow-y-auto">{insertSurface === "IMAGE" ? imageResources.map((resource) => <V2ImageResourceChoice key={resource.id} resource={resource} onUse={() => chooseResource("IMAGE", resource.id)} />) : videoResources.map((resource) => <button key={resource.id} type="button" onClick={() => chooseResource("VIDEO", resource.id)} className="block w-full rounded-lg border border-slate-200 px-3 py-2 text-left font-semibold hover:border-indigo-300 hover:bg-indigo-50"><span className="block">{resource.title}</span><span className="mt-0.5 block text-xs font-normal text-slate-500">{[resource.originalFileName, resource.mimeType, resource.fileSizeBytes ? formatV2ResourceSize(resource.fileSizeBytes) : null].filter(Boolean).join(" · ") || "Video resource"}</span></button>)}{!(insertSurface === "IMAGE" ? imageResources : videoResources).length ? <p className="rounded-lg bg-slate-50 p-3 text-slate-500">No compatible {insertSurface.toLowerCase()} resources are available.</p> : null}</div>{onUploadResource ? <label className="mt-3 flex cursor-pointer items-center justify-center rounded-lg border border-dashed border-indigo-300 bg-indigo-50 px-3 py-3 font-semibold text-indigo-700">{uploadingResource ? "Uploading..." : `Upload New ${insertSurface === "IMAGE" ? "Image" : "Video"}`}<input type="file" accept={insertSurface === "IMAGE" ? "image/*" : "video/*"} disabled={uploadingResource} className="sr-only" onChange={(event) => void handleResourceUpload(event, insertSurface)} /></label> : null}{uploadError ? <p role="alert" className="mt-2 text-xs font-semibold text-rose-700">{uploadError}</p> : null}</> : null}
-          {insertSurface === "TABLE" ? <div data-v2-table-chooser className="space-y-3"><div className="grid grid-cols-2 gap-3"><label className="text-xs font-semibold text-slate-600">Rows<input type="number" min="1" max="20" value={tableRows} onChange={(event) => setTableRows(Math.max(1, Math.min(20, Number(event.target.value) || 1)))} className="mt-1 w-full rounded border border-slate-200 px-2 py-1.5" /></label><label className="text-xs font-semibold text-slate-600">Columns<input type="number" min="1" max="12" value={tableColumns} onChange={(event) => setTableColumns(Math.max(1, Math.min(12, Number(event.target.value) || 1)))} className="mt-1 w-full rounded border border-slate-200 px-2 py-1.5" /></label></div><button type="button" onClick={() => { const payload = { rows: tableRows, columns: tableColumns, cells: Array.from({ length: tableRows * tableColumns }, () => "") }; if (selectedFrame && ["TEXT", "EDUCATIONAL"].includes(selectedFrame.type) && !isV2MainFlowFrame(selectedFrame)) addChildFrame("TABLE", undefined, payload); else addFrame("TABLE", { payload }, insertionMode); setInsertSurface(null); }} className="w-full rounded-lg bg-indigo-600 px-3 py-2 font-bold text-white">Create Table</button></div> : null}
-          {insertSurface === "EDUCATIONAL" ? <div data-v2-educational-picker className="grid gap-2 sm:grid-cols-2">{EDUCATIONAL_OBJECT_REGISTRY.map(([type]) => { const definition = getEducationalObjectDefinition(type); return <button key={type} type="button" onClick={() => { addFrame("EDUCATIONAL", { payload: { educationalObjectType: type, title: definition.defaultTitle, body: "" } }); setInsertSurface(null); }} className="rounded-lg border border-slate-200 px-3 py-2 text-left hover:border-indigo-300 hover:bg-indigo-50"><span className="flex items-center gap-2 font-semibold"><span aria-hidden className="grid h-5 w-5 place-items-center rounded-full border text-xs" style={{ color: definition.theme.accent, borderColor: definition.theme.border, backgroundColor: definition.theme.tint }}>{definition.icon}</span>{definition.label}</span><span className="mt-1 block text-xs font-normal text-slate-500">{definition.description}</span></button>; })}</div> : null}
+          {insertSurface === "TABLE" ? <div data-v2-table-chooser className="space-y-3"><div className="grid grid-cols-2 gap-3"><label className="text-xs font-semibold text-slate-600">Rows<input type="number" min="1" max="20" value={tableRows} onChange={(event) => setTableRows(Math.max(1, Math.min(20, Number(event.target.value) || 1)))} className="mt-1 w-full rounded border border-slate-200 px-2 py-1.5" /></label><label className="text-xs font-semibold text-slate-600">Columns<input type="number" min="1" max="12" value={tableColumns} onChange={(event) => setTableColumns(Math.max(1, Math.min(12, Number(event.target.value) || 1)))} className="mt-1 w-full rounded border border-slate-200 px-2 py-1.5" /></label></div><button type="button" onClick={() => { const payload = { rows: tableRows, columns: tableColumns, cells: Array.from({ length: tableRows * tableColumns }, () => "") }; if (selectedContainerFrame) addChildFrame("TABLE", undefined, payload); else addFrame("TABLE", { payload }, insertionMode); setInsertSurface(null); }} className="w-full rounded-lg bg-indigo-600 px-3 py-2 font-bold text-white">Create Table</button></div> : null}
+          {insertSurface === "EDUCATIONAL" ? <div data-v2-educational-picker className="grid max-h-[55vh] gap-2 overflow-y-auto sm:grid-cols-2">{EDUCATIONAL_OBJECT_REGISTRY.map(([type]) => { const definition = getEducationalObjectDefinition(type); return <button key={type} type="button" onClick={() => addEducationalFrame(type)} className="rounded-lg border border-slate-200 px-3 py-2 text-left hover:border-indigo-300 hover:bg-indigo-50"><span className="flex items-center gap-2 font-semibold"><span aria-hidden className="grid h-6 w-6 place-items-center rounded-full border text-xs" style={{ color: definition.theme.accent, borderColor: definition.theme.border, backgroundColor: definition.theme.tint }}>{definition.icon}</span>{definition.label}</span><span className="mt-1 block text-xs font-normal text-slate-500">{definition.description}</span></button>; })}</div> : null}
         </div> : null}
         {activeRibbonTab === "REVIEW" && reviewSurface === "GRAMMAR" ? <div data-v2-grammar-review-panel className="absolute left-3 right-3 top-full z-[70] mt-1 rounded-xl border border-indigo-200 bg-white p-3 text-xs shadow-2xl"><div className="flex items-center justify-between"><span className="font-bold text-indigo-900">Grammar</span><button type="button" onClick={() => setReviewSurface(null)} className="rounded px-2 py-1 text-slate-500">Close</button></div><p className="mt-2 text-slate-600">{grammarMessage || "Browser spelling and grammar checking is active in editable text."}</p></div> : null}
         {activeRibbonTab === "REVIEW" && reviewSurface === "READ_ALOUD" ? <div data-v2-read-aloud-panel className="absolute left-3 right-3 top-full z-[70] mt-1 max-h-[70vh] overflow-y-auto rounded-xl border border-blue-200 bg-white p-2 shadow-2xl">
@@ -920,7 +1089,6 @@ export default function V2DocumentWorkspace({
           <label className="flex items-center gap-1 rounded-md border border-indigo-200 bg-white px-2 py-1 font-semibold text-indigo-800"><input type="checkbox" checked={selectedFrame.locked} onChange={(event) => patchFrame(selectedFrame.id, { locked: event.target.checked }, "Lock updated")} /> Lock</label>
           {(selectedFrame.layoutMode === "FLOW" || selectedFrame.layoutMode === "INLINE") && !selectedParentId ? <><button type="button" onClick={() => moveFlow(-1)} className="rounded-md border border-indigo-200 bg-white px-2 py-1 font-semibold text-indigo-800">Move Earlier</button><button type="button" onClick={() => moveFlow(1)} className="rounded-md border border-indigo-200 bg-white px-2 py-1 font-semibold text-indigo-800">Move Later</button></> : null}
           {selectedParentId ? <button type="button" onClick={detachSelectedChild} className="rounded-md border border-amber-300 bg-amber-50 px-2 py-1 font-semibold text-amber-900">Move to Page</button> : null}
-          {selectedFrame.type === "EDUCATIONAL" ? <span className="flex items-center gap-1"><span className="font-bold text-indigo-900">Container:</span>{(["TEXT", "IMAGE", "VIDEO", "TABLE"] as const).map((type) => <button key={type} type="button" onClick={() => addChildFrame(type)} className="rounded-md border border-indigo-200 bg-white px-2 py-1 font-semibold text-indigo-800">+ {type[0] + type.slice(1).toLowerCase()}</button>)}</span> : null}
           {!selectedParentId ? <><button type="button" onClick={duplicateSelected} className="rounded-md border border-indigo-200 bg-white px-2 py-1 font-semibold text-indigo-800">Duplicate</button><button type="button" onClick={deleteSelected} className="rounded-md border border-rose-200 bg-white px-2 py-1 font-semibold text-rose-700">Delete</button></> : null}
         </div>
       ) : null}
@@ -956,7 +1124,7 @@ export default function V2DocumentWorkspace({
       {pdfImportOpen ? <PdfImportDialog open bookId={bookId} hasFullBookPdf={hasFullBookPdf || uploadedPdfIsAvailable} hasMeaningfulContent={hasMeaningfulV2Content(document)} onClose={() => setPdfImportOpen(false)} onImportExistingPdf={onImportPdf} onAttachUploadedPdf={onAttachPdf} onBookPdfAttached={() => { setUploadedPdfIsAvailable(true); router.refresh(); }} onComplete={applyPdfImportPages} /> : null}
       {pendingImageDuplicate ? <div role="dialog" aria-modal="true" aria-label="Possible duplicate image" className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/50 p-4"><div className="w-full max-w-md rounded-xl bg-white p-5 shadow-2xl"><h2 className="text-lg font-bold text-slate-900">This image may already exist.</h2><p className="mt-1 text-sm text-slate-600">Use an existing protected Image resource or deliberately upload another copy.</p><div className="mt-3 max-h-72 space-y-2 overflow-y-auto">{pendingImageDuplicate.matches.map((match) => <div key={match.id} className="flex gap-3 rounded-lg border border-slate-200 p-3"><span className="relative h-16 w-20 shrink-0 overflow-hidden rounded bg-slate-100"><ProtectedResourceThumbnail src={`/api/admin/resources/${encodeURIComponent(match.id)}/preview`} className="h-full w-full object-contain" /></span><span className="min-w-0 flex-1"><span className="block truncate font-semibold text-slate-800">{match.title}</span><span className="mt-1 block text-xs text-slate-500">{[match.originalFileName, match.mimeType, match.fileSizeBytes ? formatV2ResourceSize(match.fileSizeBytes) : null].filter(Boolean).join(" · ")}</span><button type="button" onClick={() => selectExistingImage(match.id, pendingImageDuplicate.replaceFrameId)} className="mt-2 rounded border border-amber-200 bg-amber-50 px-3 py-1.5 text-sm font-semibold text-amber-900">Use Existing Image</button></span></div>)}</div><div className="mt-4 flex flex-wrap gap-2"><button type="button" onClick={() => void uploadImageAnyway()} className="rounded bg-amber-600 px-3 py-2 text-sm font-semibold text-white">Upload Anyway</button><button type="button" onClick={() => setPendingImageDuplicate(null)} className="rounded border px-3 py-2 text-sm font-semibold text-slate-700">Cancel</button></div></div></div> : null}
       {pendingVideoDuplicate ? <div role="dialog" aria-modal="true" aria-label="Possible duplicate video" className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/50 p-4"><div className="w-full max-w-md rounded-xl bg-white p-5 shadow-2xl"><h2 className="text-lg font-bold text-slate-900">This video may already exist.</h2><p className="mt-1 text-sm text-slate-600">Use the existing protected Video resource to avoid a duplicate upload.</p><div className="mt-3 space-y-2">{pendingVideoDuplicate.matches.map((match) => <div key={match.id} className="rounded-lg border border-slate-200 p-3"><p className="font-semibold text-slate-800">{match.title}</p><p className="mt-1 text-xs text-slate-500">{[match.originalFileName, match.fileSizeBytes ? formatV2ResourceSize(match.fileSizeBytes) : null].filter(Boolean).join(" · ")}</p><button type="button" onClick={() => selectExistingVideo(match.id, pendingVideoDuplicate.replaceFrameId)} className="mt-2 rounded border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-sm font-semibold text-indigo-800">Use Existing Video</button></div>)}</div><div className="mt-4 flex flex-wrap gap-2"><button type="button" onClick={() => void uploadVideoAnyway()} className="rounded bg-indigo-600 px-3 py-2 text-sm font-semibold text-white">Upload Anyway</button><button type="button" onClick={() => setPendingVideoDuplicate(null)} className="rounded border px-3 py-2 text-sm font-semibold text-slate-700">Cancel</button></div></div></div> : null}
-      <div data-v2-editor-body className={`grid min-h-0 flex-1 grid-cols-1 ${propertiesOpen ? "xl:grid-cols-[minmax(0,1fr)_18rem]" : "xl:grid-cols-[minmax(0,1fr)]"}`}>
+      <div data-v2-editor-body className={`grid min-h-0 flex-1 grid-cols-1 ${showPropertiesPanel ? "xl:grid-cols-[minmax(0,1fr)_18rem]" : "xl:grid-cols-[minmax(0,1fr)]"}`}>
       <main data-v2-canvas-scroll data-v2-page-view={pageViewMode} className="min-h-0 min-w-0 overflow-auto p-2">        <div data-v2-page-navigation className="flex flex-wrap items-center justify-center gap-3 border-b border-slate-300 bg-slate-50 px-3 py-2 text-xs">
           <button type="button" aria-label="Previous page" onClick={() => goToPage(-1)} disabled={activeVisibleIndex <= 0} className="rounded border border-slate-200 bg-white px-3 py-1.5 font-semibold disabled:opacity-40">Previous</button>
           <span data-v2-page-indicator className="font-bold text-slate-700">{pageCountLabel}</span>
@@ -970,7 +1138,7 @@ export default function V2DocumentWorkspace({
           {pageViewMode === "WEB" ? visiblePageViews.map((view) => renderPageCanvas(view.page, view.absolutePageNumber, activePage?.id === view.page.id)) : activePage ? renderPageCanvas(activePage, activeAbsolutePageNumber, true) : null}
         </div>
       </main>
-      <aside data-v2-right-panel className={`${propertiesOpen ? "block" : "hidden"} h-full min-h-0 min-w-0 overflow-y-auto border-t border-slate-300 bg-white p-3 xl:border-l xl:border-t-0`}>
+      <aside data-v2-right-panel className={`${showPropertiesPanel ? "block" : "hidden"} h-full min-h-0 min-w-0 overflow-y-auto border-t border-slate-300 bg-white p-3 xl:border-l xl:border-t-0`}>
         <div className="flex items-center justify-between"><p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">Properties &amp; Layers</p><button type="button" aria-label="Collapse properties" onClick={() => setPropertiesOpen(false)} className="rounded px-2 py-1 text-slate-400 hover:bg-slate-100">x</button></div>
         <p className="mt-2 text-xs text-slate-500">{selectedFrame ? `${selectedFrame.type} selected · reading order ${selectedFrame.readingOrder}` : `Page ${activePageIndex + 1} · click the page to set an insertion point.`}</p>
         {selectedFrame ? <details open data-v2-selected-properties className="mt-3 rounded-lg border border-slate-200 text-xs"><summary className="cursor-pointer px-3 py-2 font-bold text-slate-700">Selected Object</summary><div className="space-y-3 border-t border-slate-200 p-3">
@@ -978,17 +1146,8 @@ export default function V2DocumentWorkspace({
           <label className="block font-semibold text-slate-600">Reading Order<input type="number" min="0" value={selectedFrame.readingOrder} onChange={(event) => patchFrame(selectedFrame.id, { readingOrder: Math.max(0, Number(event.target.value) || 0) }, "Reading order updated")} className="mt-1 w-full rounded border border-slate-200 px-2 py-1.5" /></label>
           <label className="flex items-center gap-2 font-semibold text-slate-600"><input type="checkbox" checked={selectedFrame.locked} onChange={(event) => patchFrame(selectedFrame.id, { locked: event.target.checked }, "Lock updated")} /> Lock object</label>
           {selectedFlowFrame && selectedFlowFrame.type !== "IMAGE" ? <div data-v2-layout-properties className="space-y-2 border-t border-slate-100 pt-3"><p className="font-bold text-slate-700">Flow &amp; Wrap</p><select aria-label="Object flow" value={selectedFlowFrame.layoutMode} onChange={(event) => patchFrame(selectedFlowFrame.id, { layoutMode: event.target.value as LayoutV2Frame["layoutMode"] }, "Object flow updated")} className="w-full rounded border border-slate-200 px-2 py-1.5"><option value="ABSOLUTE">Absolute</option><option value="FLOAT">Float</option><option value="INLINE">Inline</option></select><select aria-label="Text wrap" value={selectedFlowFrame.wrapMode} onChange={(event) => patchFrame(selectedFlowFrame.id, { wrapMode: event.target.value as LayoutV2Frame["wrapMode"] }, "Text wrap updated")} className="w-full rounded border border-slate-200 px-2 py-1.5"><option value="NONE">No wrap</option><option value="WRAP_LEFT">Wrap left</option><option value="WRAP_RIGHT">Wrap right</option><option value="WRAP_BOTH">Wrap both</option><option value="BEHIND_TEXT">Behind text</option><option value="IN_FRONT_OF_TEXT">In front</option></select><label className="block font-semibold text-slate-600">Gap<input type="number" min="0" max="96" value={selectedFlowFrame.wrapPadding ?? 8} onChange={(event) => patchFrame(selectedFlowFrame.id, { wrapPadding: Math.max(0, Math.min(96, Number(event.target.value) || 0)) }, "Wrap gap updated")} className="mt-1 w-full rounded border border-slate-200 px-2 py-1.5" /></label></div> : null}
-          {["EDUCATIONAL", "TEXT"].includes(selectedFrame.type) && !isV2MainFlowFrame(selectedFrame) ? <div className="space-y-2 border-t border-slate-100 pt-3"><p className="font-bold text-slate-700">Bounded container content</p><div className="flex flex-wrap gap-1">{(["TEXT", "IMAGE", "VIDEO", "TABLE"] as const).map((type) => <button key={type} type="button" onClick={() => addChildFrame(type)} className="rounded border px-2 py-1">+ {type[0] + type.slice(1).toLowerCase()}</button>)}</div></div> : null}
+          {selectedFrame.type === "TEXT" && !isV2MainFlowFrame(selectedFrame) ? <div className="space-y-2 border-t border-slate-100 pt-3"><p className="font-bold text-slate-700">Bounded container content</p><div className="flex flex-wrap gap-1">{(["TEXT", "IMAGE", "VIDEO", "TABLE"] as const).map((type) => <button key={type} type="button" onClick={() => addChildFrame(type)} className="rounded border px-2 py-1">+ {type[0] + type.slice(1).toLowerCase()}</button>)}</div></div> : null}
         </div></details> : null}
-        {selectedEducationalFrame ? <details open className="mt-3 rounded-lg border text-xs" style={{ borderColor: selectedEducationalDefinition.theme.border }}>
-          <summary className="cursor-pointer px-3 py-2 font-bold" style={{ color: selectedEducationalDefinition.theme.accent }}>Educational Block Properties</summary>
-          <div className="space-y-3 border-t p-3" style={{ borderColor: selectedEducationalDefinition.theme.border }}>
-            <p className="rounded px-2 py-1 font-semibold" style={{ color: selectedEducationalDefinition.theme.accent, backgroundColor: selectedEducationalDefinition.theme.tint }}>{selectedEducationalDefinition.icon} {selectedEducationalDefinition.label} · semantic theme</p>
-            <label className="block font-semibold text-slate-600">Block Type<select aria-label="Educational Block type" value={selectedEducationalType} onChange={(event) => { const type = event.target.value; if (!isEducationalObjectType(type)) return; const definition = getEducationalObjectDefinition(type); patchFrame(selectedEducationalFrame.id, { payload: { ...selectedEducationalPayload, educationalObjectType: type, title: typeof selectedEducationalPayload.title === "string" ? selectedEducationalPayload.title : definition.defaultTitle } }, "Educational Block type updated"); }} className="mt-1 w-full rounded border px-2 py-1.5">{EDUCATIONAL_OBJECT_REGISTRY.map(([type, label]) => <option key={type} value={type}>{label}</option>)}</select></label>
-            <label className="block font-semibold text-slate-600">Title<input aria-label="Educational Block title" value={typeof selectedEducationalPayload.title === "string" ? selectedEducationalPayload.title : selectedEducationalDefinition.defaultTitle} onChange={(event) => patchFrame(selectedEducationalFrame.id, { payload: { ...selectedEducationalPayload, educationalObjectType: selectedEducationalType, title: event.target.value } }, "Educational Block title updated")} className="mt-1 w-full rounded border px-2 py-1.5" /></label>
-            <label className="block font-semibold text-slate-600">Body / Matter<textarea aria-label="Educational Block body properties" value={typeof selectedEducationalPayload.body === "string" ? selectedEducationalPayload.body : typeof selectedEducationalPayload.text === "string" ? selectedEducationalPayload.text : ""} onChange={(event) => patchFrame(selectedEducationalFrame.id, { payload: { ...selectedEducationalPayload, educationalObjectType: selectedEducationalType, body: event.target.value } }, "Educational Block body updated")} rows={4} className="mt-1 w-full resize-y rounded border px-2 py-1.5" placeholder={selectedEducationalDefinition.defaultPlaceholder} /></label>
-            <p className="text-[11px] text-slate-500">Child objects: {selectedEducationalFrame.children?.length ?? 0}. Use Insert Image, Video, or Table while this block is selected to add bounded child content.</p>
-          </div>
         {selectedShapeFrame ? <details open className="mt-3 rounded-lg border border-violet-200 text-xs">
           <summary className="cursor-pointer px-3 py-2 font-bold text-violet-900">Shape Properties</summary>
           <div className="space-y-3 border-t border-violet-100 p-3">
@@ -1022,7 +1181,7 @@ export default function V2DocumentWorkspace({
         </details> : null}
         {selectedVideoFrame ? <details open className="mt-3 rounded-lg border border-indigo-200 text-xs"><summary className="cursor-pointer px-3 py-2 font-bold text-indigo-900">Video Properties</summary><div className="space-y-3 border-t border-indigo-100 p-3"><div><p className="mb-1 font-semibold text-slate-600">Display</p><div className="flex gap-1"><button type="button" aria-pressed={getV2VideoDisplayMode(selectedVideoFrame) === "PLAYER"} onClick={() => patchFrame(selectedVideoFrame.id, { payload: withV2VideoDisplayMode(selectedVideoFrame, "PLAYER") }, "Video display set to Player")} className="flex-1 rounded border border-indigo-200 bg-white px-2 py-1.5 font-semibold text-indigo-900">Player</button><button type="button" aria-pressed={getV2VideoDisplayMode(selectedVideoFrame) === "BUTTON"} onClick={() => patchFrame(selectedVideoFrame.id, { payload: withV2VideoDisplayMode(selectedVideoFrame, "BUTTON") }, "Video display set to Button")} className="flex-1 rounded border border-indigo-200 bg-white px-2 py-1.5 font-semibold text-indigo-900">Button</button></div></div><label className="block font-semibold text-slate-600">Video label<input aria-label="Video label" value={selectedVideoFrame.narrationLabel ?? ""} onChange={(event) => patchFrame(selectedVideoFrame.id, { narrationLabel: event.target.value || undefined }, "Video label updated")} className="mt-1 w-full rounded border px-2 py-1.5" placeholder="Play Video" /></label><select aria-label="Replace Video" value={selectedVideoFrame.resourceId ?? ""} onChange={(event) => patchFrame(selectedVideoFrame.id, { resourceId: event.target.value || undefined }, "Video replaced")} className="w-full rounded border px-2 py-1.5"><option value="">Choose video</option>{videoResources.map((resource) => <option key={resource.id} value={resource.id}>{resource.title}</option>)}</select>{onUploadResource ? <label className="block cursor-pointer rounded border border-dashed border-indigo-300 px-2 py-2 text-center font-semibold text-indigo-700">{uploadingResource ? "Uploading..." : "Upload Video"}<input type="file" accept="video/*" className="sr-only" disabled={uploadingResource} onChange={(event) => void handleResourceUpload(event, "VIDEO", selectedVideoFrame.id)} /></label> : null}<p className="text-[11px] text-slate-500">Delete removes this video frame only. The shared library resource remains available for other pages.</p></div></details> : null}
 
-        </details> : null}
+
         <details className="mt-3 rounded-lg border border-slate-200 text-xs"><summary className="cursor-pointer px-3 py-2 font-bold text-slate-700">Page Properties</summary><div className="space-y-2 border-t border-slate-200 p-3"><p className="font-semibold text-slate-600">Active page {activePageIndex + 1}</p><div className="flex gap-1"><button type="button" onClick={() => moveActivePage(-1)} disabled={activePageIndex === 0} className="rounded border px-2 py-1 disabled:opacity-40">Move up</button><button type="button" onClick={() => moveActivePage(1)} disabled={activeVisibleIndex >= visiblePages.length - 1} className="rounded border px-2 py-1 disabled:opacity-40">Move down</button></div><div className="border-t border-slate-100 pt-2"><span className="font-semibold text-fuchsia-800">Page visual: </span>{activePage.visualMode === "EXACT_REPLICA" ? <><span>Exact Replica</span><button type="button" onClick={() => onDocumentChange({ ...document, pageLayout: setV2PageVisualMode(layout, activePage.id, "EDITABLE") }, "Page switched to Editable; replica source preserved")} className="ml-2 rounded border px-2 py-1">View as Editable</button></> : activePage.replica?.resourceId ? <button type="button" onClick={() => onDocumentChange({ ...document, pageLayout: setV2PageVisualMode(layout, activePage.id, "EXACT_REPLICA") }, "Page switched to Exact Replica; semantic frames preserved")} className="rounded border px-2 py-1">Use Replica</button> : <span>Editable</span>}</div></div></details>
         <details open className="mt-3 rounded-lg border border-slate-200 text-xs">
           <summary className="cursor-pointer px-3 py-2 font-bold text-slate-700">Page Objects</summary>

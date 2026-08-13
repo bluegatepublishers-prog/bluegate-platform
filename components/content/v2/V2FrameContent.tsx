@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import type { ContentBlock } from "@/lib/content-document";
 import type { LayoutV2Frame } from "@/lib/content-layout-v2";
-import V2EducationalVisual, { v2EducationalChildren } from "@/components/content/v2/V2EducationalVisual";
+import V2EducationalButtonVisual, { isV2EducationalButtonBlock } from "@/components/content/v2/V2EducationalButtonVisual";
 import V2ImageVisual from "@/components/content/v2/V2ImageVisual";
 import V2TextVisual from "@/components/content/v2/V2TextVisual";
 import V2TableVisual from "@/components/content/v2/V2TableVisual";
@@ -10,18 +10,7 @@ import V2ShapeVisual from "@/components/content/v2/V2ShapeVisual";
 import { getV2FrameResourceId } from "@/lib/content-layout-v2-rendering";
 import { getV2VideoDisplayMode } from "@/lib/content-layout-v2";
 
-export default function V2FrameContent({
-  frame,
-  frames,
-  block,
-  pageWidth,
-  pageHeight,
-  resourceUrlResolver,
-  renderBlock,
-  renderFrame,
-  onPayloadChange,
-  videoPresentation = "AUTHORING",
-}: {
+export default function V2FrameContent({ frame, frames, block, pageWidth, pageHeight, resourceUrlResolver, renderBlock, renderFrame, onPayloadChange, videoPresentation = "AUTHORING" }: {
   frame: LayoutV2Frame;
   frames: LayoutV2Frame[];
   block?: ContentBlock;
@@ -33,6 +22,12 @@ export default function V2FrameContent({
   onPayloadChange?: (payload: Record<string, unknown>) => void;
   videoPresentation?: "AUTHORING" | "DELIVERY";
 }) {
+  if (block && isV2EducationalButtonBlock(block)) {
+    return <V2EducationalButtonVisual frame={frame} block={block} openable={videoPresentation === "DELIVERY"} overlayContent={renderBlock?.(block)} />;
+  }
+  if (["EDUCATIONAL", "ACTIVITY", "WORKSHEET", "EXERCISE"].includes(frame.type)) {
+    return <V2EducationalButtonVisual frame={frame} block={block} openable={videoPresentation === "DELIVERY"} />;
+  }
   if (frame.type === "TEXT") return (
     <div data-v2-delivery-text-container className="relative h-full w-full max-w-full overflow-hidden">
       <div className="absolute inset-0 overflow-hidden"><V2TextVisual frame={frame} block={block} frames={frames} pageWidth={pageWidth} pageHeight={pageHeight} /></div>
@@ -58,22 +53,8 @@ export default function V2FrameContent({
     const payload = frame.payload && typeof frame.payload === "object" ? frame.payload as Record<string, unknown> : {};
     return <V2TableVisual payload={payload} onChange={onPayloadChange} />;
   }
-  if (frame.type === "EDUCATIONAL") {
-    return (
-      <V2EducationalVisual frame={frame}>
-        <div className="absolute inset-0" style={{ padding: getContainerPadding(frame) }}>
-          {v2EducationalChildren(frame).map((child) => renderFrame?.(child, frame.children ?? []) ?? null)}
-        </div>
-      </V2EducationalVisual>
-    );
-  }
   if (block && renderBlock) return <div data-v2-bounded-block className="h-full w-full max-w-full overflow-auto p-2">{renderBlock(block)}</div>;
   return <Unavailable label={`${frame.type} frame`} />;
-}
-
-function getContainerPadding(frame: LayoutV2Frame) {
-  const payload = frame.payload && typeof frame.payload === "object" ? frame.payload as Record<string, unknown> : {};
-  return typeof payload.padding === "number" && Number.isFinite(payload.padding) ? Math.max(0, Math.min(48, payload.padding)) : 10;
 }
 
 function Unavailable({ label }: { label: string }) {
