@@ -8,6 +8,7 @@ export const uploadRules: Record<UploadScope, { extensions: string[]; contentTyp
   "book-sample": { extensions: [".pdf"], contentTypes: ["application/pdf"], maxSize: 50 * MB, prefix: "books/samples" },
   "book-public-preview": { extensions: [".pdf"], contentTypes: ["application/pdf"], maxSize: 50 * MB, prefix: "books/public-previews" },
   "book-full": { extensions: [".pdf"], contentTypes: ["application/pdf"], maxSize: 100 * MB, prefix: "books/full-books" },
+  "teacher-resource-pdf": { extensions: [".pdf"], contentTypes: ["application/pdf"], maxSize: 50 * MB, prefix: "teacher-resources/pdfs" },
   "school-logo": { extensions: [".jpg", ".jpeg", ".png", ".webp"], contentTypes: ["image/jpeg", "image/png", "image/webp"], maxSize: 5 * MB, prefix: "schools" },
   "publisher-logo": { extensions: [".jpg", ".jpeg", ".png", ".webp"], contentTypes: ["image/jpeg", "image/png", "image/webp"], maxSize: 5 * MB, prefix: "branding/logo" },
   "publisher-favicon": { extensions: [".jpg", ".jpeg", ".png", ".webp", ".ico"], contentTypes: ["image/jpeg", "image/png", "image/webp", "image/x-icon", "image/vnd.microsoft.icon"], maxSize: 1 * MB, prefix: "branding/favicon" },

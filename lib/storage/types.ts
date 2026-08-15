@@ -109,6 +109,7 @@ export type UploadScope =
   | "book-sample"
   | "book-public-preview"
   | "book-full"
+  | "teacher-resource-pdf"
   | "school-logo"
   | "publisher-logo"
   | "publisher-favicon"

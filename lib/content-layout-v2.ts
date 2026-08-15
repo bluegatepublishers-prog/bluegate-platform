@@ -520,6 +520,23 @@ function normalizeFrame(value: unknown, pageId: string, index: number, options: 
 
 function normalizeAssessmentLauncherPayload(value: unknown) {
   if (
+    isRecord(value) &&
+    value.kind === "assessment-launcher" &&
+    value.launcherType === "publisher-assessment"
+  ) {
+    const assessmentId = safeString(value.assessmentId);
+    const display = isRecord(value.display) ? value.display : {};
+    if (!assessmentId) return undefined;
+    return {
+      kind: "assessment-launcher" as const,
+      launcherType: "publisher-assessment" as const,
+      version: 1 as const,
+      assessmentId,
+      display: { label: safeString(display.label) ?? "ASSESSMENT" },
+    };
+  }
+
+  if (
     !isRecord(value) ||
     value.kind !== "assessment-launcher" ||
     value.launcherType !== "question"

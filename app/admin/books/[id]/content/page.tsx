@@ -587,6 +587,15 @@ function BookCanvas({
           label="Modules"
           value={moduleCount}
         />
+      </section>      <section className="rounded-[1.5rem] bg-white p-5 shadow-sm ring-1 ring-slate-200">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-indigo-700">Teacher Resources</p>
+            <h3 className="mt-1 text-base font-bold text-slate-950">Publisher PDFs for teachers using this Smart Book.</h3>
+            <p className="mt-1 text-[11px] text-slate-500">Organize answer keys, lesson plans, worksheets, and any other teacher-only PDFs in folders.</p>
+          </div>
+          <Link href={`/admin/books/${studio.id}/content/teacher-resources`} className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white">Manage Teacher Resources</Link>
+        </div>
       </section>
     </div>
   );

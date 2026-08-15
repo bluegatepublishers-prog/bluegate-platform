@@ -125,6 +125,7 @@ import { contentResourcePreviewUrl } from "@/lib/content-resource-preview";
 import EducationalObjectIcon from "@/components/content/EducationalObjectIcon";
 import { addV2FrameToPage, createV2CompatibilityLayout, ensureV2MainFlowFrames, getContentLayoutVersion, updateV2Frame, type LayoutV2Frame, type LayoutV2Page } from "@/lib/content-layout-v2";
 import { buildV2NarrationManifest } from "@/lib/content-narration";
+import { getV2WorksheetLauncherPayload } from "@/lib/v2-worksheet-launcher";
 
 type ResourceChoice = {
   id: string;
@@ -1837,6 +1838,8 @@ export default function ContentManuscriptEditor({
                 let blocks = base.blocks;
                 const periodId = base.periods[0]?.id;
                 const insertionPayload = frame.payload && typeof frame.payload === "object" ? frame.payload as Record<string, unknown> : {};
+                const isWorksheetLauncher =
+  Boolean(getV2WorksheetLauncherPayload(frame));
                 const rows = Math.max(1, Math.min(20, Number(insertionPayload.rows) || 2));
                 const columns = Math.max(1, Math.min(12, Number(insertionPayload.columns) || 2));
                 const educationalType = isEducationalObjectType(insertionPayload.educationalObjectType) ? insertionPayload.educationalObjectType : "didYouKnow";
@@ -1848,8 +1851,8 @@ export default function ContentManuscriptEditor({
                       ? createEducationalObjectBlock(educationalType)
                       : type === "ACTIVITY"
                         ? createActivityBlock()
-                        : type === "WORKSHEET"
-                          ? createWorksheetBlock()
+                        : type === "WORKSHEET" && !isWorksheetLauncher
+  ? createWorksheetBlock()
                           : type === "EXERCISE"
                             ? createExerciseBlock()
                             : null;

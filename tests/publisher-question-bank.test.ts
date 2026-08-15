@@ -13,6 +13,7 @@ const itemRoute = readFileSync(path.join(root, "app/api/admin/questions/[questio
 const lifecycleRoute = readFileSync(path.join(root, "app/api/admin/questions/[questionId]/lifecycle/route.ts"), "utf8");
 const page = readFileSync(path.join(root, "app/admin/books/[id]/content/assignments/questions/page.tsx"), "utf8");
 const ui = readFileSync(path.join(root, "components/admin/books/PublisherQuestionBank.tsx"), "utf8");
+const assignmentsNavigation = readFileSync(path.join(root, "components/admin/books/AssignmentsWorkspaceNav.tsx"), "utf8");
 const authoringEditor = readFileSync(path.join(root, "components/admin/books/PublisherQuestionAuthoringEditor.tsx"), "utf8");
 const ribbon = readFileSync(path.join(root, "components/admin/books/editor/V2DocumentWorkspace.tsx"), "utf8");
 
@@ -100,6 +101,8 @@ test("preview reuses the shared delivery renderers and protects answer keys from
 
 test("Question Bank is a Content Studio Assignments workspace, not a delivery builder", () => {
   assert.match(page, /requirePublisherAdminBookOwnership/u);
-  for (const label of ["Worksheets", "Tests", "Exam Papers"]) assert.match(ui, new RegExp(label, "u"));
+  assert.match(ui, /AssignmentsWorkspaceNav/u);
+  for (const label of ["Question Bank", "Worksheets", "Assessments"]) assert.match(assignmentsNavigation, new RegExp(label, "u"));
+  assert.doesNotMatch(assignmentsNavigation, /Tests.*Coming next|Exam Papers.*Coming next/u);
   assert.match(ribbon, /"ASSIGNMENTS"/u); assert.match(ribbon, /assignmentsHref/u);
 });

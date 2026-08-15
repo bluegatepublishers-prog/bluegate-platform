@@ -1,4 +1,5 @@
 import type { LayoutV2Frame } from "@/lib/content-layout-v2";
+import { getPublisherAssessmentLauncherLabel } from "@/lib/publisher-assessment-presentation";
 
 export type V2PracticeQuestionType =
   | "MCQ"
@@ -14,14 +15,24 @@ export type V2AssessmentLauncherTarget = {
   questionIds?: string[];
 };
 
-export type V2AssessmentLauncherPayload = {
+export type V2QuestionAssessmentLauncherPayload = {
   kind: "assessment-launcher";
   launcherType: "question";
-  target: V2AssessmentLauncherTarget & {
-    questionType: V2PracticeQuestionType;
-  };
+  target: V2AssessmentLauncherTarget & { questionType: V2PracticeQuestionType };
   display: { label: string };
 };
+
+export type V2PublisherAssessmentLauncherPayload = {
+  kind: "assessment-launcher";
+  launcherType: "publisher-assessment";
+  version: 1;
+  assessmentId: string;
+  display: { label: string };
+};
+
+export type V2AssessmentLauncherPayload =
+  | V2QuestionAssessmentLauncherPayload
+  | V2PublisherAssessmentLauncherPayload;
 
 const LABELS: Record<V2PracticeQuestionType, string> = {
   MCQ: "MCQ",
@@ -33,9 +44,8 @@ const LABELS: Record<V2PracticeQuestionType, string> = {
 
 export function createV2AssessmentLauncherPayload(
   target: V2AssessmentLauncherTarget,
-): V2AssessmentLauncherPayload {
+): V2QuestionAssessmentLauncherPayload {
   const questionType = normalizeQuestionType(target.questionType);
-
   return {
     kind: "assessment-launcher",
     launcherType: "question",
@@ -44,20 +54,25 @@ export function createV2AssessmentLauncherPayload(
       groupId: target.groupId,
       questionType,
       ...(target.questionIds?.length
-        ? {
-            questionIds: [
-              ...new Set(
-                target.questionIds
-                  .map((id) => id.trim())
-                  .filter(Boolean),
-              ),
-            ],
-          }
+        ? { questionIds: [...new Set(target.questionIds.map((id) => id.trim()).filter(Boolean))] }
         : {}),
     },
-    display: {
-      label: LABELS[questionType],
-    },
+    display: { label: LABELS[questionType] },
+  };
+}
+
+export function createV2PublisherAssessmentLauncherPayload(input: {
+  assessmentId: string;
+  kind: string;
+}): V2PublisherAssessmentLauncherPayload {
+  const assessmentId = input.assessmentId.trim();
+  if (!assessmentId) throw new Error("A publisher assessment id is required.");
+  return {
+    kind: "assessment-launcher",
+    launcherType: "publisher-assessment",
+    version: 1,
+    assessmentId,
+    display: { label: getPublisherAssessmentLauncherLabel(input.kind) },
   };
 }
 
@@ -69,95 +84,49 @@ export function getV2AssessmentLauncherPayload(
     !frame.payload ||
     typeof frame.payload !== "object" ||
     Array.isArray(frame.payload)
-  ) {
-    return null;
-  }
+  ) return null;
 
   const value = frame.payload as Record<string, unknown>;
-
-  const target =
-    value.target &&
-    typeof value.target === "object" &&
-    !Array.isArray(value.target)
-      ? (value.target as Record<string, unknown>)
-      : null;
-
-  const exerciseId =
-    target && typeof target.exerciseId === "string"
-      ? target.exerciseId.trim()
-      : "";
-
-  const groupId =
-    target && typeof target.groupId === "string"
-      ? target.groupId.trim()
-      : "";
-
-  const legacyQuestionId =
-    target && typeof target.questionId === "string"
-      ? target.questionId.trim()
-      : "";
-
-  const questionIds =
-    target && Array.isArray(target.questionIds)
-      ? [
-          ...new Set(
-            target.questionIds
-              .filter((id): id is string => typeof id === "string")
-              .map((id) => id.trim())
-              .filter(Boolean),
-          ),
-        ]
-      : legacyQuestionId
-        ? [legacyQuestionId]
-        : [];
-
-  if (
-    value.kind !== "assessment-launcher" ||
-    value.launcherType !== "question" ||
-    (!exerciseId && !groupId && !legacyQuestionId)
-  ) {
-    return null;
+  if (value.kind === "assessment-launcher" && value.launcherType === "publisher-assessment") {
+    const assessmentId = typeof value.assessmentId === "string" ? value.assessmentId.trim() : "";
+    if (!assessmentId) return null;
+    const display = value.display && typeof value.display === "object" && !Array.isArray(value.display)
+      ? (value.display as Record<string, unknown>) : {};
+    return {
+      kind: "assessment-launcher",
+      launcherType: "publisher-assessment",
+      version: 1,
+      assessmentId,
+      display: { label: typeof display.label === "string" && display.label.trim() ? display.label.trim() : "ASSESSMENT" },
+    };
   }
 
-  const questionType = normalizeQuestionType(
-    target?.questionType,
-  );
+  const target = value.target && typeof value.target === "object" && !Array.isArray(value.target)
+    ? (value.target as Record<string, unknown>) : null;
+  const exerciseId = target && typeof target.exerciseId === "string" ? target.exerciseId.trim() : "";
+  const groupId = target && typeof target.groupId === "string" ? target.groupId.trim() : "";
+  const legacyQuestionId = target && typeof target.questionId === "string" ? target.questionId.trim() : "";
+  const questionIds = target && Array.isArray(target.questionIds)
+    ? [...new Set(target.questionIds.filter((id): id is string => typeof id === "string").map((id) => id.trim()).filter(Boolean))]
+    : legacyQuestionId ? [legacyQuestionId] : [];
+  if (value.kind !== "assessment-launcher" || value.launcherType !== "question" || (!exerciseId && !groupId && !legacyQuestionId)) return null;
 
-  const display =
-    value.display &&
-    typeof value.display === "object" &&
-    !Array.isArray(value.display)
-      ? (value.display as Record<string, unknown>)
-      : {};
-
+  const questionType = normalizeQuestionType(target?.questionType);
+  const display = value.display && typeof value.display === "object" && !Array.isArray(value.display)
+    ? (value.display as Record<string, unknown>) : {};
   return {
     kind: "assessment-launcher",
     launcherType: "question",
-    target: {
-      exerciseId,
-      groupId,
-      questionType,
-      ...(questionIds.length ? { questionIds } : {}),
-    },
-    display: {
-      label:
-        typeof display.label === "string" && display.label.trim()
-          ? display.label.trim()
-          : LABELS[questionType],
-    },
+    target: { exerciseId, groupId, questionType, ...(questionIds.length ? { questionIds } : {}) },
+    display: { label: typeof display.label === "string" && display.label.trim() ? display.label.trim() : LABELS[questionType] },
   };
 }
 
-export function v2PracticeQuestionLabel(
-  questionType: V2PracticeQuestionType,
-) {
+export function v2PracticeQuestionLabel(questionType: V2PracticeQuestionType) {
   return LABELS[questionType];
 }
 
-function normalizeQuestionType(
-  value: unknown,
-): V2PracticeQuestionType {
+function normalizeQuestionType(value: unknown): V2PracticeQuestionType {
   return value === "TRUE_FALSE" || value === "FILL_BLANK" || value === "MULTIPLE_SELECT" || value === "SHORT_ANSWER"
-    ? value
-    : "MCQ";
+    ? value : "MCQ";
 }

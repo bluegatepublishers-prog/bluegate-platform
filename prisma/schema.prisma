@@ -114,6 +114,8 @@ model Publisher {
   updatedAt                  DateTime                    @updatedAt
   users                      User[]
   teacherQuestions           TeacherQuestion[]
+  teacherResourceFolders     PublisherTeacherResourceFolder[]
+  teacherResources           PublisherTeacherResource[]
   schools                    School[]
   books                      Book[]
   resources                  Resource[]
@@ -129,7 +131,9 @@ model Publisher {
   studentWorkItems           StudentWorkItem[]
   studentAiConversations     StudentAiConversation[]
   assessments                Assessment[]
+  publisherAssessments       PublisherAssessment[]
   assessmentAttempts         AssessmentAttempt[]
+  worksheetAttempts          StudentWorksheetAttempt[]
   analytics                  StudentAnalytics[]
   subjectAnalytics           StudentSubjectAnalytics[]
   chapterAnalytics           StudentChapterAnalytics[]
@@ -337,6 +341,7 @@ model School {
   studentAiConversations  StudentAiConversation[]
   assessments             Assessment[]
   assessmentAttempts      AssessmentAttempt[]
+  worksheetAttempts       StudentWorksheetAttempt[]
   analytics               SchoolAnalytics[]
   learningTimeline        LearningTimeline[]
   publisher               Publisher?                  @relation(fields: [publisherId], references: [id], onDelete: Restrict)
@@ -677,6 +682,7 @@ model AcademicYear {
   studentWorkItems        StudentWorkItem[]
   studentRevisionProgress StudentRevisionProgress[]
   studentPracticeAttempts StudentPracticeAttempt[]
+  worksheetAttempts       StudentWorksheetAttempt[]
   studentAiConversations  StudentAiConversation[]
   studentAiUsage          StudentAiUsage[]
   assessments             Assessment[]
@@ -787,6 +793,7 @@ model Student {
   studentWorkItems      StudentWorkItem[]
   revisionProgress      StudentRevisionProgress[]
   practiceAttempts      StudentPracticeAttempt[]
+  worksheetAttempts     StudentWorksheetAttempt[]
   aiConversations       StudentAiConversation[]
   aiUsage               StudentAiUsage[]
   assessmentAttempts    AssessmentAttempt[]
@@ -1475,6 +1482,8 @@ model Book {
   subject                   Subject                    @relation(fields: [subjectId], references: [id])
   chapters                  BookChapter[]
   questions                 BookQuestion[]
+  teacherResourceFolders    PublisherTeacherResourceFolder[]
+  teacherResources          PublisherTeacherResource[]
   teacherQuestions          TeacherQuestion[]
   editions                  BookEdition[]
   units                     BookUnit[]
@@ -1486,6 +1495,7 @@ model Book {
   contentReleases           ContentRelease[]
   contentReleaseVersions    ContentReleaseVersion[]
   worksheets                PublisherWorksheet[]
+  publisherAssessments      PublisherAssessment[]
   sectionSubjects           SectionSubject[]
   schoolAdoptions           SchoolBookAdoption[]
   studentProgress           StudentBookProgress[]
@@ -1494,6 +1504,7 @@ model Book {
   teachingPlans             TeachingPlan[]
   publisherTenant           Publisher?                 @relation(fields: [publisherId], references: [id], onDelete: Restrict)
   studentPracticeAttempts   StudentPracticeAttempt[]
+  studentWorksheetAttempts StudentWorksheetAttempt[]
   studentAiConversations    StudentAiConversation[]
   assessments               Assessment[]
   assessmentQuestions       AssessmentQuestion[]
@@ -1589,6 +1600,7 @@ model BookPart {
   edition          BookEdition?       @relation(fields: [editionId], references: [id], onDelete: Restrict)
   units            BookUnit[]
   chapters         BookChapter[]
+  publisherAssessments PublisherAssessment[]
   resourceLinks    BookResourceLink[]
   dynamicQrCodes   DynamicQrCode[]
 
@@ -1658,6 +1670,7 @@ model BookUnit {
   part             BookPart?          @relation(fields: [partId], references: [id], onDelete: Restrict)
   chapters         BookChapter[]
   modules          BookModule[]
+  publisherAssessments PublisherAssessment[]
   resources        Resource[]         @relation("ResourceBookUnit")
   videoLessons     VideoLesson[]
   resourceLinks    BookResourceLink[]
@@ -1945,6 +1958,8 @@ model BookChapter {
   learningOutcomes        ChapterLearningOutcome[]
   activities              ChapterActivity[]
   worksheets              PublisherWorksheet[]
+  publisherAssessments    PublisherAssessment[]
+  publisherAssessmentChapterScopes PublisherAssessmentChapterScope[]
   studentRevisionProgress StudentRevisionProgress[]
   studentPracticeAttempts StudentPracticeAttempt[]
   studentWorkItems        StudentWorkItem[]
@@ -2010,6 +2025,7 @@ model BookModule {
   learningOutcomes ChapterLearningOutcome[]
   activities       ChapterActivity[]
   worksheets       PublisherWorksheet[]
+  publisherAssessments PublisherAssessment[]
   resources        Resource[]               @relation("ResourceBookModule")
   videoLessons     VideoLesson[]
   resourceLinks    BookResourceLink[]
@@ -2161,6 +2177,8 @@ model BookQuestion {
   imageResource       Resource?                  @relation("QuestionImageResource", fields: [imageResourceId], references: [id], onDelete: SetNull)
   practiceResponses   StudentPracticeResponse[]
   worksheetItems      PublisherWorksheetItem[]
+  publisherAssessmentItems PublisherAssessmentItem[]
+  worksheetResponses  StudentWorksheetResponse[]
   assessmentQuestions AssessmentQuestion[]
 
   @@index([bookId, chapterId])
@@ -2190,6 +2208,53 @@ model PublisherWorksheetItem {
   @@index([questionId])
 }
 
+model StudentWorksheetAttempt {
+  id             String                        @id @default(cuid())
+  worksheetId    String
+  studentId      String
+  schoolId       String
+  academicYearId String
+  publisherId    String
+  bookId         String
+  status         StudentWorksheetAttemptStatus @default(IN_PROGRESS)
+  startedAt      DateTime                      @default(now())
+  submittedAt    DateTime?
+  questionCount  Int
+  totalMarks     Int
+  marksAwarded   Int?
+  percentage     Float?
+  createdAt      DateTime                      @default(now())
+  updatedAt      DateTime                      @updatedAt
+  worksheet      PublisherWorksheet            @relation(fields: [worksheetId], references: [id], onDelete: Restrict)
+  student        Student                       @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  school         School                        @relation(fields: [schoolId], references: [id], onDelete: Restrict)
+  academicYear   AcademicYear                  @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
+  publisher      Publisher                     @relation(fields: [publisherId], references: [id], onDelete: Restrict)
+  book           Book                          @relation(fields: [bookId], references: [id], onDelete: Restrict)
+  responses      StudentWorksheetResponse[]
+
+  @@index([studentId, academicYearId, status])
+  @@index([worksheetId, status])
+  @@index([academicYearId, submittedAt])
+  @@index([studentId, submittedAt])
+}
+
+model StudentWorksheetResponse {
+  id           String                  @id @default(cuid())
+  attemptId    String
+  questionId   String
+  response     Json?
+  correct      Boolean?
+  marksAwarded Int?
+  createdAt    DateTime                @default(now())
+  updatedAt    DateTime                @updatedAt
+  attempt      StudentWorksheetAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  question     BookQuestion            @relation(fields: [questionId], references: [id], onDelete: Restrict)
+
+  @@unique([attemptId, questionId])
+  @@index([attemptId])
+  @@index([questionId])
+}
 model TeacherQuestion {
   id               String                @id @default(cuid())
   publisherId      String
@@ -2638,6 +2703,7 @@ model PublisherWorksheet {
   printableResource      Resource?                @relation("WorksheetPrintableResource", fields: [printableResourceId], references: [id], onDelete: SetNull)
   answerKeyResource      Resource?                @relation("WorksheetAnswerKeyResource", fields: [answerKeyResourceId], references: [id], onDelete: SetNull)
   items                  PublisherWorksheetItem[]
+  attempts               StudentWorksheetAttempt[]
 
   @@unique([publisherId, bookId, slug])
   @@index([publisherId, bookId, active, published, sortOrder])
@@ -2650,6 +2716,108 @@ model PublisherWorksheet {
   @@index([archivedAt])
 }
 
+model PublisherAssessment {
+  id                 String                          @id @default(cuid())
+  publisherId        String
+  bookId             String
+  kind               PublisherAssessmentKind
+  deliveryMode       PublisherAssessmentDeliveryMode @default(BOTH)
+  status             PublisherAssessmentStatus      @default(DRAFT)
+  chapterId          String?
+  moduleId           String?
+  unitId             String?
+  partId             String?
+  instructions       String?
+  durationMinutes    Int?
+  totalMarks         Int?
+  allowOnlineAttempt Boolean                         @default(true)
+  allowPrint         Boolean                         @default(true)
+  publishedAt        DateTime?
+  archivedAt         DateTime?
+  createdAt          DateTime                        @default(now())
+  updatedAt          DateTime                        @updatedAt
+  publisher          Publisher                       @relation(fields: [publisherId], references: [id], onDelete: Restrict)
+  book               Book                            @relation(fields: [bookId], references: [id], onDelete: Restrict)
+  chapter            BookChapter?                    @relation(fields: [chapterId], references: [id], onDelete: SetNull)
+  module             BookModule?                     @relation(fields: [moduleId], references: [id], onDelete: SetNull)
+  unit               BookUnit?                       @relation(fields: [unitId], references: [id], onDelete: SetNull)
+  part               BookPart?                       @relation(fields: [partId], references: [id], onDelete: SetNull)
+  chapterScopes      PublisherAssessmentChapterScope[]
+  sectionInstructions PublisherAssessmentSectionInstruction[]
+  items              PublisherAssessmentItem[]
+
+  @@index([publisherId, bookId, status, kind])
+  @@index([bookId, chapterId, status])
+  @@index([bookId, moduleId, status])
+  @@index([bookId, unitId, status])
+  @@index([bookId, partId, status])
+  @@index([archivedAt])
+}
+
+model PublisherAssessmentChapterScope {
+  id           String              @id @default(cuid())
+  assessmentId String
+  chapterId    String
+  position     Int
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+  assessment   PublisherAssessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  chapter      BookChapter         @relation(fields: [chapterId], references: [id], onDelete: Restrict)
+
+  @@unique([assessmentId, chapterId])
+  @@index([assessmentId, position])
+  @@index([chapterId])
+}
+model PublisherAssessmentSectionInstruction {
+  id           String              @id @default(cuid())
+  assessmentId String
+  questionType String
+  instruction  String
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+  assessment   PublisherAssessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+
+  @@unique([assessmentId, questionType])
+  @@index([assessmentId])
+}
+model PublisherAssessmentItem {
+  id           String               @id @default(cuid())
+  assessmentId String
+  questionId   String
+  position     Int
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+  assessment   PublisherAssessment  @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  question     BookQuestion         @relation(fields: [questionId], references: [id], onDelete: Restrict)
+
+  @@unique([assessmentId, questionId])
+  @@index([assessmentId, position])
+  @@index([questionId])
+}
+
+enum PublisherAssessmentKind {
+  CHAPTER_TEST
+  MULTI_CHAPTER_TEST
+  UNIT_TEST
+  TERM_TEST
+  MULTI_TERM_TEST
+  BOOK_TEST
+  EXAM
+  FINAL_EXAM
+  DIAGNOSTIC
+}
+
+enum PublisherAssessmentDeliveryMode {
+  INTERACTIVE
+  PRINT
+  BOTH
+}
+
+enum PublisherAssessmentStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
 enum PublisherWorksheetType {
   PRINTABLE
   INTERACTIVE
@@ -2842,6 +3010,51 @@ model ContentSectionDefinition {
   @@index([bookId, active, sortOrder])
 }
 
+
+model PublisherTeacherResourceFolder {
+  id             String                           @id @default(cuid())
+  publisherId    String
+  bookId         String
+  parentFolderId String?
+  name           String                           @db.VarChar(160)
+  sortOrder      Int                              @default(0)
+  archivedAt     DateTime?
+  createdAt      DateTime                         @default(now())
+  updatedAt      DateTime                         @updatedAt
+  publisher      Publisher                        @relation(fields: [publisherId], references: [id], onDelete: Restrict)
+  book           Book                             @relation(fields: [bookId], references: [id], onDelete: Restrict)
+  parentFolder   PublisherTeacherResourceFolder?  @relation("PublisherTeacherResourceFolderTree", fields: [parentFolderId], references: [id], onDelete: Restrict)
+  childFolders   PublisherTeacherResourceFolder[] @relation("PublisherTeacherResourceFolderTree")
+  resources      PublisherTeacherResource[]
+
+  @@index([publisherId, bookId, parentFolderId, archivedAt])
+  @@index([parentFolderId, sortOrder])
+  @@unique([bookId, parentFolderId, name])
+}
+
+model PublisherTeacherResource {
+  id               String                          @id @default(cuid())
+  publisherId      String
+  bookId           String
+  folderId         String
+  title            String                          @db.VarChar(255)
+  objectKey        String                          @unique @db.VarChar(512)
+  originalFileName String                          @db.VarChar(255)
+  contentType      String                          @db.VarChar(120)
+  sizeBytes        BigInt
+  published        Boolean                         @default(false)
+  archivedAt       DateTime?
+  sortOrder        Int                             @default(0)
+  createdAt        DateTime                        @default(now())
+  updatedAt        DateTime                        @updatedAt
+  publisher        Publisher                       @relation(fields: [publisherId], references: [id], onDelete: Restrict)
+  book             Book                            @relation(fields: [bookId], references: [id], onDelete: Restrict)
+  folder           PublisherTeacherResourceFolder  @relation(fields: [folderId], references: [id], onDelete: Restrict)
+
+  @@index([publisherId, bookId, folderId, archivedAt, sortOrder])
+  @@index([bookId, published, archivedAt])
+  @@index([folderId, sortOrder])
+}
 model PublisherVocabulary {
   id              String    @id @default(cuid())
   publisherId     String
@@ -4234,6 +4447,11 @@ enum PracticeAttemptStatus {
   NEEDS_REVIEW
   REVIEWED
   ABANDONED
+}
+
+enum StudentWorksheetAttemptStatus {
+  IN_PROGRESS
+  SUBMITTED
 }
 
 enum AssessmentType {

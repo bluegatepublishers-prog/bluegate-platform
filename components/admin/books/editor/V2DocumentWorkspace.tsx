@@ -11,11 +11,15 @@ import V2TextFrame from "@/components/admin/books/editor/V2TextFrame";
 import V2FrameContent from "@/components/content/v2/V2FrameContent";
 import V2ReadAloudPlayer from "@/components/content/V2ReadAloudPlayer";
 import V2BookQuestionsAuthoring from "@/components/admin/books/editor/V2BookQuestionsAuthoring";
+import V2WorksheetLauncherAuthoring from "@/components/admin/books/editor/V2WorksheetLauncherAuthoring";
+import V2PublisherAssessmentLauncherAuthoring from "@/components/admin/books/editor/V2PublisherAssessmentLauncherAuthoring";
 import V2AssessmentLauncherVisual from "@/components/content/v2/V2AssessmentLauncherVisual";
+import V2WorksheetLauncherVisual from "@/components/content/v2/V2WorksheetLauncherVisual";
 import ReadAloudPageInspector from "@/components/admin/books/editor/ReadAloudPageInspector";
 import V2ImageVisual from "@/components/content/v2/V2ImageVisual";
 import type { ContentBlock, ContentDocument } from "@/lib/content-document";
-import { createV2AssessmentLauncherPayload, getV2AssessmentLauncherPayload } from "@/lib/v2-assessment-launcher";
+import { createV2AssessmentLauncherPayload, createV2PublisherAssessmentLauncherPayload, getV2AssessmentLauncherPayload } from "@/lib/v2-assessment-launcher";
+import { createV2WorksheetLauncherPayload, getV2WorksheetLauncherPayload } from "@/lib/v2-worksheet-launcher";
 import { buildV2NarrationManifest, getNarrationStatus } from "@/lib/content-narration";
 import { EDUCATIONAL_OBJECT_REGISTRY, getEducationalObjectDefinition } from "@/lib/educational-object-registry";
 import { getAllBookPageViews, getBookPageViewsForRange, type BookPageScope } from "@/lib/book-page-filter";
@@ -192,7 +196,7 @@ export default function V2DocumentWorkspace({
   const [previewMenuOpen, setPreviewMenuOpen] = useState(false);
   const [reviewSurface, setReviewSurface] = useState<"GRAMMAR" | "READ_ALOUD" | null>(null);
   const [activeRibbonTab, setActiveRibbonTab] = useState<"HOME" | "INSERT" | "ASSIGNMENTS" | "REVIEW" | "VIEW" | "IMPORT">("HOME");
-  const [insertSurface, setInsertSurface] = useState<"IMAGE" | "VIDEO" | "TABLE" | "EDUCATIONAL" | "BOOK_QUESTIONS" | null>(null);
+  const [insertSurface, setInsertSurface] = useState<"IMAGE" | "VIDEO" | "TABLE" | "EDUCATIONAL" | "BOOK_QUESTIONS" | "WORKSHEET" | "ASSESSMENT" | null>(null);
   const [shapePickerOpen, setShapePickerOpen] = useState(false);
   const [insertionMode, setInsertionMode] = useState<"FLOW" | "FLOAT">("FLOAT");
   const [insertionPoint, setInsertionPoint] = useState<{ pageId: string; x: number; y: number } | null>(null);
@@ -741,6 +745,24 @@ export default function V2DocumentWorkspace({
     setInsertSurface(null);
   };
 
+  const insertPublisherAssessmentLauncher = (assessment: { id: string; kind: string }) => {
+    addFrame(
+      "ASSESSMENT_LAUNCHER",
+      { payload: createV2PublisherAssessmentLauncherPayload({ assessmentId: assessment.id, kind: assessment.kind }) },
+      "FLOAT",
+    );
+    setInsertSurface(null);
+  };
+
+  const insertWorksheetLauncher = (worksheetId: string) => {
+    addFrame(
+      "WORKSHEET",
+      { payload: createV2WorksheetLauncherPayload(worksheetId) },
+      "FLOAT",
+    );
+    setInsertSurface(null);
+  };
+
   const chooseResource = (type: "IMAGE" | "VIDEO", resourceId: string) => {
     if (selectedContainerFrame) {
       addChildFrame(type, resourceId);
@@ -887,10 +909,20 @@ export default function V2DocumentWorkspace({
                 (patch: Partial<LayoutV2Frame>, message: string) => patchImage(frame.id, patch, message),
                 () => setCropFrameId(frame.id),
                 (launcherFrame) => {
+                  const payload = getV2AssessmentLauncherPayload(launcherFrame);
+                  if (payload?.launcherType === "publisher-assessment" && bookId) {
+                    router.push(`/admin/books/${encodeURIComponent(bookId)}/content/assignments/assessments/${encodeURIComponent(payload.assessmentId)}`);
+                    return;
+                  }
                   setSelectedFrameId(launcherFrame.id);
                   setEditingLauncherFrameId(launcherFrame.id);
                   setActiveRibbonTab("INSERT");
                   setInsertSurface("BOOK_QUESTIONS");
+                },
+                (worksheetFrame) => {
+                  const payload = getV2WorksheetLauncherPayload(worksheetFrame);
+                  if (!payload || !bookId) return;
+                  router.push(`/admin/books/${encodeURIComponent(bookId)}/content/assignments/worksheets/${encodeURIComponent(payload.worksheetId)}`);
                 },
               )}
               renderEducationalPreview={(frame) => { const block = frame.contentRef?.blockId ? blocks.find((entry) => entry.id === frame.contentRef?.blockId) : undefined; return block ? renderBlock(block) : undefined; }}
@@ -995,7 +1027,7 @@ export default function V2DocumentWorkspace({
     }
   };
 
-  const openInsertSurface = (surface: "IMAGE" | "VIDEO" | "TABLE" | "EDUCATIONAL" | "BOOK_QUESTIONS") => {
+  const openInsertSurface = (surface: "IMAGE" | "VIDEO" | "TABLE" | "EDUCATIONAL" | "BOOK_QUESTIONS" | "WORKSHEET" | "ASSESSMENT") => {
     setPreviewMenuOpen(false);
     setShapePickerOpen(false);
     if (surface === "BOOK_QUESTIONS") setEditingLauncherFrameId(null);
@@ -1052,7 +1084,7 @@ export default function V2DocumentWorkspace({
             <details className="relative"><summary className="cursor-pointer list-none rounded border border-slate-200 px-2 py-1 font-semibold">Paragraph {"\u25be"}</summary><div role="menu" data-v2-paragraph-menu className="absolute left-0 top-8 z-[80] grid w-52 gap-1 rounded-lg border border-slate-200 bg-white p-3 shadow-2xl">{([["left", "justifyLeft", "Align Left"], ["center", "justifyCenter", "Centre"], ["right", "justifyRight", "Align Right"], ["justify", "justifyFull", "Justify"]] as const).map(([alignment, command, label]) => <button key={alignment} type="button" onClick={() => { runTextCommand(command); patchFrame(selectedFormattingFrame.id, { alignment }, "Text alignment updated"); }} className="text-left">{label}</button>)}<button type="button" onClick={() => runTextCommand("insertUnorderedList")} className="text-left">Bullets</button><button type="button" onClick={() => runTextCommand("insertOrderedList")} className="text-left">Numbering</button><button type="button" onClick={() => runTextCommand("indent")} className="text-left">Increase Indent</button><button type="button" onClick={() => runTextCommand("outdent")} className="text-left">Decrease Indent</button><label>Line Spacing<input aria-label="Line spacing" type="number" min="0.8" max="3" step="0.1" value={selectedFormattingFrame.lineHeight ?? 1.5} onChange={(event) => patchFrame(selectedFormattingFrame.id, { lineHeight: Math.max(0.8, Math.min(3, Number(event.target.value) || 1.5)) }, "Line spacing updated")} className="ml-2 w-14 rounded border px-1" /></label></div></details>
             <details className="relative"><summary className="cursor-pointer list-none rounded border border-slate-200 px-2 py-1 font-semibold">Styles {"\u25be"}</summary><div role="menu" data-v2-styles-menu className="absolute left-0 top-8 z-[80] grid w-40 gap-1 rounded-lg border border-slate-200 bg-white p-2 shadow-2xl">{[["Normal", 16, 400], ["Title", 32, 700], ["Heading 1", 26, 700], ["Heading 2", 22, 700], ["Heading 3", 18, 700], ["Subtitle", 18, 400], ["Caption", 12, 400]].map(([label, fontSize, fontWeight]) => <button key={String(label)} type="button" onClick={() => patchFrame(selectedFormattingFrame.id, { fontSize: Number(fontSize), fontWeight: Number(fontWeight), lineHeight: Number(fontSize) >= 22 ? 1.2 : 1.5 }, `${label} style applied`)} className="text-left">{label}</button>)}</div></details>
           </div> : <span className="text-slate-500">Select a text frame for formatting, or select an object for contextual actions.</span> : null}
-          {activeRibbonTab === "INSERT" ? <div data-v2-insert-controls data-v2-single-row className="flex min-w-0 flex-1 flex-nowrap items-center gap-1 overflow-visible whitespace-nowrap"><button type="button" onClick={() => addFrame("TEXT", { direction: "LTR", alignment: "left" }, "FLOAT")} className="rounded border border-slate-200 px-2 py-1 font-semibold">Text Box</button><button type="button" onClick={() => openInsertSurface("IMAGE")} className="rounded border border-slate-200 px-2 py-1 font-semibold">Image</button><button type="button" onClick={() => openInsertSurface("VIDEO")} className="rounded border border-slate-200 px-2 py-1 font-semibold">Video</button><button type="button" onClick={() => openInsertSurface("TABLE")} className="rounded border border-slate-200 px-2 py-1 font-semibold">Table</button><button type="button" onClick={() => { setPreviewMenuOpen(false); setShapePickerOpen((current) => !current); setInsertSurface(null); }} className="rounded border border-slate-200 px-2 py-1 font-semibold">Shape</button><button type="button" onClick={() => openInsertSurface("EDUCATIONAL")} className="rounded border border-slate-200 px-2 py-1 font-semibold">Educational Block</button><button type="button" onClick={() => openInsertSurface("BOOK_QUESTIONS")} className="rounded border border-indigo-200 bg-indigo-50 px-2 py-1 font-semibold text-indigo-700">Book Questions</button></div> : null}
+          {activeRibbonTab === "INSERT" ? <div data-v2-insert-controls data-v2-single-row className="flex min-w-0 flex-1 flex-nowrap items-center gap-1 overflow-visible whitespace-nowrap"><button type="button" onClick={() => addFrame("TEXT", { direction: "LTR", alignment: "left" }, "FLOAT")} className="rounded border border-slate-200 px-2 py-1 font-semibold">Text Box</button><button type="button" onClick={() => openInsertSurface("IMAGE")} className="rounded border border-slate-200 px-2 py-1 font-semibold">Image</button><button type="button" onClick={() => openInsertSurface("VIDEO")} className="rounded border border-slate-200 px-2 py-1 font-semibold">Video</button><button type="button" onClick={() => openInsertSurface("TABLE")} className="rounded border border-slate-200 px-2 py-1 font-semibold">Table</button><button type="button" onClick={() => { setPreviewMenuOpen(false); setShapePickerOpen((current) => !current); setInsertSurface(null); }} className="rounded border border-slate-200 px-2 py-1 font-semibold">Shape</button><button type="button" onClick={() => openInsertSurface("EDUCATIONAL")} className="rounded border border-slate-200 px-2 py-1 font-semibold">Educational Block</button><button type="button" onClick={() => openInsertSurface("BOOK_QUESTIONS")} className="rounded border border-indigo-200 bg-indigo-50 px-2 py-1 font-semibold text-indigo-700">Book Questions</button><button type="button" onClick={() => openInsertSurface("WORKSHEET")} className="rounded border border-violet-200 bg-violet-50 px-2 py-1 font-semibold text-violet-700">Worksheet</button><button type="button" onClick={() => openInsertSurface("ASSESSMENT")} className="rounded border border-fuchsia-200 bg-fuchsia-50 px-2 py-1 font-semibold text-fuchsia-700">Assessment</button></div> : null}
           {activeRibbonTab === "IMPORT" ? <div data-v2-import-controls className="flex min-w-0 flex-1 items-center gap-2"><span className="font-semibold text-slate-700">Import an IDML package</span><button type="button" onClick={onOpenImport} className="rounded border border-indigo-200 bg-indigo-50 px-2 py-1 font-semibold text-indigo-800">Choose Package</button><button type="button" onClick={() => setPdfImportOpen(true)} disabled={!isBookRootContext} className="rounded border border-indigo-200 bg-indigo-50 px-2 py-1 font-semibold text-indigo-800 disabled:opacity-40">Import PDF</button><span className="text-slate-500">{isBookRootContext ? "Analyze, review fidelity, preview, and explicitly confirm before updating this V2 document." : "Return to Full Book before replacing the complete Book.content document."}</span></div> : null}
           {activeRibbonTab === "REVIEW" ? <div data-v2-review-controls className="flex min-w-0 flex-1 items-center gap-1.5"><button type="button" aria-pressed={reviewSurface === "GRAMMAR"} onClick={() => { setReviewSurface("GRAMMAR"); reviewGrammar(); }} className="rounded border border-slate-200 px-2 py-1 font-semibold">Grammar</button><button type="button" aria-pressed={reviewSurface === "READ_ALOUD"} onClick={() => setReviewSurface("READ_ALOUD")} className="rounded border border-slate-200 px-2 py-1 font-semibold">Read Aloud</button><span className="text-slate-500">{reviewSurface === "GRAMMAR" ? grammarMessage : `Page status: ${narrationStatus.replaceAll("_", " ")}`}</span></div> : null}
           {activeRibbonTab === "VIEW" ? <div data-v2-view-controls className="flex min-w-0 flex-1 items-center gap-1.5"><button type="button" onClick={() => goToPage(-1)} disabled={activeVisibleIndex <= 0} className="rounded border border-slate-200 px-2 py-1 font-semibold disabled:opacity-40">Previous Page</button><select aria-label="Current page" value={activePage?.id ?? ""} onChange={(event) => { const page = layout.pages.find((entry) => entry.id === event.target.value); if (page) navigateToPage(page); }} className="rounded border border-slate-200 bg-white px-1 py-1">{visiblePageViews.map((view) => <option key={view.page.id} value={view.page.id}>Page {view.absolutePageNumber}</option>)}</select><button type="button" onClick={() => goToPage(1)} disabled={activeVisibleIndex >= visiblePages.length - 1} className="rounded border border-slate-200 px-2 py-1 font-semibold disabled:opacity-40">Next Page</button><button type="button" onClick={addPage} disabled={Boolean(pageScope)} className="rounded border border-slate-200 px-2 py-1 font-semibold disabled:opacity-40">Add Page</button><button type="button" onClick={() => { if (activePage) { setDeletePageTargetId(activePage.id); setDeletePageConfirming(false); } }} disabled={Boolean(pageScope) || layout.pages.length <= 1} className="rounded border border-rose-200 px-2 py-1 font-semibold text-rose-700 disabled:opacity-40">Delete Page</button><label className="flex items-center gap-1 font-semibold text-slate-600">View<select aria-label="Page view" value={pageViewMode} onChange={(event) => changePageView(event.target.value as "WEB" | "A4" | "CUSTOM")} className="rounded border border-slate-200 bg-white px-1 py-1"><option value="WEB">Web</option><option value="A4">A4</option><option value="CUSTOM">Custom</option></select></label><button type="button" aria-label="Zoom out" onClick={() => onZoomChange(Math.max(40, zoom - 10))} className="rounded border border-slate-200 px-2 py-1 font-bold">-</button><span className="min-w-10 text-center font-semibold">{Math.round(scale * 100)}%</span><button type="button" aria-label="Zoom in" onClick={() => onZoomChange(Math.min(200, zoom + 10))} className="rounded border border-slate-200 px-2 py-1 font-bold">+</button><button type="button" onClick={() => fitCanvas("PAGE")} className="rounded border border-slate-200 px-2 py-1 font-semibold">Fit Page</button><button type="button" onClick={() => fitCanvas("WIDTH")} className="rounded border border-slate-200 px-2 py-1 font-semibold">Fit Width</button><button type="button" aria-pressed={showGuides} onClick={() => setShowGuides((current) => !current)} className="rounded border border-slate-200 px-2 py-1 font-semibold">Guides</button></div> : null}
@@ -1070,13 +1102,21 @@ export default function V2DocumentWorkspace({
             chapterId={chapterId}
             moduleId={moduleId}
             exerciseId={exerciseId}
-            initialLauncherTarget={editingLauncherPayload?.target ?? null}
+            initialLauncherTarget={editingLauncherPayload?.launcherType === "question" ? editingLauncherPayload.target : null}
             onInsert={insertAssessmentLauncher}
             onClose={() => {
               setEditingLauncherFrameId(null);
               setInsertSurface(null);
             }}
           /> : null}
+          {insertSurface === "WORKSHEET" ? <V2WorksheetLauncherAuthoring
+            bookId={bookId}
+            chapterId={chapterId}
+            moduleId={moduleId}
+            onInsert={insertWorksheetLauncher}
+            onClose={() => setInsertSurface(null)}
+          /> : null}
+          {insertSurface === "ASSESSMENT" ? <V2PublisherAssessmentLauncherAuthoring bookId={bookId} onInsert={insertPublisherAssessmentLauncher} onClose={() => setInsertSurface(null)} /> : null}
           {insertSurface === "EDUCATIONAL" ? <div data-v2-educational-picker className="grid max-h-[55vh] gap-2 overflow-y-auto sm:grid-cols-2">{EDUCATIONAL_OBJECT_REGISTRY.map(([type]) => { const definition = getEducationalObjectDefinition(type); return <button key={type} type="button" onClick={() => addEducationalFrame(type)} className="rounded-lg border border-slate-200 px-3 py-2 text-left hover:border-indigo-300 hover:bg-indigo-50"><span className="flex items-center gap-2 font-semibold"><span aria-hidden className="grid h-6 w-6 place-items-center rounded-full border text-xs" style={{ color: definition.theme.accent, borderColor: definition.theme.border, backgroundColor: definition.theme.tint }}>{definition.icon}</span>{definition.label}</span><span className="mt-1 block text-xs font-normal text-slate-500">{definition.description}</span></button>; })}</div> : null}
         </div> : null}
         {activeRibbonTab === "REVIEW" && reviewSurface === "GRAMMAR" ? <div data-v2-grammar-review-panel className="absolute left-3 right-3 top-full z-[70] mt-1 rounded-xl border border-indigo-200 bg-white p-3 text-xs shadow-2xl"><div className="flex items-center justify-between"><span className="font-bold text-indigo-900">Grammar</span><button type="button" onClick={() => setReviewSurface(null)} className="rounded px-2 py-1 text-slate-500">Close</button></div><p className="mt-2 text-slate-600">{grammarMessage || "Browser spelling and grammar checking is active in editable text."}</p></div> : null}
@@ -1343,6 +1383,7 @@ function renderV2Frame(
   onPatch: (patch: Partial<LayoutV2Frame>, message: string) => void,
   onEnterCrop: () => void,
   onEditAssessmentLauncher?: (frame: LayoutV2Frame) => void,
+  onEditWorksheetLauncher?: (frame: LayoutV2Frame) => void,
 ) {
   if (frame.renderMode === "SEMANTIC_ONLY" && semanticOverlay) {
     return <div data-v2-semantic-overlay="true" className="h-full w-full border border-dashed border-fuchsia-500/80 bg-fuchsia-200/10 p-1 text-[10px] font-bold text-fuchsia-700">{frame.type}</div>;
@@ -1361,6 +1402,17 @@ function renderV2Frame(
         mode="PREVIEW"
         adminControls
         onEdit={() => onEditAssessmentLauncher?.(frame)}
+      />
+    );
+  }
+  if (getV2WorksheetLauncherPayload(frame)) {
+    return (
+      <V2WorksheetLauncherVisual
+        frame={frame}
+        openable
+        mode="PREVIEW"
+        adminControls
+        onEdit={() => onEditWorksheetLauncher?.(frame)}
       />
     );
   }

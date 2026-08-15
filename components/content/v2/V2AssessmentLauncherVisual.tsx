@@ -9,6 +9,7 @@ import {
 
 import type { LayoutV2Frame } from "@/lib/content-layout-v2";
 import { getV2AssessmentLauncherPayload } from "@/lib/v2-assessment-launcher";
+import V2PublisherAssessmentLauncherOverlay from "@/components/content/v2/V2PublisherAssessmentLauncherOverlay";
 import V2AssessmentLauncherOverlay, {
   type V2AssessmentLauncherOverlayMode,
 } from "@/components/content/v2/V2AssessmentLauncherOverlay";
@@ -147,31 +148,27 @@ export default function V2AssessmentLauncherVisual({
         ) : null}
       </div>
 
+      {open && payload.launcherType === "publisher-assessment" ? (
+        <V2PublisherAssessmentLauncherOverlay
+          assessmentId={payload.assessmentId}
+          mode={mode}
+          onClose={close}
+        />
+      ) : null}
+
       {open &&
+      payload.launcherType === "question" &&
       payload.target.exerciseId &&
       payload.target.groupId ? (
         <V2AssessmentLauncherOverlay
           key={`${payload.target.exerciseId}:${payload.target.groupId}:${payload.target.questionType}:${payload.target.questionIds?.join(",") ?? "all"}:${overlayKey}`}
-          exerciseId={
-            payload.target.exerciseId
-          }
-          groupId={
-            payload.target.groupId
-          }
-          questionType={
-            payload.target.questionType
-          }
-          questionIds={
-            payload.target.questionIds
-          }
+          exerciseId={payload.target.exerciseId}
+          groupId={payload.target.groupId}
+          questionType={payload.target.questionType}
+          questionIds={payload.target.questionIds}
           mode={mode}
           onClose={close}
-          onRetry={() =>
-            setOverlayKey(
-              (current) =>
-                current + 1,
-            )
-          }
+          onRetry={() => setOverlayKey((current) => current + 1)}
         />
       ) : null}
     </>

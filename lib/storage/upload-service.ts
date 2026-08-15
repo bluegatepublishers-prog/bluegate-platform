@@ -73,7 +73,7 @@ export type UploadAuthorization = {
 // ============================================================================
 
 export function scopeToTargetType(scope: UploadScope): "Book" | "Resource" | "School" | "Publisher" | "ClassMaterial" | "ClassroomAssignment" | "AssignmentSubmission" {
-  if (scope.startsWith("book-")) return "Book";
+  if (scope.startsWith("book-") || scope === "teacher-resource-pdf") return "Book";
   if (scope.startsWith("resource-")) return "Resource";
   if (scope === "class-material") return "ClassMaterial";
   if (scope === "assignment-attachment") return "ClassroomAssignment";
@@ -336,7 +336,7 @@ async function verifyTargetOwnership(
   // Book-related scopes
   if (scope === "book-cover" || scope === "book-gallery" ||
       scope === "book-sample" || scope === "book-public-preview" ||
-      scope === "book-full") {
+      scope === "book-full" || scope === "teacher-resource-pdf") {
     const book = await prisma.book.findUnique({
       where: { id: targetId },
       select: { publisherId: true },
