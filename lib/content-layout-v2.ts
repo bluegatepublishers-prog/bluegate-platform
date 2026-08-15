@@ -13,6 +13,7 @@ export const V2_FRAME_TYPES = [
   "WORKSHEET",
   "EXERCISE",
   "SHAPE",
+  "ASSESSMENT_LAUNCHER",
 ] as const;
 export type LayoutV2FrameType = (typeof V2_FRAME_TYPES)[number];
 
@@ -291,7 +292,7 @@ function normalizedId(value: unknown, prefix: string, index: number, createMissi
 
 function defaultReadable(type: LayoutV2FrameType, layer: LayoutV2Layer) {
   if (layer === "BACKGROUND" || type === "SHAPE") return false;
-  return ["TEXT", "EDUCATIONAL", "ACTIVITY", "WORKSHEET", "EXERCISE"].includes(type);
+  return ["TEXT", "EDUCATIONAL", "ACTIVITY", "WORKSHEET", "EXERCISE", "ASSESSMENT_LAUNCHER"].includes(type);
 }
 
 function normalizePageSize(value: unknown): LayoutV2PageSize {
@@ -475,7 +476,9 @@ function normalizeFrame(value: unknown, pageId: string, index: number, options: 
     ...(typeof value.wrapPadding === "number" ? { wrapPadding: bounded(value.wrapPadding, 8, 0, 96) } : {}),
     ...(value.overset === true ? { overset: true } : {}),
     ...(contentRef ? { contentRef } : {}),
-    ...(Object.prototype.hasOwnProperty.call(value, "payload") ? { payload: value.payload } : {}),
+    ...(type === "ASSESSMENT_LAUNCHER"
+      ? (normalizeAssessmentLauncherPayload(value.payload) ? { payload: normalizeAssessmentLauncherPayload(value.payload) } : {})
+      : Object.prototype.hasOwnProperty.call(value, "payload") ? { payload: value.payload } : {}),
     readable: typeof value.readable === "boolean" ? value.readable : defaultReadable(type, layer),
     ...(value.audioAllowed === false ? { audioAllowed: false } : {}),
     readingOrder: Math.max(0, Math.round(finite(value.readingOrder, index))),
@@ -513,6 +516,126 @@ function normalizeFrame(value: unknown, pageId: string, index: number, options: 
     ...(value.renderMode === "SEMANTIC_ONLY" ? { renderMode: "SEMANTIC_ONLY" as const } : {}),
     ...(V2_FRAME_AUDIENCES.includes(value.audience as LayoutV2FrameAudience) && value.audience !== "ALL" ? { audience: value.audience as LayoutV2FrameAudience } : {}),
   };
+}
+
+function normalizeAssessmentLauncherPayload(value: unknown) {
+  if (
+    !isRecord(value) ||
+    value.kind !== "assessment-launcher" ||
+    value.launcherType !== "question"
+  ) {
+    return undefined;
+  }
+
+  const targetRecord = isRecord(value.target)
+    ? value.target
+    : {};
+
+  const exerciseId = safeString(
+    targetRecord.exerciseId,
+  );
+
+  const groupId = safeString(
+    targetRecord.groupId,
+  );
+
+  const questionId = safeString(
+    targetRecord.questionId,
+  );
+
+  const displayRecord = isRecord(value.display)
+    ? value.display
+    : {};
+
+  const displayLabel =
+    safeString(displayRecord.label) ?? "MCQ";
+
+  const questionType =
+    targetRecord.questionType === "SHORT_ANSWER"
+      ? "SHORT_ANSWER"
+      : targetRecord.questionType === "MULTIPLE_SELECT"
+      ? "MULTIPLE_SELECT"
+      :
+    targetRecord.questionType === "TRUE_FALSE"
+      ? "TRUE_FALSE"
+      : targetRecord.questionType === "FILL_BLANK"
+        ? "FILL_BLANK"
+        : /SHORT\s*ANSWER/i.test(displayLabel)
+          ? "SHORT_ANSWER"
+          : /TRUE\s*\/?\s*FALSE/i.test(displayLabel)
+          ? "TRUE_FALSE"
+          : /FILL/i.test(displayLabel)
+            ? "FILL_BLANK"
+            : /MULTIPLE\s*SELECT/i.test(displayLabel)
+              ? "MULTIPLE_SELECT"
+              : "MCQ";
+
+  const questionIds = Array.isArray(
+    targetRecord.questionIds,
+  )
+    ? [
+        ...new Set(
+          targetRecord.questionIds
+            .filter(
+              (
+                entry,
+              ): entry is string =>
+                typeof entry === "string",
+            )
+            .map((entry) =>
+              entry.trim(),
+            )
+            .filter(Boolean),
+        ),
+      ].slice(0, 50)
+    : [];
+
+  if (exerciseId && groupId) {
+    return {
+      kind:
+        "assessment-launcher" as const,
+
+      launcherType:
+        "question" as const,
+
+      target: {
+        exerciseId,
+        groupId,
+        questionType,
+
+        ...(questionIds.length
+          ? { questionIds }
+          : {}),
+      },
+
+      display: {
+        label: displayLabel,
+      },
+    };
+  }
+
+  if (questionId) {
+    return {
+      kind:
+        "assessment-launcher" as const,
+
+      launcherType:
+        "question" as const,
+
+      target: {
+        exerciseId: "",
+        groupId: "",
+        questionId,
+        questionType,
+      },
+
+      display: {
+        label: displayLabel,
+      },
+    };
+  }
+
+  return undefined;
 }
 
 function normalizePdfBackground(value: unknown): LayoutV2PdfBackground | undefined { if (!isRecord(value) || value.source !== "BOOK_FULL_PDF" || typeof value.pageNumber !== "number" || !Number.isInteger(value.pageNumber) || value.pageNumber < 1) return undefined; return { source: "BOOK_FULL_PDF", pageNumber: value.pageNumber }; }
@@ -614,7 +737,9 @@ export function getV2InsertionGeometry(
       ? { width: 520, height: 180 }
       : type === "SHAPE"
         ? { width: 220, height: 120 }
-        : { width: 320, height: 180 };
+        : type === "ASSESSMENT_LAUNCHER"
+          ? { width: 220, height: 72 }
+          : { width: 320, height: 180 };
   return clampV2FrameGeometry({
     x: preferredPoint?.x ?? margin,
     y: preferredPoint?.y ?? margin,

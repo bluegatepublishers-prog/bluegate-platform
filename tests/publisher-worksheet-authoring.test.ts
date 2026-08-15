@@ -127,25 +127,12 @@ test("worksheet launch preview is an authoring-only student-card approximation",
   assert.doesNotMatch(manager, /StudentPracticeAttempt/u);
 });
 
-test("worksheet advanced settings keep legacy controls out of the normal authoring canvas", () => {
-  assert.match(studio, /function openAdvancedSettings\(\)/u);
-  assert.match(studio, /advanced\.setAttribute\("open", ""\)/u);
-  assert.match(studio, /querySelector<HTMLButtonElement>\('button\[aria-label="Show inspector"\], button\[aria-label="Hide inspector"\]'\)\?\.click\(\)/u);
-  assert.match(studio, /<details id="worksheet-advanced"/u);
-  assert.match(studio, />Advanced settings<\/summary>/u);
-  assert.match(studio, /<Inspector title="Legacy Exercise Link">/u);
-  const canvas = studio.slice(studio.indexOf("const canvas"), studio.indexOf("const inspector"));
-  assert.match(canvas, /Chapter: \{chapterTitle \?\? "Current chapter"\}/u);
-  assert.match(canvas, /Add questions below\. Question count and marks are calculated from the saved worksheet items\./u);
-  assert.match(canvas, /<WorksheetQuestionManager/u);
-  assert.doesNotMatch(canvas, /name="slug"/u);
-  assert.doesNotMatch(canvas, /Interactive Exercise/u);
-  assert.doesNotMatch(canvas, /Printable Resource/u);
-  assert.match(studio, /name="exerciseId"/u);
-  assert.match(studio, /name="printableResourceId"/u);
-  assert.match(studio, /name="answerKeyResourceId"/u);
-  assert.match(studio, /name="supportingResourceIds"/u);
-  assert.match(studio, /name="audience"/u);
-  const worksheetModel = schema.slice(schema.indexOf("model PublisherWorksheet {"), schema.indexOf("model PublisherWorksheetItem {"));
-  assert.doesNotMatch(worksheetModel, /worksheetNumber/u);
+test("Worksheet Studio keeps the normal publisher workflow focused", () => {
+  assert.match(studio, /<ArrowLeft className="h-4 w-4" \/>/u);
+  assert.match(studio, /content\/assignments\/worksheets\?chapterId=/u);
+  assert.match(studio, /<h2 className="text-sm font-bold text-slate-950">Questions<\/h2>/u);
+  assert.match(studio, /action=\{save\}/u);
+  assert.match(studio, /<WorksheetQuestionManager/u);
+  assert.match(studio, /transitionReleaseAction\(worksheetId, "PUBLISH", confirmation\)/u);
+  assert.doesNotMatch(studio, /StudioWorkspaceShell|Worksheet Inspector|Worksheet Outline|Advanced settings|ContentReleasePanel/u);
 });

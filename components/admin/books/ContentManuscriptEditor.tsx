@@ -241,6 +241,8 @@ export default function ContentManuscriptEditor({
   bookId,
   nodeId,
   chapterId,
+  moduleId,
+  exerciseId,
   nodeType,
   nodeTitle,
   nodeSubtitle,
@@ -291,6 +293,8 @@ export default function ContentManuscriptEditor({
   previewBaseHref,
   importPdfAction,
   attachPdfAction,
+  listPdfVersionsAction,
+  restorePdfVersionAction,
   prepareReadAloudAction,
   hasFullBookPdf,
   saveAction,
@@ -302,6 +306,8 @@ export default function ContentManuscriptEditor({
   bookId: string;
   nodeId: string;
   chapterId: string | null;
+  moduleId: string | null;
+  exerciseId?: string | null;
   nodeType: BookStructureNodeType | "BOOK";
   nodeTitle: string;
   nodeSubtitle: string;
@@ -357,7 +363,9 @@ export default function ContentManuscriptEditor({
   bulkPublishAction: ((form: FormData) => Promise<void>) | null;
   previewBaseHref: string;
   importPdfAction: () => Promise<{ pageCount: number; pages: LayoutV2Page[] }>;
-  attachPdfAction: (objectKey: string) => Promise<{ pageCount: number }>;
+  attachPdfAction: (objectKey: string, options?: { clearMappings?: boolean }) => Promise<{ pageCount: number; mappingResetRequired?: boolean; mappingConflictMessage?: string }>;
+  listPdfVersionsAction?: () => Promise<Array<{ id: string; objectKey: string; originalFileName: string | null; pageCount: number; fileSizeBytes: string | null; active: boolean; activatedAt: string | null; createdAt: string }>>;
+  restorePdfVersionAction?: (versionId: string, options?: { clearMappings?: boolean }) => Promise<{ pageCount: number; mappingResetRequired?: boolean; mappingConflictMessage?: string }>;
   prepareReadAloudAction?: () => Promise<{ updatedPageCount: number; matchedPageCount: number }>;
   hasFullBookPdf: boolean;
   saveAction: (data: FormData) => Promise<ContentNodeSaveResult>;
@@ -410,6 +418,8 @@ export default function ContentManuscriptEditor({
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [releasePanelOpen, setReleasePanelOpen] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [publishMessage, setPublishMessage] = useState("");
   const [insertKind, setInsertKind] = useState<ToolbarInsertKind | null>(null);
   const [builderKind, setBuilderKind] = useState<BuilderKind | null>(null);
   const [builderTab, setBuilderTab] = useState<"existing" | "create">("existing");
@@ -437,6 +447,7 @@ export default function ContentManuscriptEditor({
     }),
   );
   const savingRef = useRef(false);
+  const publishingRef = useRef(false);
   const autosaveRef = useRef<number | null>(null);
   const historyRef = useRef<ContentDocument[]>([]);
   const futureRef = useRef<ContentDocument[]>([]);
@@ -540,7 +551,7 @@ export default function ContentManuscriptEditor({
       setSaveState("saved");
       setSaveMessage("All changes saved");
       setError("");
-      return;
+      return true;
     }
 
     savingRef.current = true;
@@ -566,10 +577,12 @@ export default function ContentManuscriptEditor({
       setBaselineSnapshot(current);
       setSaveState("saved");
       setSaveMessage("Saved");
+      return true;
     } catch (cause) {
       setSaveState("error");
       setSaveMessage("Save failed");
       setError(cause instanceof Error ? cause.message : "Unable to save changes.");
+      return false;
     } finally {
       savingRef.current = false;
     }
@@ -1129,13 +1142,26 @@ export default function ContentManuscriptEditor({
   }
 
   function publishCurrentNode() {
-    if (!transitionReleaseAction) return;
-    const form = new FormData();
-    form.set("confirm", "on");
-    void transitionReleaseAction("PUBLISH", form);
+    if (!transitionReleaseAction || publishingRef.current) return;
+    publishingRef.current = true;
+    setPublishing(true);
+    setPublishMessage("");
+    setError("");
+    void (async () => {
+      try {
+        if (!(await saveDocument())) return;
+        const form = new FormData();
+        form.set("confirm", "on");
+        await transitionReleaseAction("PUBLISH", form);
+        setPublishMessage("Published successfully.");
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : "Unable to publish this content.");
+      } finally {
+        publishingRef.current = false;
+        setPublishing(false);
+      }
+    })();
   }
-
-  
   function focusSearchResult() {
     const query = searchQuery.trim().toLowerCase();
     if (!query) return;
@@ -1724,9 +1750,14 @@ export default function ContentManuscriptEditor({
         <EditorShell shellRef={editorShellRef} ribbon={null} periodTabs={null}>
           <V2DocumentWorkspace
             bookId={bookId}
+            chapterId={chapterId}
+            moduleId={moduleId}
+            exerciseId={exerciseId}
             hasFullBookPdf={hasFullBookPdf}
             onImportPdf={importPdfAction}
             onAttachPdf={attachPdfAction}
+            onListPdfVersions={listPdfVersionsAction}
+            onRestorePdfVersion={restorePdfVersionAction}
             onPrepareReadAloud={prepareReadAloudAction}
             title={workspaceTitle ?? title}
             pageScope={pageScope}
@@ -1748,7 +1779,9 @@ export default function ContentManuscriptEditor({
             onOpenImport={() => setImportOpen(true)}
             assignmentsHref={`/admin/books/${bookId}/content/assignments/questions`}
             onPreview={openPreview}
-            onPublish={() => setReleasePanelOpen(true)}
+            onPublish={publishCurrentNode}
+            publishing={publishing}
+            publishMessage={publishMessage}
             onZoomChange={setZoom}
             onDocumentChange={(next, message) => {
               applyDocumentChange(() => next);
@@ -3769,6 +3802,7 @@ function BlockInsertMenu({
                 knowledgeDefinitions
               }
               resourceUrls={resourceUrls}
+              assessmentPreview
               className={`min-w-0 max-w-full ${mode === "WHITEBOARD" ? "mx-auto max-w-[96rem]" : ""}`}
             />
           </div>

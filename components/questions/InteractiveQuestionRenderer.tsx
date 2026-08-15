@@ -2,18 +2,19 @@
 
 import NextImage from "next/image";
 
-import type { NormalizedQuestion } from "@/lib/normalized-question";
+import type { InteractiveQuestion } from "@/lib/normalized-question";
 
 type Props = {
-  question: NormalizedQuestion;
+  question: InteractiveQuestion;
   response: unknown;
   onChange: (response: unknown) => void;
   disabled?: boolean;
   readOnly?: boolean;
   evaluation?: { correct: boolean | null };
+  showPrompt?: boolean;
 };
 
-export function InteractiveQuestionRenderer({ question, response, onChange, disabled = false, readOnly = false, evaluation }: Props) {
+export function InteractiveQuestionRenderer({ question, response, onChange, disabled = false, readOnly = false, evaluation, showPrompt = true }: Props) {
   const blocked = disabled || readOnly;
   const selectable = question.options;
   const imageId = question.resourceIds[0];
@@ -22,7 +23,7 @@ export function InteractiveQuestionRenderer({ question, response, onChange, disa
   const manual = ["SHORT_ANSWER", "LONG_ANSWER", "CASE_BASED", "COMPETENCY", "HOTS", "ASSERTION_REASON", "PRACTICAL", "PROJECT", "CUSTOM", "PICTURE_BASED"].includes(question.questionType);
 
   return <div className="space-y-4">
-    <p className="whitespace-pre-wrap text-base font-semibold text-slate-900">{question.content.plainText}</p>
+    {showPrompt ? <p className="whitespace-pre-wrap text-base font-semibold text-slate-900">{question.content.plainText}</p> : null}
     {imageId ? <NextImage unoptimized width={640} height={360} src={`/api/resources/${imageId}/play`} alt="Question resource" className="max-h-64 rounded-lg object-contain" /> : null}
     {question.questionType === "MCQ" ? <div role="radiogroup" className="space-y-2">{selectable.map((option) => <label key={option.id} className={`flex cursor-pointer items-center gap-3 rounded-lg border p-3 text-sm ${response === option.id ? "border-blue-500 bg-blue-50" : "border-slate-200"}`}><input type="radio" name={`question-${question.id}`} checked={response === option.id} disabled={blocked} onChange={() => onChange(option.id)} />{option.text}</label>)}</div> : null}
     {question.questionType === "TRUE_FALSE" ? <div className="flex gap-2">{[true, false].map((value) => <button key={String(value)} type="button" disabled={blocked} onClick={() => onChange(value)} className={`rounded-lg border px-4 py-2 text-sm font-bold ${response === value ? "border-blue-500 bg-blue-50 text-blue-800" : "border-slate-300"}`}>{value ? "True" : "False"}</button>)}</div> : null}
@@ -35,7 +36,7 @@ export function InteractiveQuestionRenderer({ question, response, onChange, disa
   </div>;
 }
 
-function Ordering({ question, response, onChange, disabled }: { question: NormalizedQuestion; response: string[]; onChange: (value: string[]) => void; disabled: boolean }) {
+function Ordering({ question, response, onChange, disabled }: { question: InteractiveQuestion; response: string[]; onChange: (value: string[]) => void; disabled: boolean }) {
   const items = response.length ? response : question.options.map((option) => option.id);
   const move = (from: number, to: number) => { const copy = [...items]; const [item] = copy.splice(from, 1); copy.splice(to, 0, item); onChange(copy); };
   return <ol className="space-y-2">{items.map((id, index) => <li key={id} className="flex items-center gap-2 rounded-lg border border-slate-200 p-3 text-sm"><span className="w-5 font-bold text-slate-400">{index + 1}</span><span className="flex-1">{question.options.find((option) => option.id === id)?.text ?? id}</span><button type="button" disabled={disabled || index === 0} onClick={() => move(index, index - 1)} className="rounded border px-2 py-1 text-xs disabled:opacity-40">Up</button><button type="button" disabled={disabled || index === items.length - 1} onClick={() => move(index, index + 1)} className="rounded border px-2 py-1 text-xs disabled:opacity-40">Down</button></li>)}</ol>;

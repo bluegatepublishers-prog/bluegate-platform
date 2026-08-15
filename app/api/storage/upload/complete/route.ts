@@ -164,7 +164,7 @@ export async function POST(request: Request): Promise<NextResponse<UploadComplet
 
     return jsonError(
       appError.code,
-      "An error occurred while completing the upload.",
+      safeStorageErrorMessage(appError),
       status,
     );
   }
@@ -184,4 +184,10 @@ function jsonError(code: string, message: string, status: number): NextResponse<
       },
     },
   );
+}
+
+function safeStorageErrorMessage(error: { code: string; message: string }) {
+  return error.code === "STORAGE_PROVIDER_ERROR"
+    ? "Storage upload failed. Retry the upload."
+    : error.message;
 }

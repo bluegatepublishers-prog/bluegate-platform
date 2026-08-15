@@ -51,11 +51,14 @@ test("dialog errors and generated pages reset on close and before each import", 
 
   assert.match(dialog, /const reset = \(\) => \{[\s\S]*setSelectedFile\(null\);[\s\S]*setGeneratedPages\(null\);[\s\S]*setError\(""\);/);
   assert.match(dialog, /const importExisting = async \(\) => \{[\s\S]*setError\(""\);[\s\S]*setGeneratedPages\(null\);/);
-  assert.match(dialog, /setError\("The PDF could not be read safely\. Export the book PDF again and retry\."\)/);
+  assert.match(dialog, /setError\(safePdfImportMessage\(cause, "The PDF could not be read safely\. Export the book PDF again and retry\."\)\)/);
   assert.match(dialog, /recordPdfImportFailure\("EXISTING_PDF", cause\)/);
   assert.match(dialog, /recordPdfImportFailure\(uploadFailureStage\(cause\), cause\)/);
   assert.match(dialog, /"UPLOAD_INIT" \| "SIGNED_PUT" \| "UPLOAD_COMPLETE" \| "BOOK_ASSOCIATION" \| "PDF_VALIDATION" \| "V2_GENERATION"/);
-  assert.match(dialog, /setError\("The PDF upload could not be completed\. Check the file and retry\."\)/);
+  assert.match(dialog, /transport: "SAME_ORIGIN_PROXY"/);
+  assert.match(dialog, /function safePdfImportMessage/);
+  assert.match(dialog, /The PDF exceeds the 100 MB book upload limit\./);
+  assert.match(dialog, /setError\(safePdfImportMessage\(cause,/);
 });
 
 test("upload association is owned, validated, and refreshes the boolean before normal V2 import", () => {
@@ -64,7 +67,8 @@ test("upload association is owned, validated, and refreshes the boolean before n
   const editor = read("components/admin/books/ContentManuscriptEditor.tsx");
   const workspace = read("components/admin/books/editor/V2DocumentWorkspace.tsx");
 
-  assert.match(action, /attachOwnedBookFullPdfAction\(bookId: string, objectKey: string\)[\s\S]*requireLivePublisherAdmin\(\)[\s\S]*inspectPublisherBookPdf\(key, actor\.publisherId\)[\s\S]*where: \{ id: bookId, publisherId: actor\.publisherId \}[\s\S]*fullBookPdf: key/);
+  assert.match(action, /attachOwnedBookFullPdfAction\(bookId: string, objectKey: string\)[\s\S]*requireLivePublisherAdmin\(\)[\s\S]*inspectPublisherBookPdf\(key, actor\.publisherId\)[\s\S]*assertBookPdfReplacementMappingsFit\(bookId, actor\.publisherId, inspection\.pageCount\)[\s\S]*where: \{ id: bookId, publisherId: actor\.publisherId \}[\s\S]*fullBookPdf: key/);
+  assert.match(read("lib/book-pdf.ts"), /Cannot replace the full-book PDF/);
   assert.match(page, /const hasFullBookPdf = Boolean\([\s\S]*select: \{ fullBookPdf: true \}/);
   assert.match(page, /hasFullBookPdf=\{hasFullBookPdf\}/);
   assert.match(editor, /hasFullBookPdf=\{hasFullBookPdf\}[\s\S]*onAttachPdf=\{attachPdfAction\}/);

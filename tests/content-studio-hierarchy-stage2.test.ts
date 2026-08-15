@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-import { buildContentStudioTree, type ContentTreeInput } from "../lib/content-studio-tree";
+import { buildContentStudioTree, resolveContentHierarchyContext, type ContentTreeInput } from "../lib/content-studio-tree";
 
 const read = (path: string) => readFileSync(path, "utf8");
 const counts = { outcomes: 0, activities: 0, worksheets: 0, exercises: 0, questions: 0, assessments: 0, resources: 0, media: 0 };

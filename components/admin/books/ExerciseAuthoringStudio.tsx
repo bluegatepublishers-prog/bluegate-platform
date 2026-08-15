@@ -21,6 +21,7 @@ import ContentReleasePanel from "@/components/admin/books/ContentReleasePanel";
 import QuestionTemplateFactory from "@/components/admin/books/QuestionTemplateFactory";
 import QuestionTypeGallery from "@/components/admin/books/QuestionTypeGallery";
 import ExercisePreview from "@/components/content/ExercisePreview";
+import V2BookQuestionsAuthoring from "@/components/admin/books/editor/V2BookQuestionsAuthoring";
 import type { ReleaseSummary } from "@/lib/content-release";
 import type { ExerciseStudioData } from "@/lib/exercise-authoring-types";
 import {
@@ -71,6 +72,8 @@ export default function ExerciseAuthoringStudio({
   chapterTitle,
   moduleTitle,
   topicTitle,
+  bookId,
+  chapterId,
   currentScopeLabel,
 }: {
   exercises: ExerciseStudioData[];
@@ -94,9 +97,12 @@ export default function ExerciseAuthoringStudio({
   chapterTitle?: string;
   moduleTitle?: string | null;
   topicTitle?: string | null;
+  bookId?: string;
+  chapterId?: string;
   currentScopeLabel?: string;
 }) {
   const editorPanelRef = useRef<QuestionEditorHandle | null>(null);
+  const [bookQuestionsOpen, setBookQuestionsOpen] = useState(false);
   const [activeExerciseId, setActiveExerciseId] = useState(initialExerciseId ?? exercises[0]?.id ?? "new");
   const [selectedQuestionId, setSelectedQuestionId] = useState<string | null>(null);
   const [galleryOpen, setGalleryOpen] = useState(false);
@@ -210,6 +216,7 @@ export default function ExerciseAuthoringStudio({
               <Plus className="mr-2 inline h-4 w-4" />
               Add Question
             </button>
+            {bookId && chapterId && activeExercise ? <button type="button" onClick={() => setBookQuestionsOpen(true)} className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-800">Insert</button> : null}
             <button type="button" onClick={() => setMoreOpen((current) => !current)} className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700">
               <MoreHorizontal className="mr-2 inline h-4 w-4" />
               More
@@ -345,6 +352,7 @@ export default function ExerciseAuthoringStudio({
       </div>
 
       <QuestionTypeGallery open={galleryOpen} onClose={() => setGalleryOpen(false)} onChoose={chooseTemplate} />
+      {bookQuestionsOpen && bookId && chapterId && activeExercise ? <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/40 p-3 sm:p-6"><section className="mx-auto max-w-3xl rounded-xl bg-white p-5 shadow-2xl"><V2BookQuestionsAuthoring bookId={bookId} chapterId={chapterId} exerciseId={activeExercise.id} exerciseTitle={activeExercise.title} onClose={() => setBookQuestionsOpen(false)} /></section></div> : null}
       {moreOpen && activeExercise ? (
         <QuestionMorePanel
           open={moreOpen}

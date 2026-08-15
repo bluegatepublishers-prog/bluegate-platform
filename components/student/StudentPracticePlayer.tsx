@@ -5,9 +5,9 @@ import { useRouter } from "next/navigation";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
 type Question = {
-  questionId: string; questionNumber: number; questionText: string; questionType: "MCQ" | "TRUE_FALSE" | "FILL_BLANK";
+  questionId: string; questionNumber: number; questionText: string; questionType: "MCQ" | "TRUE_FALSE" | "FILL_BLANK" | "MULTIPLE_SELECT" | "SHORT_ANSWER";
   options: string[]; marks: number; answered: boolean; studentAnswer: unknown;
-  feedback: { correct: boolean; correctAnswer: string | null; explanation: string | null } | null;
+  feedback: { correct: boolean | null; correctAnswer: string | null; explanation: string | null } | null;
 };
 
 export default function StudentPracticePlayer({ attemptId, initialQuestions }: { attemptId: string; initialQuestions: Question[] }) {

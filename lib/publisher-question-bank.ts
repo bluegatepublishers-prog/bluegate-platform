@@ -25,6 +25,8 @@ export class PublisherQuestionBankError extends Error {
 export type PublisherQuestionAuthoringInput = {
   bookId?: unknown;
   chapterId?: unknown;
+  exerciseId?: unknown;
+  exerciseGroupId?: unknown;
   moduleId?: unknown;
   imageResourceId?: unknown;
   questionType?: unknown;
@@ -58,6 +60,8 @@ type ChoiceOption = { id: string; text: string };
 type QuestionSemantics = {
   bookId: string;
   chapterId: string;
+  exerciseId: string | null;
+  exerciseGroupId: string | null;
   moduleId: string | null;
   imageResourceId: string | null;
   questionType: string;
@@ -77,6 +81,7 @@ const questionSelect = {
   bookId: true,
   chapterId: true,
   exerciseId: true,
+  exerciseGroupId: true,
   moduleId: true,
   imageResourceId: true,
   questionType: true,
@@ -197,11 +202,14 @@ function normalizeSemantics(input: unknown, existing?: QuestionSemantics): Quest
   const bookId = optionalId(raw.bookId, "Book", true) ?? existing?.bookId;
   const chapterId = optionalId(raw.chapterId, "Chapter", true) ?? existing?.chapterId;
   if (!bookId || !chapterId) fail("INVALID_INPUT", "Book and chapter are required.", 400);
+  const exerciseId = raw.exerciseId === undefined ? existing?.exerciseId ?? null : optionalId(raw.exerciseId, "Exercise") ?? null;
+  const exerciseGroupId = raw.exerciseGroupId === undefined ? existing?.exerciseGroupId ?? null : optionalId(raw.exerciseGroupId, "Exercise group") ?? null;
+  if (exerciseGroupId && !exerciseId) fail("INVALID_CONTEXT", "An exercise group requires an exercise.", 400);
   const moduleId = raw.moduleId === undefined ? existing?.moduleId ?? null : optionalId(raw.moduleId, "Module") ?? null;
   const imageResourceId = raw.imageResourceId === undefined ? existing?.imageResourceId ?? null : optionalId(raw.imageResourceId, "Image resource") ?? null;
   const questionText = text(raw.questionText, "Question text", true, existing?.questionText) as string;
   const marks = integer(raw.marks, existing?.marks ?? 1);
-  const difficulty = text(raw.difficulty, "Difficulty", false, existing?.difficulty ?? "MEDIUM") ?? "MEDIUM";
+  const difficulty = raw.difficulty === undefined ? existing?.difficulty ?? "" : text(raw.difficulty, "Difficulty", false, "") ?? "";
   const bloomLevel = text(raw.bloomLevel, "Bloom level", false, existing?.bloomLevel) ?? null;
   const competency = text(raw.competency, "Competency", false, existing?.competency) ?? null;
   const explanation = text(raw.explanation, "Explanation", false, existing?.explanation) ?? null;
@@ -217,7 +225,7 @@ function normalizeSemantics(input: unknown, existing?: QuestionSemantics): Quest
   else if (questionType === "ORDERING") { options = choices(options, "ORDERING"); const ordered = answerList(correctAnswer, "ORDERING").map((entry) => optionId(options as ChoiceOption[], entry, "ORDERING")); if (new Set(ordered).size !== (options as ChoiceOption[]).length || ordered.length !== (options as ChoiceOption[]).length) fail("INVALID_INPUT", "ORDERING answers must contain every option exactly once.", 400); correctAnswer = JSON.stringify(ordered); }
   if (questionType === "PICTURE_BASED" && !imageResourceId) fail("INVALID_RESOURCE", "PICTURE_BASED requires an IMAGE resource.", 400);
 
-  return { bookId, chapterId, moduleId, imageResourceId, questionType, questionText, options, correctAnswer, explanation, marks, difficulty, bloomLevel, competency, tags: normalizedTags };
+  return { bookId, chapterId, exerciseId, exerciseGroupId, moduleId, imageResourceId, questionType, questionText, options, correctAnswer, explanation, marks, difficulty, bloomLevel, competency, tags: normalizedTags };
 }
 
 export function validatePublisherQuestionPayload(input: unknown, existing?: QuestionSemantics) {
@@ -229,7 +237,7 @@ function data(value: QuestionSemantics) {
 }
 
 function stored(question: QuestionRow): QuestionSemantics {
-  return { bookId: question.bookId, chapterId: question.chapterId, moduleId: question.moduleId, imageResourceId: question.imageResourceId, questionType: question.questionType, questionText: question.questionText, options: question.options, correctAnswer: question.correctAnswer, explanation: question.explanation, marks: question.marks, difficulty: question.difficulty, bloomLevel: question.bloomLevel, competency: question.competency, tags: question.tags };
+  return { bookId: question.bookId, chapterId: question.chapterId, exerciseId: question.exerciseId, exerciseGroupId: question.exerciseGroupId, moduleId: question.moduleId, imageResourceId: question.imageResourceId, questionType: question.questionType, questionText: question.questionText, options: question.options, correctAnswer: question.correctAnswer, explanation: question.explanation, marks: question.marks, difficulty: question.difficulty, bloomLevel: question.bloomLevel, competency: question.competency, tags: question.tags };
 }
 
 function status(question: Pick<QuestionRow, "archived" | "approved">): PublisherQuestionStatus {
@@ -240,7 +248,7 @@ function view(question: QuestionRow) {
   return {
     id: question.id,
     context: { bookId: question.bookId, chapterId: question.chapterId, moduleId: question.moduleId, book: question.book, chapter: question.chapter, module: question.module },
-    question: { exerciseId: question.exerciseId, questionType: question.questionType, questionText: question.questionText, options: question.options, correctAnswer: question.correctAnswer, explanation: question.explanation, marks: question.marks, difficulty: question.difficulty, bloomLevel: question.bloomLevel, competency: question.competency, tags: question.tags },
+    question: { exerciseId: question.exerciseId, exerciseGroupId: question.exerciseGroupId, questionType: question.questionType, questionText: question.questionText, options: question.options, correctAnswer: question.correctAnswer, explanation: question.explanation, marks: question.marks, difficulty: question.difficulty, bloomLevel: question.bloomLevel, competency: question.competency, tags: question.tags },
     imageResource: question.imageResource,
     status: status(question),
     approved: question.approved,
@@ -256,12 +264,16 @@ export function publisherQuestionOwnershipWhere(publisherId: string) {
 }
 
 async function assertContext(publisherId: string, semantics: QuestionSemantics) {
-  const [chapter, module, resource] = await Promise.all([
+  const [chapter, exercise, group, module, resource] = await Promise.all([
     prisma.bookChapter.findFirst({ where: { id: semantics.chapterId, bookId: semantics.bookId, book: { publisherId } }, select: { id: true } }),
+    semantics.exerciseId ? prisma.bookExercise.findFirst({ where: { id: semantics.exerciseId, bookId: semantics.bookId, chapterId: semantics.chapterId, archived: false }, select: { id: true } }) : Promise.resolve(null),
+    semantics.exerciseGroupId && semantics.exerciseId ? prisma.bookExerciseQuestionGroup.findFirst({ where: { id: semantics.exerciseGroupId, exerciseId: semantics.exerciseId, active: true }, select: { id: true } }) : Promise.resolve(null),
     semantics.moduleId ? prisma.bookModule.findFirst({ where: { id: semantics.moduleId, bookId: semantics.bookId, chapterId: semantics.chapterId, archived: false }, select: { id: true } }) : Promise.resolve(null),
     semantics.imageResourceId ? prisma.resource.findFirst({ where: { id: semantics.imageResourceId, publisherId, type: ResourceType.IMAGE, archived: false, OR: [{ bookId: semantics.bookId }, { bookId: null }] }, select: { id: true } }) : Promise.resolve(null),
   ]);
   if (!chapter) fail("INVALID_CONTEXT", "The selected chapter is not owned by this publisher book.", 400);
+  if (semantics.exerciseId && !exercise) fail("INVALID_CONTEXT", "The selected exercise is not part of this book chapter.", 400);
+  if (semantics.exerciseGroupId && !group) fail("INVALID_CONTEXT", "The selected exercise group is not available.", 400);
   if (semantics.moduleId && !module) fail("INVALID_CONTEXT", "The selected module is not part of this book chapter.", 400);
   if (semantics.imageResourceId && !resource) fail("INVALID_RESOURCE", "The selected IMAGE resource is not available to this publisher book.", 400);
 }

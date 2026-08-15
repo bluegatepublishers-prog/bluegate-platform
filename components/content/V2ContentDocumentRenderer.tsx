@@ -36,6 +36,7 @@ export default function V2ContentDocumentRenderer({
   studentWorkPageActions,
   studentWorkHighlights = [],
   pageNumberOffset = 0,
+  assessmentPreview = false,
 }: {
   document: ContentDocument;
   mode: ContentRenderMode;
@@ -52,14 +53,15 @@ export default function V2ContentDocumentRenderer({
   studentWorkPageActions?: (input: StudentWorkPageActionsArgs) => ReactNode;
   studentWorkHighlights?: StudentWorkHighlightTarget[];
   pageNumberOffset?: number;
+  assessmentPreview?: boolean;
 }) {
   if (getContentLayoutVersion(document) !== 2) {
     return <StructuredContentRenderer document={document} mode={mode} className={className} linkedAssets={linkedAssets} activities={activities} worksheets={worksheets} media={media} sectionDefinitions={sectionDefinitions} knowledgeDefinitions={knowledgeDefinitions} />;
   }
-  return <V2DeliveryDocument document={document} mode={mode} className={className} linkedAssets={linkedAssets} activities={activities} worksheets={worksheets} media={media} sectionDefinitions={sectionDefinitions} knowledgeDefinitions={knowledgeDefinitions} resourceUrls={resourceUrls} semanticOverlay={semanticOverlay} studentWorkOverlay={studentWorkOverlay} studentWorkPageActions={studentWorkPageActions} studentWorkHighlights={studentWorkHighlights} pageNumberOffset={pageNumberOffset} />;
+  return <V2DeliveryDocument document={document} mode={mode} className={className} linkedAssets={linkedAssets} activities={activities} worksheets={worksheets} media={media} sectionDefinitions={sectionDefinitions} knowledgeDefinitions={knowledgeDefinitions} resourceUrls={resourceUrls} semanticOverlay={semanticOverlay} studentWorkOverlay={studentWorkOverlay} studentWorkPageActions={studentWorkPageActions} studentWorkHighlights={studentWorkHighlights} pageNumberOffset={pageNumberOffset} assessmentPreview={assessmentPreview} />;
 }
 
-function V2DeliveryDocument({ document, mode, className, linkedAssets, activities, worksheets, media, sectionDefinitions, knowledgeDefinitions, resourceUrls, semanticOverlay, studentWorkOverlay, studentWorkPageActions, studentWorkHighlights, pageNumberOffset }: {
+function V2DeliveryDocument({ document, mode, className, linkedAssets, activities, worksheets, media, sectionDefinitions, knowledgeDefinitions, resourceUrls, semanticOverlay, studentWorkOverlay, studentWorkPageActions, studentWorkHighlights, pageNumberOffset, assessmentPreview }: {
   document: ContentDocument;
   mode: ContentRenderMode;
   className: string;
@@ -75,6 +77,7 @@ function V2DeliveryDocument({ document, mode, className, linkedAssets, activitie
   studentWorkPageActions?: (input: StudentWorkPageActionsArgs) => ReactNode;
   studentWorkHighlights: StudentWorkHighlightTarget[];
   pageNumberOffset: number;
+  assessmentPreview: boolean;
   activeSegment?: NarrationSegment;
 }) {
   const normalized = useMemo(() => normalizeContentDocument(document), [document]);
@@ -94,7 +97,7 @@ function V2DeliveryDocument({ document, mode, className, linkedAssets, activitie
           resourceUrls={resourceUrls}
           mode={mode}
           semanticOverlay={semanticOverlay}
-          renderBlock={(block) => <StructuredContentRenderer document={{ ...normalized, blocks: [block] }} mode={mode} linkedAssets={linkedAssets} activities={activities} worksheets={worksheets} media={media} sectionDefinitions={sectionDefinitions} knowledgeDefinitions={knowledgeDefinitions} />} activeSegment={activeSegment} studentWorkOverlay={studentWorkOverlay} studentWorkPageActions={studentWorkPageActions} studentWorkHighlights={studentWorkHighlights}
+          renderBlock={(block) => <StructuredContentRenderer document={{ ...normalized, blocks: [block] }} mode={mode} linkedAssets={linkedAssets} activities={activities} worksheets={worksheets} media={media} sectionDefinitions={sectionDefinitions} knowledgeDefinitions={knowledgeDefinitions} />} activeSegment={activeSegment} studentWorkOverlay={studentWorkOverlay} studentWorkPageActions={studentWorkPageActions} studentWorkHighlights={studentWorkHighlights} assessmentPreview={assessmentPreview}
         />
       ))}
     </div>
@@ -103,7 +106,7 @@ function V2DeliveryDocument({ document, mode, className, linkedAssets, activitie
 
 type V2Page = NonNullable<ContentDocument["pageLayout"]>["pages"][number];
 
-function V2DeliveryPage({ page, pageNumber, blocksById, resourceUrls, renderBlock, mode, semanticOverlay, activeSegment, studentWorkOverlay, studentWorkPageActions, studentWorkHighlights }: {
+function V2DeliveryPage({ page, pageNumber, blocksById, resourceUrls, renderBlock, mode, semanticOverlay, activeSegment, studentWorkOverlay, studentWorkPageActions, studentWorkHighlights, assessmentPreview }: {
   page: V2Page;
   pageNumber: number;
   blocksById: Map<string, ContentBlock>;
@@ -114,6 +117,7 @@ function V2DeliveryPage({ page, pageNumber, blocksById, resourceUrls, renderBloc
   studentWorkOverlay?: (input: StudentWorkFrameOverlayArgs) => ReactNode;
   studentWorkPageActions?: (input: StudentWorkPageActionsArgs) => ReactNode;
   studentWorkHighlights: StudentWorkHighlightTarget[];
+  assessmentPreview: boolean;
   activeSegment?: NarrationSegment;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -145,7 +149,7 @@ function V2DeliveryPage({ page, pageNumber, blocksById, resourceUrls, renderBloc
             ) : null}
             {page.visualMode === "EXACT_REPLICA" && replicaUrl ? <ReplicaVisual page={page} src={replicaUrl} /> : null}
             {frames.map((frame) => (
-              <V2DeliveryFrame key={frame.id} frame={frame} page={page} pageNumber={pageNumber} frames={frames} blocksById={blocksById} pageWidth={page.width} pageHeight={page.height} resourceUrls={resourceUrls} renderBlock={renderBlock} mode={mode} semanticOverlay={semanticOverlay} activeSegment={activeSegment} studentWorkOverlay={studentWorkOverlay} studentWorkHighlights={studentWorkHighlights} />
+              <V2DeliveryFrame key={frame.id} frame={frame} page={page} pageNumber={pageNumber} frames={frames} blocksById={blocksById} pageWidth={page.width} pageHeight={page.height} resourceUrls={resourceUrls} renderBlock={renderBlock} mode={mode} semanticOverlay={semanticOverlay} activeSegment={activeSegment} studentWorkOverlay={studentWorkOverlay} studentWorkHighlights={studentWorkHighlights} assessmentPreview={assessmentPreview} />
             ))}
           </div>
         </div>
@@ -154,7 +158,7 @@ function V2DeliveryPage({ page, pageNumber, blocksById, resourceUrls, renderBloc
   );
 }
 
-function V2DeliveryFrame({ frame, page, pageNumber, frames, blocksById, pageWidth, pageHeight, resourceUrls, renderBlock, mode, semanticOverlay, activeSegment, studentWorkOverlay, studentWorkHighlights }: {
+function V2DeliveryFrame({ frame, page, pageNumber, frames, blocksById, pageWidth, pageHeight, resourceUrls, renderBlock, mode, semanticOverlay, activeSegment, studentWorkOverlay, studentWorkHighlights, assessmentPreview }: {
   frame: LayoutV2Frame;
   page: V2Page;
   pageNumber: number;
@@ -169,6 +173,7 @@ function V2DeliveryFrame({ frame, page, pageNumber, frames, blocksById, pageWidt
   studentWorkOverlay?: (input: StudentWorkFrameOverlayArgs) => ReactNode;
   studentWorkPageActions?: (input: StudentWorkPageActionsArgs) => ReactNode;
   studentWorkHighlights: StudentWorkHighlightTarget[];
+  assessmentPreview: boolean;
   activeSegment?: NarrationSegment;
 }) {
   if (frame.audience === "TEACHER" && mode === "STUDENT") return null;
@@ -189,7 +194,7 @@ function V2DeliveryFrame({ frame, page, pageNumber, frames, blocksById, pageWidt
         {studentHighlight ? <div data-student-highlight="true" aria-label="Your highlight" className="pointer-events-none absolute rounded border-2 border-yellow-400 bg-yellow-200/25" style={{ left: frame.x, top: frame.y, width: frame.width, height: frame.height, zIndex: effectiveZIndex + 2 }} /> : null}
         <div data-v2-narration-highlight="true" aria-label="Currently reading" className="pointer-events-none absolute box-border rounded border-2 border-amber-400 bg-amber-200/20" style={{ left: frame.x, top: frame.y, width: frame.width, height: frame.height, zIndex: effectiveZIndex + 1, transform: frame.rotation ? "rotate(" + frame.rotation + "deg)" : undefined }} />
         <div className="sr-only" data-v2-delivery-frame-id={frame.id} data-v2-reading-order={frame.readingOrder} data-v2-render-mode={frame.renderMode ?? "VISIBLE"} aria-label={frame.narrationLabel || frame.type + " frame"}>
-          <V2FrameContent frame={frame} frames={visualFrames} block={block} pageWidth={pageWidth} pageHeight={pageHeight} resourceUrlResolver={(resourceId) => resourceUrls[resourceId] ?? null} renderBlock={renderBlock} videoPresentation="DELIVERY" renderFrame={(child, childFrames) => <V2DeliveryFrame frame={child} page={page} pageNumber={pageNumber} frames={childFrames} blocksById={blocksById} pageWidth={frame.width} pageHeight={frame.height} resourceUrls={resourceUrls} renderBlock={renderBlock} mode={mode} semanticOverlay={semanticOverlay} activeSegment={activeSegment} studentWorkOverlay={studentWorkOverlay} studentWorkHighlights={studentWorkHighlights} />} />
+          <V2FrameContent frame={frame} frames={visualFrames} block={block} pageWidth={pageWidth} pageHeight={pageHeight} resourceUrlResolver={(resourceId) => resourceUrls[resourceId] ?? null} renderBlock={renderBlock} videoPresentation={assessmentPreview ? "PREVIEW" : "DELIVERY"} renderFrame={(child, childFrames) => <V2DeliveryFrame frame={child} page={page} pageNumber={pageNumber} frames={childFrames} blocksById={blocksById} pageWidth={frame.width} pageHeight={frame.height} resourceUrls={resourceUrls} renderBlock={renderBlock} mode={mode} semanticOverlay={semanticOverlay} activeSegment={activeSegment} studentWorkOverlay={studentWorkOverlay} studentWorkHighlights={studentWorkHighlights} assessmentPreview={assessmentPreview} />} />
         </div>
       </>
     );
@@ -197,7 +202,7 @@ function V2DeliveryFrame({ frame, page, pageNumber, frames, blocksById, pageWidt
   const semanticStyle: CSSProperties = semanticOnly ? { position: "absolute", width: 1, height: 1, margin: -1, padding: 0, overflow: "hidden", clip: "rect(0 0 0 0)", whiteSpace: "nowrap" } : {};
   return (
     <div data-v2-delivery-frame-id={frame.id} data-v2-reading-order={frame.readingOrder} data-v2-render-mode={frame.renderMode ?? "VISIBLE"} data-v2-narration-active={narrationActive ? "true" : undefined} aria-label={frame.narrationLabel || `${frame.type} frame`} aria-hidden={frame.readable ? undefined : true} className={`absolute box-border overflow-hidden ${semanticOnly ? "pointer-events-none" : ""}`} style={{ left: frame.x, top: frame.y, width: frame.width, height: frame.height, zIndex: effectiveZIndex, transform: frame.rotation ? `rotate(${frame.rotation}deg)` : undefined, visibility: frame.hidden ? "hidden" : "visible", outline: narrationActive ? "3px solid rgba(245, 158, 11, 0.9)" : undefined, outlineOffset: narrationActive ? 2 : undefined, ...semanticStyle }}>
-      <V2FrameContent frame={frame} frames={visualFrames} block={block} pageWidth={pageWidth} pageHeight={pageHeight} resourceUrlResolver={(resourceId) => resourceUrls[resourceId] ?? null} renderBlock={renderBlock} videoPresentation="DELIVERY" renderFrame={(child, childFrames) => <V2DeliveryFrame frame={child} page={page} pageNumber={pageNumber} frames={childFrames} blocksById={blocksById} pageWidth={frame.width} pageHeight={frame.height} resourceUrls={resourceUrls} renderBlock={renderBlock} mode={mode} semanticOverlay={semanticOverlay} activeSegment={activeSegment} studentWorkOverlay={studentWorkOverlay} studentWorkHighlights={studentWorkHighlights} />} />
+      <V2FrameContent frame={frame} frames={visualFrames} block={block} pageWidth={pageWidth} pageHeight={pageHeight} resourceUrlResolver={(resourceId) => resourceUrls[resourceId] ?? null} renderBlock={renderBlock} videoPresentation={assessmentPreview ? "PREVIEW" : "DELIVERY"} renderFrame={(child, childFrames) => <V2DeliveryFrame frame={child} page={page} pageNumber={pageNumber} frames={childFrames} blocksById={blocksById} pageWidth={frame.width} pageHeight={frame.height} resourceUrls={resourceUrls} renderBlock={renderBlock} mode={mode} semanticOverlay={semanticOverlay} activeSegment={activeSegment} studentWorkOverlay={studentWorkOverlay} studentWorkHighlights={studentWorkHighlights} assessmentPreview={assessmentPreview} />} />
        {studentOverlay ? <div className="pointer-events-auto absolute inset-x-1 bottom-1 z-30 max-h-[58%] overflow-auto rounded-xl border border-blue-200 bg-white/95 p-2 shadow-lg backdrop-blur-sm">{studentOverlay}</div> : null}
        {studentHighlight ? <div data-student-highlight="true" aria-label="Your highlight" className="pointer-events-none absolute inset-0 rounded border-2 border-yellow-400 bg-yellow-200/25" /> : null}
     </div>

@@ -8,9 +8,11 @@ import { prisma } from "@/lib/prisma";
 import { requireStudent } from "@/lib/student-dashboard";
 import { getStudentBook } from "@/lib/student-books";
 import { getPremiumFeatureEntitlementForAuthenticatedUser } from "@/lib/entitlements/features";
+import { canLaunchBookQuestionPractice, getBookQuestionPracticeMode } from "@/lib/normalized-question";
 import {
   calculatePracticeResult,
   gradePracticeAnswer,
+  getPracticeFeedbackAnswer,
   isSupportedPracticeQuestion,
   selectPracticeQuestions,
   toSafePracticeQuestion,
@@ -24,7 +26,7 @@ class PracticeError extends Error {
 }
 
 const questionSelect = {
-  id: true, bookId: true, chapterId: true, questionType: true, questionText: true,
+  id: true, bookId: true, chapterId: true, moduleId: true, imageResourceId: true, questionType: true, questionText: true,
   options: true, correctAnswer: true, explanation: true, marks: true, approved: true, createdAt: true,
 } satisfies Prisma.BookQuestionSelect;
 
@@ -112,6 +114,429 @@ export async function startStudentPractice(input: { bookId: string; chapterId: s
   }
 }
 
+export async function startStudentPracticeQuestion(questionId: string) {
+  if (!questionId.trim()) throw new PracticeError("This practice question is not available.", 404);
+  const question = await prisma.bookQuestion.findFirst({
+    where: { id: questionId, approved: true, archived: false, questionType: "MCQ" },
+    select: questionSelect,
+  });
+  if (!question) throw new PracticeError("This practice question is not available.", 404);
+  const scope = await resolvePracticeScope(question.bookId, question.chapterId);
+  if (!scope.entitlement.allowed || !isSupportedPracticeQuestion(question as PracticeQuestionCandidate)) {
+    throw new PracticeError("This practice question is not available.", 404);
+  }
+  const existing = await prisma.studentPracticeAttempt.findFirst({
+    where: {
+      studentId: scope.identity.student.id,
+      academicYearId: scope.identity.academicYear.id,
+      bookId: question.bookId,
+      chapterId: question.chapterId,
+      status: PracticeAttemptStatus.IN_PROGRESS,
+      responses: { some: { questionId: question.id } },
+    },
+    select: { id: true },
+  });
+  if (existing) return { attemptId: existing.id, resumed: true };
+  const attempt = await prisma.$transaction(async (tx) => {
+    const created = await tx.studentPracticeAttempt.create({
+      data: {
+        studentId: scope.identity.student.id,
+        bookId: question.bookId,
+        chapterId: question.chapterId,
+        academicYearId: scope.identity.academicYear.id,
+        totalQuestions: 1,
+        totalMarks: question.marks,
+        responses: { create: [{ questionId: question.id }] },
+      },
+      select: { id: true },
+    });
+    const book = await tx.book.findUnique({ where: { id: question.bookId }, select: { subjectId: true } });
+    if (!book) throw new PracticeError("This practice question is not available.", 404);
+    await recordLearningActivity(tx, {
+      eventKey: `practice:${created.id}:started`, publisherId: scope.identity.publisher.id, schoolId: scope.identity.school.id,
+      studentId: scope.identity.student.id, academicYearId: scope.identity.academicYear.id, activityType: LearningActivityType.PRACTICE,
+      title: `Started practice question for ${scope.chapter.title}`, sourceType: "StudentPracticeAttempt", sourceId: created.id, occurredAt: new Date(),
+      subjectId: book.subjectId, bookId: question.bookId, chapterId: question.chapterId, completed: false,
+    });
+    return created;
+  });
+  return { attemptId: attempt.id, resumed: false };
+}
+
+export async function startStudentBookQuestionsPractice(input: {
+  exerciseId: string;
+  groupId: string;
+  questionType:
+    | "MCQ"
+    | "TRUE_FALSE"
+    | "FILL_BLANK"
+    | "MULTIPLE_SELECT"
+    | "SHORT_ANSWER";
+  questionIds?: string[];
+}) {
+  if (
+    !input.exerciseId.trim() ||
+    !input.groupId.trim() ||
+    !canLaunchBookQuestionPractice(input.questionType)
+  ) {
+    throw new PracticeError(
+      "This practice activity is not available.",
+      404,
+    );
+  }
+
+  const requestedIds = [
+    ...new Set(
+      (input.questionIds ?? [])
+        .map((id) => id.trim())
+        .filter(Boolean),
+    ),
+  ].slice(0, 50);
+
+  const collection =
+    await prisma.bookExerciseQuestionGroup.findFirst({
+      where: {
+        id: input.groupId,
+        exerciseId:
+          input.exerciseId,
+        active: true,
+        exercise: {
+          archived: false,
+          published: true,
+        },
+      },
+      select: {
+        id: true,
+        exerciseId: true,
+        exercise: {
+          select: {
+            bookId: true,
+            chapterId: true,
+          },
+        },
+      },
+    });
+
+  if (!collection) {
+    throw new PracticeError(
+      "This practice activity is not available.",
+      404,
+    );
+  }
+
+  const scope =
+    await resolvePracticeScope(
+      collection.exercise.bookId,
+      collection.exercise.chapterId,
+    );
+
+  if (!scope.entitlement.allowed) {
+    throw new PracticeError(
+      "This practice activity is not available for your account.",
+      403,
+    );
+  }
+
+  const questions =
+    await prisma.bookQuestion.findMany({
+      where: {
+        bookId:
+          collection.exercise.bookId,
+        chapterId:
+          collection.exercise.chapterId,
+        exerciseId:
+          input.exerciseId,
+        exerciseGroupId:
+          input.groupId,
+        approved: true,
+        archived: false,
+        questionType:
+          input.questionType,
+        ...(requestedIds.length
+          ? {
+              id: {
+                in: requestedIds,
+              },
+            }
+          : {}),
+      },
+      orderBy: [
+        {
+          displayOrder: "asc",
+        },
+        {
+          createdAt: "asc",
+        },
+        {
+          id: "asc",
+        },
+      ],
+      select: questionSelect,
+    });
+
+  if (
+    !questions.length ||
+    questions.some(
+      (question) =>
+        !isSupportedPracticeQuestion(
+          question as PracticeQuestionCandidate,
+        ),
+    )
+  ) {
+    throw new PracticeError(
+      `No approved ${practiceTypeLabel(input.questionType)} questions are available for this practice collection yet.`,
+      404,
+    );
+  }
+
+  if (
+    requestedIds.length &&
+    questions.length !==
+      requestedIds.length
+  ) {
+    throw new PracticeError(
+      "One or more selected questions are no longer available.",
+      404,
+    );
+  }
+
+  const selectedQuestionIds =
+    questions.map(
+      (question) => question.id,
+    );
+
+  const activeAttempts =
+    await prisma.studentPracticeAttempt.findMany(
+      {
+        where: {
+          studentId:
+            scope.identity.student
+              .id,
+          academicYearId:
+            scope.identity
+              .academicYear.id,
+          exerciseId:
+            input.exerciseId,
+          status:
+            PracticeAttemptStatus.IN_PROGRESS,
+        },
+        orderBy: {
+          updatedAt: "desc",
+        },
+        select: {
+          id: true,
+          responses: {
+            select: {
+              questionId: true,
+            },
+          },
+        },
+      },
+    );
+
+  const nextIds = [
+    ...selectedQuestionIds,
+  ].sort();
+
+  const matchingAttempt =
+    activeAttempts.find(
+      (attempt) => {
+        const existingIds =
+          attempt.responses
+            .map(
+              (response) =>
+                response.questionId,
+            )
+            .sort();
+
+        return (
+          existingIds.length ===
+            nextIds.length &&
+          existingIds.every(
+            (
+              questionId,
+              index,
+            ) =>
+              questionId ===
+              nextIds[index],
+          )
+        );
+      },
+    );
+
+  if (matchingAttempt) {
+    return {
+      attemptId:
+        matchingAttempt.id,
+      resumed: true,
+    };
+  }
+
+  const attempt =
+    await prisma.$transaction(
+      async (tx) => {
+        const created =
+          await tx.studentPracticeAttempt.create(
+            {
+              data: {
+                studentId:
+                  scope.identity
+                    .student.id,
+                bookId:
+                  collection
+                    .exercise.bookId,
+                chapterId:
+                  collection
+                    .exercise
+                    .chapterId,
+                exerciseId:
+                  input.exerciseId,
+                academicYearId:
+                  scope.identity
+                    .academicYear.id,
+                totalQuestions:
+                  questions.length,
+                totalMarks:
+                  questions.reduce(
+                    (
+                      sum,
+                      question,
+                    ) =>
+                      sum +
+                      question.marks,
+                    0,
+                  ),
+                responses: {
+                  create:
+                    questions.map(
+                      (
+                        question,
+                      ) => ({
+                        questionId:
+                          question.id,
+                      }),
+                    ),
+                },
+              },
+              select: {
+                id: true,
+              },
+            },
+          );
+
+        const book =
+          await tx.book.findUnique({
+            where: {
+              id: collection
+                .exercise.bookId,
+            },
+            select: {
+              subjectId: true,
+            },
+          });
+
+        if (!book) {
+          throw new PracticeError(
+            "This practice activity is not available.",
+          );
+        }
+
+        await recordLearningActivity(
+          tx,
+          {
+            eventKey: `practice:${created.id}:started`,
+            publisherId:
+              scope.identity
+                .publisher.id,
+            schoolId:
+              scope.identity.school
+                .id,
+            studentId:
+              scope.identity.student
+                .id,
+            academicYearId:
+              scope.identity
+                .academicYear.id,
+            activityType:
+              LearningActivityType.PRACTICE,
+            title: `Started Book Questions for ${scope.chapter.title}`,
+            sourceType:
+              "StudentPracticeAttempt",
+            sourceId:
+              created.id,
+            occurredAt: new Date(),
+            subjectId:
+              book.subjectId,
+            bookId:
+              collection
+                .exercise.bookId,
+            chapterId:
+              collection
+                .exercise
+                .chapterId,
+            completed: false,
+          },
+        );
+
+        return created;
+      },
+    );
+
+  return {
+    attemptId: attempt.id,
+    resumed: false,
+  };
+}
+
+function practiceTypeLabel(
+  questionType:
+    | "MCQ"
+    | "TRUE_FALSE"
+    | "FILL_BLANK"
+    | "MULTIPLE_SELECT"
+    | "SHORT_ANSWER",
+) {
+  if (questionType === "TRUE_FALSE") {
+    return "True / False";
+  }
+
+  if (questionType === "FILL_BLANK") {
+    return "Fill in the blank";
+  }
+  if (questionType === "MULTIPLE_SELECT") {
+    return "Multiple Select";
+  }
+  if (questionType === "SHORT_ANSWER") {
+    return "Short Answer";
+  }
+
+
+  return "MCQ";
+}
+
+
+function normalizePracticeQuestionType(
+  value: string,
+): "MCQ" | "TRUE_FALSE" | "FILL_BLANK" | "MULTIPLE_SELECT" | "SHORT_ANSWER" {
+  if (value === "TRUE_FALSE") {
+    return "TRUE_FALSE";
+  }
+
+  if (value === "FILL_BLANK") {
+    return "FILL_BLANK";
+  }
+
+  if (value === "MULTIPLE_SELECT") {
+    return "MULTIPLE_SELECT";
+  }
+  if (value === "SHORT_ANSWER") {
+    return "SHORT_ANSWER";
+  }
+
+  return "MCQ";
+}
+
+
 async function loadOwnedAttempt(attemptId: string) {
   const identity = await requireStudent();
   const attempt = await prisma.studentPracticeAttempt.findFirst({
@@ -142,10 +567,16 @@ export async function getStudentPracticeAttempt(attemptId: string) {
     id: attempt.id, status: attempt.status, bookTitle: attempt.book.title,
     chapterTitle: attempt.chapter.title, chapterNumber: attempt.chapter.chapterNumber,
     questions: attempt.responses.map((response, index) => ({
-      ...toSafePracticeQuestion(response.question as PracticeQuestionCandidate, index + 1),
-      answered: response.answeredAt !== null,
+  ...toSafePracticeQuestion(
+    response.question as PracticeQuestionCandidate,
+    index + 1,
+  ),
+  questionType: normalizePracticeQuestionType(
+    response.question.questionType,
+  ),
+  answered: response.answeredAt !== null,
       studentAnswer: response.answeredAt ? response.answer : null,
-      feedback: response.answeredAt ? { correct: response.correct === true, correctAnswer: response.question.correctAnswer, explanation: response.question.explanation } : null,
+      feedback: response.answeredAt ? (attempt.status === PracticeAttemptStatus.SUBMITTED ? { correct: response.correct, correctAnswer: getBookQuestionPracticeMode(response.question.questionType) === "AUTO_GRADED" ? getPracticeFeedbackAnswer(response.question as PracticeQuestionCandidate) : null, explanation: response.question.explanation } : null) : null,
     })),
   };
 }
@@ -158,11 +589,11 @@ export async function answerStudentPractice(input: { attemptId: string; question
   const grade = gradePracticeAnswer(response.question as PracticeQuestionCandidate, input.answer);
   if (!grade.ok) throw new PracticeError(grade.message);
   await prisma.$transaction(async (tx) => {
-    const updated = await tx.studentPracticeResponse.updateMany({ where: { id: response.id, answeredAt: null }, data: { answer: grade.answer as Prisma.InputJsonValue, correct: grade.correct, marksAwarded: grade.marksAwarded, answeredAt: new Date() } });
+    const updated = await tx.studentPracticeResponse.updateMany({ where: { id: response.id, answeredAt: null }, data: { answer: grade.answer as Prisma.InputJsonValue, autoGraded: grade.mode === "AUTO_GRADED", correct: grade.correct, marksAwarded: grade.marksAwarded, answeredAt: new Date() } });
     if (updated.count !== 1) throw new PracticeError("We could not save your answer. Please try again.");
-    await tx.studentPracticeAttempt.update({ where: { id: attempt.id }, data: { attemptedCount: { increment: 1 }, correctCount: { increment: grade.correct ? 1 : 0 }, marksAwarded: { increment: grade.marksAwarded } } });
+    await tx.studentPracticeAttempt.update({ where: { id: attempt.id }, data: { attemptedCount: { increment: 1 }, correctCount: { increment: grade.correct === true ? 1 : 0 }, marksAwarded: { increment: grade.marksAwarded ?? 0 } } });
   });
-  return { correct: grade.correct, correctAnswer: response.question.correctAnswer!, explanation: response.question.explanation };
+  return { saved: true };
 }
 
 export async function submitStudentPractice(attemptId: string) {
@@ -211,7 +642,7 @@ export async function getStudentPracticeResult(attemptId: string) {
     scorePercent: attempt.scorePercent ?? 0,
     responses: attempt.responses.filter((response) => response.answeredAt).map((response, index) => ({
       questionNumber: index + 1, questionText: response.question.questionText, studentAnswer: response.answer,
-      correct: response.correct === true, correctAnswer: response.question.correctAnswer!, explanation: response.question.explanation,
+      correct: response.correct, correctAnswer: getBookQuestionPracticeMode(response.question.questionType) === "AUTO_GRADED" ? response.question.correctAnswer : null, explanation: response.question.explanation,
     })),
   };
 }

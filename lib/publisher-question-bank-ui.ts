@@ -42,7 +42,7 @@ export function createPublisherQuestionDraft(chapterId = ""): PublisherQuestionD
     acceptedAnswers: [],
     explanation: "",
     marks: 1,
-    difficulty: "MEDIUM",
+    difficulty: "",
     bloomLevel: "",
     competency: "",
     tags: "",

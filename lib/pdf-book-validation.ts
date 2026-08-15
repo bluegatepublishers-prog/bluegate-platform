@@ -30,15 +30,25 @@ type PdfJsWorkerModule = {
   WorkerMessageHandler?: unknown;
 };
 
+type LoadedPdfDocument = {
+  numPages: number;
+  getPage(pageNumber: number): Promise<{
+    cleanup?: () => void;
+  }>;
+  cleanup(): void;
+};
+
+type PdfLoadingTask = {
+  promise: Promise<LoadedPdfDocument>;
+  destroy(): Promise<void>;
+};
+
 /**
  * Load PDF.js for server-side use.
  *
- * Next.js/Turbopack changes the location of the bundled PDF.js module.
- * PDF.js otherwise tries to locate pdf.worker.mjs relative to the generated
- * .next server chunk, where the worker file does not exist.
- *
- * Explicitly loading the worker module and exposing it to PDF.js prevents
- * that broken fake-worker lookup.
+ * Next.js/Turbopack can relocate the bundled PDF.js modules.
+ * Explicitly loading the worker keeps PDF.js from attempting to find
+ * a fake worker beside the generated .next server chunk.
  */
 export async function loadServerPdfJs() {
   const [pdfjs, worker] = await Promise.all([
@@ -46,29 +56,116 @@ export async function loadServerPdfJs() {
     import("pdfjs-dist/legacy/build/pdf.worker.mjs"),
   ]);
 
-  const globalWithPdfWorker = globalThis as typeof globalThis & {
-    pdfjsWorker?: PdfJsWorkerModule;
-  };
+  const globalWithPdfWorker =
+    globalThis as typeof globalThis & {
+      pdfjsWorker?: PdfJsWorkerModule;
+    };
 
   if (!globalWithPdfWorker.pdfjsWorker) {
-    globalWithPdfWorker.pdfjsWorker = worker;
+    globalWithPdfWorker.pdfjsWorker =
+      worker;
   }
 
   return pdfjs;
+}
+
+async function parsePdf(
+  data: Uint8Array,
+  strict: boolean,
+): Promise<number> {
+  const pdfjs = await loadServerPdfJs();
+
+  let document:
+    | LoadedPdfDocument
+    | undefined;
+
+  let loadingTask:
+    | PdfLoadingTask
+    | undefined;
+
+  try {
+    /*
+     * Always give PDF.js its own copy because PDF.js may transfer/detach
+     * the underlying ArrayBuffer.
+     */
+    loadingTask = pdfjs.getDocument({
+      data: data.slice(),
+
+      disableAutoFetch: true,
+      disableStream: true,
+      useWorkerFetch: false,
+      disableFontFace: true,
+
+      /*
+       * First attempt is strict.
+       *
+       * If a publisher PDF contains a recoverable xref/object/export
+       * inconsistency, inspectPdfBook() performs one controlled retry
+       * with stopAtErrors=false.
+       */
+      stopAtErrors: strict,
+    }) as PdfLoadingTask;
+
+    document =
+      await loadingTask.promise;
+
+    const pageCount =
+      document.numPages;
+
+    if (
+      !Number.isInteger(pageCount) ||
+      pageCount <= 0
+    ) {
+      throw new PdfBookValidationError(
+        "ZERO_PAGES",
+        "The PDF does not contain readable pages.",
+      );
+    }
+
+    /*
+     * A page count alone is not sufficient.
+     * Require PDF.js to resolve the first actual page.
+     */
+    const firstPage =
+      await document.getPage(1);
+
+    firstPage.cleanup?.();
+
+    return pageCount;
+  } finally {
+    try {
+      document?.cleanup();
+    } catch {
+      // Best-effort PDF.js cleanup.
+    }
+
+    try {
+      await loadingTask?.destroy();
+    } catch {
+      // Best-effort PDF.js task cleanup.
+    }
+  }
 }
 
 export async function inspectPdfBook(
   data: Uint8Array,
   limits = PDF_BOOK_LIMITS,
 ): Promise<PdfBookInspection> {
-  if (!data.byteLength || data.byteLength > limits.maxBytes) {
+  if (
+    !data.byteLength ||
+    data.byteLength >
+      limits.maxBytes
+  ) {
     throw new PdfBookValidationError(
       "TOO_LARGE",
       "The PDF exceeds the 100 MB book upload limit.",
     );
   }
 
-  const signature = new TextDecoder("ascii").decode(data.slice(0, 5));
+  const signature =
+    new TextDecoder("ascii").decode(
+      data.slice(0, 5),
+    );
 
   if (signature !== "%PDF-") {
     throw new PdfBookValidationError(
@@ -77,85 +174,113 @@ export async function inspectPdfBook(
     );
   }
 
-  let document:
-    | {
-        numPages: number;
-        getPage(pageNumber: number): Promise<unknown>;
-        cleanup(): void;
-      }
-    | undefined;
-
-  let loadingTask:
-    | {
-        promise: Promise<{
-          numPages: number;
-          getPage(pageNumber: number): Promise<unknown>;
-          cleanup(): void;
-        }>;
-        destroy(): Promise<void>;
-      }
-    | undefined;
+  let pageCount: number;
 
   try {
-    const pdfjs = await loadServerPdfJs();
-
     /*
-     * PDF.js may transfer/detach its input buffer.
-     * Keep the caller-owned bytes available for the V2 metadata
-     * generation pass that follows this inspection.
+     * Pass 1:
+     * strict parsing.
      */
-    loadingTask = pdfjs.getDocument({
-      data: data.slice(),
-      disableAutoFetch: true,
-      disableStream: true,
-      useWorkerFetch: false,
-      stopAtErrors: true,
-      disableFontFace: true,
-    });
+    pageCount =
+      await parsePdf(
+        data,
+        true,
+      );
+  } catch (strictError) {
+    if (
+      strictError instanceof
+      PdfBookValidationError
+    ) {
+      throw strictError;
+    }
 
-    document = await loadingTask.promise;
-
-    const pageCount = document.numPages;
-
-    if (!Number.isInteger(pageCount) || pageCount <= 0) {
-      throw new PdfBookValidationError(
-        "ZERO_PAGES",
-        "The PDF does not contain readable pages.",
+    if (
+      process.env.NODE_ENV !==
+      "production"
+    ) {
+      console.warn(
+        "[PDFJS STRICT PARSE FAILED — RETRYING TOLERANTLY]",
+        {
+          name:
+            strictError instanceof Error
+              ? strictError.name
+              : "Unknown",
+          message:
+            strictError instanceof Error
+              ? strictError.message
+              : String(strictError),
+        },
       );
     }
 
-    if (pageCount > limits.maxPages) {
+    try {
+      /*
+       * Pass 2:
+       * PDF.js tolerant mode.
+       *
+       * This permits PDF.js to repair/recover minor structural issues
+       * commonly produced by print/export software, while we still
+       * require a legitimate page tree and a readable first page.
+       */
+      pageCount =
+        await parsePdf(
+          data,
+          false,
+        );
+    } catch (tolerantError) {
+      if (
+        tolerantError instanceof
+        PdfBookValidationError
+      ) {
+        throw tolerantError;
+      }
+
+      if (
+        process.env.NODE_ENV !==
+        "production"
+      ) {
+        console.error(
+          "[PDFJS REAL PARSE ERROR]",
+          {
+            name:
+              tolerantError instanceof
+              Error
+                ? tolerantError.name
+                : "Unknown",
+            message:
+              tolerantError instanceof
+              Error
+                ? tolerantError.message
+                : String(
+                    tolerantError,
+                  ),
+            stack:
+              tolerantError instanceof
+              Error
+                ? tolerantError.stack
+                : undefined,
+          },
+        );
+      }
+
       throw new PdfBookValidationError(
-        "TOO_MANY_PAGES",
-        "The PDF has more pages than the supported book limit.",
+        "MALFORMED",
+        "The uploaded PDF could not be read safely. Export the book PDF again and retry.",
       );
     }
-
-    // Verify that at least the first page can actually be loaded.
-    await document.getPage(1);
-
-    return {
-      pageCount,
-    };
-  } catch (error) {
-    if (error instanceof PdfBookValidationError) {
-      throw error;
-    }
-
-    if (process.env.NODE_ENV !== "production") {
-      console.error("[PDFJS REAL PARSE ERROR]", {
-        name: error instanceof Error ? error.name : "Unknown",
-        message: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? error.stack : undefined,
-      });
-    }
-
-    throw new PdfBookValidationError(
-      "MALFORMED",
-      "The PDF could not be read safely. Export the book PDF again and retry.",
-    );
-  } finally {
-    document?.cleanup();
-    await loadingTask?.destroy();
   }
+
+  if (
+    pageCount >
+    limits.maxPages
+  ) {
+    throw new PdfBookValidationError(
+      "TOO_MANY_PAGES",
+      "The PDF has more pages than the supported book limit.",
+    );
+  }
+
+  return {
+    pageCount,
+  };
 }

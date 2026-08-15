@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   calculatePracticeResult,
   gradePracticeAnswer,
+  getPracticeFeedbackAnswer,
   isSupportedPracticeQuestion,
   selectPracticeQuestions,
   toSafePracticeQuestion,
@@ -40,13 +41,16 @@ test("invalid MCQ structure and missing answer keys are excluded", () => {
 
 test("safe question view omits answer, explanation, approval, and tenant metadata", () => {
   const safe = toSafePracticeQuestion(question(), 1);
-  assert.deepEqual(safe, { questionId: "q-1", questionNumber: 1, questionText: "Which is correct?", questionType: "MCQ", options: ["Alpha", "Beta"], marks: 2 });
-  for (const hidden of ["correctAnswer", "explanation", "approved", "bookId", "chapterId"]) assert.equal(hidden in safe, false);
+  assert.equal(safe.questionId, "q-1");
+  assert.equal(safe.questionType, "MCQ");
+  assert.deepEqual(safe.interactiveQuestion.answer, {});
+  for (const hidden of ["correctAnswer", "explanation", "approved", "bookId", "chapterId", "grading"]) assert.equal(hidden in safe, false);
+  for (const hidden of ["correctOptionIds", "acceptedAnswers"]) assert.equal(hidden in safe.interactiveQuestion.answer, false);
 });
 
 test("MCQ grading is exact after safe normalization and marks are server-derived", () => {
-  assert.deepEqual(gradePracticeAnswer(question(), " alpha "), { ok: true, correct: true, marksAwarded: 2, answer: "alpha" });
-  assert.deepEqual(gradePracticeAnswer(question(), "Beta"), { ok: true, correct: false, marksAwarded: 0, answer: "Beta" });
+  assert.deepEqual(gradePracticeAnswer(question(), " alpha "), { ok: true, mode: "AUTO_GRADED", correct: true, marksAwarded: 2, answer: "alpha" });
+  assert.deepEqual(gradePracticeAnswer(question(), "Beta"), { ok: true, mode: "AUTO_GRADED", correct: false, marksAwarded: 0, answer: "Beta" });
   assert.equal(gradePracticeAnswer(question(), "not-an-option").ok, false);
 });
 
@@ -67,6 +71,34 @@ test("fill-blank grading trims, collapses spaces, and ignores case without fuzzy
   assert.equal(incorrect.ok && incorrect.correct, false);
 });
 
+test("Multiple Select uses exact option-id sets and safe normalized payloads", () => {
+  const item = question({ questionType: "MULTIPLE_SELECT", options: [{ id: "a", text: "Alpha" }, { id: "b", text: "Beta" }, { id: "c", text: "Gamma" }], correctAnswer: JSON.stringify(["b", "c"]) });
+  assert.equal(isSupportedPracticeQuestion(item), true);
+  const reordered = gradePracticeAnswer(item, ["c", "b"]);
+  const missing = gradePracticeAnswer(item, ["b"]);
+  const extra = gradePracticeAnswer(item, ["b", "c", "a"]);
+  assert.equal(reordered.ok && reordered.correct, true);
+  assert.equal(missing.ok && missing.correct, false);
+  assert.equal(extra.ok && extra.correct, false);
+  assert.equal(gradePracticeAnswer(item, ["missing"]).ok, false);
+  assert.equal(getPracticeFeedbackAnswer(item), "Beta, Gamma");
+  const safe = toSafePracticeQuestion(item, 1);
+  assert.deepEqual(safe.interactiveQuestion.answer, {});
+  assert.deepEqual(safe.interactiveQuestion.options.map((option) => option.id), ["a", "b", "c"]);
+});
+
+test("Short Answer is an approved manual response with no automatic correctness or score", () => {
+  const item = question({ questionType: "SHORT_ANSWER", options: null, correctAnswer: null, explanation: "A model response may be discussed after submission.", marks: 3 });
+  assert.equal(isSupportedPracticeQuestion(item), true);
+  assert.equal(isSupportedPracticeQuestion({ ...item, approved: false }), false);
+  const grade = gradePracticeAnswer(item, "  My written response  ");
+  assert.deepEqual(grade, { ok: true, mode: "MANUAL_RESPONSE", correct: null, marksAwarded: null, answer: "My written response" });
+  const safe = toSafePracticeQuestion(item, 1);
+  assert.equal(safe.questionType, "SHORT_ANSWER");
+  assert.deepEqual(safe.interactiveQuestion.answer, {});
+  assert.equal("correctAnswer" in safe, false);
+  assert.deepEqual(calculatePracticeResult([{ correct: null, marksAwarded: null, answeredAt: new Date("2026-01-01"), answer: "My written response", question: { marks: 3 } }]), { attemptedCount: 1, correctCount: 0, totalMarks: 3, marksAwarded: 0, scorePercent: null });
+});
 test("malformed answers are rejected", () => {
   for (const answer of [null, undefined, 1, {}, [], ""]) assert.equal(gradePracticeAnswer(question(), answer).ok, false);
 });

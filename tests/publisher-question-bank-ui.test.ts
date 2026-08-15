@@ -12,6 +12,7 @@ import {
 
 test("publisher MCQ choices start with two stable rows and cannot be removed below two", () => {
   const initial = createPublisherQuestionDraft("chapter-1");
+  assert.equal(initial.difficulty, "");
   assert.deepEqual(initial.options.map((choice) => choice.id), ["option-1", "option-2"]);
   assert.equal(removePublisherChoice(initial, "option-1"), initial);
 

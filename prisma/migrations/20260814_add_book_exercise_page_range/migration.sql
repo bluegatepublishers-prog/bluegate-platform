@@ -1,0 +1,3 @@
+ALTER TABLE "BookExercise"
+ADD COLUMN "startPage" INTEGER,
+ADD COLUMN "endPage" INTEGER;

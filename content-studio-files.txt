@@ -1,0 +1,5015 @@
+
+
+============================================================
+FILE: components\admin\books\ContentStudioTree.tsx
+============================================================
+
+"use client";
+
+import Link from "next/link";
+import {
+  useEffect,
+  useMemo,
+  useState,
+  useTransition,
+} from "react";
+import type {
+  KeyboardEvent,
+  MouseEvent,
+  TransitionStartFunction,
+} from "react";
+import {
+  BookOpen,
+  ChevronRight,
+  Copy,
+  FileText,
+  Folder,
+  GripVertical,
+  Pencil,
+  Plus,
+  Search,
+  Trash2,
+} from "lucide-react";
+
+import {
+  createContentChildAction,
+  deleteContentNodeAction,
+  duplicateContentNodeAction,
+  renameContentNodeAction,
+  reorderContentBranchAction,
+} from "@/app/admin/books/[id]/content/actions";
+import {
+  flattenContentTree,
+  type ContentNodeType,
+  type ContentTreeNode,
+} from "@/lib/content-studio-tree";
+import type { BookStructureNodeType } from "@/lib/book-structure-management";
+
+function realChildren(node: ContentTreeNode) {
+  return node.children.filter((child) => child.type !== "FOLDER");
+}
+
+type TreeActionsState = {
+  key: string | null;
+  type: ContentNodeType | null;
+};
+
+export default function ContentStudioTree({
+  bookId,
+  root,
+  selectedKey,
+}: {
+  bookId: string;
+  root: ContentTreeNode;
+  selectedKey: string;
+}) {
+  const storageKey = `bluegate:content-tree:${bookId}`;
+
+  const selectedPathKeys = useMemo(
+    () =>
+      new Set(
+        findPath(root, selectedKey).map((node) => node.key),
+      ),
+    [root, selectedKey],
+  );
+
+  const [expanded, setExpanded] = useState<Set<string>>(
+    () => new Set([root.key, ...selectedPathKeys]),
+  );
+
+  const [query, setQuery] = useState("");
+  const [pending, startTransition] = useTransition();
+
+  const [activeAdd, setActiveAdd] = useState<TreeActionsState>({
+    key: null,
+    type: null,
+  });
+
+  const [addTitle, setAddTitle] = useState("");
+  const [addType, setAddType] = useState("");
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      try {
+        const stored = sessionStorage.getItem(storageKey);
+        const next = stored
+          ? new Set(JSON.parse(stored) as string[])
+          : new Set<string>();
+
+        next.add(root.key);
+
+        for (const key of selectedPathKeys) {
+          next.add(key);
+        }
+
+        setExpanded(next);
+      } catch {
+        setExpanded(new Set([root.key, ...selectedPathKeys]));
+      }
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, [root.key, selectedPathKeys, storageKey]);
+
+  function commit(next: Set<string>) {
+    setExpanded(next);
+
+    try {
+      sessionStorage.setItem(storageKey, JSON.stringify([...next]));
+    } catch {}
+  }
+
+  const all = useMemo(
+    () =>
+      flattenContentTree(root).filter(
+        (node) => node.type !== "FOLDER",
+      ),
+    [root],
+  );
+
+  const visible = useMemo(
+    () =>
+      query.trim()
+        ? filterTree(root, query.toLowerCase())
+        : root,
+    [query, root],
+  );
+
+  function navigate(event: MouseEvent) {
+    if (
+      document.querySelector("[data-content-editor-dirty='true']") &&
+      !confirm("Discard unsaved changes and select another item?")
+    ) {
+      event.preventDefault();
+    }
+  }
+
+  function keyboard(event: KeyboardEvent<HTMLElement>) {
+    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+      return;
+    }
+
+    const links = [
+      ...event.currentTarget.querySelectorAll<HTMLAnchorElement>(
+        "a[data-tree-link]",
+      ),
+    ];
+
+    const index = links.indexOf(
+      document.activeElement as HTMLAnchorElement,
+    );
+
+    if (!links.length) return;
+
+    event.preventDefault();
+
+    const nextIndex =
+      event.key === "Home"
+        ? 0
+        : event.key === "End"
+          ? links.length - 1
+          : event.key === "ArrowDown"
+            ? Math.min(links.length - 1, index + 1)
+            : Math.max(0, index - 1);
+
+    links[nextIndex]?.focus();
+  }
+
+  return (
+    <div className="flex h-full min-h-0 flex-col bg-white">
+      <div className="shrink-0 border-b border-slate-200 p-2">
+        <div className="relative">
+          <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-slate-400" />
+
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search hierarchy"
+            className="h-7 w-full rounded-lg border border-slate-200 bg-white pl-8 pr-2 text-[10px] text-slate-700 outline-none focus:border-blue-400"
+          />
+        </div>
+
+        <div className="mt-1.5 flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() =>
+              commit(new Set(all.map((node) => node.key)))
+            }
+            className="h-6 rounded-md border border-slate-200 px-2 text-[9px] font-semibold text-slate-500 hover:bg-slate-50"
+          >
+            Expand
+          </button>
+
+          <button
+            type="button"
+            onClick={() =>
+              commit(new Set([root.key, ...selectedPathKeys]))
+            }
+            className="h-6 rounded-md border border-slate-200 px-2 text-[9px] font-semibold text-slate-500 hover:bg-slate-50"
+          >
+            Collapse
+          </button>
+
+          {selectedKey !== root.key ? (
+            <Link
+              href={`/admin/books/${bookId}/content`}
+              onClick={navigate}
+              className="ml-auto px-1.5 text-[9px] font-semibold text-blue-700"
+            >
+              Book root
+            </Link>
+          ) : null}
+        </div>
+      </div>
+
+      <nav
+        aria-label="Content tree"
+        role="tree"
+        onKeyDown={keyboard}
+        className={`min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-1.5 py-1.5 ${
+          pending ? "opacity-70" : ""
+        }`}
+      >
+        <TreeBranch
+          bookId={bookId}
+          node={visible}
+          siblings={[visible]}
+          level={1}
+          selectedKey={selectedKey}
+          expanded={expanded}
+          toggle={(key) => {
+            const next = new Set(expanded);
+
+            if (next.has(key)) next.delete(key);
+            else next.add(key);
+
+            commit(next);
+          }}
+          navigate={navigate}
+          startTransition={startTransition}
+          activeAdd={activeAdd}
+          setActiveAdd={(next) => {
+            setActiveAdd(next);
+
+            if (next.key) {
+              setAddTitle("");
+              setAddType(defaultChildType(next.type));
+            }
+          }}
+          addTitle={addTitle}
+          setAddTitle={setAddTitle}
+          addType={addType}
+          setAddType={setAddType}
+          editingKey={editingKey}
+          setEditingKey={setEditingKey}
+          editTitle={editTitle}
+          setEditTitle={setEditTitle}
+        />
+
+        {query &&
+        !realChildren(visible).length &&
+        !visible.title.toLowerCase().includes(query.toLowerCase()) ? (
+          <p className="p-4 text-center text-[10px] text-slate-500">
+            No matching content.
+          </p>
+        ) : null}
+      </nav>
+    </div>
+  );
+}
+
+function TreeBranch({
+  bookId,
+  node,
+  siblings,
+  level,
+  selectedKey,
+  expanded,
+  toggle,
+  navigate,
+  startTransition,
+  activeAdd,
+  setActiveAdd,
+  addTitle,
+  setAddTitle,
+  addType,
+  setAddType,
+  editingKey,
+  setEditingKey,
+  editTitle,
+  setEditTitle,
+}: {
+  bookId: string;
+  node: ContentTreeNode;
+  siblings: ContentTreeNode[];
+  level: number;
+  selectedKey: string;
+  expanded: Set<string>;
+  toggle: (key: string) => void;
+  navigate: (event: MouseEvent) => void;
+  startTransition: TransitionStartFunction;
+  activeAdd: TreeActionsState;
+  setActiveAdd: (next: TreeActionsState) => void;
+  addTitle: string;
+  setAddTitle: (value: string) => void;
+  addType: string;
+  setAddType: (value: string) => void;
+  editingKey: string | null;
+  setEditingKey: (value: string | null) => void;
+  editTitle: string;
+  setEditTitle: (value: string) => void;
+}) {
+  const children = realChildren(node);
+  const open = expanded.has(node.key);
+  const hasChildren = children.length > 0;
+
+  const Icon =
+    node.type === "BOOK"
+      ? BookOpen
+      : node.type === "TOPIC" || node.type === "MODULE"
+        ? FileText
+        : Folder;
+
+  const selected =
+    selectedKey === node.key ||
+    (node.type === "CHAPTER" &&
+      selectedKey.startsWith(`FOLDER:${node.id}:`));
+
+  const draggable = node.type !== "BOOK";
+  const addOptions = childTypesFor(node.type);
+  const actionableType = node.type as BookStructureNodeType;
+
+  function persistSiblingOrder(sourceId: string, targetId: string) {
+    const sourceIndex = siblings.findIndex((entry) => entry.id === sourceId);
+    const targetIndex = siblings.findIndex((entry) => entry.id === targetId);
+
+    if (
+      sourceIndex < 0 ||
+      targetIndex < 0 ||
+      sourceIndex === targetIndex
+    ) {
+      return;
+    }
+
+    const next = [...siblings];
+    const [moved] = next.splice(sourceIndex, 1);
+    next.splice(targetIndex, 0, moved);
+
+    startTransition(async () => {
+      await reorderContentBranchAction(
+        bookId,
+        actionableType,
+        next.map((entry) => entry.id),
+      );
+    });
+  }
+
+  function submitQuickAdd(
+    event: React.FormEvent<HTMLFormElement>,
+  ) {
+    event.preventDefault();
+
+    const title = addTitle.trim();
+
+    if (!activeAdd.key || !activeAdd.type || !title) return;
+
+    const form = new FormData();
+    form.set(
+      "type",
+      addType || defaultChildType(activeAdd.type),
+    );
+    form.set("title", title);
+
+    startTransition(async () => {
+      await createContentChildAction(
+        bookId,
+        activeAdd.type!,
+        node.id,
+        form,
+      );
+
+      setActiveAdd({
+        key: null,
+        type: null,
+      });
+
+      setAddTitle("");
+    });
+  }
+
+  return (
+    <div
+      role="treeitem"
+      aria-level={level}
+      aria-expanded={hasChildren ? open : undefined}
+      aria-selected={selected}
+    >
+      <div
+        draggable={draggable}
+        onDragStart={(event) => {
+          if (!draggable) return;
+
+          event.dataTransfer.setData("text/plain", node.id);
+          event.dataTransfer.effectAllowed = "move";
+        }}
+        onDragOver={(event) => {
+          if (!draggable) return;
+
+          event.preventDefault();
+          event.dataTransfer.dropEffect = "move";
+        }}
+        onDrop={(event) => {
+          if (!draggable) return;
+
+          event.preventDefault();
+
+          const sourceId =
+            event.dataTransfer.getData("text/plain");
+
+          if (!sourceId || sourceId === node.id) return;
+
+          persistSiblingOrder(sourceId, node.id);
+        }}
+        className={`group relative rounded-md ${
+          selected ? "bg-blue-50" : "hover:bg-slate-50"
+        }`}
+      >
+        <div
+          className="flex min-w-0 items-start"
+          style={{
+            paddingLeft: `${Math.max(2, (level - 1) * 11)}px`,
+          }}
+        >
+          <div className="flex h-7 w-5 shrink-0 items-center justify-center">
+            {hasChildren ? (
+              <button
+                type="button"
+                onClick={() => toggle(node.key)}
+                aria-label={`${open ? "Collapse" : "Expand"} ${node.title}`}
+                className="flex h-5 w-5 items-center justify-center rounded text-slate-400 hover:bg-white hover:text-slate-700"
+              >
+                <ChevronRight
+                  className={`h-3 w-3 transition ${
+                    open ? "rotate-90" : ""
+                  }`}
+                />
+              </button>
+            ) : (
+              <span className="h-5 w-5" />
+            )}
+          </div>
+
+          <span
+            className={`mt-1 flex h-5 w-4 shrink-0 items-center justify-center text-slate-300 opacity-0 transition group-hover:opacity-100 ${
+              draggable ? "cursor-grab" : ""
+            }`}
+            aria-hidden
+          >
+            <GripVertical className="h-3 w-3" />
+          </span>
+
+          <Link
+            data-tree-link
+            href={
+              level === 1 && node.type === "BOOK"
+                ? `/admin/books/${bookId}/content`
+                : `/admin/books/${bookId}/content?selected=${encodeURIComponent(node.key)}`
+            }
+            onClick={navigate}
+            title={node.title}
+            className="flex min-w-0 flex-1 items-start gap-1.5 py-1 pr-1 text-[11px] leading-4 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-blue-500"
+          >
+            <Icon
+              className={`mt-0.5 h-3.5 w-3.5 shrink-0 ${
+                selected ? "text-blue-700" : "text-slate-400"
+              }`}
+            />
+
+            <span
+              className={`min-w-0 break-words font-medium ${
+                node.archived
+                  ? "text-slate-400 line-through"
+                  : selected
+                    ? "font-semibold text-blue-800"
+                    : "text-slate-700"
+              }`}
+            >
+              {node.title}
+            </span>
+          </Link>
+
+          {node.type !== "FOLDER" ? (
+            <div className="mr-0.5 mt-0.5 flex shrink-0 items-center opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100">
+              {childTypesFor(node.type).length ? (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setActiveAdd({
+                      key:
+                        activeAdd.key === node.key
+                          ? null
+                          : node.key,
+                      type: node.type,
+                    })
+                  }
+                  className="flex h-6 w-6 items-center justify-center rounded text-slate-400 hover:bg-white hover:text-blue-700"
+                  aria-label={`Add child under ${node.title}`}
+                >
+                  <Plus className="h-3 w-3" />
+                </button>
+              ) : null}
+
+              {node.type !== "BOOK" ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingKey(node.key);
+                      setEditTitle(node.title);
+                    }}
+                    className="flex h-6 w-6 items-center justify-center rounded text-slate-400 hover:bg-white hover:text-slate-700"
+                    aria-label={`Edit ${node.title}`}
+                  >
+                    <Pencil className="h-3 w-3" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      startTransition(async () => {
+                        await duplicateContentNodeAction(
+                          bookId,
+                          actionableType,
+                          node.id,
+                        );
+                      })
+                    }
+                    className="flex h-6 w-6 items-center justify-center rounded text-slate-400 hover:bg-white hover:text-slate-700"
+                    aria-label={`Duplicate ${node.title}`}
+                  >
+                    <Copy className="h-3 w-3" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!confirm(`Delete "${node.title}"?`)) return;
+
+                      if (
+                        !confirm(
+                          `Permanently delete "${node.title}"? This cannot be undone.`,
+                        )
+                      ) {
+                        return;
+                      }
+
+                      startTransition(async () => {
+                        await deleteContentNodeAction(
+                          bookId,
+                          actionableType,
+                          node.id,
+                          node.title,
+                        );
+                      });
+                    }}
+                    className="flex h-6 w-6 items-center justify-center rounded text-slate-400 hover:bg-white hover:text-rose-700"
+                    aria-label={`Delete ${node.title}`}
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </button>
+                </>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+
+        {editingKey === node.key ? (
+          <form
+            className="mb-1.5 ml-8 mr-1 flex gap-1"
+            onSubmit={(event) => {
+              event.preventDefault();
+
+              if (!editTitle.trim() || node.type === "BOOK") return;
+
+              startTransition(async () => {
+                await renameContentNodeAction(
+                  bookId,
+                  actionableType,
+                  node.id,
+                  editTitle,
+                );
+
+                setEditingKey(null);
+              });
+            }}
+          >
+            <input
+              autoFocus
+              value={editTitle}
+              onChange={(event) => setEditTitle(event.target.value)}
+              className="h-7 min-w-0 flex-1 rounded-md border border-slate-200 px-2 text-[10px] outline-none focus:border-blue-400"
+              aria-label={`Rename ${node.title}`}
+            />
+
+            <button
+              type="submit"
+              className="h-7 rounded-md bg-slate-900 px-2 text-[9px] font-semibold text-white"
+            >
+              Save
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setEditingKey(null)}
+              className="h-7 rounded-md border border-slate-200 px-2 text-[9px] font-semibold text-slate-500"
+            >
+              Cancel
+            </button>
+          </form>
+        ) : null}
+
+        {activeAdd.key === node.key && addOptions.length ? (
+          <form
+            onSubmit={submitQuickAdd}
+            className="mb-1.5 ml-8 mr-1 rounded-lg border border-slate-200 bg-white p-1.5 shadow-sm"
+          >
+            <div className="grid gap-1">
+              <select
+                value={addType}
+                onChange={(event) => setAddType(event.target.value)}
+                className="h-7 rounded-md border border-slate-200 px-2 text-[10px] outline-none focus:border-blue-400"
+              >
+                {addOptions.map((option) => (
+                  <option key={option} value={option}>
+                    {prettyType(option)}
+                  </option>
+                ))}
+              </select>
+
+              <input
+                value={addTitle}
+                onChange={(event) => setAddTitle(event.target.value)}
+                placeholder="Name"
+                className="h-7 rounded-md border border-slate-200 px-2 text-[10px] outline-none focus:border-blue-400"
+              />
+
+              <div className="flex gap-1">
+                <button
+                  type="submit"
+                  className="h-6 rounded-md bg-slate-900 px-2 text-[9px] font-semibold text-white"
+                >
+                  Add
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setActiveAdd({
+                      key: null,
+                      type: null,
+                    })
+                  }
+                  className="h-6 rounded-md border border-slate-200 px-2 text-[9px] font-semibold text-slate-500"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </form>
+        ) : null}
+      </div>
+
+      {hasChildren && open ? (
+        <div role="group">
+          {children.map((child) => (
+            <TreeBranch
+              key={child.key}
+              bookId={bookId}
+              node={child}
+              siblings={children}
+              level={level + 1}
+              selectedKey={selectedKey}
+              expanded={expanded}
+              toggle={toggle}
+              navigate={navigate}
+              startTransition={startTransition}
+              activeAdd={activeAdd}
+              setActiveAdd={setActiveAdd}
+              addTitle={addTitle}
+              setAddTitle={setAddTitle}
+              addType={addType}
+              setAddType={setAddType}
+              editingKey={editingKey}
+              setEditingKey={setEditingKey}
+              editTitle={editTitle}
+              setEditTitle={setEditTitle}
+            />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function filterTree(
+  node: ContentTreeNode,
+  query: string,
+): ContentTreeNode {
+  const children = realChildren(node)
+    .map((child) => filterTree(child, query))
+    .filter(
+      (child) =>
+        child.title.toLowerCase().includes(query) ||
+        child.children.length,
+    );
+
+  return {
+    ...node,
+    children,
+  };
+}
+
+function childTypesFor(type: ContentNodeType) {
+  const options: Record<ContentNodeType, string[]> = {
+    BOOK: ["PART", "UNIT", "CHAPTER"],
+    PART: ["UNIT", "CHAPTER"],
+    UNIT: ["CHAPTER"],
+    CHAPTER: ["MODULE", "TOPIC"],
+    MODULE: ["TOPIC"],
+    TOPIC: [],
+    FOLDER: [],
+  };
+
+  return options[type] ?? [];
+}
+
+function defaultChildType(type: ContentNodeType | null) {
+  return childTypesFor(type ?? "FOLDER")[0] ?? "CHAPTER";
+}
+
+function prettyType(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function findPath(
+  root: ContentTreeNode,
+  key: string,
+): ContentTreeNode[] {
+  if (root.key === key) return [root];
+
+  for (const child of root.children) {
+    const path = findPath(child, key);
+
+    if (path.length) {
+      return [root, ...path];
+    }
+  }
+
+  return [];
+}
+
+
+============================================================
+FILE: lib\content-studio-tree.ts
+============================================================
+
+export type ContentNodeType = "BOOK" | "PART" | "UNIT" | "CHAPTER" | "MODULE" | "TOPIC" | "FOLDER";
+export type VirtualFolderKind =
+  | "outcomes"
+  | "activities"
+  | "worksheets"
+  | "exercises"
+  | "questions"
+  | "assessments"
+  | "resources"
+  | "media"
+  | "qr";
+export type FolderScopeType = "CHAPTER" | "MODULE" | "TOPIC";
+export type ContentTreeNode = {
+  key: string;
+  id: string;
+  type: ContentNodeType;
+  title: string;
+  archived?: boolean;
+  folderKind?: VirtualFolderKind;
+  scopeType?: FolderScopeType;
+  chapterId?: string;
+  moduleId?: string;
+  topicId?: string;
+  count?: number;
+  children: ContentTreeNode[];
+};
+
+type Item = { id: string; title: string; archived: boolean };
+type Chapter = Item & {
+  partId: string | null;
+  unitId: string | null;
+  sortOrder: number;
+  counts: Record<VirtualFolderKind, number>;
+};
+type Module = Item & {
+  chapterId: string;
+  displayOrder: number;
+  counts?: Partial<Record<VirtualFolderKind, number>>;
+};
+type Topic = Item & {
+  chapterId: string;
+  moduleId: string | null;
+  displayOrder: number;
+  counts?: Partial<Record<VirtualFolderKind, number>>;
+};
+
+export type ContentTreeInput = {
+  book: { id: string; title: string };
+  parts: Array<Item & { displayOrder: number }>;
+  units: Array<Item & { partId: string | null; displayOrder: number }>;
+  chapters: Chapter[];
+  modules: Module[];
+  topics: Topic[];
+};
+
+const chapterFolders: Array<[VirtualFolderKind, string]> = [
+  ["outcomes", "Chapter-Level Outcomes"],
+  ["activities", "Chapter-Level Activities"],
+  ["worksheets", "Chapter-Level Worksheets"],
+  ["exercises", "Chapter-End Exercise"],
+  ["questions", "Chapter-Level Questions"],
+  ["resources", "Chapter Resources"],
+  ["media", "Chapter Media"],
+];
+
+const moduleFolders: Array<[VirtualFolderKind, string]> = [
+  ["outcomes", "Learning Outcomes"],
+  ["activities", "Activities"],
+  ["worksheets", "Worksheets"],
+  ["exercises", "Exercises"],
+  ["questions", "Questions"],
+  ["resources", "Resources"],
+  ["media", "Media"],
+];
+
+const byOrder = <T extends Item & { displayOrder?: number; sortOrder?: number }>(items: T[]) =>
+  [...items].sort(
+    (a, b) =>
+      (a.displayOrder ?? a.sortOrder ?? 0) - (b.displayOrder ?? b.sortOrder ?? 0) ||
+      a.title.localeCompare(b.title),
+  );
+
+function makeFolderNode(input: {
+  scopeType: FolderScopeType;
+  chapterId: string;
+  moduleId?: string;
+  topicId?: string;
+  folderKind: VirtualFolderKind;
+  title: string;
+  count?: number;
+}): ContentTreeNode {
+  if (input.scopeType === "CHAPTER") {
+    return {
+      key: `FOLDER:${input.chapterId}:${input.folderKind}`,
+      id: `${input.chapterId}:${input.folderKind}`,
+      type: "FOLDER",
+      title: input.title,
+      folderKind: input.folderKind,
+      scopeType: "CHAPTER",
+      chapterId: input.chapterId,
+      count: input.count,
+      children: [],
+    };
+  }
+  if (input.scopeType === "MODULE") {
+    return {
+      key: `FOLDER:MODULE:${input.moduleId}:${input.folderKind}`,
+      id: `${input.moduleId}:${input.folderKind}`,
+      type: "FOLDER",
+      title: input.title,
+      folderKind: input.folderKind,
+      scopeType: "MODULE",
+      chapterId: input.chapterId,
+      moduleId: input.moduleId,
+      count: input.count,
+      children: [],
+    };
+  }
+  return {
+    key: `FOLDER:TOPIC:${input.topicId}:${input.folderKind}`,
+    id: `${input.topicId}:${input.folderKind}`,
+    type: "FOLDER",
+    title: input.title,
+    folderKind: input.folderKind,
+    scopeType: "TOPIC",
+    chapterId: input.chapterId,
+    moduleId: input.moduleId,
+    topicId: input.topicId,
+    count: input.count,
+    children: [],
+  };
+}
+
+export function buildContentStudioTree(input: ContentTreeInput): ContentTreeNode {
+  const topicNode = (topic: Topic): ContentTreeNode => ({
+    key: `TOPIC:${topic.id}`,
+    id: topic.id,
+    type: "TOPIC",
+    title: topic.title,
+    archived: topic.archived,
+    children: moduleFolders.map(([folderKind, title]) =>
+      makeFolderNode({
+        scopeType: "TOPIC",
+        chapterId: topic.chapterId,
+        moduleId: topic.moduleId ?? undefined,
+        topicId: topic.id,
+        folderKind,
+        title,
+        count: topic.counts?.[folderKind] ?? 0,
+      }),
+    ),
+  });
+
+  const moduleNode = (module: Module): ContentTreeNode => ({
+    key: `MODULE:${module.id}`,
+    id: module.id,
+    type: "MODULE",
+    title: module.title,
+    archived: module.archived,
+    children: [
+      ...byOrder(input.topics.filter((topic) => topic.moduleId === module.id)).map(topicNode),
+      ...moduleFolders.map(([folderKind, title]) =>
+        makeFolderNode({
+          scopeType: "MODULE",
+          chapterId: module.chapterId,
+          moduleId: module.id,
+          folderKind,
+          title,
+          count: module.counts?.[folderKind] ?? 0,
+        }),
+      ),
+    ],
+  });
+
+  const chapterNode = (chapter: Chapter): ContentTreeNode => ({
+    key: `CHAPTER:${chapter.id}`,
+    id: chapter.id,
+    type: "CHAPTER",
+    title: chapter.title,
+    archived: chapter.archived,
+    children: [
+      ...byOrder(input.modules.filter((module) => module.chapterId === chapter.id)).map(moduleNode),
+      ...byOrder(input.topics.filter((topic) => topic.chapterId === chapter.id && !topic.moduleId)).map(topicNode),
+      ...chapterFolders.map(([folderKind, title]) =>
+        makeFolderNode({
+          scopeType: "CHAPTER",
+          chapterId: chapter.id,
+          folderKind,
+          title,
+          count: chapter.counts[folderKind],
+        }),
+      ),
+    ],
+  });
+
+  const unitNode = (unit: ContentTreeInput["units"][number]): ContentTreeNode => ({
+    key: `UNIT:${unit.id}`,
+    id: unit.id,
+    type: "UNIT",
+    title: unit.title,
+    archived: unit.archived,
+    children: byOrder(input.chapters.filter((chapter) => chapter.unitId === unit.id)).map(chapterNode),
+  });
+
+  const partNode = (part: ContentTreeInput["parts"][number]): ContentTreeNode => ({
+    key: `PART:${part.id}`,
+    id: part.id,
+    type: "PART",
+    title: part.title,
+    archived: part.archived,
+    children: [
+      ...byOrder(input.units.filter((unit) => unit.partId === part.id)).map(unitNode),
+      ...byOrder(input.chapters.filter((chapter) => chapter.partId === part.id && !chapter.unitId)).map(chapterNode),
+    ],
+  });
+
+  return {
+    key: `BOOK:${input.book.id}`,
+    id: input.book.id,
+    type: "BOOK",
+    title: input.book.title,
+    children: [
+      ...byOrder(input.parts).map(partNode),
+      ...byOrder(input.units.filter((unit) => !unit.partId)).map(unitNode),
+      ...byOrder(input.chapters.filter((chapter) => !chapter.partId && !chapter.unitId)).map(chapterNode),
+    ],
+  };
+}
+
+export function flattenContentTree(root: ContentTreeNode) {
+  const result: ContentTreeNode[] = [];
+  const visit = (node: ContentTreeNode) => {
+    result.push(node);
+    node.children.forEach(visit);
+  };
+  visit(root);
+  return result;
+}
+
+
+
+============================================================
+FILE: app\admin\books\[id]\content\actions.ts
+============================================================
+
+"use server";
+
+import {
+  BookPartKind,
+  ContentReleaseTargetType,
+  CurriculumDifficultyLevel,
+  CurriculumExerciseType,
+  Prisma,
+  PublisherActivityType,
+  PublisherWorksheetType,
+  SecurityAuditOutcome,
+} from "@prisma/client";
+import { revalidatePath } from "next/cache";
+
+import {
+  duplicateBookStructureNode,
+  deleteBookStructureNode,
+  moveBookStructureNode,
+  renameBookStructureNode,
+  reorderBookStructureNodes,
+  saveBookStructureNode,
+  setBookStructureNodeArchived,
+  type BookStructureNodeType,
+} from "@/lib/book-structure-management";
+import { normalizeContentDocument } from "@/lib/content-document";
+import {
+  ensurePublisherResource,
+  normalizeKnowledgeTags,
+  normalizeKnowledgeText,
+  requireKnowledgeBookScope,
+  searchKnowledgeDefinitions,
+  slugifyKnowledge,
+  validateKnowledgeDocument,
+} from "@/lib/content-knowledge";
+import type { KnowledgeReferenceType } from "@/lib/content-knowledge-types";
+import {
+  assertExerciseScope,
+  assertQuestionPayload,
+  assertQuestionRelations,
+  normalizeQuestionOptions,
+} from "@/lib/exercise-authoring";
+import {
+  EXERCISE_QUESTION_TYPES,
+  type ExerciseQuestionType,
+} from "@/lib/exercise-authoring-types";
+import {
+  getContentNodeScope,
+  normalizeAllowedAssetKinds,
+  normalizeContentSectionAudience,
+  normalizeContentSectionIcon,
+  normalizeSectionContexts,
+  validateLinkedAssetDocument,
+} from "@/lib/content-linked-assets";
+import { validateMediaDocument } from "@/lib/content-media";
+import {
+  bulkPublishRelease,
+  rollbackRelease,
+  transitionRelease,
+} from "@/lib/content-release";
+import {
+  CONTENT_SECTION_AUDIENCES,
+  CONTENT_SECTION_ICONS,
+} from "@/lib/content-linked-asset-types";
+import {
+  archiveActivityStudioRecord,
+  duplicateActivityStudioRecord,
+  moveActivityStudioRecord,
+  saveActivityStudioRecord,
+} from "@/lib/activity-studio";
+import {
+  ACTIVITY_AUDIENCES,
+  ACTIVITY_DIFFICULTIES,
+  ACTIVITY_TYPES,
+  type ActivityAudience,
+  type ActivityDifficulty,
+} from "@/lib/activity-studio-types";
+import {
+  archiveWorksheetStudioRecord,
+  createWorksheetExercise,
+  duplicateWorksheetStudioRecord,
+  moveWorksheetStudioRecord,
+  saveWorksheetStudioRecord,
+} from "@/lib/worksheet-studio";
+import {
+  WORKSHEET_AUDIENCES,
+  WORKSHEET_DIFFICULTIES,
+  WORKSHEET_TYPES,
+  type WorksheetAudience,
+  type WorksheetDifficulty,
+} from "@/lib/worksheet-studio-types";
+import { prisma } from "@/lib/prisma";
+import { requireLivePublisherAdmin } from "@/lib/publisher-admin-authorization";
+import { publisherAdminAuditActor, writeSecurityAuditEvent } from "@/lib/security-audit";
+
+const text = (form: FormData, key: string, max = 4000) =>
+  String(form.get(key) ?? "").trim().slice(0, max);
+
+const nullable = (form: FormData, key: string, max?: number) =>
+  text(form, key, max) || null;
+
+const integer = (form: FormData, key: string) => {
+  const value = Number(form.get(key));
+  return Number.isInteger(value) && value >= 0 ? value : null;
+};
+
+const signedInteger = (form: FormData, key: string) => {
+  const value = Number(form.get(key));
+  return Number.isInteger(value) ? value : null;
+};
+
+function refresh(bookId: string) {
+  revalidatePath(`/admin/books/${bookId}/content`);
+}
+
+function slugCode(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+}
+
+function stringList(form: FormData, key: string) {
+  return form
+    .getAll(key)
+    .map((value) => String(value).trim())
+    .filter(Boolean);
+}
+
+function newlineList(form: FormData, key: string) {
+  return text(form, key, 12000)
+    .split("\n")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function oneOf<const Values extends readonly string[]>(
+  value: string,
+  allowed: Values,
+  fallback: Values[number],
+): Values[number] {
+  return allowed.includes(value) ? value as Values[number] : fallback;
+}
+
+async function requireOwnedBook(bookId: string, publisherId: string) {
+  const book = await prisma.book.findFirst({
+    where: { id: bookId, publisherId },
+    select: { id: true },
+  });
+  if (!book) throw new Error("Book not found.");
+  return book;
+}
+
+async function recordActivityStudioAudit(
+  actor: Awaited<ReturnType<typeof requireLivePublisherAdmin>>,
+  bookId: string,
+  action: "publisher.book.update" | "publisher.book.delete",
+  changedFields: string[],
+) {
+  await prisma.$transaction(async (tx) => {
+    await writeSecurityAuditEvent(tx, {
+      actor: publisherAdminAuditActor(actor),
+      action,
+      targetType: "Book",
+      targetId: bookId,
+      outcome: SecurityAuditOutcome.SUCCESS,
+      metadata: { changedFields },
+    });
+  });
+}
+
+async function recordContentReleaseAudit(
+  actor: Awaited<ReturnType<typeof requireLivePublisherAdmin>>,
+  bookId: string,
+  targetType: string,
+  targetId: string,
+  releaseAction: string,
+) {
+  await prisma.$transaction(async (tx) => {
+    await writeSecurityAuditEvent(tx, {
+      actor: publisherAdminAuditActor(actor),
+      action: "publisher.book.update",
+      targetType: "Book",
+      targetId: bookId,
+      outcome: SecurityAuditOutcome.SUCCESS,
+      metadata: {
+        changedFields: ["contentRelease"],
+        releaseAction,
+        releaseTargetType: targetType,
+        releaseTargetId: targetId,
+      },
+    });
+  });
+}
+
+async function normalizeFormContent(
+  scope: Awaited<ReturnType<typeof getContentNodeScope>>,
+  form: FormData,
+  preserved: Prisma.JsonValue | null,
+): Promise<Prisma.InputJsonValue | null> {
+  const raw = form.get("content");
+  if (raw === null) return preserved;
+  const document = normalizeContentDocument(String(raw));
+  const linkedAssetDocument = await validateLinkedAssetDocument(scope, document);
+  const mediaDocument = await validateMediaDocument(scope, linkedAssetDocument);
+  return (await validateKnowledgeDocument(scope, mediaDocument)) as unknown as Prisma.InputJsonValue;
+}
+
+export async function saveContentNodeAction(
+  bookId: string,
+  type: BookStructureNodeType,
+  id: string,
+  form: FormData,
+) {
+  const actor = await requireLivePublisherAdmin();
+  let preserved: {
+    parentId?: string | null;
+    secondaryParentId?: string | null;
+    shortTitle: string | null;
+    code: string | null;
+    content: Prisma.JsonValue | null;
+    imageUrl: string | null;
+    pageStart?: number | null;
+    pageEnd?: number | null;
+    partKind?: BookPartKind;
+  };
+
+  if (type === "PART") {
+    const row = await prisma.bookPart.findFirst({
+      where: { id, bookId },
+      select: { shortTitle: true, code: true, content: true, imageUrl: true, kind: true },
+    });
+    if (!row) throw new Error("Part not found.");
+    preserved = { ...row, partKind: row.kind };
+  } else if (type === "UNIT") {
+    const row = await prisma.bookUnit.findFirst({
+      where: { id, bookId },
+      select: { partId: true, shortTitle: true, code: true, content: true, imageUrl: true },
+    });
+    if (!row) throw new Error("Unit not found.");
+    preserved = { ...row, parentId: row.partId };
+  } else if (type === "CHAPTER") {
+    const row = await prisma.bookChapter.findFirst({
+      where: { id, bookId },
+      select: {
+        unitId: true,
+        partId: true,
+        shortTitle: true,
+        content: true,
+        thumbnail: true,
+        startPage: true,
+        endPage: true,
+      },
+    });
+    if (!row) throw new Error("Chapter not found.");
+    preserved = {
+      parentId: row.unitId,
+      secondaryParentId: row.partId,
+      shortTitle: row.shortTitle,
+      code: null,
+      content: row.content,
+      imageUrl: row.thumbnail,
+      pageStart: row.startPage,
+      pageEnd: row.endPage,
+    };
+  } else if (type === "MODULE") {
+    const row = await prisma.bookModule.findFirst({
+      where: { id, bookId },
+      select: { chapterId: true, shortTitle: true, code: true, content: true, imageUrl: true },
+    });
+    if (!row) throw new Error("Module not found.");
+    preserved = { ...row, parentId: row.chapterId };
+  } else {
+    const row = await prisma.bookTopic.findFirst({
+      where: { id, bookId },
+      select: {
+        chapterId: true,
+        moduleId: true,
+        shortTitle: true,
+        code: true,
+        content: true,
+        imageUrl: true,
+      },
+    });
+    if (!row) throw new Error("Topic not found.");
+    preserved = { ...row, parentId: row.chapterId, secondaryParentId: row.moduleId };
+  }
+
+  const scope = await getContentNodeScope(actor.publisherId, bookId, type, id);
+
+  await saveBookStructureNode(bookId, {
+    type,
+    id,
+    parentId: preserved.parentId,
+    secondaryParentId: preserved.secondaryParentId,
+    title: text(form, "title", 200),
+    subtitle: nullable(form, "subtitle", 240),
+    shortTitle: preserved.shortTitle,
+    code: preserved.code,
+    slug: nullable(form, "slug", 180),
+    label: nullable(form, "label", 80),
+    description: nullable(form, "description", 2000),
+    content: await normalizeFormContent(scope, form, preserved.content),
+    estimatedMinutes: integer(form, "estimatedMinutes"),
+    pageStart: preserved.pageStart,
+    pageEnd: preserved.pageEnd,
+    imageUrl: preserved.imageUrl,
+    published: form.get("published") === "on",
+    partKind: preserved.partKind,
+  });
+  refresh(bookId);
+  return {
+    savedAt: new Date().toISOString(),
+    nodeId: id,
+  };
+}
+
+export async function changeContentReleaseAction(
+  bookId: string,
+  targetType: ContentReleaseTargetType,
+  targetId: string,
+  action: "SUBMIT_REVIEW" | "RETURN_DRAFT" | "APPROVE" | "PUBLISH" | "UNPUBLISH" | "ARCHIVE" | "RESTORE",
+  form: FormData,
+) {
+  const actor = await requireLivePublisherAdmin();
+  await requireOwnedBook(bookId, actor.publisherId);
+  if (!Object.values(ContentReleaseTargetType).includes(targetType)) {
+    throw new Error("Unsupported release target.");
+  }
+  await transitionRelease({
+    actor: { userId: actor.userId, publisherId: actor.publisherId },
+    bookId,
+    targetType,
+    targetId,
+    action,
+    releaseNotes: nullable(form, "releaseNotes", 2000),
+    confirm: form.get("confirm") === "on",
+  });
+  await recordContentReleaseAudit(
+    actor,
+    bookId,
+    targetType,
+    targetId,
+    `publisher.content.release.${action.toLowerCase()}`,
+  );
+  refresh(bookId);
+}
+
+export async function rollbackContentReleaseAction(
+  bookId: string,
+  targetType: ContentReleaseTargetType,
+  targetId: string,
+  versionId: string,
+  form: FormData,
+) {
+  const actor = await requireLivePublisherAdmin();
+  await requireOwnedBook(bookId, actor.publisherId);
+  await rollbackRelease({
+    actor: { userId: actor.userId, publisherId: actor.publisherId },
+    bookId,
+    targetType,
+    targetId,
+    versionId,
+    releaseNotes: nullable(form, "releaseNotes", 2000),
+    confirm: form.get("confirm") === "on",
+  });
+  await recordContentReleaseAudit(
+    actor,
+    bookId,
+    targetType,
+    targetId,
+    "publisher.content.release.rollback",
+  );
+  refresh(bookId);
+}
+
+export async function bulkPublishContentReleaseAction(
+  bookId: string,
+  targetType: "BOOK" | "CHAPTER",
+  targetId: string,
+  form: FormData,
+) {
+  const actor = await requireLivePublisherAdmin();
+  await requireOwnedBook(bookId, actor.publisherId);
+  await bulkPublishRelease({
+    actor: { userId: actor.userId, publisherId: actor.publisherId },
+    bookId,
+    targetType,
+    targetId,
+    releaseNotes: nullable(form, "releaseNotes", 2000),
+    confirm: form.get("confirm") === "on",
+  });
+  await recordContentReleaseAudit(
+    actor,
+    bookId,
+    targetType,
+    targetId,
+    "publisher.content.release.bulk_publish",
+  );
+  refresh(bookId);
+}
+
+export async function saveActivityStudioAction(bookId: string, chapterId: string, form: FormData) {
+  const actor = await requireLivePublisherAdmin();
+  await requireOwnedBook(bookId, actor.publisherId);
+  const activityType = oneOf(text(form, "activityType", 40), ACTIVITY_TYPES, "CLASSROOM_ACTIVITY");
+  const audience = oneOf(text(form, "audience", 20), ACTIVITY_AUDIENCES, "BOTH");
+  const rawDifficulty = text(form, "difficulty", 40);
+  const difficulty = rawDifficulty
+    ? oneOf(rawDifficulty, ACTIVITY_DIFFICULTIES, "MODERATE")
+    : null;
+  const activityId = await saveActivityStudioRecord({
+    actor: { userId: actor.userId, publisherId: actor.publisherId },
+    bookId,
+    data: {
+      id: nullable(form, "id", 100),
+      chapterId,
+      moduleId: nullable(form, "moduleId", 100),
+      topicId: nullable(form, "topicId", 100),
+      title: text(form, "title", 200),
+      activityType: activityType as PublisherActivityType,
+      shortDescription: nullable(form, "shortDescription", 500),
+      objective: text(form, "objective", 2000),
+      materials: nullable(form, "materials", 2000),
+      durationMinutes: integer(form, "durationMinutes"),
+      groupType: nullable(form, "groupType", 80),
+      preparation: nullable(form, "preparation", 2000),
+      instructions: text(form, "instructions", 6000),
+      steps: newlineList(form, "steps"),
+      observationPrompts: newlineList(form, "observationPrompts"),
+      reflectionPrompts: newlineList(form, "reflectionPrompts"),
+      expectedLearning: nullable(form, "expectedLearning", 2000),
+      assessment: nullable(form, "assessment", 2000),
+      safetyNotes: nullable(form, "safetyNotes", 2000),
+      teacherGuidance: nullable(form, "teacherGuidance", 3000),
+      studentInstructions: nullable(form, "studentInstructions", 3000),
+      attachmentResourceIds: stringList(form, "attachmentResourceIds"),
+      imageResourceId: nullable(form, "imageResourceId", 100),
+      videoResourceId: nullable(form, "videoResourceId", 100),
+      diagramResourceId: nullable(form, "diagramResourceId", 100),
+      audience: audience as ActivityAudience,
+      difficulty: difficulty as ActivityDifficulty | null,
+      active: form.get("active") === "on",
+      published: form.get("published") === "on",
+      sortOrder: integer(form, "sortOrder"),
+    },
+  });
+  await recordActivityStudioAudit(actor, bookId, "publisher.book.update", ["book_content", "activity"]);
+  refresh(bookId);
+  revalidatePath(`/admin/books/${bookId}/activities`);
+  return activityId;
+}
+
+export async function archiveActivityStudioAction(bookId: string, activityId: string) {
+  const actor = await requireLivePublisherAdmin();
+  await requireOwnedBook(bookId, actor.publisherId);
+  await archiveActivityStudioRecord({
+    actor: { userId: actor.userId, publisherId: actor.publisherId },
+    bookId,
+    activityId,
+  });
+  await recordActivityStudioAudit(actor, bookId, "publisher.book.delete", ["book_content", "activity", "archive"]);
+  refresh(bookId);
+  revalidatePath(`/admin/books/${bookId}/activities`);
+}
+
+export async function duplicateActivityStudioAction(bookId: string, activityId: string) {
+  const actor = await requireLivePublisherAdmin();
+  await requireOwnedBook(bookId, actor.publisherId);
+  await duplicateActivityStudioRecord({
+    actor: { userId: actor.userId, publisherId: actor.publisherId },
+    bookId,
+    activityId,
+  });
+  await recordActivityStudioAudit(actor, bookId, "publisher.book.update", ["book_content", "activity", "duplicate"]);
+  refresh(bookId);
+  revalidatePath(`/admin/books/${bookId}/activities`);
+}
+
+export async function moveActivityStudioAction(
+  bookId: string,
+  chapterId: string,
+  moduleId: string | null,
+  topicId: string | null,
+  activityId: string,
+  direction: -1 | 1,
+) {
+  const actor = await requireLivePublisherAdmin();
+  await requireOwnedBook(bookId, actor.publisherId);
+  await moveActivityStudioRecord({
+    actor: { userId: actor.userId, publisherId: actor.publisherId },
+    bookId,
+    chapterId,
+    moduleId,
+    topicId,
+    activityId,
+    direction,
+  });
+  await recordActivityStudioAudit(actor, bookId, "publisher.book.update", ["book_content", "activity", "reorder"]);
+  refresh(bookId);
+  revalidatePath(`/admin/books/${bookId}/activities`);
+}
+
+export async function saveWorksheetStudioAction(bookId: string, chapterId: string, form: FormData) {
+  const actor = await requireLivePublisherAdmin();
+  await requireOwnedBook(bookId, actor.publisherId);
+  const worksheetType = oneOf(text(form, "type", 40), WORKSHEET_TYPES, "CLASSROOM");
+  const audience = oneOf(text(form, "audience", 20), WORKSHEET_AUDIENCES, "BOTH");
+  const rawDifficulty = text(form, "difficulty", 40);
+  const difficulty = rawDifficulty ? oneOf(rawDifficulty, WORKSHEET_DIFFICULTIES, "MODERATE") : null;
+  const worksheetId = await saveWorksheetStudioRecord({
+    actor: { userId: actor.userId, publisherId: actor.publisherId },
+    bookId,
+    data: {
+      id: nullable(form, "id", 100),
+      chapterId,
+      moduleId: nullable(form, "moduleId", 100),
+      topicId: nullable(form, "topicId", 100),
+      exerciseId: nullable(form, "exerciseId", 100),
+      printableResourceId: nullable(form, "printableResourceId", 100),
+      answerKeyResourceId: nullable(form, "answerKeyResourceId", 100),
+      supportingResourceIds: stringList(form, "supportingResourceIds"),
+      title: text(form, "title", 200),
+      slug: nullable(form, "slug", 120),
+      type: worksheetType as PublisherWorksheetType,
+      instructions: nullable(form, "instructions", 6000),
+      estimatedMinutes: integer(form, "estimatedMinutes"),
+      difficulty: difficulty as WorksheetDifficulty | null,
+      audience: audience as WorksheetAudience,
+      totalMarks: integer(form, "totalMarks"),
+      allowOnlineAttempt: form.get("allowOnlineAttempt") === "on",
+      allowPrint: form.get("allowPrint") === "on",
+      showAnswersAfterSubmit: form.get("showAnswersAfterSubmit") === "on",
+      active: form.get("active") === "on",
+      published: form.get("published") === "on",
+      sortOrder: integer(form, "sortOrder"),
+    },
+  });
+  await recordActivityStudioAudit(actor, bookId, "publisher.book.update", ["book_content", "worksheet"]);
+  refresh(bookId);
+  return worksheetId;
+}
+
+export async function archiveWorksheetStudioAction(bookId: string, worksheetId: string) {
+  const actor = await requireLivePublisherAdmin();
+  await requireOwnedBook(bookId, actor.publisherId);
+  await archiveWorksheetStudioRecord({ actor: { userId: actor.userId, publisherId: actor.publisherId }, bookId, worksheetId });
+  await recordActivityStudioAudit(actor, bookId, "publisher.book.delete", ["book_content", "worksheet", "archive"]);
+  refresh(bookId);
+}
+
+export async function duplicateWorksheetStudioAction(bookId: string, worksheetId: string) {
+  const actor = await requireLivePublisherAdmin();
+  await requireOwnedBook(bookId, actor.publisherId);
+  await duplicateWorksheetStudioRecord({ actor: { userId: actor.userId, publisherId: actor.publisherId }, bookId, worksheetId });
+  await recordActivityStudioAudit(actor, bookId, "publisher.book.update", ["book_content", "worksheet", "duplicate"]);
+  refresh(bookId);
+}
+
+export async function moveWorksheetStudioAction(
+  bookId: string,
+  chapterId: string,
+  moduleId: string | null,
+  topicId: string | null,
+  worksheetId: string,
+  direction: -1 | 1,
+) {
+  const actor = await requireLivePublisherAdmin();
+  await requireOwnedBook(bookId, actor.publisherId);
+  await moveWorksheetStudioRecord({
+    actor: { userId: actor.userId, publisherId: actor.publisherId },
+    bookId,
+    chapterId,
+    moduleId,
+    topicId,
+    worksheetId,
+    direction,
+  });
+  await recordActivityStudioAudit(actor, bookId, "publisher.book.update", ["book_content", "worksheet", "reorder"]);
+  refresh(bookId);
+}
+
+export async function createWorksheetExerciseAction(bookId: string, chapterId: string, form: FormData) {
+  const actor = await requireLivePublisherAdmin();
+  await requireOwnedBook(bookId, actor.publisherId);
+  const exerciseId = await createWorksheetExercise({
+    actor: { userId: actor.userId, publisherId: actor.publisherId },
+    bookId,
+    chapterId,
+    title: text(form, "title", 200) || "Worksheet Exercise",
+    moduleId: nullable(form, "moduleId", 100),
+    topicId: nullable(form, "topicId", 100),
+  });
+  await recordActivityStudioAudit(actor, bookId, "publisher.book.update", ["book_content", "worksheet", "exercise"]);
+  refresh(bookId);
+  return exerciseId;
+}
+
+export async function saveContentSectionDefinitionAction(bookId: string, form: FormData) {
+  const actor = await requireLivePublisherAdmin();
+  await requireOwnedBook(bookId, actor.publisherId);
+
+  const id = nullable(form, "id", 100);
+  const label = text(form, "label", 160);
+  if (!label) throw new Error("Section label is required.");
+
+  const rawCode = text(form, "code", 80) || label;
+  const code = slugCode(rawCode);
+  if (!code) throw new Error("Section code is required.");
+
+  const audience = normalizeContentSectionAudience(
+    oneOf(text(form, "audience", 20), CONTENT_SECTION_AUDIENCES, "BOTH"),
+  );
+  const icon = normalizeContentSectionIcon(
+    oneOf(text(form, "icon", 40), CONTENT_SECTION_ICONS, "layers"),
+  );
+  const allowedAssetKinds = normalizeAllowedAssetKinds(stringList(form, "allowedAssetKinds"));
+  const visibleIn = normalizeSectionContexts(stringList(form, "visibleIn"));
+  const requestedSortOrder = integer(form, "sortOrder");
+
+  if (id) {
+    const existing = await prisma.contentSectionDefinition.findFirst({
+      where: {
+        id,
+        publisherId: actor.publisherId,
+        OR: [{ bookId }, { bookId: null }],
+      },
+      select: { id: true, bookId: true, archivedAt: true },
+    });
+    if (!existing || existing.archivedAt) throw new Error("Section definition not found.");
+
+    await prisma.contentSectionDefinition.update({
+      where: { id },
+      data: {
+        code,
+        label,
+        icon,
+        audience,
+        allowedAssetKinds,
+        visibleIn,
+        sortOrder: requestedSortOrder ?? 0,
+        active: form.get("active") === "on",
+        published: form.get("published") === "on",
+      },
+    });
+    refresh(bookId);
+    return;
+  }
+
+  const last = await prisma.contentSectionDefinition.findFirst({
+    where: {
+      publisherId: actor.publisherId,
+      bookId,
+      archivedAt: null,
+    },
+    select: { sortOrder: true },
+    orderBy: [{ sortOrder: "desc" }, { id: "desc" }],
+  });
+
+  await prisma.contentSectionDefinition.create({
+    data: {
+      publisherId: actor.publisherId,
+      bookId,
+      code,
+      label,
+      icon,
+      audience,
+      allowedAssetKinds,
+      visibleIn,
+      sortOrder: requestedSortOrder ?? (last?.sortOrder ?? -10) + 10,
+      active: form.get("active") === "on",
+      published: form.get("published") === "on",
+    },
+  });
+  refresh(bookId);
+}
+
+export async function moveContentSectionDefinitionAction(
+  bookId: string,
+  id: string,
+  direction: -1 | 1,
+) {
+  const actor = await requireLivePublisherAdmin();
+  await requireOwnedBook(bookId, actor.publisherId);
+
+  const current = await prisma.contentSectionDefinition.findFirst({
+    where: {
+      id,
+      publisherId: actor.publisherId,
+      OR: [{ bookId }, { bookId: null }],
+      archivedAt: null,
+    },
+    select: { id: true, bookId: true },
+  });
+  if (!current) throw new Error("Section definition not found.");
+
+  const rows = await prisma.contentSectionDefinition.findMany({
+    where: {
+      publisherId: actor.publisherId,
+      bookId: current.bookId,
+      archivedAt: null,
+    },
+    select: { id: true },
+    orderBy: [{ sortOrder: "asc" }, { label: "asc" }, { id: "asc" }],
+  });
+  const index = rows.findIndex((row) => row.id === id);
+  const next = index + direction;
+  if (index < 0 || next < 0 || next >= rows.length) return;
+  [rows[index], rows[next]] = [rows[next], rows[index]];
+
+  await prisma.$transaction(
+    rows.map((row, rowIndex) =>
+      prisma.contentSectionDefinition.update({
+        where: { id: row.id },
+        data: { sortOrder: rowIndex * 10 },
+      }),
+    ),
+  );
+  refresh(bookId);
+}
+
+export async function archiveContentSectionDefinitionAction(bookId: string, id: string) {
+  const actor = await requireLivePublisherAdmin();
+  await requireOwnedBook(bookId, actor.publisherId);
+
+  const existing = await prisma.contentSectionDefinition.findFirst({
+    where: {
+      id,
+      publisherId: actor.publisherId,
+      OR: [{ bookId }, { bookId: null }],
+      archivedAt: null,
+    },
+    select: { id: true },
+  });
+  if (!existing) throw new Error("Section definition not found.");
+
+  await prisma.contentSectionDefinition.update({
+    where: { id },
+    data: {
+      active: false,
+      published: false,
+      archivedAt: new Date(),
+    },
+  });
+  refresh(bookId);
+}
+
+export async function searchKnowledgeDefinitionsAction(bookId: string, query: string) {
+  const actor = await requireLivePublisherAdmin();
+  const scope = await requireKnowledgeBookScope(actor.publisherId, bookId);
+  return searchKnowledgeDefinitions(scope, query);
+}
+
+export async function saveVocabularyDefinitionAction(bookId: string, form: FormData) {
+  const actor = await requireLivePublisherAdmin();
+  const scope = await requireKnowledgeBookScope(actor.publisherId, bookId);
+  const id = nullable(form, "id", 100);
+  const term = normalizeKnowledgeText(form.get("term"), 200);
+  const meaning = normalizeKnowledgeText(form.get("meaning"), 12000);
+  if (!term || !meaning) throw new Error("Vocabulary term and meaning are required.");
+  const slug = slugifyKnowledge(text(form, "slug", 120) || term);
+  if (!slug) throw new Error("Vocabulary slug is required.");
+
+  const imageResourceId = await ensurePublisherResource(
+    scope.publisherId,
+    scope.bookId,
+    nullable(form, "imageResourceId", 100),
+  );
+  const audioResourceId = await ensurePublisherResource(
+    scope.publisherId,
+    scope.bookId,
+    nullable(form, "audioResourceId", 100),
+  );
+
+  const duplicate = await prisma.publisherVocabulary.findFirst({
+    where: {
+      publisherId: scope.publisherId,
+      bookId: scope.bookId,
+      slug,
+      ...(id ? { NOT: { id } } : {}),
+    },
+    select: { id: true },
+  });
+  if (duplicate) throw new Error("A vocabulary definition with this slug already exists.");
+
+  const data = {
+    term,
+    slug,
+    meaning,
+    simpleMeaning: nullable(form, "simpleMeaning", 12000),
+    pronunciation: nullable(form, "pronunciation", 240),
+    language: text(form, "language", 24) || "en",
+    example: nullable(form, "example", 12000),
+    imageResourceId,
+    audioResourceId,
+    difficulty: nullable(form, "difficulty", 80),
+    tags: normalizeKnowledgeTags(text(form, "tags", 2000)),
+    active: form.get("active") === "on",
+    published: form.get("published") === "on",
+  };
+
+  if (id) {
+    const existing = await prisma.publisherVocabulary.findFirst({
+      where: {
+        id,
+        publisherId: scope.publisherId,
+        OR: [{ bookId: scope.bookId }, { bookId: null }],
+      },
+      select: { id: true },
+    });
+    if (!existing) throw new Error("Vocabulary definition not found.");
+  }
+
+  const row = id
+    ? await prisma.publisherVocabulary.update({
+        where: { id },
+        data,
+        select: { id: true },
+      })
+    : await prisma.publisherVocabulary.create({
+        data: {
+          publisherId: scope.publisherId,
+          bookId: scope.bookId,
+          ...data,
+        },
+        select: { id: true },
+      });
+  refresh(bookId);
+  return (await searchKnowledgeDefinitions(scope, term)).find((item) => item.id === row.id && item.type === "VOCABULARY");
+}
+
+export async function saveConceptDefinitionAction(bookId: string, form: FormData) {
+  const actor = await requireLivePublisherAdmin();
+  const scope = await requireKnowledgeBookScope(actor.publisherId, bookId);
+  const id = nullable(form, "id", 100);
+  const title = normalizeKnowledgeText(form.get("title"), 240);
+  const definition = normalizeKnowledgeText(form.get("definition"), 12000);
+  if (!title || !definition) throw new Error("Concept title and definition are required.");
+  const slug = slugifyKnowledge(text(form, "slug", 120) || title);
+  if (!slug) throw new Error("Concept slug is required.");
+
+  const imageResourceId = await ensurePublisherResource(
+    scope.publisherId,
+    scope.bookId,
+    nullable(form, "imageResourceId", 100),
+  );
+  const videoResourceId = await ensurePublisherResource(
+    scope.publisherId,
+    scope.bookId,
+    nullable(form, "videoResourceId", 100),
+  );
+  const diagramResourceId = await ensurePublisherResource(
+    scope.publisherId,
+    scope.bookId,
+    nullable(form, "diagramResourceId", 100),
+  );
+
+  const duplicate = await prisma.publisherConcept.findFirst({
+    where: {
+      publisherId: scope.publisherId,
+      bookId: scope.bookId,
+      slug,
+      ...(id ? { NOT: { id } } : {}),
+    },
+    select: { id: true },
+  });
+  if (duplicate) throw new Error("A concept definition with this slug already exists.");
+
+  const data = {
+    title,
+    slug,
+    definition,
+    summary: nullable(form, "summary", 12000),
+    relatedTopics: normalizeKnowledgeTags(text(form, "relatedTopics", 2000)),
+    imageResourceId,
+    videoResourceId,
+    diagramResourceId,
+    difficulty: nullable(form, "difficulty", 80),
+    active: form.get("active") === "on",
+    published: form.get("published") === "on",
+  };
+
+  if (id) {
+    const existing = await prisma.publisherConcept.findFirst({
+      where: {
+        id,
+        publisherId: scope.publisherId,
+        OR: [{ bookId: scope.bookId }, { bookId: null }],
+      },
+      select: { id: true },
+    });
+    if (!existing) throw new Error("Concept definition not found.");
+  }
+
+  const row = id
+    ? await prisma.publisherConcept.update({
+        where: { id },
+        data,
+        select: { id: true },
+      })
+    : await prisma.publisherConcept.create({
+        data: {
+          publisherId: scope.publisherId,
+          bookId: scope.bookId,
+          ...data,
+        },
+        select: { id: true },
+      });
+  refresh(bookId);
+  return (await searchKnowledgeDefinitions(scope, title)).find((item) => item.id === row.id && item.type === "CONCEPT");
+}
+
+export async function saveKnowledgeDefinitionAction(
+  bookId: string,
+  type: KnowledgeReferenceType,
+  form: FormData,
+) {
+  return type === "VOCABULARY"
+    ? saveVocabularyDefinitionAction(bookId, form)
+    : saveConceptDefinitionAction(bookId, form);
+}
+
+export async function createContentChildAction(
+  bookId: string,
+  parentType: string,
+  parentId: string,
+  form: FormData,
+) {
+  const type = text(form, "type") as BookStructureNodeType;
+  const allowed: Record<string, BookStructureNodeType[]> = {
+    BOOK: ["PART", "UNIT", "CHAPTER"],
+    PART: ["UNIT", "CHAPTER"],
+    UNIT: ["CHAPTER"],
+    CHAPTER: ["MODULE", "TOPIC"],
+    MODULE: ["TOPIC"],
+  };
+  if (!allowed[parentType]?.includes(type)) {
+    throw new Error("This child type is not valid for the selected parent.");
+  }
+
+  let parent: string | null = null;
+  let secondary: string | null = null;
+
+  if (type === "UNIT" && parentType === "PART") parent = parentId;
+  else if (type === "CHAPTER") {
+    if (parentType === "UNIT") parent = parentId;
+    else if (parentType === "PART") secondary = parentId;
+  } else if (type === "MODULE") parent = parentId;
+  else if (type === "TOPIC") {
+    if (parentType === "MODULE") {
+      const moduleNode = await prisma.bookModule.findFirst({
+        where: { id: parentId, bookId },
+        select: { chapterId: true },
+      });
+      if (!moduleNode) throw new Error("Parent Module not found.");
+      parent = moduleNode.chapterId;
+      secondary = parentId;
+    } else {
+      parent = parentId;
+    }
+  }
+
+  await saveBookStructureNode(bookId, {
+    type,
+    parentId: parent,
+    secondaryParentId: secondary,
+    title: text(form, "title", 200),
+    label: nullable(form, "label", 80),
+    description: nullable(form, "description", 2000),
+    published: false,
+  });
+  refresh(bookId);
+}
+
+export async function archiveContentNodeAction(
+  bookId: string,
+  type: BookStructureNodeType,
+  id: string,
+  archived: boolean,
+) {
+  await setBookStructureNodeArchived(bookId, type, id, archived);
+  refresh(bookId);
+}
+
+export async function renameContentNodeAction(
+  bookId: string,
+  type: BookStructureNodeType,
+  id: string,
+  title: string,
+) {
+  await renameBookStructureNode(bookId, type, id, title);
+  refresh(bookId);
+}
+
+export async function deleteContentNodeAction(
+  bookId: string,
+  type: BookStructureNodeType,
+  id: string,
+  confirmationTitle: string,
+) {
+  await deleteBookStructureNode(bookId, type, id, confirmationTitle);
+  refresh(bookId);
+}
+
+export async function reorderContentNodeAction(
+  bookId: string,
+  type: BookStructureNodeType,
+  id: string,
+  direction: -1 | 1,
+) {
+  const rows =
+    type === "PART"
+      ? await prisma.bookPart.findMany({
+          where: { bookId },
+          select: { id: true },
+          orderBy: [{ displayOrder: "asc" }, { id: "asc" }],
+        })
+      : type === "UNIT"
+        ? await prisma.bookUnit.findMany({
+            where: { bookId },
+            select: { id: true },
+            orderBy: [{ displayOrder: "asc" }, { id: "asc" }],
+          })
+        : type === "CHAPTER"
+          ? await prisma.bookChapter.findMany({
+              where: { bookId },
+              select: { id: true },
+              orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
+            })
+          : type === "MODULE"
+            ? await prisma.bookModule.findMany({
+                where: { bookId },
+                select: { id: true },
+                orderBy: [{ displayOrder: "asc" }, { id: "asc" }],
+              })
+            : await prisma.bookTopic.findMany({
+                where: { bookId },
+                select: { id: true },
+                orderBy: [{ displayOrder: "asc" }, { id: "asc" }],
+              });
+
+  const index = rows.findIndex((row) => row.id === id);
+  const next = index + direction;
+  if (index < 0 || next < 0 || next >= rows.length) return;
+  [rows[index], rows[next]] = [rows[next], rows[index]];
+  await reorderBookStructureNodes(
+    bookId,
+    type,
+    rows.map((row) => row.id),
+  );
+  refresh(bookId);
+}
+
+export async function reorderContentBranchAction(
+  bookId: string,
+  type: BookStructureNodeType,
+  orderedIds: string[],
+) {
+  await reorderBookStructureNodes(bookId, type, orderedIds);
+  refresh(bookId);
+}
+
+export async function moveContentNodeAction(
+  bookId: string,
+  type: Exclude<BookStructureNodeType, "PART">,
+  id: string,
+  form: FormData,
+) {
+  await moveBookStructureNode(
+    bookId,
+    type,
+    id,
+    nullable(form, "parentId"),
+    nullable(form, "secondaryParentId"),
+  );
+  refresh(bookId);
+}
+
+export async function duplicateContentNodeAction(
+  bookId: string,
+  type: BookStructureNodeType,
+  id: string,
+) {
+  await duplicateBookStructureNode(bookId, type, id);
+  refresh(bookId);
+}
+
+export async function saveChapterKnowledgeAction(
+  bookId: string,
+  chapterId: string,
+  form: FormData,
+) {
+  const actor = await requireLivePublisherAdmin();
+  await prisma.$transaction(
+    async (tx) => {
+      const chapter = await tx.bookChapter.findFirst({
+        where: {
+          id: chapterId,
+          bookId,
+          book: { publisherId: actor.publisherId },
+        },
+        select: { id: true },
+      });
+      if (!chapter) throw new Error("Chapter not found.");
+
+      await tx.bookChapter.update({
+        where: { id: chapterId },
+        data: {
+          summary: nullable(form, "summary", 12000),
+          extractedText: nullable(form, "extractedText", 100000),
+          reviewedText: nullable(form, "reviewedText", 100000),
+          keywords: text(form, "keywords", 4000)
+            .split(",")
+            .map((value) => value.trim())
+            .filter(Boolean),
+          approved: form.get("approved") === "on",
+        },
+      });
+
+      await writeSecurityAuditEvent(tx, {
+        actor: publisherAdminAuditActor(actor),
+        action: "publisher.curriculum.chapter.update",
+        targetType: "BookChapter",
+        targetId: chapterId,
+        outcome: SecurityAuditOutcome.SUCCESS,
+        metadata: { changedFields: ["knowledgeContent", "reviewState"] },
+      });
+    },
+    { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+  );
+  refresh(bookId);
+}
+
+async function ownedChapter(bookId: string, chapterId: string) {
+  const actor = await requireLivePublisherAdmin();
+  const chapter = await prisma.bookChapter.findFirst({
+    where: {
+      id: chapterId,
+      bookId,
+      book: { publisherId: actor.publisherId },
+    },
+    select: { id: true },
+  });
+  if (!chapter) throw new Error("Chapter not found.");
+  return actor;
+}
+
+export async function saveExerciseAction(
+  bookId: string,
+  chapterId: string,
+  form: FormData,
+) {
+  const actor = await ownedChapter(bookId, chapterId);
+  const id = nullable(form, "id");
+  const title = text(form, "title", 200);
+  const type = text(form, "type") as CurriculumExerciseType;
+  const difficulty = nullable(form, "difficulty") as CurriculumDifficultyLevel | null;
+  if (!title || !Object.values(CurriculumExerciseType).includes(type)) {
+    throw new Error("Exercise title and type are required.");
+  }
+
+  const instructionsText = text(form, "instructions", 12000);
+  await prisma.$transaction(async (tx) => {
+    const data = {
+      title,
+      type,
+      difficulty,
+      marks: integer(form, "marks"),
+      estimatedMinutes: integer(form, "estimatedMinutes"),
+      displayOrder: integer(form, "displayOrder") ?? 0,
+      published: form.get("published") === "on",
+      archived: form.get("archived") === "on",
+      instructions: instructionsText
+        ? ({ text: instructionsText } as Prisma.InputJsonValue)
+        : Prisma.JsonNull,
+    };
+
+    let exercise;
+    if (id) {
+      const current = await tx.bookExercise.findFirst({
+        where: { id, bookId, chapterId },
+        select: { id: true },
+      });
+      if (!current) throw new Error("Exercise not found.");
+      exercise = await tx.bookExercise.update({ where: { id }, data });
+    } else {
+      exercise = await tx.bookExercise.create({ data: { ...data, bookId, chapterId } });
+    }
+
+    await writeSecurityAuditEvent(tx, {
+      actor: publisherAdminAuditActor(actor),
+      action: id ? "publisher.curriculum.exercise.update" : "publisher.curriculum.exercise.create",
+      targetType: "BookExercise",
+      targetId: exercise.id,
+      outcome: SecurityAuditOutcome.SUCCESS,
+      metadata: { changedFields: ["exerciseContent"] },
+    });
+  });
+  refresh(bookId);
+}
+
+export async function archiveExerciseAction(
+  bookId: string,
+  chapterId: string,
+  id: string,
+  archived: boolean,
+) {
+  const actor = await ownedChapter(bookId, chapterId);
+  await prisma.$transaction(async (tx) => {
+    const result = await tx.bookExercise.updateMany({
+      where: { id, bookId, chapterId },
+      data: { archived, published: archived ? false : undefined },
+    });
+    if (!result.count) throw new Error("Exercise not found.");
+
+    await writeSecurityAuditEvent(tx, {
+      actor: publisherAdminAuditActor(actor),
+      action: archived ? "publisher.curriculum.exercise.archive" : "publisher.curriculum.exercise.restore",
+      targetType: "BookExercise",
+      targetId: id,
+      outcome: SecurityAuditOutcome.SUCCESS,
+      metadata: { changedFields: ["archived", "publicationState"] },
+    });
+  });
+  refresh(bookId);
+}
+
+export async function saveExerciseStudioExerciseAction(
+  bookId: string,
+  chapterId: string,
+  form: FormData,
+) {
+  const actor = await ownedChapter(bookId, chapterId);
+  const id = nullable(form, "id", 100);
+  await assertExerciseScope({ publisherId: actor.publisherId, bookId, chapterId, exerciseId: id });
+  const title = text(form, "title", 200);
+  const type = text(form, "type") as CurriculumExerciseType;
+  const difficulty = nullable(form, "difficulty", 80) as CurriculumDifficultyLevel | null;
+  if (!title || !Object.values(CurriculumExerciseType).includes(type)) {
+    throw new Error("Exercise title and type are required.");
+  }
+  const moduleId = nullable(form, "moduleId", 100);
+  const topicId = nullable(form, "topicId", 100);
+  if (moduleId) {
+    const moduleNode = await prisma.bookModule.findFirst({
+      where: { id: moduleId, bookId, chapterId },
+      select: { id: true },
+    });
+    if (!moduleNode) throw new Error("Module not found for this exercise.");
+  }
+  if (topicId) {
+    const topic = await prisma.bookTopic.findFirst({
+      where: { id: topicId, bookId, chapterId },
+      select: { id: true },
+    });
+    if (!topic) throw new Error("Topic not found for this exercise.");
+  }
+
+  const instructionsText = text(form, "instructions", 12000);
+  const exerciseId = await prisma.$transaction(async (tx) => {
+    const data = {
+      title,
+      type,
+      difficulty,
+      moduleId,
+      topicId,
+      marks: integer(form, "marks"),
+      estimatedMinutes: integer(form, "estimatedMinutes"),
+      displayOrder: integer(form, "displayOrder") ?? 0,
+      published: form.get("published") === "on",
+      archived: form.get("archived") === "on",
+      instructions: instructionsText
+        ? ({ text: instructionsText } as Prisma.InputJsonValue)
+        : Prisma.JsonNull,
+    };
+    const exercise = id
+      ? await tx.bookExercise.update({ where: { id }, data })
+      : await tx.bookExercise.create({ data: { ...data, bookId, chapterId } });
+    await writeSecurityAuditEvent(tx, {
+      actor: publisherAdminAuditActor(actor),
+      action: id ? "publisher.curriculum.exercise.update" : "publisher.curriculum.exercise.create",
+      targetType: "BookExercise",
+      targetId: exercise.id,
+      outcome: SecurityAuditOutcome.SUCCESS,
+      metadata: { changedFields: ["exerciseStudio"] },
+    });
+    return exercise.id;
+  });
+  refresh(bookId);
+  return exerciseId;
+}
+
+export async function saveExerciseQuestionGroupAction(
+  bookId: string,
+  chapterId: string,
+  exerciseId: string,
+  form: FormData,
+) {
+  const actor = await ownedChapter(bookId, chapterId);
+  await assertExerciseScope({ publisherId: actor.publisherId, bookId, chapterId, exerciseId });
+  const id = nullable(form, "id", 100);
+  const title = text(form, "title", 200);
+  if (!title) throw new Error("Question group title is required.");
+  const data = {
+    title,
+    instructions: nullable(form, "instructions", 4000),
+    sortOrder: integer(form, "sortOrder") ?? 0,
+    active: form.get("active") !== "off",
+  };
+  if (id) {
+    const group = await prisma.bookExerciseQuestionGroup.findFirst({
+      where: { id, exerciseId },
+      select: { id: true },
+    });
+    if (!group) throw new Error("Question group not found.");
+    await prisma.bookExerciseQuestionGroup.update({ where: { id }, data });
+  } else {
+    await prisma.bookExerciseQuestionGroup.create({ data: { ...data, exerciseId } });
+  }
+  refresh(bookId);
+}
+
+export async function moveExerciseQuestionAction(
+  bookId: string,
+  chapterId: string,
+  exerciseId: string,
+  questionId: string,
+  direction: -1 | 1,
+) {
+  const actor = await ownedChapter(bookId, chapterId);
+  await assertExerciseScope({ publisherId: actor.publisherId, bookId, chapterId, exerciseId });
+  const rows = await prisma.bookQuestion.findMany({
+    where: { bookId, chapterId, exerciseId, archived: false },
+    select: { id: true },
+    orderBy: [{ displayOrder: "asc" }, { createdAt: "asc" }, { id: "asc" }],
+  });
+  const index = rows.findIndex((row) => row.id === questionId);
+  const next = index + direction;
+  if (index < 0 || next < 0 || next >= rows.length) return;
+  [rows[index], rows[next]] = [rows[next], rows[index]];
+  await prisma.$transaction(
+    rows.map((row, rowIndex) =>
+      prisma.bookQuestion.update({
+        where: { id: row.id },
+        data: { displayOrder: rowIndex * 10 },
+      }),
+    ),
+  );
+  refresh(bookId);
+}
+
+export async function archiveExerciseQuestionAction(
+  bookId: string,
+  chapterId: string,
+  exerciseId: string,
+  questionId: string,
+  archived: boolean,
+) {
+  const actor = await ownedChapter(bookId, chapterId);
+  await assertExerciseScope({ publisherId: actor.publisherId, bookId, chapterId, exerciseId });
+  const result = await prisma.bookQuestion.updateMany({
+    where: { id: questionId, bookId, chapterId, exerciseId },
+    data: { archived, approved: archived ? false : undefined },
+  });
+  if (!result.count) throw new Error("Question not found.");
+  refresh(bookId);
+}
+
+export async function duplicateExerciseQuestionAction(
+  bookId: string,
+  chapterId: string,
+  exerciseId: string,
+  questionId: string,
+) {
+  const actor = await ownedChapter(bookId, chapterId);
+  await assertExerciseScope({ publisherId: actor.publisherId, bookId, chapterId, exerciseId });
+  const question = await prisma.bookQuestion.findFirst({
+    where: { id: questionId, bookId, chapterId, exerciseId },
+  });
+  if (!question) throw new Error("Question not found.");
+  const last = await prisma.bookQuestion.findFirst({
+    where: { bookId, chapterId, exerciseId, archived: false },
+    select: { displayOrder: true },
+    orderBy: [{ displayOrder: "desc" }, { id: "desc" }],
+  });
+  await prisma.bookQuestion.create({
+    data: {
+      bookId,
+      chapterId,
+      exerciseId,
+      exerciseGroupId: question.exerciseGroupId,
+      moduleId: question.moduleId,
+      topicId: question.topicId,
+      learningOutcomeId: question.learningOutcomeId,
+      imageResourceId: question.imageResourceId,
+      questionType: question.questionType,
+      questionText: `${question.questionText} (Copy)`,
+      options: question.options === null ? Prisma.JsonNull : question.options as Prisma.InputJsonValue,
+      correctAnswer: question.correctAnswer,
+      explanation: question.explanation,
+      marks: question.marks,
+      difficulty: question.difficulty,
+      bloomLevel: question.bloomLevel,
+      competency: question.competency,
+      tags: question.tags,
+      displayOrder: (last?.displayOrder ?? 0) + 10,
+      approved: false,
+    },
+  });
+  refresh(bookId);
+}
+
+export async function saveExerciseQuestionAction(
+  bookId: string,
+  chapterId: string,
+  exerciseId: string,
+  form: FormData,
+) {
+  const actor = await ownedChapter(bookId, chapterId);
+  await assertExerciseScope({ publisherId: actor.publisherId, bookId, chapterId, exerciseId });
+  const id = nullable(form, "id", 100);
+  const questionType = text(form, "questionType", 80) as ExerciseQuestionType;
+  const questionText = text(form, "questionText", 20000);
+  const optionsText = text(form, "options", 20000);
+  const correctAnswer = text(form, "correctAnswer", 12000);
+  if (!questionText) throw new Error("Question text is required.");
+  assertQuestionPayload(questionType, optionsText, correctAnswer);
+  const exerciseGroupId = nullable(form, "exerciseGroupId", 100);
+  const moduleId = nullable(form, "moduleId", 100);
+  const topicId = nullable(form, "topicId", 100);
+  const learningOutcomeId = nullable(form, "learningOutcomeId", 100);
+  const imageResourceId = nullable(form, "imageResourceId", 100);
+  await assertQuestionRelations({
+    publisherId: actor.publisherId,
+    bookId,
+    chapterId,
+    exerciseId,
+    groupId: exerciseGroupId,
+    moduleId,
+    topicId,
+    learningOutcomeId,
+    imageResourceId,
+  });
+  if (!EXERCISE_QUESTION_TYPES.includes(questionType)) {
+    throw new Error("Question type is not supported by Exercise Studio.");
+  }
+  const data = {
+    exerciseId,
+    exerciseGroupId,
+    moduleId,
+    topicId,
+    learningOutcomeId,
+    imageResourceId,
+    questionType,
+    questionText,
+    options: normalizeQuestionOptions(questionType, optionsText) as Prisma.InputJsonValue,
+    correctAnswer: correctAnswer || null,
+    explanation: nullable(form, "explanation", 20000),
+    marks: integer(form, "marks") ?? 1,
+    difficulty: text(form, "difficulty", 80) || "MEDIUM",
+    bloomLevel: nullable(form, "bloomLevel", 120),
+    competency: nullable(form, "competency", 240),
+    tags: text(form, "tags", 2000).split(",").map((tag) => tag.trim()).filter(Boolean),
+    displayOrder: signedInteger(form, "displayOrder") ?? 0,
+    approved: form.get("approved") === "on",
+  };
+  if (id) {
+    const question = await prisma.bookQuestion.findFirst({
+      where: { id, bookId, chapterId, exerciseId },
+      select: { id: true },
+    });
+    if (!question) throw new Error("Question not found.");
+    await prisma.bookQuestion.update({ where: { id }, data });
+  } else {
+    await prisma.bookQuestion.create({ data: { ...data, bookId, chapterId } });
+  }
+  refresh(bookId);
+}
+
+
+
+============================================================
+FILE: app\admin\books\[id]\content\page.tsx
+============================================================
+
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import { Prisma } from "@prisma/client";
+
+import BookInspectorEditor from "@/components/admin/books/BookInspectorEditor";
+import BookStudioResourcePanel from "@/components/admin/books/BookStudioResourcePanel";
+import ContentEditorForm from "@/components/admin/books/ContentEditorForm";
+import ContentManuscriptEditor from "@/components/admin/books/ContentManuscriptEditor";
+import ContentReleasePanel from "@/components/admin/books/ContentReleasePanel";
+import ContentSectionManager from "@/components/admin/books/ContentSectionManager";
+import ContentStudioShell from "@/components/admin/books/ContentStudioShell";
+import ActivityStudio from "@/components/admin/books/ActivityStudio";
+import ExerciseAuthoringStudio from "@/components/admin/books/ExerciseAuthoringStudio";
+import WorksheetStudio from "@/components/admin/books/WorksheetStudio";
+import {
+  getContentNodeScope,
+  loadContentSectionDefinitions,
+  loadLinkedAssetOptions,
+  resolveLinkedAssetsForDocument,
+} from "@/lib/content-linked-assets";
+import {
+  loadContentStudioMediaOptions,
+  resolveMediaForDocument,
+} from "@/lib/content-media";
+import {
+  knowledgeKey,
+  requireKnowledgeBookScope,
+  resolveKnowledgeDefinitionsForDocument,
+  searchKnowledgeDefinitions,
+} from "@/lib/content-knowledge";
+import {
+  loadExerciseStudio,
+  loadExerciseStudioLookups,
+} from "@/lib/exercise-authoring";
+import {
+  loadActivityResourceOptions,
+  loadActivityStudio,
+  resolveActivitiesForLinkedAssetDocument,
+} from "@/lib/activity-studio";
+import {
+  loadWorksheetStudio,
+  loadWorksheetStudioLookups,
+  resolveWorksheetsForLinkedAssetDocument,
+} from "@/lib/worksheet-studio";
+import { isLinkedAssetBlock, isTextBlock, normalizeContentDocument } from "@/lib/content-document";
+import {
+  loadReleaseSummary,
+  releaseTargetForNode,
+} from "@/lib/content-release";
+import {
+  buildContentStudioTree,
+  flattenContentTree,
+  type ContentTreeNode,
+} from "@/lib/content-studio-tree";
+import { prisma } from "@/lib/prisma";
+import { requirePublisherAdminBookOwnership } from "@/lib/publisher-admin-data";
+import {
+  archiveExerciseAction,
+  archiveExerciseQuestionAction,
+  archiveActivityStudioAction,
+  archiveContentSectionDefinitionAction,
+  archiveWorksheetStudioAction,
+  bulkPublishContentReleaseAction,
+  changeContentReleaseAction,
+  createWorksheetExerciseAction,
+  duplicateActivityStudioAction,
+  duplicateExerciseQuestionAction,
+  duplicateWorksheetStudioAction,
+  moveContentSectionDefinitionAction,
+  moveActivityStudioAction,
+  moveExerciseQuestionAction,
+  moveWorksheetStudioAction,
+  saveChapterKnowledgeAction,
+  saveContentSectionDefinitionAction,
+  saveContentNodeAction,
+  saveActivityStudioAction,
+  saveExerciseQuestionAction,
+  saveExerciseQuestionGroupAction,
+  saveExerciseStudioExerciseAction,
+  saveWorksheetStudioAction,
+  saveKnowledgeDefinitionAction,
+  searchKnowledgeDefinitionsAction,
+  rollbackContentReleaseAction,
+} from "./actions";
+import { moveOutcome, saveOutcome } from "../knowledge-actions";
+import type { BookStructureNodeType } from "@/lib/book-structure-management";
+
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+type Params = {
+  selected?: string;
+  q?: string;
+  type?: string;
+  difficulty?: string;
+  marks?: string;
+  bloom?: string;
+  status?: string;
+  page?: string;
+};
+
+type BookPageData = NonNullable<Awaited<ReturnType<typeof loadBookStudio>>>;
+
+const field =
+  "mt-2 w-full rounded-[1.25rem] border border-transparent bg-white/80 px-4 py-3 text-sm text-slate-800 outline-none ring-1 ring-slate-200 transition placeholder:text-slate-400 focus:bg-white focus:ring-2 focus:ring-blue-200";
+
+export default async function ContentStudioPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<Params>;
+}) {
+  const { id } = await params;
+  const query = await searchParams;
+  const actor = await requirePublisherAdminBookOwnership(id);
+  const studio = await loadBookStudio(id, actor.publisherId);
+  if (!studio) notFound();
+  const sectionDefinitions = await loadContentSectionDefinitions(actor.publisherId, id);
+  const knowledgeScope = await requireKnowledgeBookScope(actor.publisherId, id);
+  const knowledgeDefinitions = await searchKnowledgeDefinitions(knowledgeScope, "");
+
+  const root = buildContentStudioTree({
+    book: { id: studio.id, title: studio.title },
+    parts: studio.parts,
+    units: studio.units,
+    chapters: studio.chapters.map((chapter) => ({
+      ...chapter,
+      counts: {
+        outcomes: chapter._count.learningOutcomes,
+        activities: chapter._count.activities,
+        worksheets: chapter._count.worksheets,
+        exercises: chapter._count.exercises,
+        questions: chapter._count.questions,
+        assessments: chapter._count.assessments,
+        resources: chapter._count.resourceLinks,
+        media: chapter._count.resourceLinks,
+        qr: chapter._count.dynamicQrCodes,
+      },
+    })),
+    modules: studio.modules,
+    topics: studio.topics,
+  });
+
+  const selected =
+    flattenContentTree(root).find((node) => node.key === query.selected) ?? root;
+
+  return (
+    <main className="space-y-4">
+      <ContentStudioShell
+        bookId={id}
+        bookTitle={studio.title}
+        root={root}
+        selectedKey={selected.key}
+        selectedTitle={selected.title}
+      >
+        <SelectedCanvas
+          studio={studio}
+          selected={selected}
+          bookId={id}
+          userId={actor.userId}
+          publisherId={actor.publisherId}
+          sectionDefinitions={sectionDefinitions}
+          knowledgeDefinitions={knowledgeDefinitions}
+          query={query}
+        />
+      </ContentStudioShell>
+    </main>
+  );
+}
+
+async function loadBookStudio(bookId: string, publisherId: string) {
+  return prisma.book.findFirst({
+    where: { id: bookId, publisherId },
+    select: {
+      id: true,
+      title: true,
+      subtitle: true,
+      slug: true,
+      isbn: true,
+      description: true,
+      aboutBook: true,
+      classId: true,
+      subjectId: true,
+      seriesId: true,
+      boardId: true,
+      board: true,
+      published: true,
+      featured: true,
+      featuredOrder: true,
+      author: true,
+      updatedAt: true,
+      parts: {
+        select: { id: true, title: true, archived: true, displayOrder: true },
+      },
+      units: {
+        select: {
+          id: true,
+          title: true,
+          archived: true,
+          partId: true,
+          displayOrder: true,
+        },
+      },
+      chapters: {
+        select: {
+          id: true,
+          title: true,
+          archived: true,
+          partId: true,
+          unitId: true,
+          sortOrder: true,
+          chapterNumber: true,
+          published: true,
+          approved: true,
+          summary: true,
+          keywords: true,
+          _count: {
+            select: {
+              learningOutcomes: true,
+              activities: true,
+              worksheets: true,
+              exercises: true,
+              questions: true,
+              assessments: true,
+              resourceLinks: { where: { active: true } },
+              dynamicQrCodes: true,
+            },
+          },
+        },
+      },
+      modules: {
+        select: {
+          id: true,
+          title: true,
+          archived: true,
+          chapterId: true,
+          displayOrder: true,
+        },
+      },
+      topics: {
+        select: {
+          id: true,
+          title: true,
+          archived: true,
+          chapterId: true,
+          moduleId: true,
+          displayOrder: true,
+        },
+      },
+      class: { select: { name: true } },
+      subject: { select: { name: true } },
+      series: { select: { name: true } },
+    },
+  });
+}
+
+async function SelectedCanvas({
+  studio,
+  selected,
+  bookId,
+  userId,
+  publisherId,
+  sectionDefinitions,
+  knowledgeDefinitions,
+  query,
+}: {
+  studio: BookPageData;
+  selected: ContentTreeNode;
+  bookId: string;
+  userId: string;
+  publisherId: string;
+  sectionDefinitions: Awaited<ReturnType<typeof loadContentSectionDefinitions>>;
+  knowledgeDefinitions: Awaited<ReturnType<typeof searchKnowledgeDefinitions>>;
+  query: Params;
+}) {
+  if (selected.type === "BOOK") {
+    return <BookCanvas studio={studio} bookId={bookId} />;
+  }
+  if (selected.type === "FOLDER") {
+    return (
+      <FolderCanvas
+        studio={studio}
+        bookId={bookId}
+        publisherId={publisherId}
+        userId={userId}
+        folder={selected}
+        query={query}
+      />
+    );
+  }
+  const record = await loadNode(bookId, selected);
+  if (!record) {
+    return <Empty text="This content item is unavailable." />;
+  }
+  const scope = await getContentNodeScope(
+    publisherId,
+    bookId,
+    selected.type as BookStructureNodeType,
+    selected.id,
+  );
+  const releaseTarget = releaseTargetForNode(selected.type as BookStructureNodeType);
+  const releaseSummary = releaseTarget
+    ? await loadReleaseSummary({
+        actor: { userId, publisherId },
+        bookId,
+        targetType: releaseTarget,
+        targetId: selected.id,
+      })
+    : null;
+  const resources = await loadEditorResources(publisherId);
+  const assetOptions = await loadLinkedAssetOptions(scope);
+  const mediaOptions = await loadContentStudioMediaOptions(scope);
+  const normalizedDocument = normalizeContentDocument(record.content);
+  const resolvedAssets = await resolveLinkedAssetsForDocument(
+    scope,
+    normalizedDocument,
+  );
+  const resolvedActivities = await resolveActivitiesForLinkedAssetDocument({
+    publisherId,
+    bookId,
+    mode: "ADMIN_PREVIEW",
+    blocks: normalizedDocument.blocks
+      .filter(isLinkedAssetBlock)
+      .map((block) => ({ id: block.id, targetType: block.targetType, targetId: block.targetId })),
+  });
+  const resolvedWorksheets = await resolveWorksheetsForLinkedAssetDocument({
+    publisherId,
+    bookId,
+    mode: "ADMIN_PREVIEW",
+    blocks: normalizedDocument.blocks
+      .filter(isLinkedAssetBlock)
+      .map((block) => ({ id: block.id, targetType: block.targetType, targetId: block.targetId })),
+  });
+  const resolvedMedia = await resolveMediaForDocument(
+    scope,
+    normalizedDocument,
+  );
+  const resolvedKnowledge = await resolveKnowledgeDefinitionsForDocument(
+    scope,
+    normalizedDocument,
+  );
+  let activityRows: Awaited<ReturnType<typeof loadActivityStudio>> = [];
+  let activityResources: Awaited<ReturnType<typeof loadActivityResourceOptions>> = [];
+  let worksheetRows: Awaited<ReturnType<typeof loadWorksheetStudio>> = [];
+  let worksheetLookups: Awaited<ReturnType<typeof loadWorksheetStudioLookups>> | null = null;
+  let exerciseRows: Awaited<ReturnType<typeof loadExerciseStudio>> = [];
+  let exerciseLookups: Awaited<ReturnType<typeof loadExerciseStudioLookups>> | null = null;
+  if (scope.chapterId) {
+    [
+      activityRows,
+      activityResources,
+      worksheetRows,
+      worksheetLookups,
+      exerciseRows,
+      exerciseLookups,
+    ] = await Promise.all([
+      loadActivityStudio({ publisherId, bookId, chapterId: scope.chapterId }),
+      loadActivityResourceOptions({ publisherId, bookId, chapterId: scope.chapterId }),
+      loadWorksheetStudio({ publisherId, bookId, chapterId: scope.chapterId }),
+      loadWorksheetStudioLookups({ publisherId, bookId, chapterId: scope.chapterId }),
+      loadExerciseStudio(bookId, scope.chapterId),
+      loadExerciseStudioLookups({ publisherId, bookId, chapterId: scope.chapterId }),
+    ]);
+  }
+  return (
+    <NodeCanvas
+      bookId={bookId}
+      selected={selected}
+      scope={scope}
+      record={record}
+      resources={resources}
+      assetOptions={assetOptions}
+      mediaOptions={mediaOptions}
+      resolvedAssets={resolvedAssets}
+      resolvedActivities={resolvedActivities}
+      resolvedWorksheets={resolvedWorksheets}
+      resolvedMedia={resolvedMedia}
+      sectionDefinitions={sectionDefinitions}
+      knowledgeDefinitions={knowledgeDefinitions}
+      resolvedKnowledge={resolvedKnowledge}
+      activityRows={activityRows}
+      activityResources={activityResources}
+      worksheetRows={worksheetRows}
+      worksheetLookups={worksheetLookups}
+      exerciseRows={exerciseRows}
+      exerciseLookups={exerciseLookups}
+      releaseSummary={releaseSummary}
+    />
+  );
+}
+
+function BookCanvas({ studio, bookId: _bookId }: { studio: BookPageData; bookId: string }) {
+  const chapterCount = studio.chapters.length;
+  const moduleCount = studio.modules.length;
+  const topicCount = studio.topics.length;
+
+  return (
+    <div className="mx-auto max-w-5xl space-y-4">
+      <section className="rounded-[1.5rem] bg-white px-6 py-5 shadow-sm ring-1 ring-slate-200 sm:px-7 sm:py-6">
+        <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-blue-700">
+          Workspace
+        </p>
+
+        <h2 className="mt-1.5 text-xl font-bold tracking-tight text-slate-950">
+          {studio.title}
+        </h2>
+
+        {studio.subtitle ? (
+          <p className="mt-1 text-[11px] font-medium text-slate-500">
+            {studio.subtitle}
+          </p>
+        ) : null}
+
+        <div className="mt-3 max-w-4xl text-[11px] leading-[1.65] text-slate-600">
+          <p>
+            {studio.description ||
+              studio.aboutBook ||
+              "No editorial summary is stored for this book yet."}
+          </p>
+        </div>
+      </section>
+
+      <section className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+        <CanvasMetric label="Parts" value={studio.parts.length} />
+        <CanvasMetric label="Chapters" value={chapterCount} />
+        <CanvasMetric label="Modules" value={moduleCount} />
+        <CanvasMetric label="Topics" value={topicCount} />
+      </section>
+    </div>
+  );
+}
+
+async function NodeCanvas({
+  bookId,
+  selected,
+  scope,
+  record,
+  resources,
+  assetOptions,
+  mediaOptions,
+  resolvedAssets,
+  resolvedActivities,
+  resolvedWorksheets,
+  resolvedMedia,
+  sectionDefinitions,
+  knowledgeDefinitions,
+  resolvedKnowledge,
+  activityRows,
+  activityResources,
+  worksheetRows,
+  worksheetLookups,
+  exerciseRows,
+  exerciseLookups,
+  releaseSummary,
+}: {
+  bookId: string;
+  selected: ContentTreeNode;
+  scope: Awaited<ReturnType<typeof getContentNodeScope>>;
+  record: Awaited<ReturnType<typeof loadNode>>;
+  resources: Awaited<ReturnType<typeof loadEditorResources>>;
+  assetOptions: Awaited<ReturnType<typeof loadLinkedAssetOptions>>;
+  mediaOptions: Awaited<ReturnType<typeof loadContentStudioMediaOptions>>;
+  resolvedAssets: Awaited<ReturnType<typeof resolveLinkedAssetsForDocument>>;
+  resolvedActivities: Awaited<ReturnType<typeof resolveActivitiesForLinkedAssetDocument>>;
+  resolvedWorksheets: Awaited<ReturnType<typeof resolveWorksheetsForLinkedAssetDocument>>;
+  resolvedMedia: Awaited<ReturnType<typeof resolveMediaForDocument>>;
+  sectionDefinitions: Awaited<ReturnType<typeof loadContentSectionDefinitions>>;
+  knowledgeDefinitions: Awaited<ReturnType<typeof searchKnowledgeDefinitions>>;
+  resolvedKnowledge: Awaited<ReturnType<typeof resolveKnowledgeDefinitionsForDocument>>;
+  activityRows: Awaited<ReturnType<typeof loadActivityStudio>>;
+  activityResources: Awaited<ReturnType<typeof loadActivityResourceOptions>>;
+  worksheetRows: Awaited<ReturnType<typeof loadWorksheetStudio>>;
+  worksheetLookups: Awaited<ReturnType<typeof loadWorksheetStudioLookups>> | null;
+  exerciseRows: Awaited<ReturnType<typeof loadExerciseStudio>>;
+  exerciseLookups: Awaited<ReturnType<typeof loadExerciseStudioLookups>> | null;
+  releaseSummary: Awaited<ReturnType<typeof loadReleaseSummary>> | null;
+}) {
+  if (!record) return null;
+  return (
+    <ContentManuscriptEditor
+      bookId={bookId}
+      nodeId={selected.id}
+      nodeType={selected.type as BookStructureNodeType}
+      chapterId={scope.chapterId}
+      nodeTitle={record.title}
+      nodeSubtitle={record.subtitle ?? ""}
+      nodeDescription={record.description ?? ""}
+      nodeSlug={record.slug ?? ""}
+      nodeLabel={record.label ?? ""}
+      nodeEstimatedMinutes={record.estimatedMinutes ?? null}
+      nodePublished={record.published}
+      nodeContent={record.content}
+      resources={resources}
+      assetOptions={assetOptions}
+      mediaOptions={mediaOptions}
+      resolvedAssets={resolvedAssets}
+      resolvedActivities={resolvedActivities}
+      resolvedWorksheets={resolvedWorksheets}
+      resolvedMedia={resolvedMedia}
+      sectionDefinitions={sectionDefinitions}
+      knowledgeDefinitions={knowledgeDefinitions}
+      resolvedKnowledge={resolvedKnowledge}
+      searchKnowledgeAction={searchKnowledgeDefinitionsAction.bind(null, bookId)}
+      saveKnowledgeAction={saveKnowledgeDefinitionAction.bind(null, bookId)}
+      saveActivityAction={
+        scope.chapterId ? saveActivityStudioAction.bind(null, bookId, scope.chapterId) : null
+      }
+      duplicateActivityAction={scope.chapterId ? duplicateActivityStudioAction.bind(null, bookId) : null}
+      archiveActivityAction={scope.chapterId ? archiveActivityStudioAction.bind(null, bookId) : null}
+      moveActivityAction={
+  scope.chapterId
+    ? moveActivityStudioAction.bind(
+        null,
+        bookId,
+        scope.chapterId,
+        scope.moduleId ?? null,
+        scope.topicId ?? null,
+      )
+    : null
+}
+      saveWorksheetAction={
+        scope.chapterId ? saveWorksheetStudioAction.bind(null, bookId, scope.chapterId) : null
+      }
+      duplicateWorksheetAction={scope.chapterId ? duplicateWorksheetStudioAction.bind(null, bookId) : null}
+      archiveWorksheetAction={scope.chapterId ? archiveWorksheetStudioAction.bind(null, bookId) : null}
+      moveWorksheetAction={
+  scope.chapterId
+    ? moveWorksheetStudioAction.bind(
+        null,
+        bookId,
+        scope.chapterId,
+        scope.moduleId ?? null,
+        scope.topicId ?? null,
+      )
+    : null
+}
+      saveExerciseStudioAction={
+        scope.chapterId ? saveExerciseStudioExerciseAction.bind(null, bookId, scope.chapterId) : null
+      }
+      saveExerciseGroupAction={
+        scope.chapterId ? saveExerciseQuestionGroupAction.bind(null, bookId, scope.chapterId) : null
+      }
+      saveExerciseQuestionAction={
+        scope.chapterId ? saveExerciseQuestionAction.bind(null, bookId, scope.chapterId) : null
+      }
+      moveExerciseQuestionAction={
+        scope.chapterId ? moveExerciseQuestionAction.bind(null, bookId, scope.chapterId) : null
+      }
+      duplicateExerciseQuestionAction={
+        scope.chapterId ? duplicateExerciseQuestionAction.bind(null, bookId, scope.chapterId) : null
+      }
+      archiveExerciseQuestionAction={
+        scope.chapterId ? archiveExerciseQuestionAction.bind(null, bookId, scope.chapterId) : null
+      }
+      archiveExerciseAction={
+        scope.chapterId ? archiveExerciseAction.bind(null, bookId, scope.chapterId) : null
+      }
+      createWorksheetExerciseAction={
+        scope.chapterId ? createWorksheetExerciseAction.bind(null, bookId, scope.chapterId) : null
+      }
+      activityRows={activityRows}
+      activityResources={activityResources}
+      worksheetRows={worksheetRows}
+      worksheetLookups={worksheetLookups}
+      exerciseRows={exerciseRows}
+      exerciseLookups={exerciseLookups}
+      releaseSummary={releaseSummary}
+      transitionReleaseAction={
+        releaseSummary
+          ? changeContentReleaseAction.bind(null, bookId, releaseSummary.targetType, selected.id)
+          : null
+      }
+      rollbackReleaseAction={
+        releaseSummary
+          ? rollbackContentReleaseAction.bind(null, bookId, releaseSummary.targetType, selected.id)
+          : null
+      }
+      bulkPublishAction={
+        releaseSummary?.targetType === "CHAPTER"
+          ? bulkPublishContentReleaseAction.bind(null, bookId, "CHAPTER", selected.id)
+          : null
+      }
+      previewBaseHref={`/admin/books/${bookId}/content/releases`}
+      saveAction={saveContentNodeAction.bind(
+        null,
+        bookId,
+        selected.type as BookStructureNodeType,
+        selected.id,
+      )}
+    />
+  );
+}
+
+export async function ChapterKnowledge({
+  bookId,
+  chapterId,
+}: {
+  bookId: string;
+  chapterId: string;
+}) {
+  const chapter = await prisma.bookChapter.findFirst({
+    where: { id: chapterId, bookId },
+    select: {
+      summary: true,
+      extractedText: true,
+      reviewedText: true,
+      keywords: true,
+      approved: true,
+    },
+  });
+  if (!chapter) return null;
+
+  return (
+    <section className="mx-auto max-w-5xl rounded-[2rem] bg-white p-8 shadow-sm ring-1 ring-slate-200 sm:p-10">
+      <p className="text-xs font-bold uppercase tracking-[0.18em] text-blue-700">
+        Chapter Knowledge
+      </p>
+      <ContentEditorForm
+        action={saveChapterKnowledgeAction.bind(null, bookId, chapterId)}
+        className="mt-5 space-y-8"
+        submitLabel="Save Knowledge"
+      >
+        <Field label="Summary">
+          <textarea
+            name="summary"
+            rows={5}
+            defaultValue={chapter.summary ?? ""}
+            className={field}
+          />
+        </Field>
+        <Field label="Source Content">
+          <textarea
+            name="extractedText"
+            rows={10}
+            defaultValue={chapter.extractedText ?? ""}
+            className={field}
+          />
+        </Field>
+        <Field label="Reviewed Content">
+          <textarea
+            name="reviewedText"
+            rows={12}
+            defaultValue={chapter.reviewedText ?? ""}
+            className={field}
+          />
+        </Field>
+        <div className="grid gap-4 rounded-[1.5rem] bg-[#f7f4ed] p-5 ring-1 ring-slate-200 lg:grid-cols-[minmax(0,1fr)_auto]">
+          <Field label="Keywords">
+            <input
+              name="keywords"
+              defaultValue={chapter.keywords.join(", ")}
+              className={field}
+            />
+          </Field>
+          <label className="flex items-center gap-3 rounded-[1.25rem] bg-white px-4 py-3 text-sm font-semibold text-slate-700 ring-1 ring-slate-200">
+            <input name="approved" type="checkbox" defaultChecked={chapter.approved} />
+            Approved
+          </label>
+        </div>
+      </ContentEditorForm>
+    </section>
+  );
+}
+
+type FolderScopeDetails = {
+  scopeType: "CHAPTER" | "MODULE" | "TOPIC";
+  chapter: { id: string; title: string; chapterNumber: number } | null;
+  module: { id: string; title: string } | null;
+  topic: { id: string; title: string } | null;
+};
+
+function resolveFolderScope(studio: BookPageData, folder: ContentTreeNode): FolderScopeDetails {
+  const chapter = folder.chapterId
+    ? studio.chapters.find((item) => item.id === folder.chapterId) ?? null
+    : null;
+  const moduleNode = folder.moduleId
+    ? studio.modules.find((item) => item.id === folder.moduleId) ?? null
+    : null;
+  const topic = folder.topicId
+    ? studio.topics.find((item) => item.id === folder.topicId) ?? null
+    : null;
+  return {
+    scopeType: folder.scopeType ?? "CHAPTER",
+    chapter: chapter
+      ? { id: chapter.id, title: chapter.title, chapterNumber: chapter.chapterNumber }
+      : null,
+    module: moduleNode ? { id: moduleNode.id, title: moduleNode.title } : null,
+    topic: topic ? { id: topic.id, title: topic.title } : null,
+  };
+}
+
+function scopePathLabel(scope: FolderScopeDetails) {
+  const parts = [
+    scope.chapter ? `Chapter ${scope.chapter.chapterNumber}` : null,
+    scope.module ? `Module: ${scope.module.title}` : null,
+    scope.topic ? `Topic: ${scope.topic.title}` : null,
+  ].filter(Boolean);
+  return parts.join(" / ") || "Book scope";
+}
+
+async function FolderCanvas({
+  studio,
+  bookId,
+  publisherId,
+  userId,
+  folder,
+  query,
+}: {
+  studio: BookPageData;
+  bookId: string;
+  publisherId: string;
+  userId: string;
+  folder: ContentTreeNode;
+  query: Params;
+}) {
+  const chapterId = folder.chapterId;
+  const kind = folder.folderKind;
+  if (!chapterId || !kind) return <Empty text="This workspace area is unavailable." />;
+  const scope = resolveFolderScope(studio, folder);
+  const chapter = scope.chapter;
+  if (!chapter) return <Empty text="Chapter not found." />;
+  const moduleId = scope.module?.id ?? null;
+  const topicId = scope.topic?.id ?? null;
+  const isChapterLevelScope = scope.scopeType === "CHAPTER";
+
+  if (kind === "outcomes") {
+    const rows = await prisma.chapterLearningOutcome.findMany({
+      where: {
+        chapterId,
+        ...(topicId ? { topicId } : moduleId ? { moduleId, topicId: null } : {}),
+      },
+      orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
+    });
+    return (
+      <FolderShell
+        title={isChapterLevelScope ? "Chapter-Level Outcomes" : "Learning Outcomes"}
+        scope={scope}
+      >
+        <OutcomeForm
+          action={saveOutcome.bind(null, bookId)}
+          chapterId={chapterId}
+          moduleId={moduleId}
+          topicId={topicId}
+        />
+        <div className="space-y-4">
+          {rows.map((row) => (
+            <ContentEditorForm
+              key={row.id}
+              action={saveOutcome.bind(null, bookId)}
+              submitLabel="Save Outcome"
+              className="space-y-5 rounded-[1.75rem] bg-white p-6 shadow-sm ring-1 ring-slate-200"
+            >
+              <input type="hidden" name="id" value={row.id} />
+              <input type="hidden" name="chapterId" value={chapterId} />
+              <input type="hidden" name="moduleId" value={row.moduleId ?? moduleId ?? ""} />
+              <input type="hidden" name="topicId" value={row.topicId ?? topicId ?? ""} />
+              <Field label="Outcome">
+                <textarea
+                  name="outcome"
+                  rows={4}
+                  defaultValue={row.outcome}
+                  className={field}
+                />
+              </Field>
+              <div className="grid gap-4 lg:grid-cols-3">
+                <Field label="Bloom Level">
+                  <input name="bloomLevel" defaultValue={row.bloomLevel ?? ""} className={field} />
+                </Field>
+                <Field label="Competency">
+                  <input name="competency" defaultValue={row.competency ?? ""} className={field} />
+                </Field>
+                <Field label="Order">
+                  <input name="sortOrder" type="number" min="0" defaultValue={row.sortOrder} className={field} />
+                </Field>
+              </div>
+              <div className="flex gap-2">
+                <form action={moveOutcome.bind(null, bookId, row.id, -1)}>
+                  <button className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700">
+                    Move Up
+                  </button>
+                </form>
+                <form action={moveOutcome.bind(null, bookId, row.id, 1)}>
+                  <button className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700">
+                    Move Down
+                  </button>
+                </form>
+              </div>
+            </ContentEditorForm>
+          ))}
+        </div>
+        {!rows.length ? <Empty text="No learning outcomes yet." /> : null}
+      </FolderShell>
+    );
+  }
+
+  if (kind === "activities") {
+    const [rows, resourceOptions] = await Promise.all([
+      loadActivityStudio({ publisherId, bookId, chapterId, moduleId, topicId }),
+      loadActivityResourceOptions({ publisherId, bookId, chapterId, moduleId, topicId }),
+    ]);
+    const releaseSummaries = await loadReleaseSummaryMap(
+      { userId, publisherId },
+      bookId,
+      "ACTIVITY",
+      rows.map((row) => row.id),
+    );
+    const modules = studio.modules
+      .filter((module) => module.chapterId === chapterId && !module.archived)
+      .map((module) => ({ id: module.id, title: module.title }));
+    const topics = studio.topics
+      .filter((topic) => topic.chapterId === chapterId && !topic.archived)
+      .map((topic) => ({ id: topic.id, title: topic.title, moduleId: topic.moduleId }));
+    return (
+      <FolderShell
+        title={isChapterLevelScope ? "Chapter-Level Activities" : "Activities"}
+        scope={scope}
+      >
+        <ActivityStudio
+          chapterId={chapterId}
+          activities={rows}
+          resources={resourceOptions}
+          modules={modules}
+          topics={topics}
+          defaultModuleId={moduleId}
+          defaultTopicId={topicId}
+          bookTitle={studio.title}
+          chapterTitle={chapter.title}
+          moduleTitle={scope.module?.title ?? null}
+          topicTitle={scope.topic?.title ?? null}
+          currentScopeLabel={scopePathLabel(scope)}
+          saveAction={saveActivityStudioAction.bind(null, bookId, chapterId)}
+          duplicateAction={duplicateActivityStudioAction.bind(null, bookId)}
+          archiveAction={archiveActivityStudioAction.bind(null, bookId)}
+          moveAction={moveActivityStudioAction.bind(null, bookId, chapterId, moduleId, topicId)}
+          releaseSummaries={releaseSummaries}
+          transitionReleaseAction={changeContentReleaseAction.bind(null, bookId, "ACTIVITY")}
+          rollbackReleaseAction={rollbackContentReleaseAction.bind(null, bookId, "ACTIVITY")}
+          previewBaseHref={`/admin/books/${bookId}/content/releases`}
+        />
+      </FolderShell>
+    );
+  }
+
+  if (kind === "worksheets") {
+    const [rows, lookups] = await Promise.all([
+      loadWorksheetStudio({ publisherId, bookId, chapterId, moduleId, topicId }),
+      loadWorksheetStudioLookups({ publisherId, bookId, chapterId, moduleId, topicId }),
+    ]);
+    const releaseSummaries = await loadReleaseSummaryMap(
+      { userId, publisherId },
+      bookId,
+      "WORKSHEET",
+      rows.map((row: { id: string }) => row.id)
+    );
+    return (
+      <FolderShell
+        title={isChapterLevelScope ? "Chapter-Level Worksheets" : "Worksheets"}
+        scope={scope}
+      >
+        <WorksheetStudio
+          chapterId={chapterId}
+          worksheets={rows}
+          lookups={lookups}
+          defaultModuleId={moduleId}
+          defaultTopicId={topicId}
+          bookTitle={studio.title}
+          chapterTitle={chapter.title}
+          moduleTitle={scope.module?.title ?? null}
+          topicTitle={scope.topic?.title ?? null}
+          currentScopeLabel={scopePathLabel(scope)}
+          saveAction={saveWorksheetStudioAction.bind(null, bookId, chapterId)}
+          duplicateAction={duplicateWorksheetStudioAction.bind(null, bookId)}
+          archiveAction={archiveWorksheetStudioAction.bind(null, bookId)}
+          moveAction={moveWorksheetStudioAction.bind(null, bookId, chapterId, moduleId, topicId)}
+          createExerciseAction={createWorksheetExerciseAction.bind(null, bookId, chapterId)}
+          releaseSummaries={releaseSummaries}
+          transitionReleaseAction={changeContentReleaseAction.bind(null, bookId, "WORKSHEET")}
+          rollbackReleaseAction={rollbackContentReleaseAction.bind(null, bookId, "WORKSHEET")}
+          previewBaseHref={`/admin/books/${bookId}/content/releases`}
+        />
+      </FolderShell>
+    );
+  }
+
+  if (kind === "exercises") {
+    const [rows, lookups] = await Promise.all([
+      loadExerciseStudio(bookId, chapterId, { moduleId, topicId, chapterEndOnly: isChapterLevelScope }),
+      loadExerciseStudioLookups({ publisherId, bookId, chapterId, moduleId, topicId }),
+    ]);
+    const releaseSummaries = await loadReleaseSummaryMap(
+      { userId, publisherId },
+      bookId,
+      "EXERCISE",
+      rows.map((row) => row.id),
+    );
+    return (
+      <FolderShell
+        title={isChapterLevelScope ? "Chapter-End Exercise" : "Exercises"}
+        scope={scope}
+      >
+        <ExerciseAuthoringStudio
+          exercises={rows}
+          lookups={lookups}
+          defaultModuleId={isChapterLevelScope ? null : moduleId}
+          defaultTopicId={isChapterLevelScope ? null : topicId}
+          bookTitle={studio.title}
+          chapterTitle={chapter.title}
+          moduleTitle={scope.module?.title ?? null}
+          topicTitle={scope.topic?.title ?? null}
+          currentScopeLabel={scopePathLabel(scope)}
+          saveExerciseAction={saveExerciseStudioExerciseAction.bind(null, bookId, chapterId)}
+          saveGroupAction={saveExerciseQuestionGroupAction.bind(null, bookId, chapterId)}
+          saveQuestionAction={saveExerciseQuestionAction.bind(null, bookId, chapterId)}
+          moveQuestionAction={moveExerciseQuestionAction.bind(null, bookId, chapterId)}
+          duplicateQuestionAction={duplicateExerciseQuestionAction.bind(null, bookId, chapterId)}
+          archiveQuestionAction={archiveExerciseQuestionAction.bind(null, bookId, chapterId)}
+          archiveExerciseAction={archiveExerciseAction.bind(null, bookId, chapterId)}
+          releaseSummaries={releaseSummaries}
+          transitionReleaseAction={changeContentReleaseAction.bind(null, bookId, "EXERCISE")}
+          rollbackReleaseAction={rollbackContentReleaseAction.bind(null, bookId, "EXERCISE")}
+          previewBaseHref={`/admin/books/${bookId}/content/releases`}
+        />
+      </FolderShell>
+    );
+  }
+
+  if (kind === "questions") {
+    return (
+      <QuestionsPanel
+        bookId={bookId}
+        chapterId={chapterId}
+        moduleId={moduleId}
+        topicId={topicId}
+        chapterNumber={chapter.chapterNumber}
+        chapterTitle={chapter.title}
+        moduleTitle={scope.module?.title ?? null}
+        topicTitle={scope.topic?.title ?? null}
+        query={query}
+      />
+    );
+  }
+
+  if (kind === "resources" || kind === "media") {
+    return (
+      <FolderShell
+        title={kind === "media" ? (isChapterLevelScope ? "Chapter Media" : "Media") : isChapterLevelScope ? "Chapter Resources" : "Resources"}
+        scope={scope}
+      >
+        <section className="rounded-[1.75rem] bg-white p-6 shadow-sm ring-1 ring-slate-200">
+          <h3 className="text-lg font-bold text-slate-950">
+            {kind === "media" ? "Media Attachments" : "Resource Attachments"}
+          </h3>
+          <p className="mt-2 text-sm text-slate-600">
+            Manage reusable {kind === "media" ? "media" : "resource"} links for this {scope.scopeType.toLowerCase()} scope from the Inspector panel without leaving the workspace.
+          </p>
+          <div className="mt-5 flex flex-wrap gap-3">
+            <Link
+              href={`/admin/resources/new?returnTo=${encodeURIComponent(`/admin/books/${bookId}/content?selected=${folder.key}`)}`}
+              className="rounded-xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white"
+            >
+              {kind === "media" ? "Upload New Media" : "Upload New Resource"}
+            </Link>
+            <Link
+              href="/admin/resources"
+              className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700"
+            >
+              Open Resource Library
+            </Link>
+          </div>
+        </section>
+      </FolderShell>
+    );
+  }
+
+  if (kind === "qr") {
+    const scopedRows = await prisma.dynamicQrCode.findMany({
+      where: {
+        bookId,
+        chapterId,
+        publisherId,
+        ...(moduleId ? { moduleId } : { moduleId: null }),
+        ...(topicId ? { topicId } : { topicId: null }),
+      },
+      include: { currentDestination: { select: { type: true } } },
+      orderBy: { updatedAt: "desc" },
+      take: 25,
+    });
+    return (
+      <FolderShell
+        title={isChapterLevelScope ? "Chapter QR Codes" : "QR Codes"}
+        scope={scope}
+      >
+        <section className="space-y-4">
+            <Link
+              href={`/admin/qr?create=1&bookId=${bookId}&targetType=${topicId ? "TOPIC" : moduleId ? "MODULE" : "CHAPTER"}&targetId=${encodeURIComponent(topicId ?? moduleId ?? chapterId)}&bookTitle=${encodeURIComponent(studio.title)}&targetTitle=${encodeURIComponent(topicId ? scope.topic?.title ?? chapter.title : moduleId ? scope.module?.title ?? chapter.title : chapter.title)}`}
+              className="inline-flex rounded-xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white"
+            >
+            Create QR For This Scope
+          </Link>
+          {scopedRows.map((row) => (
+            <article key={row.id} className="rounded-[1.75rem] bg-white p-6 shadow-sm ring-1 ring-slate-200">
+              <div className="flex flex-wrap justify-between gap-3">
+                <div>
+                  <h3 className="font-bold text-slate-950">{row.name}</h3>
+                  <p className="mt-1 text-sm text-slate-500">
+                    {row.status} · {row.audience} · {row.currentDestination?.type ?? "No destination"}
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <Link href={`/qr/r/${row.publicCode}`} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700">
+                    Permanent URL
+                  </Link>
+                  <Link href={`/admin/qr?qrId=${row.id}`} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700">
+                    Details
+                  </Link>
+                </div>
+              </div>
+            </article>
+          ))}
+          {!scopedRows.length ? <Empty text="No QR codes are connected to this chapter." /> : null}
+        </section>
+      </FolderShell>
+    );
+  }
+
+  return (
+    <FolderShell title="Assessments" scope={scope}>
+      <Empty text="Publisher assessment content is not wired into this sprint workspace." />
+    </FolderShell>
+  );
+}
+
+async function QuestionsPanel({
+  bookId,
+  chapterId,
+  moduleId,
+  topicId,
+  chapterNumber,
+  chapterTitle,
+  moduleTitle,
+  topicTitle,
+  query,
+}: {
+  bookId: string;
+  chapterId: string;
+  moduleId: string | null;
+  topicId: string | null;
+  chapterNumber: number;
+  chapterTitle: string;
+  moduleTitle: string | null;
+  topicTitle: string | null;
+  query: Params;
+}) {
+  const page = Math.max(1, Number(query.page) || 1);
+  const take = 20;
+  const where: Prisma.BookQuestionWhereInput = {
+    bookId,
+    chapterId,
+    ...(topicId ? { topicId } : moduleId ? { moduleId, topicId: null } : {}),
+    questionText: query.q ? { contains: query.q, mode: "insensitive" } : undefined,
+    questionType: query.type || undefined,
+    difficulty: query.difficulty || undefined,
+    marks: query.marks ? Number(query.marks) : undefined,
+    bloomLevel: query.bloom || undefined,
+    approved: query.status === "approved" ? true : query.status === "pending" ? false : undefined,
+  };
+  const [rows, total] = await Promise.all([
+    prisma.bookQuestion.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      skip: (page - 1) * take,
+      take,
+    }),
+    prisma.bookQuestion.count({ where }),
+  ]);
+
+  return (
+    <FolderShell
+      title={topicId || moduleId ? "Questions" : "Chapter-Level Questions"}
+      scope={{
+        scopeType: topicId ? "TOPIC" : moduleId ? "MODULE" : "CHAPTER",
+        chapter: { id: chapterId, title: chapterTitle, chapterNumber },
+        module: moduleId && moduleTitle ? { id: moduleId, title: moduleTitle } : null,
+        topic: topicId && topicTitle ? { id: topicId, title: topicTitle } : null,
+      }}
+    >
+      <section className="space-y-4 rounded-[1.75rem] bg-white p-6 shadow-sm ring-1 ring-slate-200">
+        <form className="grid gap-3 xl:grid-cols-6">
+          <input
+            type="hidden"
+            name="selected"
+            value={
+              topicId
+                ? `FOLDER:TOPIC:${topicId}:questions`
+                : moduleId
+                  ? `FOLDER:MODULE:${moduleId}:questions`
+                  : `FOLDER:${chapterId}:questions`
+            }
+          />
+          <input name="q" defaultValue={query.q} placeholder="Search questions" className={field} />
+          <input name="type" defaultValue={query.type} placeholder="Question type" className={field} />
+          <input name="difficulty" defaultValue={query.difficulty} placeholder="Difficulty" className={field} />
+          <input name="marks" type="number" min="1" defaultValue={query.marks} placeholder="Marks" className={field} />
+          <input name="bloom" defaultValue={query.bloom} placeholder="Bloom level" className={field} />
+          <div className="flex gap-2">
+            <select name="status" defaultValue={query.status ?? ""} className={field}>
+              <option value="">All status</option>
+              <option value="approved">Approved</option>
+              <option value="pending">Pending</option>
+            </select>
+            <button className="rounded-xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white">
+              Filter
+            </button>
+          </div>
+        </form>
+        <div className="flex justify-end">
+          <Link
+            href={`/admin/books/${bookId}/questions/new?chapterId=${chapterId}${moduleId ? `&moduleId=${encodeURIComponent(moduleId)}` : ""}${topicId ? `&topicId=${encodeURIComponent(topicId)}` : ""}`}
+            className="rounded-xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white"
+          >
+            Add Question
+          </Link>
+        </div>
+        <div className="space-y-3">
+          {rows.map((row) => (
+            <article key={row.id} className="rounded-[1.5rem] bg-[#f7f4ed] p-5 ring-1 ring-slate-200">
+              <p className="font-medium text-slate-900">{row.questionText}</p>
+              <p className="mt-2 text-xs text-slate-500">
+                {row.questionType} · {row.difficulty} · {row.marks} marks · {row.bloomLevel ?? "No Bloom level"} · {row.approved ? "Approved" : "Pending"}
+              </p>
+              <Link href={`/admin/books/${bookId}/questions/${row.id}/edit`} className="mt-3 inline-flex text-sm font-semibold text-blue-700">
+                Edit Question
+              </Link>
+            </article>
+          ))}
+        </div>
+        {!rows.length ? <Empty text="No matching questions." /> : null}
+        <div className="flex justify-between text-sm text-slate-500">
+          <span>{total} questions · Page {page} of {Math.max(1, Math.ceil(total / take))}</span>
+          <div className="flex gap-2">
+            {page > 1 ? <PageLink query={query} chapterId={chapterId} moduleId={moduleId} topicId={topicId} page={page - 1} label="Previous" /> : null}
+            {page * take < total ? <PageLink query={query} chapterId={chapterId} moduleId={moduleId} topicId={topicId} page={page + 1} label="Next" /> : null}
+          </div>
+        </div>
+      </section>
+    </FolderShell>
+  );
+}
+
+async function InspectorPanel({
+  studio,
+  selected,
+  userId,
+  publisherId,
+  sectionDefinitions,
+  knowledgeDefinitions,
+}: {
+  studio: BookPageData;
+  selected: ContentTreeNode;
+  userId: string;
+  publisherId: string;
+  sectionDefinitions: Awaited<ReturnType<typeof loadContentSectionDefinitions>>;
+  knowledgeDefinitions: Awaited<ReturnType<typeof searchKnowledgeDefinitions>>;
+}) {
+  if (selected.type === "BOOK") {
+    const [classes, subjects, series, boards, releaseSummary, sectionReleaseSummaries] = await Promise.all([
+      prisma.class.findMany({
+        where: { active: true },
+        select: { id: true, name: true },
+        orderBy: { sortOrder: "asc" },
+      }),
+      prisma.subject.findMany({
+        where: { active: true },
+        select: { id: true, name: true },
+        orderBy: { sortOrder: "asc" },
+      }),
+      prisma.bookSeries.findMany({
+        where: {
+          publisherId,
+          OR: [{ active: true }, { id: studio.seriesId ?? undefined }],
+        },
+        select: { id: true, name: true },
+        orderBy: { name: "asc" },
+      }),
+      prisma.board.findMany({
+        where: {
+          publisherId,
+          OR: [{ active: true }, { id: studio.boardId ?? undefined }],
+        },
+        select: { id: true, name: true },
+        orderBy: [{ displayOrder: "asc" }, { name: "asc" }],
+      }),
+      loadReleaseSummary({
+        actor: { userId, publisherId },
+        bookId: studio.id,
+        targetType: "BOOK",
+        targetId: studio.id,
+      }),
+      loadReleaseSummaryMap(
+        { userId, publisherId },
+        studio.id,
+        "SECTION",
+        sectionDefinitions.map((section) => section.id),
+      ),
+    ]);
+    return (
+      <div className="space-y-6">
+        <InspectorGroup title="Properties">
+          <BookInspectorEditor
+            book={{
+              id: studio.id,
+              title: studio.title,
+              subtitle: studio.subtitle ?? "",
+              classId: studio.classId,
+              subjectId: studio.subjectId,
+              seriesId: studio.seriesId ?? "",
+              boardId: studio.boardId ?? "",
+              isbn: studio.isbn ?? "",
+              published: studio.published,
+              featured: studio.featured,
+              description: studio.description ?? "",
+              updatedAt: studio.updatedAt.toISOString(),
+            }}
+            classes={classes}
+            subjects={subjects}
+            series={series}
+            boards={boards}
+          />
+        </InspectorGroup>
+        <InspectorGroup title="Publishing">
+          <ContentReleasePanel
+            summary={releaseSummary}
+            transitionAction={changeContentReleaseAction.bind(null, studio.id, "BOOK", studio.id)}
+            rollbackAction={rollbackContentReleaseAction.bind(null, studio.id, "BOOK", studio.id)}
+            bulkPublishAction={bulkPublishContentReleaseAction.bind(null, studio.id, "BOOK", studio.id)}
+            previewBaseHref={`/admin/books/${studio.id}/content/releases`}
+          />
+        </InspectorGroup>
+        <InspectorGroup title="Sections">
+          <ContentSectionManager
+            sections={sectionDefinitions}
+            saveAction={saveContentSectionDefinitionAction.bind(null, studio.id)}
+            archiveAction={archiveContentSectionDefinitionAction.bind(null, studio.id)}
+            moveAction={moveContentSectionDefinitionAction.bind(null, studio.id)}
+            releaseSummaries={sectionReleaseSummaries}
+            transitionReleaseAction={changeContentReleaseAction.bind(null, studio.id, "SECTION")}
+            rollbackReleaseAction={rollbackContentReleaseAction.bind(null, studio.id, "SECTION")}
+            previewBaseHref={`/admin/books/${studio.id}/content/releases`}
+          />
+        </InspectorGroup>
+      </div>
+    );
+  }
+
+  if (selected.type === "FOLDER" && selected.folderKind === "resources" && selected.chapterId) {
+    const chapter = studio.chapters.find((item) => item.id === selected.chapterId);
+    const sectionReleaseSummaries = await loadReleaseSummaryMap(
+      { userId, publisherId },
+      studio.id,
+      "SECTION",
+      sectionDefinitions.map((section) => section.id),
+    );
+    return (
+      <div className="space-y-6">
+        <InspectorSummary selected={selected} studio={studio} />
+        {chapter ? (
+          <InspectorGroup title="Assets">
+            <BookStudioResourcePanel
+              targetType="CHAPTER"
+              targetId={chapter.id}
+              targetTitle={`Chapter ${chapter.chapterNumber}: ${chapter.title}`}
+            />
+          </InspectorGroup>
+        ) : null}
+        <InspectorGroup title="Sections">
+          <ContentSectionManager
+            sections={sectionDefinitions}
+            saveAction={saveContentSectionDefinitionAction.bind(null, studio.id)}
+            archiveAction={archiveContentSectionDefinitionAction.bind(null, studio.id)}
+            moveAction={moveContentSectionDefinitionAction.bind(null, studio.id)}
+            releaseSummaries={sectionReleaseSummaries}
+            transitionReleaseAction={changeContentReleaseAction.bind(null, studio.id, "SECTION")}
+            rollbackReleaseAction={rollbackContentReleaseAction.bind(null, studio.id, "SECTION")}
+            previewBaseHref={`/admin/books/${studio.id}/content/releases`}
+          />
+        </InspectorGroup>
+      </div>
+    );
+  }
+
+  const record = selected.type === "FOLDER" ? null : await loadNode(studio.id, selected);
+  const document = record ? normalizeContentDocument(record.content) : null;
+  const linkedBlocks = document?.blocks.filter(isLinkedAssetBlock) ?? [];
+  const knowledgeReferences =
+    document?.blocks.flatMap((block) => isTextBlock(block) ? block.knowledgeReferences ?? [] : []) ?? [];
+  const knowledgeKeys = new Set(knowledgeReferences.map((reference) => knowledgeKey(reference.type, reference.targetId)));
+  const knownKeys = new Set(knowledgeDefinitions.map((definition) => knowledgeKey(definition.type, definition.id)));
+  const unusedKnowledge = knowledgeDefinitions.filter(
+    (definition) => !knowledgeKeys.has(knowledgeKey(definition.type, definition.id)),
+  );
+  const brokenKnowledge = knowledgeReferences.filter(
+    (reference) => !knownKeys.has(knowledgeKey(reference.type, reference.targetId)),
+  );
+  const sectionUsage = new Map<string, number>();
+  for (const block of linkedBlocks) {
+    if (!block.sectionDefinitionId) continue;
+    sectionUsage.set(block.sectionDefinitionId, (sectionUsage.get(block.sectionDefinitionId) ?? 0) + 1);
+  }
+  const assignedSections = sectionDefinitions.filter((section) => sectionUsage.has(section.id));
+  const sectionReleaseSummaries = await loadReleaseSummaryMap(
+    { userId, publisherId },
+    studio.id,
+    "SECTION",
+    sectionDefinitions.map((section) => section.id),
+  );
+  const knowledgeReleaseSummaries = await Promise.all(
+    knowledgeDefinitions.map(async (definition) => ({
+      key: knowledgeKey(definition.type, definition.id),
+      summary: await loadReleaseSummary({
+        actor: { userId, publisherId },
+        bookId: studio.id,
+        targetType: definition.type,
+        targetId: definition.id,
+      }),
+    })),
+  );
+  const knowledgeReleaseMap = new Map(knowledgeReleaseSummaries.map((item) => [item.key, item.summary]));
+  const releaseTarget =
+    selected.type === "FOLDER"
+      ? null
+      : releaseTargetForNode(selected.type as BookStructureNodeType);
+  const releaseSummary =
+    releaseTarget && record
+      ? await loadReleaseSummary({
+          actor: { userId, publisherId },
+          bookId: studio.id,
+          targetType: releaseTarget,
+          targetId: selected.id,
+        })
+      : null;
+
+  return (
+    <div className="space-y-6">
+      <InspectorSummary selected={selected} studio={studio} />
+      {record ? (
+        <InspectorGroup title="Properties">
+          <dl className="space-y-3 text-sm text-slate-600">
+            <SummaryRow label="Title" value={record.title} />
+            <SummaryRow label="Slug" value={record.slug || "Not set"} />
+            <SummaryRow label="Code / Label" value={record.label || "Not supported"} />
+            <SummaryRow label="Status" value={record.archived ? "Archived" : "Active"} />
+            <SummaryRow label="Publishing" value={record.published ? "Published" : "Draft"} />
+            <SummaryRow label="Audience" value="Inherited from linked resources and delivery rules" />
+            <SummaryRow
+              label="Updated"
+              value={record.updatedAt ? record.updatedAt.toLocaleString("en-IN") : "Not available"}
+            />
+          </dl>
+        </InspectorGroup>
+      ) : null}
+      {releaseSummary ? (
+        <InspectorGroup title="Publishing">
+          <ContentReleasePanel
+            summary={releaseSummary}
+            transitionAction={changeContentReleaseAction.bind(null, studio.id, releaseSummary.targetType, selected.id)}
+            rollbackAction={rollbackContentReleaseAction.bind(null, studio.id, releaseSummary.targetType, selected.id)}
+            previewBaseHref={`/admin/books/${studio.id}/content/releases`}
+            bulkPublishAction={
+              releaseSummary.targetType === "CHAPTER"
+                ? bulkPublishContentReleaseAction.bind(null, studio.id, "CHAPTER", selected.id)
+                : undefined
+            }
+          />
+        </InspectorGroup>
+      ) : null}
+      <InspectorGroup title="Linked Assets">
+        <div className="space-y-3 text-sm text-slate-600">
+          <SummaryRow label="Blocks" value={String(linkedBlocks.length)} />
+          <SummaryRow label="Sectioned" value={String(assignedSections.length)} />
+          {assignedSections.length ? (
+            <div className="flex flex-wrap gap-2">
+              {assignedSections.map((section) => (
+                <span key={section.id} className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+                  {section.label} ({sectionUsage.get(section.id)})
+                </span>
+              ))}
+            </div>
+          ) : (
+            <p>No linked asset blocks use a section label on this node yet.</p>
+          )}
+        </div>
+      </InspectorGroup>
+      <InspectorGroup title="Knowledge">
+        <div className="space-y-3 text-sm text-slate-600">
+          <SummaryRow label="References" value={String(knowledgeReferences.length)} />
+          <SummaryRow label="Unused Definitions" value={String(unusedKnowledge.length)} />
+          <SummaryRow label="Broken References" value={String(brokenKnowledge.length)} />
+          {knowledgeReferences.length ? (
+            <div className="space-y-2">
+              {[...new Map(knowledgeReferences.map((reference) => [knowledgeKey(reference.type, reference.targetId), reference])).values()]
+                .map((reference) => (
+                  <span key={reference.id} className={`mr-2 inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
+                    reference.type === "VOCABULARY"
+                      ? "bg-emerald-100 text-emerald-800"
+                      : "bg-indigo-100 text-indigo-800"
+                  }`}>
+                    {reference.label}
+                  </span>
+                ))}
+            </div>
+          ) : (
+            <p>No vocabulary or concept references on this node yet.</p>
+          )}
+          <div className="space-y-3">
+            {knowledgeDefinitions.slice(0, 8).map((definition) => {
+              const key = knowledgeKey(definition.type, definition.id);
+              const summary = knowledgeReleaseMap.get(key);
+              return summary ? (
+                <details key={key} className="rounded-2xl bg-slate-50 p-3 ring-1 ring-slate-200">
+                  <summary className="cursor-pointer text-xs font-bold uppercase tracking-[0.14em] text-slate-500">
+                    {definition.type}: {definition.label}
+                  </summary>
+                  <div className="mt-3">
+                    <ContentReleasePanel
+                      summary={summary}
+                      transitionAction={changeContentReleaseAction.bind(null, studio.id, definition.type, definition.id)}
+                      rollbackAction={rollbackContentReleaseAction.bind(null, studio.id, definition.type, definition.id)}
+                      previewBaseHref={`/admin/books/${studio.id}/content/releases`}
+                    />
+                  </div>
+                </details>
+              ) : null;
+            })}
+          </div>
+        </div>
+      </InspectorGroup>
+      <InspectorGroup title="Sections">
+        <ContentSectionManager
+          sections={sectionDefinitions}
+          saveAction={saveContentSectionDefinitionAction.bind(null, studio.id)}
+          archiveAction={archiveContentSectionDefinitionAction.bind(null, studio.id)}
+          moveAction={moveContentSectionDefinitionAction.bind(null, studio.id)}
+          releaseSummaries={sectionReleaseSummaries}
+          transitionReleaseAction={changeContentReleaseAction.bind(null, studio.id, "SECTION")}
+          rollbackReleaseAction={rollbackContentReleaseAction.bind(null, studio.id, "SECTION")}
+          previewBaseHref={`/admin/books/${studio.id}/content/releases`}
+        />
+      </InspectorGroup>
+    </div>
+  );
+}
+
+void InspectorPanel;
+
+function InspectorSummary({
+  selected,
+  studio,
+}: {
+  selected: ContentTreeNode;
+  studio: BookPageData;
+}) {
+  const chapter =
+    selected.type === "CHAPTER"
+      ? studio.chapters.find((item) => item.id === selected.id)
+      : selected.chapterId
+        ? studio.chapters.find((item) => item.id === selected.chapterId)
+        : null;
+  const stats =
+    chapter
+      ? [
+          { label: "Outcomes", value: chapter._count.learningOutcomes },
+          { label: "Activities", value: chapter._count.activities },
+          { label: "Exercises", value: chapter._count.exercises },
+          { label: "Questions", value: chapter._count.questions },
+        ]
+      : [];
+
+  return (
+    <>
+      <InspectorGroup title="Context">
+        <dl className="space-y-3 text-sm text-slate-600">
+          <SummaryRow label="Book" value={studio.title} />
+          <SummaryRow label="Selection" value={selected.title} />
+          <SummaryRow label="Node Type" value={selected.type} />
+          {chapter ? <SummaryRow label="Chapter" value={`${chapter.chapterNumber}. ${chapter.title}`} /> : null}
+        </dl>
+      </InspectorGroup>
+      {stats.length ? (
+        <InspectorGroup title="Metadata">
+          <div className="grid gap-3 sm:grid-cols-2">
+            {stats.map((item) => (
+              <div key={item.label} className="rounded-[1.25rem] bg-slate-50 px-4 py-3 ring-1 ring-slate-200">
+                <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">{item.label}</p>
+                <p className="mt-2 text-xl font-bold text-slate-950">{item.value}</p>
+              </div>
+            ))}
+          </div>
+        </InspectorGroup>
+      ) : null}
+    </>
+  );
+}
+
+async function loadNode(bookId: string, node: ContentTreeNode) {
+  const select = {
+    id: true,
+    title: true,
+    subtitle: true,
+    slug: true,
+    description: true,
+    estimatedMinutes: true,
+    published: true,
+    archived: true,
+    content: true,
+    updatedAt: true,
+  };
+  if (node.type === "PART") {
+    return prisma.bookPart
+      .findFirst({ where: { id: node.id, bookId }, select: { ...select, kind: true } })
+      .then((row) => row && { ...row, label: null });
+  }
+  if (node.type === "UNIT") {
+    return prisma.bookUnit
+      .findFirst({ where: { id: node.id, bookId }, select: { ...select, number: true } })
+      .then((row) => row && { ...row, label: row.number });
+  }
+  if (node.type === "CHAPTER") {
+    return prisma.bookChapter
+      .findFirst({ where: { id: node.id, bookId }, select: { ...select, chapterNumber: true } })
+      .then((row) => row && { ...row, label: String(row.chapterNumber) });
+  }
+  if (node.type === "MODULE") {
+    return prisma.bookModule
+      .findFirst({ where: { id: node.id, bookId }, select: { ...select, number: true } })
+      .then((row) => row && { ...row, label: row.number });
+  }
+  return prisma.bookTopic
+    .findFirst({ where: { id: node.id, bookId }, select: { ...select, number: true } })
+    .then((row) => row && { ...row, label: row.number });
+}
+
+async function loadReleaseSummaryMap(
+  actor: { userId: string; publisherId: string },
+  bookId: string,
+  targetType: "ACTIVITY" | "WORKSHEET" | "EXERCISE" | "SECTION",
+  ids: string[],
+) {
+  const entries = await Promise.all(
+    ids.map(async (targetId) => [
+      targetId,
+      await loadReleaseSummary({ actor, bookId, targetType, targetId }),
+    ] as const),
+  );
+  return Object.fromEntries(entries);
+}
+
+async function loadEditorResources(publisherId: string) {
+  return prisma.resource.findMany({
+    where: {
+      publisherId,
+      archived: false,
+    },
+    select: {
+      id: true,
+      title: true,
+      thumbnail: true,
+      fileUrl: true,
+      type: true,
+      mimeType: true,
+      published: true,
+      audience: true,
+    },
+    orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+    take: 100,
+  });
+}
+
+function FolderShell({
+  title,
+  scope,
+  children,
+}: {
+  title: string;
+  scope: FolderScopeDetails;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="mx-auto max-w-5xl space-y-6">
+      <section className="rounded-[2rem] bg-white p-8 shadow-sm ring-1 ring-slate-200 sm:p-10">
+        <p className="text-xs font-bold uppercase tracking-[0.18em] text-blue-700">
+          {scope.scopeType === "TOPIC"
+            ? "Topic Scope"
+            : scope.scopeType === "MODULE"
+              ? "Module Scope"
+              : "Chapter Scope"}
+        </p>
+        <h2 className="mt-3 text-3xl font-bold tracking-tight text-slate-950">{title}</h2>
+        <p className="mt-2 text-sm text-slate-500">{scopePathLabel(scope)}</p>
+      </section>
+      {children}
+    </div>
+  );
+}
+
+function OutcomeForm({
+  action,
+  chapterId,
+  moduleId,
+  topicId,
+}: {
+  action: (data: FormData) => Promise<void>;
+  chapterId: string;
+  moduleId: string | null;
+  topicId: string | null;
+}) {
+  return (
+    <ContentEditorForm
+      action={action}
+      submitLabel="Add Outcome"
+      className="space-y-5 rounded-[1.75rem] bg-white p-6 shadow-sm ring-1 ring-slate-200"
+    >
+      <input type="hidden" name="chapterId" value={chapterId} />
+      <input type="hidden" name="moduleId" value={moduleId ?? ""} />
+      <input type="hidden" name="topicId" value={topicId ?? ""} />
+      <Field label="New Outcome">
+        <textarea name="outcome" rows={4} required className={field} />
+      </Field>
+      <div className="grid gap-4 lg:grid-cols-3">
+        <Field label="Bloom Level">
+          <input name="bloomLevel" className={field} />
+        </Field>
+        <Field label="Competency">
+          <input name="competency" className={field} />
+        </Field>
+        <Field label="Order">
+          <input name="sortOrder" type="number" min="0" defaultValue="0" className={field} />
+        </Field>
+      </div>
+    </ContentEditorForm>
+  );
+}
+
+function PageLink({
+  query,
+  chapterId,
+  moduleId,
+  topicId,
+  page,
+  label,
+}: {
+  query: Params;
+  chapterId: string;
+  moduleId: string | null;
+  topicId: string | null;
+  page: number;
+  label: string;
+}) {
+  const params = new URLSearchParams(
+    Object.entries({
+      ...query,
+      selected: topicId
+        ? `FOLDER:TOPIC:${topicId}:questions`
+        : moduleId
+          ? `FOLDER:MODULE:${moduleId}:questions`
+          : `FOLDER:${chapterId}:questions`,
+      page: String(page),
+    }).filter(
+      (entry): entry is [string, string] => Boolean(entry[1]),
+    ),
+  );
+  return (
+    <Link href={`?${params.toString()}`} className="rounded-xl border border-slate-200 bg-white px-3 py-2 font-semibold text-slate-700">
+      {label}
+    </Link>
+  );
+}
+
+function InspectorGroup({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="space-y-3 rounded-[1.75rem] bg-white p-5 shadow-sm ring-1 ring-slate-200">
+      <h3 className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">{title}</h3>
+      {children}
+    </section>
+  );
+}
+
+function Field({
+  label,
+  wide = false,
+  children,
+}: {
+  label: string;
+  wide?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className={`block text-sm font-semibold text-slate-700 ${wide ? "lg:col-span-2" : ""}`}>
+      {label}
+      {children}
+    </label>
+  );
+}
+
+function CanvasMetric({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-[1.75rem] bg-white px-5 py-6 shadow-sm ring-1 ring-slate-200">
+      <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">{label}</p>
+      <p className="mt-3 text-3xl font-bold text-slate-950">{value}</p>
+    </div>
+  );
+}
+
+
+function SummaryRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <dt className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">{label}</dt>
+      <dd className="mt-1 text-sm text-slate-700">{value}</dd>
+    </div>
+  );
+}
+
+function Empty({ text }: { text: string }) {
+  return (
+    <div className="rounded-[1.75rem] border border-dashed border-slate-300 bg-white px-6 py-10 text-center text-sm text-slate-500">
+      {text}
+    </div>
+  );
+}
+
+
+============================================================
+FILE: lib\book-structure-management.ts
+============================================================
+
+import "server-only";
+
+import {
+  BookPartKind,
+  Prisma,
+  SecurityAuditOutcome,
+} from "@prisma/client";
+
+import { prisma } from "@/lib/prisma";
+import { requireLivePublisherAdmin } from "@/lib/publisher-admin-authorization";
+import {
+  publisherAdminAuditActor,
+  writeSecurityAuditEvent,
+} from "@/lib/security-audit";
+import type {
+  SecurityAuditAction,
+  SecurityAuditTargetType,
+} from "@/lib/security-audit-policy";
+
+export type BookStructureNodeType = "PART" | "UNIT" | "CHAPTER" | "MODULE" | "TOPIC";
+
+export type BookStructureWriteInput = {
+  type: BookStructureNodeType;
+  id?: string;
+  parentId?: string | null;
+  secondaryParentId?: string | null;
+  title: string;
+  subtitle?: string | null;
+  shortTitle?: string | null;
+  code?: string | null;
+  slug?: string | null;
+  label?: string | null;
+  description?: string | null;
+  content?: Prisma.InputJsonValue | null;
+  estimatedMinutes?: number | null;
+  pageStart?: number | null;
+  pageEnd?: number | null;
+  imageUrl?: string | null;
+  published?: boolean;
+  partKind?: BookPartKind;
+};
+
+export class BookStructureError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "BookStructureError";
+  }
+}
+
+function clean(value: string | null | undefined, max = 300) {
+  return value?.trim().replace(/\s+/g, " ").slice(0, max) || null;
+}
+
+function slugify(value: string) {
+  return value
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "")
+    .slice(0, 180);
+}
+
+async function actorAndBook(bookId: string) {
+  const actor = await requireLivePublisherAdmin();
+  const book = await prisma.book.findFirst({
+    where: { id: bookId, publisherId: actor.publisherId },
+    select: { id: true },
+  });
+  if (!book) throw new BookStructureError("Book not found.");
+  return { actor, book };
+}
+
+function auditDescriptor(type: BookStructureNodeType, create: boolean): {
+  action: SecurityAuditAction;
+  targetType: SecurityAuditTargetType;
+} {
+  if (type === "PART") {
+    return {
+      action: create ? "publisher.book_part.create" : "publisher.book_part.update",
+      targetType: "BookPart",
+    };
+  }
+  if (type === "UNIT") {
+    return {
+      action: create ? "publisher.curriculum.unit.create" : "publisher.curriculum.unit.update",
+      targetType: "BookUnit",
+    };
+  }
+  if (type === "CHAPTER") {
+    return {
+      action: create ? "publisher.curriculum.chapter.create" : "publisher.curriculum.chapter.update",
+      targetType: "BookChapter",
+    };
+  }
+  if (type === "MODULE") {
+    return {
+      action: create ? "publisher.curriculum.module.create" : "publisher.curriculum.module.update",
+      targetType: "BookModule",
+    };
+  }
+  return {
+    action: create ? "publisher.curriculum.topic.create" : "publisher.curriculum.topic.update",
+    targetType: "BookTopic",
+  };
+}
+
+async function validateParentChain(
+  tx: Prisma.TransactionClient,
+  bookId: string,
+  input: BookStructureWriteInput,
+) {
+  if (input.type === "PART") return;
+  if (input.type === "UNIT" && input.parentId) {
+    const part = await tx.bookPart.findFirst({
+      where: { id: input.parentId, bookId, archived: false },
+      select: { id: true },
+    });
+    if (!part) throw new BookStructureError("The selected part or module is unavailable.");
+  }
+  if (input.type === "CHAPTER") {
+    if (input.parentId) {
+      const unit = await tx.bookUnit.findFirst({
+        where: { id: input.parentId, bookId, archived: false },
+        select: { id: true, partId: true },
+      });
+      if (!unit) throw new BookStructureError("The selected unit is unavailable.");
+      if (input.secondaryParentId && unit.partId !== input.secondaryParentId) {
+        throw new BookStructureError("The selected unit does not belong to that part.");
+      }
+    } else if (input.secondaryParentId) {
+      const part = await tx.bookPart.findFirst({
+        where: { id: input.secondaryParentId, bookId, archived: false },
+        select: { id: true },
+      });
+      if (!part) throw new BookStructureError("The selected part is unavailable.");
+    }
+  }
+  if (input.type === "MODULE") {
+    const chapter = input.parentId
+      ? await tx.bookChapter.findFirst({
+          where: { id: input.parentId, bookId, archived: false },
+          select: { id: true, unitId: true },
+        })
+      : null;
+    if (!chapter) throw new BookStructureError("A valid chapter is required.");
+  }
+  if (input.type === "TOPIC") {
+    const chapter = input.parentId
+      ? await tx.bookChapter.findFirst({
+          where: { id: input.parentId, bookId, archived: false },
+          select: { id: true },
+        })
+      : null;
+    if (!chapter) throw new BookStructureError("A valid chapter is required.");
+    if (input.secondaryParentId) {
+      const moduleNode = await tx.bookModule.findFirst({
+        where: {
+          id: input.secondaryParentId,
+          bookId,
+          chapterId: chapter.id,
+          archived: false,
+        },
+        select: { id: true },
+      });
+      if (!moduleNode) throw new BookStructureError("The selected lesson group is unavailable.");
+    }
+  }
+}
+
+export async function saveBookStructureNode(bookId: string, input: BookStructureWriteInput) {
+  const { actor } = await actorAndBook(bookId);
+  const title = clean(input.title, 200);
+  if (!title) throw new BookStructureError("Title is required.");
+  if (input.pageStart && input.pageEnd && input.pageEnd < input.pageStart) {
+    throw new BookStructureError("End page must not be before start page.");
+  }
+
+  return prisma.$transaction(async (tx) => {
+    await validateParentChain(tx, bookId, input);
+    const now = new Date();
+    const common = {
+      title,
+      subtitle: clean(input.subtitle, 240),
+      shortTitle: clean(input.shortTitle, 100),
+    };
+    let result: { id: string };
+    const isCreate = !input.id;
+
+    if (input.type === "PART") {
+      const data = {
+        ...common,
+        kind: input.partKind ?? BookPartKind.MODULE,
+        code: clean(input.code, 80),
+        slug: slugify(input.slug || title),
+        description: clean(input.description, 2000),
+        content: input.content ?? Prisma.JsonNull,
+        estimatedMinutes: input.estimatedMinutes ?? null,
+        imageUrl: clean(input.imageUrl, 1000),
+        published: Boolean(input.published),
+        publishedAt: input.published ? now : null,
+      };
+      result = input.id
+        ? await tx.bookPart.update({
+            where: { id: input.id, bookId },
+            data,
+            select: { id: true },
+          })
+        : await tx.bookPart.create({
+            data: {
+              ...data,
+              bookId,
+              displayOrder: await tx.bookPart.count({ where: { bookId } }),
+            },
+            select: { id: true },
+          });
+    } else if (input.type === "UNIT") {
+      const data = {
+        ...common,
+        partId: input.parentId || null,
+        code: clean(input.code, 80),
+        slug: slugify(input.slug || title),
+        number: clean(input.label, 80),
+        description: clean(input.description, 2000),
+        content: input.content ?? Prisma.JsonNull,
+        estimatedMinutes: input.estimatedMinutes ?? null,
+        imageUrl: clean(input.imageUrl, 1000),
+        published: Boolean(input.published),
+        publishedAt: input.published ? now : null,
+      };
+      result = input.id
+        ? await tx.bookUnit.update({
+            where: { id: input.id, bookId },
+            data,
+            select: { id: true },
+          })
+        : await tx.bookUnit.create({
+            data: {
+              ...data,
+              bookId,
+              displayOrder: await tx.bookUnit.count({ where: { bookId, partId: input.parentId || null } }),
+            },
+            select: { id: true },
+          });
+    } else if (input.type === "CHAPTER") {
+      const chapterNumber = Number(input.label);
+      const number = Number.isInteger(chapterNumber) && chapterNumber > 0
+        ? chapterNumber
+        : (await tx.bookChapter.aggregate({
+            where: { bookId },
+            _max: { chapterNumber: true },
+          }))._max.chapterNumber! + 1 || 1;
+      const data = {
+        ...common,
+        partId: input.secondaryParentId || null,
+        unitId: input.parentId || null,
+        chapterNumber: number,
+        slug: slugify(input.slug || title),
+        description: clean(input.description, 2000),
+        content: input.content ?? Prisma.JsonNull,
+        estimatedMinutes: input.estimatedMinutes ?? null,
+        thumbnail: clean(input.imageUrl, 1000),
+        startPage: input.pageStart ?? null,
+        endPage: input.pageEnd ?? null,
+        published: Boolean(input.published),
+        publishedAt: input.published ? now : null,
+      };
+      result = input.id
+        ? await tx.bookChapter.update({
+            where: { id: input.id, bookId },
+            data,
+            select: { id: true },
+          })
+        : await tx.bookChapter.create({
+            data: {
+              ...data,
+              bookId,
+              approved: false,
+              sortOrder: await tx.bookChapter.count({
+                where: { bookId, unitId: input.parentId || null, partId: input.secondaryParentId || null },
+              }),
+            },
+            select: { id: true },
+          });
+    } else if (input.type === "MODULE") {
+      const chapter = await tx.bookChapter.findFirstOrThrow({
+        where: { id: input.parentId!, bookId },
+        select: { unitId: true },
+      });
+      const data = {
+        ...common,
+        chapterId: input.parentId!,
+        unitId: chapter.unitId,
+        code: clean(input.code, 80),
+        slug: slugify(input.slug || title),
+        number: clean(input.label, 80),
+        description: clean(input.description, 2000),
+        content: input.content ?? Prisma.JsonNull,
+        estimatedMinutes: input.estimatedMinutes ?? null,
+        imageUrl: clean(input.imageUrl, 1000),
+        published: Boolean(input.published),
+        publishedAt: input.published ? now : null,
+      };
+      result = input.id
+        ? await tx.bookModule.update({
+            where: { id: input.id, bookId },
+            data,
+            select: { id: true },
+          })
+        : await tx.bookModule.create({
+            data: {
+              ...data,
+              bookId,
+              displayOrder: await tx.bookModule.count({ where: { chapterId: input.parentId! } }),
+            },
+            select: { id: true },
+          });
+    } else {
+      const data = {
+        ...common,
+        chapterId: input.parentId!,
+        moduleId: input.secondaryParentId || null,
+        code: clean(input.code, 80),
+        slug: slugify(input.slug || title),
+        number: clean(input.label, 80),
+        description: clean(input.description, 2000),
+        content: input.content ?? Prisma.JsonNull,
+        estimatedMinutes: input.estimatedMinutes ?? null,
+        imageUrl: clean(input.imageUrl, 1000),
+        published: Boolean(input.published),
+        publishedAt: input.published ? now : null,
+      };
+      result = input.id
+        ? await tx.bookTopic.update({
+            where: { id: input.id, bookId },
+            data,
+            select: { id: true },
+          })
+        : await tx.bookTopic.create({
+            data: {
+              ...data,
+              bookId,
+              displayOrder: await tx.bookTopic.count({
+                where: {
+                  chapterId: input.parentId!,
+                  moduleId: input.secondaryParentId || null,
+                },
+              }),
+            },
+            select: { id: true },
+          });
+    }
+
+    const descriptor = auditDescriptor(input.type, isCreate);
+    await writeSecurityAuditEvent(tx, {
+      actor: publisherAdminAuditActor(actor),
+      action: descriptor.action,
+      targetType: descriptor.targetType,
+      targetId: result.id,
+      outcome: SecurityAuditOutcome.SUCCESS,
+      metadata: {
+        changedFields: [
+          "title",
+          "parent",
+          "content",
+          "publicationState",
+          "displayOrder",
+        ],
+      },
+    });
+    return result;
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+}
+
+async function nodeRecord(
+  tx: Prisma.TransactionClient,
+  bookId: string,
+  type: BookStructureNodeType,
+  id: string,
+) {
+  if (type === "PART") return tx.bookPart.findFirst({ where: { id, bookId } });
+  if (type === "UNIT") return tx.bookUnit.findFirst({ where: { id, bookId } });
+  if (type === "CHAPTER") return tx.bookChapter.findFirst({ where: { id, bookId } });
+  if (type === "MODULE") return tx.bookModule.findFirst({ where: { id, bookId } });
+  return tx.bookTopic.findFirst({ where: { id, bookId } });
+}
+
+export async function renameBookStructureNode(
+  bookId: string,
+  type: BookStructureNodeType,
+  id: string,
+  title: string,
+) {
+  const { actor } = await actorAndBook(bookId);
+  const cleanTitle = clean(title, 200);
+  if (!cleanTitle) throw new BookStructureError("Title is required.");
+  return prisma.$transaction(async (tx) => {
+    const existing = await nodeRecord(tx, bookId, type, id);
+    if (!existing) throw new BookStructureError("Structure item not found.");
+    if (type === "PART") await tx.bookPart.update({ where: { id }, data: { title: cleanTitle } });
+    else if (type === "UNIT") await tx.bookUnit.update({ where: { id }, data: { title: cleanTitle } });
+    else if (type === "CHAPTER") await tx.bookChapter.update({ where: { id }, data: { title: cleanTitle } });
+    else if (type === "MODULE") await tx.bookModule.update({ where: { id }, data: { title: cleanTitle } });
+    else await tx.bookTopic.update({ where: { id }, data: { title: cleanTitle } });
+    const descriptor = auditDescriptor(type, false);
+    await writeSecurityAuditEvent(tx, {
+      actor: publisherAdminAuditActor(actor),
+      action: descriptor.action,
+      targetType: descriptor.targetType,
+      targetId: id,
+      outcome: SecurityAuditOutcome.SUCCESS,
+      metadata: { changedFields: ["title"] },
+    });
+    return { id, title: cleanTitle };
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+}
+
+export async function deleteBookStructureNode(
+  bookId: string,
+  type: BookStructureNodeType,
+  id: string,
+  confirmationTitle: string,
+) {
+  const { actor } = await actorAndBook(bookId);
+  return prisma.$transaction(async (tx) => {
+    const existing = await nodeRecord(tx, bookId, type, id);
+    if (!existing) throw new BookStructureError("Structure item not found.");
+    if (existing.title !== confirmationTitle.trim()) {
+      throw new BookStructureError("The final confirmation did not match the node title.");
+    }
+    const dependencies = await structureDependencies(tx, bookId, type, id);
+    if (dependencies.length) {
+      throw new BookStructureError(`This item cannot be permanently deleted because it has ${dependencies.join(", ")}.`);
+    }
+    if (type === "PART") await tx.bookPart.delete({ where: { id } });
+    else if (type === "UNIT") await tx.bookUnit.delete({ where: { id } });
+    else if (type === "CHAPTER") await tx.bookChapter.delete({ where: { id } });
+    else if (type === "MODULE") await tx.bookModule.delete({ where: { id } });
+    else await tx.bookTopic.delete({ where: { id } });
+    const descriptor = auditDescriptor(type, false);
+    await writeSecurityAuditEvent(tx, {
+      actor: publisherAdminAuditActor(actor),
+      action: type === "PART" ? "publisher.book_part.delete" : `publisher.curriculum.${type.toLowerCase()}.delete` as never,
+      targetType: descriptor.targetType,
+      targetId: id,
+      outcome: SecurityAuditOutcome.SUCCESS,
+      metadata: { changedFields: ["deleted"] },
+    });
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+}
+
+async function structureDependencies(
+  tx: Prisma.TransactionClient,
+  bookId: string,
+  type: BookStructureNodeType,
+  id: string,
+) {
+  const dependencyCount = async (label: string, count: Promise<number>) => (await count) > 0 ? label : null;
+  const checks: Promise<string | null>[] = [];
+  if (type === "PART") {
+    checks.push(dependencyCount("child units", tx.bookUnit.count({ where: { bookId, partId: id } })));
+    checks.push(dependencyCount("child chapters", tx.bookChapter.count({ where: { bookId, partId: id } })));
+    checks.push(dependencyCount("linked resources", tx.bookResourceLink.count({ where: { bookId, partId: id, active: true } })));
+    checks.push(dependencyCount("QR destinations", tx.dynamicQrCode.count({ where: { bookId, partId: id } })));
+    checks.push(dependencyCount("published releases", tx.contentRelease.count({ where: { bookId, targetId: id, lifecycle: "PUBLISHED" } })));
+  } else if (type === "UNIT") {
+    checks.push(dependencyCount("child chapters", tx.bookChapter.count({ where: { bookId, unitId: id } })));
+    checks.push(dependencyCount("child modules", tx.bookModule.count({ where: { bookId, unitId: id } })));
+    checks.push(dependencyCount("linked resources", tx.bookResourceLink.count({ where: { bookId, unitId: id, active: true } })));
+    checks.push(dependencyCount("QR destinations", tx.dynamicQrCode.count({ where: { bookId, unitId: id } })));
+    checks.push(dependencyCount("published releases", tx.contentRelease.count({ where: { bookId, targetId: id, lifecycle: "PUBLISHED" } })));
+  } else if (type === "CHAPTER") {
+    checks.push(dependencyCount("modules", tx.bookModule.count({ where: { bookId, chapterId: id } })));
+    checks.push(dependencyCount("topics", tx.bookTopic.count({ where: { bookId, chapterId: id } })));
+    checks.push(dependencyCount("activities", tx.chapterActivity.count({ where: { chapterId: id } })));
+    checks.push(dependencyCount("worksheets", tx.publisherWorksheet.count({ where: { bookId, chapterId: id } })));
+    checks.push(dependencyCount("exercises", tx.bookExercise.count({ where: { bookId, chapterId: id } })));
+    checks.push(dependencyCount("questions", tx.bookQuestion.count({ where: { bookId, chapterId: id } })));
+    checks.push(dependencyCount("student attempts", tx.studentPracticeAttempt.count({ where: { bookId, chapterId: id } })));
+    checks.push(dependencyCount("linked resources", tx.bookResourceLink.count({ where: { bookId, chapterId: id, active: true } })));
+    checks.push(dependencyCount("QR destinations", tx.dynamicQrCode.count({ where: { bookId, chapterId: id } })));
+    checks.push(dependencyCount("published releases", tx.contentRelease.count({ where: { bookId, targetType: "CHAPTER", targetId: id, lifecycle: "PUBLISHED" } })));
+  } else if (type === "MODULE") {
+    checks.push(dependencyCount("topics", tx.bookTopic.count({ where: { bookId, moduleId: id } })));
+    checks.push(dependencyCount("activities", tx.chapterActivity.count({ where: { moduleId: id } })));
+    checks.push(dependencyCount("worksheets", tx.publisherWorksheet.count({ where: { bookId, moduleId: id } })));
+    checks.push(dependencyCount("exercises", tx.bookExercise.count({ where: { bookId, moduleId: id } })));
+    checks.push(dependencyCount("questions", tx.bookQuestion.count({ where: { bookId, moduleId: id } })));
+    checks.push(dependencyCount("linked resources", tx.bookResourceLink.count({ where: { bookId, moduleId: id, active: true } })));
+    checks.push(dependencyCount("QR destinations", tx.dynamicQrCode.count({ where: { bookId, moduleId: id } })));
+    checks.push(dependencyCount("published releases", tx.contentRelease.count({ where: { bookId, targetType: "MODULE", targetId: id, lifecycle: "PUBLISHED" } })));
+  } else {
+    checks.push(dependencyCount("activities", tx.chapterActivity.count({ where: { topicId: id } })));
+    checks.push(dependencyCount("worksheets", tx.publisherWorksheet.count({ where: { bookId, topicId: id } })));
+    checks.push(dependencyCount("exercises", tx.bookExercise.count({ where: { bookId, topicId: id } })));
+    checks.push(dependencyCount("questions", tx.bookQuestion.count({ where: { bookId, topicId: id } })));
+    checks.push(dependencyCount("linked resources", tx.bookResourceLink.count({ where: { bookId, topicId: id, active: true } })));
+    checks.push(dependencyCount("QR destinations", tx.dynamicQrCode.count({ where: { bookId, topicId: id } })));
+    checks.push(dependencyCount("published releases", tx.contentRelease.count({ where: { bookId, targetType: "TOPIC", targetId: id, lifecycle: "PUBLISHED" } })));
+  }
+  return (await Promise.all(checks)).filter((item): item is string => Boolean(item));
+}
+
+export async function setBookStructureNodeArchived(
+  bookId: string,
+  type: BookStructureNodeType,
+  id: string,
+  archived: boolean,
+) {
+  const { actor } = await actorAndBook(bookId);
+  return prisma.$transaction(async (tx) => {
+    const existing = await nodeRecord(tx, bookId, type, id);
+    if (!existing) throw new BookStructureError("Structure item not found.");
+    const now = new Date();
+    const data = archived
+      ? { archived: true, archivedAt: now, published: false }
+      : { archived: false, archivedAt: null };
+    if (type === "PART") await tx.bookPart.update({ where: { id }, data });
+    else if (type === "UNIT") await tx.bookUnit.update({ where: { id }, data });
+    else if (type === "CHAPTER") await tx.bookChapter.update({ where: { id }, data });
+    else if (type === "MODULE") await tx.bookModule.update({ where: { id }, data });
+    else await tx.bookTopic.update({ where: { id }, data });
+    const descriptor = auditDescriptor(type, false);
+    const action = type === "PART"
+      ? archived ? "publisher.book_part.archive" : "publisher.book_part.restore"
+      : type === "UNIT"
+        ? archived ? "publisher.curriculum.unit.archive" : "publisher.curriculum.unit.restore"
+        : type === "CHAPTER"
+          ? archived ? "publisher.curriculum.chapter.archive" : "publisher.curriculum.chapter.restore"
+          : type === "MODULE"
+            ? archived ? "publisher.curriculum.module.archive" : "publisher.curriculum.module.restore"
+            : archived ? "publisher.curriculum.topic.archive" : "publisher.curriculum.topic.restore";
+    await writeSecurityAuditEvent(tx, {
+      actor: publisherAdminAuditActor(actor),
+      action,
+      targetType: descriptor.targetType,
+      targetId: id,
+      outcome: SecurityAuditOutcome.SUCCESS,
+      metadata: {
+        changedFields: ["archived", "publicationState"],
+        fromStatus: archived ? "ACTIVE" : "ARCHIVED",
+        toStatus: archived ? "ARCHIVED" : "ACTIVE",
+      },
+    });
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+}
+
+export async function reorderBookStructureNodes(
+  bookId: string,
+  type: BookStructureNodeType,
+  orderedIds: readonly string[],
+) {
+  const { actor } = await actorAndBook(bookId);
+  const ids = [...new Set(orderedIds)];
+  if (!ids.length || ids.length !== orderedIds.length) {
+    throw new BookStructureError("A complete unique order is required.");
+  }
+  return prisma.$transaction(async (tx) => {
+    const found = await Promise.all(ids.map((id) => nodeRecord(tx, bookId, type, id)));
+    if (found.some((item) => !item)) throw new BookStructureError("A structure item is unavailable.");
+    for (const [displayOrder, id] of ids.entries()) {
+      if (type === "PART") await tx.bookPart.update({ where: { id }, data: { displayOrder } });
+      else if (type === "UNIT") await tx.bookUnit.update({ where: { id }, data: { displayOrder } });
+      else if (type === "CHAPTER") await tx.bookChapter.update({ where: { id }, data: { sortOrder: displayOrder } });
+      else if (type === "MODULE") await tx.bookModule.update({ where: { id }, data: { displayOrder } });
+      else await tx.bookTopic.update({ where: { id }, data: { displayOrder } });
+    }
+    await writeSecurityAuditEvent(tx, {
+      actor: publisherAdminAuditActor(actor),
+      action: "publisher.book_structure.reorder",
+      targetType: "Book",
+      targetId: bookId,
+      outcome: SecurityAuditOutcome.SUCCESS,
+      metadata: { changedFields: ["displayOrder"], dependencyCount: ids.length },
+    });
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+}
+
+export async function moveBookStructureNode(
+  bookId: string,
+  type: Exclude<BookStructureNodeType, "PART">,
+  id: string,
+  parentId: string | null,
+  secondaryParentId?: string | null,
+) {
+  const { actor } = await actorAndBook(bookId);
+  return prisma.$transaction(async (tx) => {
+    const existing = await nodeRecord(tx, bookId, type, id);
+    if (!existing) throw new BookStructureError("Structure item not found.");
+    await validateParentChain(tx, bookId, {
+      type,
+      title: "Validated move",
+      parentId,
+      secondaryParentId,
+    });
+    if (type === "UNIT") {
+      await tx.bookUnit.update({ where: { id }, data: { partId: parentId } });
+    } else if (type === "CHAPTER") {
+      const unit = parentId
+        ? await tx.bookUnit.findFirstOrThrow({
+            where: { id: parentId, bookId },
+            select: { partId: true },
+          })
+        : null;
+      await tx.bookChapter.update({
+        where: { id },
+        data: {
+          unitId: parentId,
+          partId: unit?.partId ?? secondaryParentId ?? null,
+        },
+      });
+    } else if (type === "MODULE") {
+      const chapter = await tx.bookChapter.findFirstOrThrow({
+        where: { id: parentId!, bookId },
+        select: { unitId: true },
+      });
+      await tx.bookModule.update({
+        where: { id },
+        data: { chapterId: parentId!, unitId: chapter.unitId },
+      });
+    } else {
+      await tx.bookTopic.update({
+        where: { id },
+        data: { chapterId: parentId!, moduleId: secondaryParentId ?? null },
+      });
+    }
+    await writeSecurityAuditEvent(tx, {
+      actor: publisherAdminAuditActor(actor),
+      action: "publisher.book_structure.reorder",
+      targetType: auditDescriptor(type, false).targetType,
+      targetId: id,
+      outcome: SecurityAuditOutcome.SUCCESS,
+      metadata: { changedFields: ["parent", "displayOrder"] },
+    });
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+}
+
+export async function duplicateBookStructureNode(
+  bookId: string,
+  type: BookStructureNodeType,
+  id: string,
+) {
+  const { actor } = await actorAndBook(bookId);
+  return prisma.$transaction(async (tx) => {
+    const existing = await nodeRecord(tx, bookId, type, id);
+    if (!existing) throw new BookStructureError("Structure item not found.");
+    let created: { id: string };
+    if (type === "PART") {
+      const item = existing as Prisma.BookPartGetPayload<object>;
+      created = await tx.bookPart.create({
+        data: {
+          bookId,
+          editionId: item.editionId,
+          kind: item.kind,
+          code: null,
+          slug: `${item.slug}-copy-${Date.now()}`,
+          title: `${item.title} copy`,
+          subtitle: item.subtitle,
+          shortTitle: item.shortTitle,
+          description: item.description,
+          content: item.content ?? Prisma.JsonNull,
+          estimatedMinutes: item.estimatedMinutes,
+          imageUrl: item.imageUrl,
+          displayOrder: item.displayOrder + 1,
+        },
+      });
+    } else if (type === "UNIT") {
+      const item = existing as Prisma.BookUnitGetPayload<object>;
+      created = await tx.bookUnit.create({
+        data: {
+          bookId,
+          editionId: item.editionId,
+          partId: item.partId,
+          code: null,
+          slug: item.slug ? `${item.slug}-copy-${Date.now()}` : null,
+          title: `${item.title} copy`,
+          subtitle: item.subtitle,
+          shortTitle: item.shortTitle,
+          number: null,
+          description: item.description,
+          introduction: item.introduction,
+          learningGoals: item.learningGoals ?? Prisma.JsonNull,
+          content: item.content ?? Prisma.JsonNull,
+          estimatedMinutes: item.estimatedMinutes,
+          imageUrl: item.imageUrl,
+          displayOrder: item.displayOrder + 1,
+        },
+      });
+    } else if (type === "CHAPTER") {
+      const item = existing as Prisma.BookChapterGetPayload<object>;
+      const max = await tx.bookChapter.aggregate({ where: { bookId }, _max: { chapterNumber: true } });
+      created = await tx.bookChapter.create({
+        data: {
+          bookId,
+          partId: item.partId,
+          unitId: item.unitId,
+          editionId: item.editionId,
+          chapterNumber: (max._max.chapterNumber ?? 0) + 1,
+          title: `${item.title} copy`,
+          slug: `${item.slug}-copy-${Date.now()}`,
+          subtitle: item.subtitle,
+          shortTitle: item.shortTitle,
+          description: item.description,
+          content: item.content ?? Prisma.JsonNull,
+          estimatedMinutes: item.estimatedMinutes,
+          thumbnail: item.thumbnail,
+          startPage: item.startPage,
+          endPage: item.endPage,
+          sortOrder: item.sortOrder + 1,
+        },
+      });
+    } else if (type === "MODULE") {
+      const item = existing as Prisma.BookModuleGetPayload<object>;
+      created = await tx.bookModule.create({
+        data: {
+          bookId,
+          chapterId: item.chapterId,
+          unitId: item.unitId,
+          code: null,
+          slug: item.slug ? `${item.slug}-copy-${Date.now()}` : null,
+          title: `${item.title} copy`,
+          subtitle: item.subtitle,
+          shortTitle: item.shortTitle,
+          number: null,
+          description: item.description,
+          content: item.content ?? Prisma.JsonNull,
+          estimatedMinutes: item.estimatedMinutes,
+          imageUrl: item.imageUrl,
+          displayOrder: item.displayOrder + 1,
+        },
+      });
+    } else {
+      const item = existing as Prisma.BookTopicGetPayload<object>;
+      created = await tx.bookTopic.create({
+        data: {
+          bookId,
+          chapterId: item.chapterId,
+          moduleId: item.moduleId,
+          code: null,
+          slug: item.slug ? `${item.slug}-copy-${Date.now()}` : null,
+          title: `${item.title} copy`,
+          subtitle: item.subtitle,
+          shortTitle: item.shortTitle,
+          number: null,
+          description: item.description,
+          content: item.content ?? Prisma.JsonNull,
+          keywords: item.keywords,
+          estimatedMinutes: item.estimatedMinutes,
+          imageUrl: item.imageUrl,
+          displayOrder: item.displayOrder + 1,
+        },
+      });
+    }
+    await writeSecurityAuditEvent(tx, {
+      actor: publisherAdminAuditActor(actor),
+      action: "publisher.book_structure.duplicate",
+      targetType: auditDescriptor(type, true).targetType,
+      targetId: created.id,
+      outcome: SecurityAuditOutcome.SUCCESS,
+      metadata: { changedFields: ["duplicatedStructure"] },
+    });
+    return created;
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+}
+

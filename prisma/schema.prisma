@@ -1511,10 +1511,30 @@ model Book {
   vocabularyDefinitions     PublisherVocabulary[]
   conceptDefinitions        PublisherConcept[]
   dynamicQrCodes            DynamicQrCode[]
+  pdfVersions               BookPdfVersion[]
 
   @@index([publisherId, published, archived])
   @@index([publisherId, published, featured, featuredOrder, updatedAt])
   @@index([boardId])
+}
+
+
+model BookPdfVersion {
+  id               String   @id @default(cuid())
+  bookId           String
+  objectKey        String
+  originalFileName String?
+  pageCount        Int
+  fileSizeBytes    BigInt?
+  active           Boolean  @default(false)
+  activatedAt      DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  book             Book     @relation(fields: [bookId], references: [id], onDelete: Cascade)
+
+  @@index([bookId, createdAt])
+  @@index([bookId, active])
 }
 
 model BookFrontMatterItem {
@@ -2062,6 +2082,8 @@ model BookExercise {
   marks            Int?
   estimatedMinutes Int?
   difficulty       CurriculumDifficultyLevel?
+  startPage        Int?
+  endPage          Int?
   published        Boolean                     @default(false)
   archived         Boolean                     @default(false)
   displayOrder     Int                         @default(0)

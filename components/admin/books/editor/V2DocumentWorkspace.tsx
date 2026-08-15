@@ -10,9 +10,12 @@ import ProtectedResourceThumbnail from "@/components/admin/books/editor/Protecte
 import V2TextFrame from "@/components/admin/books/editor/V2TextFrame";
 import V2FrameContent from "@/components/content/v2/V2FrameContent";
 import V2ReadAloudPlayer from "@/components/content/V2ReadAloudPlayer";
+import V2BookQuestionsAuthoring from "@/components/admin/books/editor/V2BookQuestionsAuthoring";
+import V2AssessmentLauncherVisual from "@/components/content/v2/V2AssessmentLauncherVisual";
 import ReadAloudPageInspector from "@/components/admin/books/editor/ReadAloudPageInspector";
 import V2ImageVisual from "@/components/content/v2/V2ImageVisual";
 import type { ContentBlock, ContentDocument } from "@/lib/content-document";
+import { createV2AssessmentLauncherPayload, getV2AssessmentLauncherPayload } from "@/lib/v2-assessment-launcher";
 import { buildV2NarrationManifest, getNarrationStatus } from "@/lib/content-narration";
 import { EDUCATIONAL_OBJECT_REGISTRY, getEducationalObjectDefinition } from "@/lib/educational-object-registry";
 import { getAllBookPageViews, getBookPageViewsForRange, type BookPageScope } from "@/lib/book-page-filter";
@@ -84,9 +87,23 @@ const V2_SHAPE_PRESETS = [
 
 type Props = {
   bookId?: string;
+  chapterId?: string | null;
+  moduleId?: string | null;
+  exerciseId?: string | null;
   hasFullBookPdf?: boolean;
   onImportPdf?: () => Promise<{ pageCount: number; pages: LayoutV2Page[] }>;
-  onAttachPdf?: (uploadedPdfKey: string) => Promise<{ pageCount: number }>;
+  onAttachPdf?: (
+  uploadedPdfKey: string,
+  options?: {
+    clearMappings?: boolean;
+  },
+) => Promise<{
+  pageCount: number;
+  mappingResetRequired?: boolean;
+  mappingConflictMessage?: string;
+}>;
+  onListPdfVersions?: () => Promise<Array<{ id: string; objectKey: string; originalFileName: string | null; pageCount: number; fileSizeBytes: string | null; active: boolean; activatedAt: string | null; createdAt: string }>>;
+  onRestorePdfVersion?: (versionId: string, options?: { clearMappings?: boolean }) => Promise<{ pageCount: number; mappingResetRequired?: boolean; mappingConflictMessage?: string }>;
   onPrepareReadAloud?: () => Promise<{ updatedPageCount: number; matchedPageCount: number }>;
   title: string;
   document: ContentDocument;
@@ -105,6 +122,8 @@ type Props = {
   assignmentsHref?: string;
   onPreview: (mode: "STUDENT" | "TEACHER" | "WHITEBOARD") => void;
   onPublish: () => void;
+  publishing?: boolean;
+  publishMessage?: string;
   onZoomChange: (value: number) => void;
   onDocumentChange: (document: ContentDocument, message: string) => void;
   onFrameTextChange: (frame: LayoutV2Frame, value: string, spans?: V2TextLayoutSpan[], patch?: V2TextFramePatch) => void;
@@ -121,9 +140,14 @@ export function hasMeaningfulV2Content(document: ContentDocument) {
 
 export default function V2DocumentWorkspace({
   bookId,
+  chapterId = null,
+  moduleId = null,
+  exerciseId = null,
   hasFullBookPdf = false,
   onImportPdf,
   onAttachPdf,
+  onListPdfVersions,
+  onRestorePdfVersion,
   onPrepareReadAloud,
   title,
   document,
@@ -142,6 +166,8 @@ export default function V2DocumentWorkspace({
   assignmentsHref,
   onPreview,
   onPublish,
+  publishing = false,
+  publishMessage = "",
   onZoomChange,
   onDocumentChange,
   onFrameTextChange,
@@ -158,6 +184,7 @@ export default function V2DocumentWorkspace({
   const textSelectionRef = useRef<Range | null>(null);
   const [selectedFrameId, setSelectedFrameId] = useState<string | null>(null);
   const [educationalInsertTargetId, setEducationalInsertTargetId] = useState<string | null>(null);
+  const [editingLauncherFrameId, setEditingLauncherFrameId] = useState<string | null>(null);
   const [cropFrameId, setCropFrameId] = useState<string | null>(null);
   const [semanticOverlay, setSemanticOverlay] = useState(false);
   const [showGuides, setShowGuides] = useState(false);
@@ -165,7 +192,7 @@ export default function V2DocumentWorkspace({
   const [previewMenuOpen, setPreviewMenuOpen] = useState(false);
   const [reviewSurface, setReviewSurface] = useState<"GRAMMAR" | "READ_ALOUD" | null>(null);
   const [activeRibbonTab, setActiveRibbonTab] = useState<"HOME" | "INSERT" | "ASSIGNMENTS" | "REVIEW" | "VIEW" | "IMPORT">("HOME");
-  const [insertSurface, setInsertSurface] = useState<"IMAGE" | "VIDEO" | "TABLE" | "EDUCATIONAL" | null>(null);
+  const [insertSurface, setInsertSurface] = useState<"IMAGE" | "VIDEO" | "TABLE" | "EDUCATIONAL" | "BOOK_QUESTIONS" | null>(null);
   const [shapePickerOpen, setShapePickerOpen] = useState(false);
   const [insertionMode, setInsertionMode] = useState<"FLOW" | "FLOAT">("FLOAT");
   const [insertionPoint, setInsertionPoint] = useState<{ pageId: string; x: number; y: number } | null>(null);
@@ -263,6 +290,12 @@ export default function V2DocumentWorkspace({
   const saveLabel = saveState === "saving" ? "Saving..." : saveState === "error" ? "Save failed" : dirty ? "Unsaved changes" : "Saved";
   const selectedRecord = selectedFrameId ? findV2FrameRecord(layout, selectedFrameId) : undefined;
   const selectedFrame = selectedRecord?.frame;
+  const editingLauncherRecord = editingLauncherFrameId
+    ? findV2FrameRecord(layout, editingLauncherFrameId)
+    : undefined;
+  const editingLauncherPayload = editingLauncherRecord?.frame
+    ? getV2AssessmentLauncherPayload(editingLauncherRecord.frame)
+    : null;
   const selectedParentId = selectedRecord?.parentId;
   const selectedPageId = selectedRecord?.pageId;
   const selectedParentRecord = selectedParentId
@@ -678,6 +711,36 @@ export default function V2DocumentWorkspace({
     );
   };
 
+  const insertAssessmentLauncher = (target: {
+    exerciseId: string;
+    groupId: string;
+    questionType?: "MCQ" | "TRUE_FALSE" | "FILL_BLANK" | "MULTIPLE_SELECT" | "SHORT_ANSWER";
+    questionIds?: string[];
+  }) => {
+    if (editingLauncherFrameId) {
+      patchFrame(
+        editingLauncherFrameId,
+        {
+          payload: createV2AssessmentLauncherPayload(target),
+        },
+        "Book Questions launcher updated",
+      );
+      setSelectedFrameId(editingLauncherFrameId);
+      setEditingLauncherFrameId(null);
+      setInsertSurface(null);
+      return;
+    }
+
+    addFrame(
+      "ASSESSMENT_LAUNCHER",
+      {
+        payload: createV2AssessmentLauncherPayload(target),
+      },
+      "FLOAT",
+    );
+    setInsertSurface(null);
+  };
+
   const chooseResource = (type: "IMAGE" | "VIDEO", resourceId: string) => {
     if (selectedContainerFrame) {
       addChildFrame(type, resourceId);
@@ -810,7 +873,26 @@ export default function V2DocumentWorkspace({
               blocks={blocks}
               onBlockChange={(block) => onDocumentChange({ ...document, blocks: blocks.map((entry) => entry.id === block.id ? block : entry) }, "Educational content updated")}
               selectedFrameId={selectedFrameId}
-              renderFrame={(frame, frames) => renderV2Frame(frame, frames, page.width, page.height, blocks, renderBlock, onFrameTextChange, frame.id === cropFrameId, scale, semanticOverlay, (patch: Partial<LayoutV2Frame>, message: string) => patchImage(frame.id, patch, message), () => setCropFrameId(frame.id))}
+              renderFrame={(frame, frames) => renderV2Frame(
+                frame,
+                frames,
+                page.width,
+                page.height,
+                blocks,
+                renderBlock,
+                onFrameTextChange,
+                frame.id === cropFrameId,
+                scale,
+                semanticOverlay,
+                (patch: Partial<LayoutV2Frame>, message: string) => patchImage(frame.id, patch, message),
+                () => setCropFrameId(frame.id),
+                (launcherFrame) => {
+                  setSelectedFrameId(launcherFrame.id);
+                  setEditingLauncherFrameId(launcherFrame.id);
+                  setActiveRibbonTab("INSERT");
+                  setInsertSurface("BOOK_QUESTIONS");
+                },
+              )}
               renderEducationalPreview={(frame) => { const block = frame.contentRef?.blockId ? blocks.find((entry) => entry.id === frame.contentRef?.blockId) : undefined; return block ? renderBlock(block) : undefined; }}
               onSelectFrame={(frameId) => {
                 setSelectedFrameId(frameId);
@@ -913,9 +995,10 @@ export default function V2DocumentWorkspace({
     }
   };
 
-  const openInsertSurface = (surface: "IMAGE" | "VIDEO" | "TABLE" | "EDUCATIONAL") => {
+  const openInsertSurface = (surface: "IMAGE" | "VIDEO" | "TABLE" | "EDUCATIONAL" | "BOOK_QUESTIONS") => {
     setPreviewMenuOpen(false);
     setShapePickerOpen(false);
+    if (surface === "BOOK_QUESTIONS") setEditingLauncherFrameId(null);
     setInsertionMode(surface === "IMAGE" || surface === "TABLE" ? (mainFlowActive || selectedFrame?.type === "TEXT" ? "FLOW" : "FLOAT") : "FLOAT");
     setInsertSurface(surface);
     setUploadError("");
@@ -958,7 +1041,7 @@ export default function V2DocumentWorkspace({
               <button type="button" role="menuitem" onClick={() => { setPreviewMenuOpen(false); onPreview("WHITEBOARD"); }} className="text-left">Preview on Digital Board</button>
             </div> : null}
           </div>
-          <button type="button" onClick={onPublish} className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-700">Publish</button>
+          <button type="button" disabled={publishing} onClick={onPublish} className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50">{publishing ? "Publishing..." : "Publish"}</button>{publishMessage ? <span role="status" className="text-[11px] font-semibold text-emerald-700">{publishMessage}</span> : null}
           <button type="button" aria-pressed={propertiesOpen} onClick={() => setPropertiesOpen((current) => !current)} className="rounded-md border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50">Properties</button>
         </div>
         </div>
@@ -969,7 +1052,7 @@ export default function V2DocumentWorkspace({
             <details className="relative"><summary className="cursor-pointer list-none rounded border border-slate-200 px-2 py-1 font-semibold">Paragraph {"\u25be"}</summary><div role="menu" data-v2-paragraph-menu className="absolute left-0 top-8 z-[80] grid w-52 gap-1 rounded-lg border border-slate-200 bg-white p-3 shadow-2xl">{([["left", "justifyLeft", "Align Left"], ["center", "justifyCenter", "Centre"], ["right", "justifyRight", "Align Right"], ["justify", "justifyFull", "Justify"]] as const).map(([alignment, command, label]) => <button key={alignment} type="button" onClick={() => { runTextCommand(command); patchFrame(selectedFormattingFrame.id, { alignment }, "Text alignment updated"); }} className="text-left">{label}</button>)}<button type="button" onClick={() => runTextCommand("insertUnorderedList")} className="text-left">Bullets</button><button type="button" onClick={() => runTextCommand("insertOrderedList")} className="text-left">Numbering</button><button type="button" onClick={() => runTextCommand("indent")} className="text-left">Increase Indent</button><button type="button" onClick={() => runTextCommand("outdent")} className="text-left">Decrease Indent</button><label>Line Spacing<input aria-label="Line spacing" type="number" min="0.8" max="3" step="0.1" value={selectedFormattingFrame.lineHeight ?? 1.5} onChange={(event) => patchFrame(selectedFormattingFrame.id, { lineHeight: Math.max(0.8, Math.min(3, Number(event.target.value) || 1.5)) }, "Line spacing updated")} className="ml-2 w-14 rounded border px-1" /></label></div></details>
             <details className="relative"><summary className="cursor-pointer list-none rounded border border-slate-200 px-2 py-1 font-semibold">Styles {"\u25be"}</summary><div role="menu" data-v2-styles-menu className="absolute left-0 top-8 z-[80] grid w-40 gap-1 rounded-lg border border-slate-200 bg-white p-2 shadow-2xl">{[["Normal", 16, 400], ["Title", 32, 700], ["Heading 1", 26, 700], ["Heading 2", 22, 700], ["Heading 3", 18, 700], ["Subtitle", 18, 400], ["Caption", 12, 400]].map(([label, fontSize, fontWeight]) => <button key={String(label)} type="button" onClick={() => patchFrame(selectedFormattingFrame.id, { fontSize: Number(fontSize), fontWeight: Number(fontWeight), lineHeight: Number(fontSize) >= 22 ? 1.2 : 1.5 }, `${label} style applied`)} className="text-left">{label}</button>)}</div></details>
           </div> : <span className="text-slate-500">Select a text frame for formatting, or select an object for contextual actions.</span> : null}
-          {activeRibbonTab === "INSERT" ? <div data-v2-insert-controls data-v2-single-row className="flex min-w-0 flex-1 flex-nowrap items-center gap-1 overflow-visible whitespace-nowrap"><button type="button" onClick={() => addFrame("TEXT", { direction: "LTR", alignment: "left" }, "FLOAT")} className="rounded border border-slate-200 px-2 py-1 font-semibold">Text Box</button><button type="button" onClick={() => openInsertSurface("IMAGE")} className="rounded border border-slate-200 px-2 py-1 font-semibold">Image</button><button type="button" onClick={() => openInsertSurface("VIDEO")} className="rounded border border-slate-200 px-2 py-1 font-semibold">Video</button><button type="button" onClick={() => openInsertSurface("TABLE")} className="rounded border border-slate-200 px-2 py-1 font-semibold">Table</button><button type="button" onClick={() => { setPreviewMenuOpen(false); setShapePickerOpen((current) => !current); setInsertSurface(null); }} className="rounded border border-slate-200 px-2 py-1 font-semibold">Shape</button><button type="button" onClick={() => openInsertSurface("EDUCATIONAL")} className="rounded border border-slate-200 px-2 py-1 font-semibold">Educational Block</button></div> : null}
+          {activeRibbonTab === "INSERT" ? <div data-v2-insert-controls data-v2-single-row className="flex min-w-0 flex-1 flex-nowrap items-center gap-1 overflow-visible whitespace-nowrap"><button type="button" onClick={() => addFrame("TEXT", { direction: "LTR", alignment: "left" }, "FLOAT")} className="rounded border border-slate-200 px-2 py-1 font-semibold">Text Box</button><button type="button" onClick={() => openInsertSurface("IMAGE")} className="rounded border border-slate-200 px-2 py-1 font-semibold">Image</button><button type="button" onClick={() => openInsertSurface("VIDEO")} className="rounded border border-slate-200 px-2 py-1 font-semibold">Video</button><button type="button" onClick={() => openInsertSurface("TABLE")} className="rounded border border-slate-200 px-2 py-1 font-semibold">Table</button><button type="button" onClick={() => { setPreviewMenuOpen(false); setShapePickerOpen((current) => !current); setInsertSurface(null); }} className="rounded border border-slate-200 px-2 py-1 font-semibold">Shape</button><button type="button" onClick={() => openInsertSurface("EDUCATIONAL")} className="rounded border border-slate-200 px-2 py-1 font-semibold">Educational Block</button><button type="button" onClick={() => openInsertSurface("BOOK_QUESTIONS")} className="rounded border border-indigo-200 bg-indigo-50 px-2 py-1 font-semibold text-indigo-700">Book Questions</button></div> : null}
           {activeRibbonTab === "IMPORT" ? <div data-v2-import-controls className="flex min-w-0 flex-1 items-center gap-2"><span className="font-semibold text-slate-700">Import an IDML package</span><button type="button" onClick={onOpenImport} className="rounded border border-indigo-200 bg-indigo-50 px-2 py-1 font-semibold text-indigo-800">Choose Package</button><button type="button" onClick={() => setPdfImportOpen(true)} disabled={!isBookRootContext} className="rounded border border-indigo-200 bg-indigo-50 px-2 py-1 font-semibold text-indigo-800 disabled:opacity-40">Import PDF</button><span className="text-slate-500">{isBookRootContext ? "Analyze, review fidelity, preview, and explicitly confirm before updating this V2 document." : "Return to Full Book before replacing the complete Book.content document."}</span></div> : null}
           {activeRibbonTab === "REVIEW" ? <div data-v2-review-controls className="flex min-w-0 flex-1 items-center gap-1.5"><button type="button" aria-pressed={reviewSurface === "GRAMMAR"} onClick={() => { setReviewSurface("GRAMMAR"); reviewGrammar(); }} className="rounded border border-slate-200 px-2 py-1 font-semibold">Grammar</button><button type="button" aria-pressed={reviewSurface === "READ_ALOUD"} onClick={() => setReviewSurface("READ_ALOUD")} className="rounded border border-slate-200 px-2 py-1 font-semibold">Read Aloud</button><span className="text-slate-500">{reviewSurface === "GRAMMAR" ? grammarMessage : `Page status: ${narrationStatus.replaceAll("_", " ")}`}</span></div> : null}
           {activeRibbonTab === "VIEW" ? <div data-v2-view-controls className="flex min-w-0 flex-1 items-center gap-1.5"><button type="button" onClick={() => goToPage(-1)} disabled={activeVisibleIndex <= 0} className="rounded border border-slate-200 px-2 py-1 font-semibold disabled:opacity-40">Previous Page</button><select aria-label="Current page" value={activePage?.id ?? ""} onChange={(event) => { const page = layout.pages.find((entry) => entry.id === event.target.value); if (page) navigateToPage(page); }} className="rounded border border-slate-200 bg-white px-1 py-1">{visiblePageViews.map((view) => <option key={view.page.id} value={view.page.id}>Page {view.absolutePageNumber}</option>)}</select><button type="button" onClick={() => goToPage(1)} disabled={activeVisibleIndex >= visiblePages.length - 1} className="rounded border border-slate-200 px-2 py-1 font-semibold disabled:opacity-40">Next Page</button><button type="button" onClick={addPage} disabled={Boolean(pageScope)} className="rounded border border-slate-200 px-2 py-1 font-semibold disabled:opacity-40">Add Page</button><button type="button" onClick={() => { if (activePage) { setDeletePageTargetId(activePage.id); setDeletePageConfirming(false); } }} disabled={Boolean(pageScope) || layout.pages.length <= 1} className="rounded border border-rose-200 px-2 py-1 font-semibold text-rose-700 disabled:opacity-40">Delete Page</button><label className="flex items-center gap-1 font-semibold text-slate-600">View<select aria-label="Page view" value={pageViewMode} onChange={(event) => changePageView(event.target.value as "WEB" | "A4" | "CUSTOM")} className="rounded border border-slate-200 bg-white px-1 py-1"><option value="WEB">Web</option><option value="A4">A4</option><option value="CUSTOM">Custom</option></select></label><button type="button" aria-label="Zoom out" onClick={() => onZoomChange(Math.max(40, zoom - 10))} className="rounded border border-slate-200 px-2 py-1 font-bold">-</button><span className="min-w-10 text-center font-semibold">{Math.round(scale * 100)}%</span><button type="button" aria-label="Zoom in" onClick={() => onZoomChange(Math.min(200, zoom + 10))} className="rounded border border-slate-200 px-2 py-1 font-bold">+</button><button type="button" onClick={() => fitCanvas("PAGE")} className="rounded border border-slate-200 px-2 py-1 font-semibold">Fit Page</button><button type="button" onClick={() => fitCanvas("WIDTH")} className="rounded border border-slate-200 px-2 py-1 font-semibold">Fit Width</button><button type="button" aria-pressed={showGuides} onClick={() => setShowGuides((current) => !current)} className="rounded border border-slate-200 px-2 py-1 font-semibold">Guides</button></div> : null}
@@ -978,10 +1061,22 @@ export default function V2DocumentWorkspace({
         {clipboardMessage ? <p role="status" data-v2-clipboard-status className="border-t border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800">{clipboardMessage}</p> : null}
         {shapePickerOpen ? <div role="dialog" aria-label="Choose shape" data-v2-shape-picker className="absolute left-3 top-full z-50 mt-1 w-72 rounded-xl border border-slate-200 bg-white p-3 text-sm shadow-2xl"><div className="mb-3 flex items-center justify-between"><p className="font-bold text-slate-900">Choose Shape</p><button type="button" onClick={() => setShapePickerOpen(false)} className="rounded px-2 py-1 text-slate-500 hover:bg-slate-100">Close</button></div><div className="grid grid-cols-2 gap-2">{V2_SHAPE_PRESETS.map(([shapeType, label]) => <button key={shapeType} type="button" onClick={() => { addFrame("SHAPE", { payload: { shapeType, fill: shapeType === "LINE" ? "transparent" : "#e0e7ff", border: "#4f46e5", borderWidth: 1, opacity: 1, lineStyle: "SOLID" } }, "FLOAT"); setShapePickerOpen(false); }} className="rounded-lg border border-slate-200 px-3 py-3 text-left font-semibold hover:border-indigo-300 hover:bg-indigo-50"><span className="mb-2 block h-5 rounded border border-indigo-500 bg-indigo-100" style={shapeType === "ELLIPSE" ? { borderRadius: "9999px" } : shapeType === "ROUNDED_RECTANGLE" ? { borderRadius: "8px" } : shapeType === "LINE" ? { height: "1px", borderWidth: 0, borderTop: "2px solid #4f46e5", backgroundColor: "transparent", marginTop: "10px", marginBottom: "10px" } : undefined} />{label}</button>)}</div></div> : null}
         {insertSurface ? <div role="dialog" aria-label={`Insert ${insertSurface.toLowerCase()}`} data-v2-insert-chooser={insertSurface} className="absolute left-3 top-full z-50 mt-1 max-h-[65vh] w-[min(28rem,calc(100vw-2rem))] overflow-y-auto rounded-xl border border-slate-200 bg-white p-3 text-sm shadow-2xl">
-          <div className="mb-3 flex items-center justify-between"><p className="font-bold text-slate-900">Insert {insertSurface === "EDUCATIONAL" ? "Educational Block" : insertSurface[0] + insertSurface.slice(1).toLowerCase()}</p><button type="button" onClick={() => setInsertSurface(null)} className="rounded px-2 py-1 text-slate-500 hover:bg-slate-100">Close</button></div>
+          <div className="mb-3 flex items-center justify-between"><p className="font-bold text-slate-900">Insert {insertSurface === "EDUCATIONAL" ? "Educational Block" : insertSurface === "BOOK_QUESTIONS" ? "Book Questions" : insertSurface[0] + insertSurface.slice(1).toLowerCase()}</p><button type="button" onClick={() => setInsertSurface(null)} className="rounded px-2 py-1 text-slate-500 hover:bg-slate-100">Close</button></div>
           {insertSurface === "IMAGE" || insertSurface === "TABLE" ? <div className="mb-3 flex gap-1 rounded-lg bg-slate-100 p-1" data-v2-insertion-mode><button type="button" aria-pressed={insertionMode === "FLOW"} onClick={() => setInsertionMode("FLOW")} className={`flex-1 rounded px-2 py-1 text-xs font-semibold ${insertionMode === "FLOW" ? "bg-white text-indigo-700 shadow-sm" : "text-slate-600"}`}>Insert in Flow</button><button type="button" aria-pressed={insertionMode === "FLOAT"} onClick={() => setInsertionMode("FLOAT")} className={`flex-1 rounded px-2 py-1 text-xs font-semibold ${insertionMode === "FLOAT" ? "bg-white text-indigo-700 shadow-sm" : "text-slate-600"}`}>Float on Page</button></div> : null}
           {insertSurface === "IMAGE" || insertSurface === "VIDEO" ? <><p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">Choose existing {insertSurface.toLowerCase()}</p><div className="max-h-52 space-y-1 overflow-y-auto">{insertSurface === "IMAGE" ? imageResources.map((resource) => <V2ImageResourceChoice key={resource.id} resource={resource} onUse={() => chooseResource("IMAGE", resource.id)} />) : videoResources.map((resource) => <button key={resource.id} type="button" onClick={() => chooseResource("VIDEO", resource.id)} className="block w-full rounded-lg border border-slate-200 px-3 py-2 text-left font-semibold hover:border-indigo-300 hover:bg-indigo-50"><span className="block">{resource.title}</span><span className="mt-0.5 block text-xs font-normal text-slate-500">{[resource.originalFileName, resource.mimeType, resource.fileSizeBytes ? formatV2ResourceSize(resource.fileSizeBytes) : null].filter(Boolean).join(" · ") || "Video resource"}</span></button>)}{!(insertSurface === "IMAGE" ? imageResources : videoResources).length ? <p className="rounded-lg bg-slate-50 p-3 text-slate-500">No compatible {insertSurface.toLowerCase()} resources are available.</p> : null}</div>{onUploadResource ? <label className="mt-3 flex cursor-pointer items-center justify-center rounded-lg border border-dashed border-indigo-300 bg-indigo-50 px-3 py-3 font-semibold text-indigo-700">{uploadingResource ? "Uploading..." : `Upload New ${insertSurface === "IMAGE" ? "Image" : "Video"}`}<input type="file" accept={insertSurface === "IMAGE" ? "image/*" : "video/*"} disabled={uploadingResource} className="sr-only" onChange={(event) => void handleResourceUpload(event, insertSurface)} /></label> : null}{uploadError ? <p role="alert" className="mt-2 text-xs font-semibold text-rose-700">{uploadError}</p> : null}</> : null}
           {insertSurface === "TABLE" ? <div data-v2-table-chooser className="space-y-3"><div className="grid grid-cols-2 gap-3"><label className="text-xs font-semibold text-slate-600">Rows<input type="number" min="1" max="20" value={tableRows} onChange={(event) => setTableRows(Math.max(1, Math.min(20, Number(event.target.value) || 1)))} className="mt-1 w-full rounded border border-slate-200 px-2 py-1.5" /></label><label className="text-xs font-semibold text-slate-600">Columns<input type="number" min="1" max="12" value={tableColumns} onChange={(event) => setTableColumns(Math.max(1, Math.min(12, Number(event.target.value) || 1)))} className="mt-1 w-full rounded border border-slate-200 px-2 py-1.5" /></label></div><button type="button" onClick={() => { const payload = { rows: tableRows, columns: tableColumns, cells: Array.from({ length: tableRows * tableColumns }, () => "") }; if (selectedContainerFrame) addChildFrame("TABLE", undefined, payload); else addFrame("TABLE", { payload }, insertionMode); setInsertSurface(null); }} className="w-full rounded-lg bg-indigo-600 px-3 py-2 font-bold text-white">Create Table</button></div> : null}
+          {insertSurface === "BOOK_QUESTIONS" ? <V2BookQuestionsAuthoring
+            bookId={bookId}
+            chapterId={chapterId}
+            moduleId={moduleId}
+            exerciseId={exerciseId}
+            initialLauncherTarget={editingLauncherPayload?.target ?? null}
+            onInsert={insertAssessmentLauncher}
+            onClose={() => {
+              setEditingLauncherFrameId(null);
+              setInsertSurface(null);
+            }}
+          /> : null}
           {insertSurface === "EDUCATIONAL" ? <div data-v2-educational-picker className="grid max-h-[55vh] gap-2 overflow-y-auto sm:grid-cols-2">{EDUCATIONAL_OBJECT_REGISTRY.map(([type]) => { const definition = getEducationalObjectDefinition(type); return <button key={type} type="button" onClick={() => addEducationalFrame(type)} className="rounded-lg border border-slate-200 px-3 py-2 text-left hover:border-indigo-300 hover:bg-indigo-50"><span className="flex items-center gap-2 font-semibold"><span aria-hidden className="grid h-6 w-6 place-items-center rounded-full border text-xs" style={{ color: definition.theme.accent, borderColor: definition.theme.border, backgroundColor: definition.theme.tint }}>{definition.icon}</span>{definition.label}</span><span className="mt-1 block text-xs font-normal text-slate-500">{definition.description}</span></button>; })}</div> : null}
         </div> : null}
         {activeRibbonTab === "REVIEW" && reviewSurface === "GRAMMAR" ? <div data-v2-grammar-review-panel className="absolute left-3 right-3 top-full z-[70] mt-1 rounded-xl border border-indigo-200 bg-white p-3 text-xs shadow-2xl"><div className="flex items-center justify-between"><span className="font-bold text-indigo-900">Grammar</span><button type="button" onClick={() => setReviewSurface(null)} className="rounded px-2 py-1 text-slate-500">Close</button></div><p className="mt-2 text-slate-600">{grammarMessage || "Browser spelling and grammar checking is active in editable text."}</p></div> : null}
@@ -1121,7 +1216,7 @@ export default function V2DocumentWorkspace({
         {activePage.visualMode === "EXACT_REPLICA" ? <><span className="rounded-full bg-fuchsia-200 px-2 py-1 font-bold text-fuchsia-900">Exact Replica</span><button type="button" onClick={() => onDocumentChange({ ...document, pageLayout: setV2PageVisualMode(layout, activePage.id, "EDITABLE") }, "Page switched to Editable; replica source preserved")} className="rounded-md border border-fuchsia-200 bg-white px-2 py-1 font-semibold text-fuchsia-800">View as Editable</button></> : activePage.replica?.resourceId ? <button type="button" onClick={() => onDocumentChange({ ...document, pageLayout: setV2PageVisualMode(layout, activePage.id, "EXACT_REPLICA") }, "Page switched to Exact Replica; semantic frames preserved")} className="rounded-md border border-fuchsia-200 bg-white px-2 py-1 font-semibold text-fuchsia-800">Use Replica</button> : <span className="text-slate-500">Editable</span>}
         {activePage.visualMode === "EXACT_REPLICA" ? <label className="ml-auto flex items-center gap-1 font-semibold text-fuchsia-800"><input type="checkbox" checked={semanticOverlay} onChange={(event) => setSemanticOverlay(event.target.checked)} /> Semantic Overlay</label> : null}
       </div>
-      {pdfImportOpen ? <PdfImportDialog open bookId={bookId} hasFullBookPdf={hasFullBookPdf || uploadedPdfIsAvailable} hasMeaningfulContent={hasMeaningfulV2Content(document)} onClose={() => setPdfImportOpen(false)} onImportExistingPdf={onImportPdf} onAttachUploadedPdf={onAttachPdf} onBookPdfAttached={() => { setUploadedPdfIsAvailable(true); router.refresh(); }} onComplete={applyPdfImportPages} /> : null}
+      {pdfImportOpen ? <PdfImportDialog open bookId={bookId} hasFullBookPdf={hasFullBookPdf || uploadedPdfIsAvailable} hasMeaningfulContent={hasMeaningfulV2Content(document)} onClose={() => setPdfImportOpen(false)} onImportExistingPdf={onImportPdf} onAttachUploadedPdf={onAttachPdf} onListPdfVersions={onListPdfVersions} onRestorePdfVersion={onRestorePdfVersion} onBookPdfAttached={() => { setUploadedPdfIsAvailable(true); router.refresh(); }} onComplete={applyPdfImportPages} /> : null}
       {pendingImageDuplicate ? <div role="dialog" aria-modal="true" aria-label="Possible duplicate image" className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/50 p-4"><div className="w-full max-w-md rounded-xl bg-white p-5 shadow-2xl"><h2 className="text-lg font-bold text-slate-900">This image may already exist.</h2><p className="mt-1 text-sm text-slate-600">Use an existing protected Image resource or deliberately upload another copy.</p><div className="mt-3 max-h-72 space-y-2 overflow-y-auto">{pendingImageDuplicate.matches.map((match) => <div key={match.id} className="flex gap-3 rounded-lg border border-slate-200 p-3"><span className="relative h-16 w-20 shrink-0 overflow-hidden rounded bg-slate-100"><ProtectedResourceThumbnail src={`/api/admin/resources/${encodeURIComponent(match.id)}/preview`} className="h-full w-full object-contain" /></span><span className="min-w-0 flex-1"><span className="block truncate font-semibold text-slate-800">{match.title}</span><span className="mt-1 block text-xs text-slate-500">{[match.originalFileName, match.mimeType, match.fileSizeBytes ? formatV2ResourceSize(match.fileSizeBytes) : null].filter(Boolean).join(" · ")}</span><button type="button" onClick={() => selectExistingImage(match.id, pendingImageDuplicate.replaceFrameId)} className="mt-2 rounded border border-amber-200 bg-amber-50 px-3 py-1.5 text-sm font-semibold text-amber-900">Use Existing Image</button></span></div>)}</div><div className="mt-4 flex flex-wrap gap-2"><button type="button" onClick={() => void uploadImageAnyway()} className="rounded bg-amber-600 px-3 py-2 text-sm font-semibold text-white">Upload Anyway</button><button type="button" onClick={() => setPendingImageDuplicate(null)} className="rounded border px-3 py-2 text-sm font-semibold text-slate-700">Cancel</button></div></div></div> : null}
       {pendingVideoDuplicate ? <div role="dialog" aria-modal="true" aria-label="Possible duplicate video" className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/50 p-4"><div className="w-full max-w-md rounded-xl bg-white p-5 shadow-2xl"><h2 className="text-lg font-bold text-slate-900">This video may already exist.</h2><p className="mt-1 text-sm text-slate-600">Use the existing protected Video resource to avoid a duplicate upload.</p><div className="mt-3 space-y-2">{pendingVideoDuplicate.matches.map((match) => <div key={match.id} className="rounded-lg border border-slate-200 p-3"><p className="font-semibold text-slate-800">{match.title}</p><p className="mt-1 text-xs text-slate-500">{[match.originalFileName, match.fileSizeBytes ? formatV2ResourceSize(match.fileSizeBytes) : null].filter(Boolean).join(" · ")}</p><button type="button" onClick={() => selectExistingVideo(match.id, pendingVideoDuplicate.replaceFrameId)} className="mt-2 rounded border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-sm font-semibold text-indigo-800">Use Existing Video</button></div>)}</div><div className="mt-4 flex flex-wrap gap-2"><button type="button" onClick={() => void uploadVideoAnyway()} className="rounded bg-indigo-600 px-3 py-2 text-sm font-semibold text-white">Upload Anyway</button><button type="button" onClick={() => setPendingVideoDuplicate(null)} className="rounded border px-3 py-2 text-sm font-semibold text-slate-700">Cancel</button></div></div></div> : null}
       <div data-v2-editor-body className={`grid min-h-0 flex-1 grid-cols-1 ${showPropertiesPanel ? "xl:grid-cols-[minmax(0,1fr)_18rem]" : "xl:grid-cols-[minmax(0,1fr)]"}`}>
@@ -1247,6 +1342,7 @@ function renderV2Frame(
   semanticOverlay: boolean,
   onPatch: (patch: Partial<LayoutV2Frame>, message: string) => void,
   onEnterCrop: () => void,
+  onEditAssessmentLauncher?: (frame: LayoutV2Frame) => void,
 ) {
   if (frame.renderMode === "SEMANTIC_ONLY" && semanticOverlay) {
     return <div data-v2-semantic-overlay="true" className="h-full w-full border border-dashed border-fuchsia-500/80 bg-fuchsia-200/10 p-1 text-[10px] font-bold text-fuchsia-700">{frame.type}</div>;
@@ -1257,6 +1353,17 @@ function renderV2Frame(
   }
 
   if (frame.type === "IMAGE") return <V2ImageFrame frame={frame} block={block} cropMode={cropMode} scale={scale} onPatch={onPatch} onEnterCrop={onEnterCrop} />;
+  if (frame.type === "ASSESSMENT_LAUNCHER") {
+    return (
+      <V2AssessmentLauncherVisual
+        frame={frame}
+        openable
+        mode="PREVIEW"
+        adminControls
+        onEdit={() => onEditAssessmentLauncher?.(frame)}
+      />
+    );
+  }
   if (frame.type === "SHAPE" || frame.type === "VIDEO" || frame.type === "TABLE" || block) {
     return <V2FrameContent frame={frame} frames={frames} block={block} pageWidth={pageWidth} pageHeight={pageHeight} resourceUrlResolver={(resourceId) => `/api/admin/resources/${encodeURIComponent(resourceId)}/preview`} renderBlock={renderBlock} onPayloadChange={(payload) => onPatch?.({ payload }, "Table updated")} />;
   }

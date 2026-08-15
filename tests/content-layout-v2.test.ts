@@ -264,6 +264,7 @@ test("the V2 frame type contract includes the planned content families", () => {
     "WORKSHEET",
     "EXERCISE",
     "SHAPE",
+    "ASSESSMENT_LAUNCHER",
   ]);
 });
 

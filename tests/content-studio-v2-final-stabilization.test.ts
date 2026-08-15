@@ -168,10 +168,21 @@ test("22 Preview offers Student Teacher and Digital Board modes", () => {
   assert.match(workspace, /Preview on Digital Board/);
 });
 
-test("23 Publish reuses the existing release drawer path", () => {
-  assert.match(workspace, /onClick=\{onPublish\}/);
-  assert.match(editor, /onPublish=\{\(\) => setReleasePanelOpen\(true\)\}/);
+test("23 Publish saves and invokes the existing release pipeline without opening Publishing Controls", () => {
+  const release = read("lib/content-release.ts");
+  const delivery = read("lib/content-delivery.ts");
+  assert.match(workspace, /disabled=\{publishing\}/);
+  assert.match(workspace, /Publishing\.\.\./);
+  assert.match(editor, /Published successfully\./);
+  assert.match(editor, /onPublish=\{publishCurrentNode\}/);
+  assert.match(editor, /await saveDocument\(\)/);
+  assert.match(editor, /await transitionReleaseAction\("PUBLISH", form\)/);
+  assert.doesNotMatch(editor, /onPublish=\{\(\) => setReleasePanelOpen\(true\)\}/);
   assert.match(editor, /<ReleaseHistoryDrawer/);
+  assert.match(release, /validateReleaseTarget[\s\S]*?contentReleaseVersion\.create[\s\S]*?lifecycle: "PUBLISHED"/);
+  assert.match(release, /previousVersionId: currentVersion\?\.id \?\? null/);
+  assert.match(delivery, /loadPublishedContentDocument/);
+  assert.match(delivery, /requireBookEntitlement/);
 });
 
 test("24 keyboard Delete cannot remove a frame while editing text", () => {

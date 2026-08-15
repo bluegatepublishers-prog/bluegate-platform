@@ -322,7 +322,7 @@ function TreeBranch({
   const Icon =
     node.type === "BOOK"
       ? BookOpen
-      : node.type === "TOPIC" || node.type === "MODULE"
+      : node.type === "TOPIC" || node.type === "MODULE" || node.type === "EXERCISE"
         ? FileText
         : Folder;
 
@@ -331,7 +331,7 @@ function TreeBranch({
     (node.type === "CHAPTER" &&
       selectedKey.startsWith(`FOLDER:${node.id}:`));
 
-  const draggable = node.type !== "BOOK";
+  const draggable = ["PART", "UNIT", "CHAPTER", "MODULE", "TOPIC"].includes(node.type);
   const addOptions = childTypesFor(node.type);
   const actionableType = node.type as BookStructureNodeType;
   const structuralNode = ["BOOK", "PART", "UNIT", "CHAPTER", "MODULE", "TOPIC"].includes(node.type);
@@ -770,8 +770,9 @@ function childTypesFor(type: ContentNodeType) {
     BOOK: ["PART"],
     PART: ["UNIT"],
     UNIT: ["CHAPTER"],
-    CHAPTER: ["MODULE"],
+    CHAPTER: ["MODULE", "EXERCISE"],
     MODULE: [],
+    EXERCISE: [],
     TOPIC: [],
     FOLDER: [],
     COVER: [],

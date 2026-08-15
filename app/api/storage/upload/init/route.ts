@@ -152,7 +152,7 @@ export async function POST(request: Request): Promise<NextResponse<UploadInitSuc
 
     return jsonError(
       appError.code,
-      "An error occurred while initializing the upload.",
+      safeStorageErrorMessage(appError),
       500,
     );
   }
@@ -172,4 +172,10 @@ function jsonError(code: string, message: string, status: number): NextResponse<
       },
     },
   );
+}
+
+function safeStorageErrorMessage(error: { code: string; message: string }) {
+  return error.code === "STORAGE_PROVIDER_ERROR"
+    ? "Storage upload failed. Retry the upload."
+    : error.message;
 }

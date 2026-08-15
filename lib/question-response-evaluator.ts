@@ -99,9 +99,14 @@ export function evaluateObjectiveQuestionResponse(question: NormalizedQuestion, 
   if (question.questionType === "MCQ") return { correct: typeof response === "string" && question.answer.correctOptionIds?.includes(response) === true };
   if (question.questionType === "TRUE_FALSE") return { correct: typeof response === "boolean" && response === question.answer.correctBoolean };
   if (question.questionType === "MULTIPLE_SELECT") {
-    const expected = [...(question.answer.correctOptionIds ?? [])].sort();
-    const actual = Array.isArray(response) ? response.filter((value): value is string => typeof value === "string").sort() : [];
-    return { correct: expected.length === actual.length && expected.every((value, index) => value === actual[index]) };
+    return { correct: isExactMultipleSelectResponse(question.answer.correctOptionIds ?? [], response) };
   }
   return { correct: null as boolean | null };
+}
+
+export function isExactMultipleSelectResponse(expectedOptionIds: readonly string[], response: unknown) {
+  if (!Array.isArray(response)) return false;
+  const expected = [...new Set(expectedOptionIds.filter((value) => value.trim()))].sort();
+  const actual = [...new Set(response.filter((value): value is string => typeof value === "string").map((value) => value.trim()).filter(Boolean))].sort();
+  return expected.length === actual.length && expected.every((value, index) => value === actual[index]);
 }

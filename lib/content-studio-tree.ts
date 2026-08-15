@@ -4,6 +4,7 @@ export type ContentNodeType =
   | "UNIT"
   | "CHAPTER"
   | "MODULE"
+  | "EXERCISE"
   | "TOPIC"
   | "FOLDER"
   | "COVER"
@@ -18,7 +19,7 @@ export type VirtualFolderKind =
   | "questions"
   | "assessments"
   | "resources"
-  | "media"
+  | "media";
 
 export type FolderScopeType = "CHAPTER" | "MODULE" | "TOPIC";
 
@@ -33,6 +34,7 @@ export type ContentTreeNode = {
   chapterId?: string;
   moduleId?: string;
   topicId?: string;
+  exerciseId?: string;
   frontMatterType?: string;
   startPage?: number | null;
   endPage?: number | null;
@@ -48,7 +50,6 @@ type Item = {
   endPage?: number | null;
 };
 
-
 type Chapter = Item & {
   partId: string | null;
   unitId: string | null;
@@ -62,10 +63,26 @@ type Module = Item & {
   counts?: Partial<Record<VirtualFolderKind, number>>;
 };
 
+type Exercise = Item & {
+  chapterId: string;
+  moduleId: string | null;
+  topicId: string | null;
+  type:
+    | "PRACTICE"
+    | "WORKSHEET"
+    | "HOMEWORK"
+    | "REVISION"
+    | "COMPETENCY"
+    | "LAB"
+    | "PROJECT"
+    | "CASE_STUDY";
+  displayOrder: number;
+};
+
 /**
  * Legacy Topic rows may still exist in the database.
- * They are intentionally retained in the input contract for compatibility,
- * but they are no longer rendered as hierarchy nodes.
+ * They remain in the input contract for compatibility,
+ * but they are not rendered in the structural hierarchy.
  */
 type Topic = Item & {
   chapterId: string;
@@ -81,34 +98,17 @@ export type ContentTreeInput = {
   chapters: Chapter[];
   modules: Module[];
   topics: Topic[];
+  exercises?: Exercise[];
   coverImage?: string | null;
-  frontMatterItems?: Array<Item & {
-    type: string;
-    displayOrder: number;
-    startPage: number | null;
-    endPage: number | null;
-  }>;
+  frontMatterItems?: Array<
+    Item & {
+      type: string;
+      displayOrder: number;
+      startPage: number | null;
+      endPage: number | null;
+    }
+  >;
 };
-
-const chapterFolders: Array<[VirtualFolderKind, string]> = [
-  ["outcomes", "Chapter-Level Outcomes"],
-  ["activities", "Chapter-Level Activities"],
-  ["worksheets", "Chapter-Level Worksheets"],
-  ["exercises", "Chapter-End Exercise"],
-  ["questions", "Chapter-Level Questions"],
-  ["resources", "Chapter Resources"],
-  ["media", "Chapter Media"],
-];
-
-const moduleFolders: Array<[VirtualFolderKind, string]> = [
-  ["outcomes", "Learning Outcomes"],
-  ["activities", "Activities"],
-  ["worksheets", "Worksheets"],
-  ["exercises", "Exercises"],
-  ["questions", "Questions"],
-  ["resources", "Resources"],
-  ["media", "Media"],
-];
 
 const byOrder = <
   T extends Item & {
@@ -125,40 +125,13 @@ const byOrder = <
       a.title.localeCompare(b.title),
   );
 
-function makeFolderNode(input: {
-  scopeType: "CHAPTER" | "MODULE";
-  chapterId: string;
-  moduleId?: string;
-  folderKind: VirtualFolderKind;
-  title: string;
-  count?: number;
-}): ContentTreeNode {
-  if (input.scopeType === "CHAPTER") {
-    return {
-      key: `FOLDER:${input.chapterId}:${input.folderKind}`,
-      id: `${input.chapterId}:${input.folderKind}`,
-      type: "FOLDER",
-      title: input.title,
-      folderKind: input.folderKind,
-      scopeType: "CHAPTER",
-      chapterId: input.chapterId,
-      count: input.count,
-      children: [],
-    };
-  }
-
-  return {
-    key: `FOLDER:MODULE:${input.moduleId}:${input.folderKind}`,
-    id: `${input.moduleId}:${input.folderKind}`,
-    type: "FOLDER",
-    title: input.title,
-    folderKind: input.folderKind,
-    scopeType: "MODULE",
-    chapterId: input.chapterId,
-    moduleId: input.moduleId,
-    count: input.count,
-    children: [],
-  };
+function isChapterExercise(exercise: Exercise) {
+  return (
+    exercise.type === "PRACTICE" &&
+    exercise.moduleId === null &&
+    exercise.topicId === null &&
+    !exercise.archived
+  );
 }
 
 export function buildContentStudioTree(
@@ -172,54 +145,74 @@ export function buildContentStudioTree(
     type: "MODULE",
     title: module.title,
     archived: module.archived,
+    chapterId: module.chapterId,
+    moduleId: module.id,
     startPage: module.startPage,
     endPage: module.endPage,
-    children: moduleFolders.map(
-      ([folderKind, title]) =>
-        makeFolderNode({
-          scopeType: "MODULE",
-          chapterId: module.chapterId,
-          moduleId: module.id,
-          folderKind,
-          title,
-          count:
-            module.counts?.[folderKind] ??
-            0,
-        }),
-    ),
+    children: [],
+  });
+
+  const exerciseNode = (
+    exercise: Exercise,
+  ): ContentTreeNode => ({
+    key: `EXERCISE:${exercise.id}`,
+    id: exercise.id,
+    type: "EXERCISE",
+    title: "Exercise",
+    archived: exercise.archived,
+    chapterId: exercise.chapterId,
+    exerciseId: exercise.id,
+    startPage: exercise.startPage,
+    endPage: exercise.endPage,
+    children: [],
   });
 
   const chapterNode = (
     chapter: Chapter,
-  ): ContentTreeNode => ({
-    key: `CHAPTER:${chapter.id}`,
-    id: chapter.id,
-    type: "CHAPTER",
-    title: chapter.title,
-    archived: chapter.archived,
-    startPage: chapter.startPage,
-    endPage: chapter.endPage,
-    children: [
-      ...byOrder(
-        input.modules.filter(
-          (module) =>
-            module.chapterId === chapter.id,
-        ),
-      ).map(moduleNode),
-
-      ...chapterFolders.map(
-        ([folderKind, title]) =>
-          makeFolderNode({
-            scopeType: "CHAPTER",
-            chapterId: chapter.id,
-            folderKind,
-            title,
-            count:
-              chapter.counts[folderKind],
-          }),
+  ): ContentTreeNode => {
+    const modules = byOrder(
+      input.modules.filter(
+        (module) =>
+          module.chapterId === chapter.id &&
+          !module.archived,
       ),
-    ],
-  });
+    ).map(moduleNode);
+
+    const chapterExercises = byOrder(
+      (input.exercises ?? []).filter(
+        (exercise) =>
+          exercise.chapterId === chapter.id &&
+          isChapterExercise(exercise),
+      ),
+    );
+
+    const exercises = chapterExercises.map(
+      (exercise, index) => {
+        const node = exerciseNode(exercise);
+
+        return chapterExercises.length > 1
+          ? {
+              ...node,
+              title: `Exercise ${index + 1}`,
+            }
+          : node;
+      },
+    );
+
+    return {
+      key: `CHAPTER:${chapter.id}`,
+      id: chapter.id,
+      type: "CHAPTER",
+      title: chapter.title,
+      archived: chapter.archived,
+      startPage: chapter.startPage,
+      endPage: chapter.endPage,
+      children: [
+        ...modules,
+        ...exercises,
+      ],
+    };
+  };
 
   const unitNode = (
     unit: ContentTreeInput["units"][number],
@@ -234,7 +227,8 @@ export function buildContentStudioTree(
     children: byOrder(
       input.chapters.filter(
         (chapter) =>
-          chapter.unitId === unit.id,
+          chapter.unitId === unit.id &&
+          !chapter.archived,
       ),
     ).map(chapterNode),
   });
@@ -253,16 +247,17 @@ export function buildContentStudioTree(
       ...byOrder(
         input.units.filter(
           (unit) =>
-            unit.partId === part.id,
+            unit.partId === part.id &&
+            !unit.archived,
         ),
       ).map(unitNode),
 
-      // Legacy direct Part -> Chapter records remain visible.
       ...byOrder(
         input.chapters.filter(
           (chapter) =>
             chapter.partId === part.id &&
-            !chapter.unitId,
+            !chapter.unitId &&
+            !chapter.archived,
         ),
       ).map(chapterNode),
     ],
@@ -274,35 +269,53 @@ export function buildContentStudioTree(
     type: "BOOK",
     title: input.book.title,
     children: [
-      ...(input.coverImage ? [{
-        key: "COVER:" + input.book.id,
-        id: input.book.id,
-        type: "COVER" as const,
-        title: "Cover",
-        children: [],
-      }] : []),
+      ...(input.coverImage
+        ? [
+            {
+              key: `COVER:${input.book.id}`,
+              id: input.book.id,
+              type: "COVER" as const,
+              title: "Cover",
+              children: [],
+            },
+          ]
+        : []),
+
       {
-        key: "FRONT_MATTER:" + input.book.id,
+        key: `FRONT_MATTER:${input.book.id}`,
         id: input.book.id,
         type: "FRONT_MATTER" as const,
         title: "Front Matter",
-        children: (input.frontMatterItems ?? []).slice().sort((a, b) => a.displayOrder - b.displayOrder || a.id.localeCompare(b.id)).map((item) => ({
-          key: "FRONT_MATTER_ITEM:" + item.id,
-          id: item.id,
-          type: "FRONT_MATTER_ITEM" as const,
-          title: item.title,
-          frontMatterType: item.type,
-          startPage: item.startPage,
-          endPage: item.endPage,
-          children: [],
-        })),
+        children: (input.frontMatterItems ?? [])
+          .slice()
+          .sort(
+            (a, b) =>
+              a.displayOrder - b.displayOrder ||
+              a.id.localeCompare(b.id),
+          )
+          .map((item) => ({
+            key: `FRONT_MATTER_ITEM:${item.id}`,
+            id: item.id,
+            type: "FRONT_MATTER_ITEM" as const,
+            title: item.title,
+            frontMatterType: item.type,
+            startPage: item.startPage,
+            endPage: item.endPage,
+            children: [],
+          })),
       },
-      ...byOrder(input.parts).map(partNode),
 
-      // Legacy root Units/Chapters remain visible so existing data is not lost.
+      ...byOrder(
+        input.parts.filter(
+          (part) => !part.archived,
+        ),
+      ).map(partNode),
+
       ...byOrder(
         input.units.filter(
-          (unit) => !unit.partId,
+          (unit) =>
+            !unit.partId &&
+            !unit.archived,
         ),
       ).map(unitNode),
 
@@ -310,7 +323,8 @@ export function buildContentStudioTree(
         input.chapters.filter(
           (chapter) =>
             !chapter.partId &&
-            !chapter.unitId,
+            !chapter.unitId &&
+            !chapter.archived,
         ),
       ).map(chapterNode),
     ],
@@ -328,5 +342,53 @@ export function flattenContentTree(
   };
 
   visit(root);
+
   return result;
+}
+
+export type ContentHierarchyContext = {
+  chapterId: string | null;
+  moduleId: string | null;
+  exerciseId: string | null;
+};
+
+export function resolveContentHierarchyContext(
+  node: Pick<
+    ContentTreeNode,
+    | "type"
+    | "id"
+    | "chapterId"
+    | "moduleId"
+    | "exerciseId"
+  >,
+): ContentHierarchyContext {
+  if (node.type === "CHAPTER") {
+    return {
+      chapterId: node.id,
+      moduleId: null,
+      exerciseId: null,
+    };
+  }
+
+  if (node.type === "MODULE") {
+    return {
+      chapterId: node.chapterId ?? null,
+      moduleId: node.id,
+      exerciseId: null,
+    };
+  }
+
+  if (node.type === "EXERCISE") {
+    return {
+      chapterId: node.chapterId ?? null,
+      moduleId: null,
+      exerciseId: node.exerciseId ?? node.id,
+    };
+  }
+
+  return {
+    chapterId: node.chapterId ?? null,
+    moduleId: node.moduleId ?? null,
+    exerciseId: null,
+  };
 }

@@ -2,12 +2,13 @@ import PublisherWorksheetList from "@/components/admin/books/PublisherWorksheetL
 import { requirePublisherAdminBookOwnership } from "@/lib/publisher-admin-data";
 import { prisma } from "@/lib/prisma";
 
-import { archivePublisherWorksheetAction, restorePublisherWorksheetAction } from "./actions";
+import { archivePublisherWorksheetAction, publishPublisherWorksheetAction, restorePublisherWorksheetAction } from "./actions";
 
 export const dynamic = "force-dynamic";
 
-export default async function PublisherWorksheetsPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function PublisherWorksheetsPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ chapterId?: string }> }) {
   const { id: bookId } = await params;
+  const query = await searchParams;
   const actor = await requirePublisherAdminBookOwnership(bookId);
   const [worksheets, chapters] = await Promise.all([
     prisma.publisherWorksheet.findMany({
@@ -23,5 +24,6 @@ export default async function PublisherWorksheetsPage({ params }: { params: Prom
     worksheets={worksheets.map((worksheet) => ({ id: worksheet.id, title: worksheet.title, chapter: worksheet.chapter, module: worksheet.module, questionCount: worksheet.items.length, totalMarks: worksheet.items.reduce((total, item) => total + item.question.marks, 0), status: worksheet.archivedAt ? "ARCHIVED" as const : worksheet.published ? "PUBLISHED" as const : "DRAFT" as const, updatedAt: worksheet.updatedAt.toISOString() }))}
     archiveAction={archivePublisherWorksheetAction.bind(null, bookId)}
     restoreAction={restorePublisherWorksheetAction.bind(null, bookId)}
+    publishAction={publishPublisherWorksheetAction.bind(null, bookId)}
   />;
 }

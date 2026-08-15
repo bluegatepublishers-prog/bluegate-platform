@@ -85,6 +85,8 @@ import {
   searchKnowledgeDefinitionsAction,
   rollbackContentReleaseAction,
   attachOwnedBookFullPdfAction,
+  listOwnedBookPdfVersionsAction,
+  restoreOwnedBookPdfVersionAction,
   importOwnedBookPdfV2PagesAction,
   prepareBookReadAloudAction,
   saveBookContentAction,
@@ -150,6 +152,7 @@ export default async function ContentStudioPage({
     })),
     modules: studio.modules,
     topics: studio.topics,
+    exercises: studio.exercises,
   });
 
   const selected =
@@ -272,6 +275,20 @@ async function loadBookStudio(bookId: string, publisherId: string) {
         },
       },
       class: { select: { name: true } },
+      exercises: {
+  select: {
+    id: true,
+    title: true,
+    archived: true,
+    chapterId: true,
+    moduleId: true,
+    topicId: true,
+    type: true,
+    displayOrder: true,
+    startPage: true,
+    endPage: true,
+  },
+},
       subject: { select: { name: true } },
       series: { select: { name: true } },
     },
@@ -300,7 +317,7 @@ async function SelectedCanvas({
   hasFullBookPdf: boolean;
 }) {
   const editingBook = selected.type === "BOOK" && query.bookEditor === "1";
-  const rangeNode = ["PART", "UNIT", "CHAPTER", "MODULE", "FRONT_MATTER_ITEM"].includes(selected.type);
+  const rangeNode = ["PART", "UNIT", "CHAPTER", "MODULE", "EXERCISE", "FRONT_MATTER_ITEM"].includes(selected.type);
   const hasMappedRange = selected.startPage != null && selected.endPage != null;
   const mappingMode = rangeNode && query.bookEditor === "1";
   const bookEditorContext = editingBook || (rangeNode && (hasMappedRange || mappingMode));
@@ -444,9 +461,31 @@ async function SelectedCanvas({
       loadExerciseStudioLookups({ publisherId, bookId, chapterId: scope.chapterId }),
     ]);
   }
+  const hierarchyChapterId =
+    selected.type === "CHAPTER"
+      ? selected.id
+      : selected.chapterId ?? scope.chapterId;
+
+  const chapterExercise = hierarchyChapterId
+    ? studio.exercises.find(
+        (item) =>
+          item.chapterId === hierarchyChapterId &&
+          item.type === "PRACTICE" &&
+          !item.moduleId &&
+          !item.topicId &&
+          !item.archived,
+      ) ?? null
+    : null;
+
+  const editorExerciseId =
+    selected.type === "EXERCISE"
+      ? selected.id
+      : chapterExercise?.id ?? null;
+
   return (
     <NodeCanvas
       bookId={bookId}
+      exerciseId={editorExerciseId}
       selected={selected}
       scope={scope}
       record={record}
@@ -650,6 +689,7 @@ function StructureOnlyCanvas({
 
 async function NodeCanvas({
   bookId,
+  exerciseId,
   selected,
   scope,
   record,
@@ -679,6 +719,7 @@ async function NodeCanvas({
   mappingMode = false,
 }: {
   bookId: string;
+  exerciseId?: string | null;
   selected: ContentTreeNode;
   scope: Awaited<ReturnType<typeof getContentNodeScope>>;
   record: EditorRecord | null;
@@ -708,6 +749,22 @@ async function NodeCanvas({
   mappingMode?: boolean;
 }) {
   if (!record) return null;
+
+  const editorChapterId =
+    selected.type === "CHAPTER"
+      ? selected.id
+      : selected.chapterId ?? scope.chapterId;
+
+  const editorModuleId =
+    selected.type === "MODULE"
+      ? selected.id
+      : selected.moduleId ?? scope.moduleId;
+
+  const editorExerciseId =
+    selected.type === "EXERCISE"
+      ? selected.id
+      : exerciseId ?? null;
+
   return (
     <div className="space-y-3">
       {bookEditor ? (
@@ -715,12 +772,14 @@ async function NodeCanvas({
           Back to Book Summary
         </Link>
       ) : null}
-      {["PART", "UNIT", "CHAPTER", "MODULE", "FRONT_MATTER_ITEM"].includes(selected.type) ? <BookPageRangeInspector bookId={bookId} type={selected.type === "FRONT_MATTER_ITEM" ? "FRONT_MATTER" : selected.type as "PART" | "UNIT" | "CHAPTER" | "MODULE"} nodeId={selected.id} chapterId={selected.chapterId} title={selected.title} startPage={selected.startPage ?? null} endPage={selected.endPage ?? null} totalPages={totalPages} currentPage={currentPage} mappingMode={mappingMode} /> : null}
+      {["PART", "UNIT", "CHAPTER", "MODULE", "EXERCISE", "FRONT_MATTER_ITEM"].includes(selected.type) ? <BookPageRangeInspector bookId={bookId} type={selected.type === "FRONT_MATTER_ITEM" ? "FRONT_MATTER" : selected.type as "PART" | "UNIT" | "CHAPTER" | "MODULE" | "EXERCISE"} nodeId={selected.id} chapterId={selected.chapterId} title={selected.title} startPage={selected.startPage ?? null} endPage={selected.endPage ?? null} totalPages={totalPages} currentPage={currentPage} mappingMode={mappingMode} /> : null}
       <ContentManuscriptEditor
       bookId={bookId}
       nodeId={selected.id}
       nodeType={bookEditor ? "BOOK" : selected.type as BookStructureNodeType}
-      chapterId={scope.chapterId}
+      chapterId={editorChapterId}
+      moduleId={editorModuleId}
+      exerciseId={editorExerciseId}
       nodeTitle={record.title}
       nodeSubtitle={record.subtitle ?? ""}
       nodeDescription={record.description ?? ""}
@@ -823,6 +882,8 @@ async function NodeCanvas({
       importPdfAction={importOwnedBookPdfV2PagesAction.bind(null, bookId)}
       prepareReadAloudAction={bookEditor ? prepareBookReadAloudAction.bind(null, bookId) : undefined}
       attachPdfAction={attachOwnedBookFullPdfAction.bind(null, bookId)}
+      listPdfVersionsAction={listOwnedBookPdfVersionsAction.bind(null, bookId)}
+      restorePdfVersionAction={restoreOwnedBookPdfVersionAction.bind(null, bookId)}
       hasFullBookPdf={hasFullBookPdf}
       pageScope={pageScope}
       initialPageNumber={initialPageNumber}

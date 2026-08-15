@@ -9,6 +9,7 @@ import V2VideoVisual from "@/components/content/v2/V2VideoVisual";
 import V2ShapeVisual from "@/components/content/v2/V2ShapeVisual";
 import { getV2FrameResourceId } from "@/lib/content-layout-v2-rendering";
 import { getV2VideoDisplayMode } from "@/lib/content-layout-v2";
+import V2AssessmentLauncherVisual from "@/components/content/v2/V2AssessmentLauncherVisual";
 
 export default function V2FrameContent({ frame, frames, block, pageWidth, pageHeight, resourceUrlResolver, renderBlock, renderFrame, onPayloadChange, videoPresentation = "AUTHORING" }: {
   frame: LayoutV2Frame;
@@ -20,8 +21,11 @@ export default function V2FrameContent({ frame, frames, block, pageWidth, pageHe
   renderBlock?: (block: ContentBlock) => ReactNode;
   renderFrame?: (frame: LayoutV2Frame, frames: LayoutV2Frame[]) => ReactNode;
   onPayloadChange?: (payload: Record<string, unknown>) => void;
-  videoPresentation?: "AUTHORING" | "DELIVERY";
+  videoPresentation?: "AUTHORING" | "DELIVERY" | "PREVIEW";
 }) {
+  if (frame.type === "ASSESSMENT_LAUNCHER") {
+    return <V2AssessmentLauncherVisual frame={frame} openable={videoPresentation !== "AUTHORING"} mode={videoPresentation === "PREVIEW" ? "PREVIEW" : "STUDENT"} />;
+  }
   if (block && isV2EducationalButtonBlock(block)) {
     return <V2EducationalButtonVisual frame={frame} block={block} openable={videoPresentation === "DELIVERY"} overlayContent={renderBlock?.(block)} />;
   }
@@ -47,7 +51,7 @@ export default function V2FrameContent({ frame, frames, block, pageWidth, pageHe
       ?? (block && "resourceId" in block && typeof block.resourceId === "string" ? block.resourceId : undefined)
       ?? (block?.type === "media" && block.targetType === "RESOURCE" ? block.targetId : undefined);
     const src = resourceId ? resourceUrlResolver(resourceId) : null;
-    return src ? <V2VideoVisual frame={frame} src={src} displayMode={getV2VideoDisplayMode(frame)} presentation={videoPresentation} /> : <Unavailable label="Video resource unavailable" />;
+    return src ? <V2VideoVisual frame={frame} src={src} displayMode={getV2VideoDisplayMode(frame)} presentation={videoPresentation === "AUTHORING" ? "AUTHORING" : "DELIVERY"} /> : <Unavailable label="Video resource unavailable" />;
   }
   if (frame.type === "TABLE") {
     const payload = frame.payload && typeof frame.payload === "object" ? frame.payload as Record<string, unknown> : {};

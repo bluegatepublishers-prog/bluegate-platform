@@ -108,6 +108,17 @@ export type NormalizedQuestion = {
   competency?: string;
   grading: NormalizedQuestionGrading;
 };
+export type InteractiveQuestion = Pick<
+  NormalizedQuestion,
+  "id" | "questionType" | "content" | "resourceIds" | "options"
+> & {
+  answer: Pick<NormalizedQuestionAnswer, "matches">;
+};
+
+export function toSafeInteractiveQuestion(question: NormalizedQuestion): InteractiveQuestion {
+  const { id, questionType, content, resourceIds, options } = question;
+  return { id, questionType, content, resourceIds, options, answer: {} };
+}
 
 export type NormalizedQuestionRenderInput = {
   question: NormalizedQuestion;
@@ -256,6 +267,32 @@ export function normalizeQuestionType(value: string | null | undefined): Normali
   if (type === "PROJECT") return "PROJECT";
   if (type === "CUSTOM") return "CUSTOM";
   return "UNSUPPORTED";
+}
+export type BookQuestionPracticeMode =
+  | "AUTO_GRADED"
+  | "MANUAL_RESPONSE"
+  | "UNSUPPORTED";
+
+export function getBookQuestionPracticeMode(
+  questionType: string | null | undefined,
+): BookQuestionPracticeMode {
+  switch (normalizeQuestionType(questionType)) {
+    case "MCQ":
+    case "TRUE_FALSE":
+    case "FILL_BLANK":
+    case "MULTIPLE_SELECT":
+      return "AUTO_GRADED";
+    case "SHORT_ANSWER":
+      return "MANUAL_RESPONSE";
+    default:
+      return "UNSUPPORTED";
+  }
+}
+
+export function canLaunchBookQuestionPractice(
+  questionType: string | null | undefined,
+) {
+  return getBookQuestionPracticeMode(questionType) !== "UNSUPPORTED";
 }
 
 export function gradingForQuestionType(questionType: NormalizedQuestionType): NormalizedQuestionGrading {
@@ -564,10 +601,6 @@ function ids(...values: Array<string | null | undefined>) {
 
 function texts(value: string | null | undefined) {
   return value?.trim() ? [value.trim()] : [];
-}
-
-function unique(values: string[]) {
-  return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
 }
 
 function asText(value: unknown) {

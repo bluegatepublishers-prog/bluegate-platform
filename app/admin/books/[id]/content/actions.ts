@@ -93,7 +93,7 @@ import { requireLivePublisherAdmin } from "@/lib/publisher-admin-authorization";
 import { publisherAdminAuditActor, writeSecurityAuditEvent } from "@/lib/security-audit";
 import { createOwnedBookPdfV2Pages } from "@/lib/book-pdf-v2-import";
 import { prepareOwnedBookReadAloud } from "@/lib/book-read-aloud";
-import { inspectPublisherBookPdf } from "@/lib/book-pdf";
+import { assertBookPdfReplacementMappingsFit, inspectPublisherBookPdf } from "@/lib/book-pdf";
 import { normalizeAndValidateObjectKey } from "@/lib/storage/object-key";
 
 const text = (form: FormData, key: string, max = 4000) =>
@@ -126,17 +126,236 @@ export async function importOwnedBookPdfV2PagesAction(bookId: string) {
   return createOwnedBookPdfV2Pages(bookId);
 }
 
-export async function attachOwnedBookFullPdfAction(bookId: string, objectKey: string) {
+export type BookPdfVersionSummary = {
+  id: string;
+  objectKey: string;
+  originalFileName: string | null;
+  pageCount: number;
+  fileSizeBytes: string | null;
+  active: boolean;
+  activatedAt: string | null;
+  createdAt: string;
+};
+
+function pdfFileNameFromObjectKey(objectKey: string) {
+  const raw = objectKey.split("/").at(-1) ?? "book.pdf";
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}
+
+export async function listOwnedBookPdfVersionsAction(bookId: string): Promise<BookPdfVersionSummary[]> {
+  const actor = await requireLivePublisherAdmin();
+  const book = await prisma.book.findFirst({
+    where: { id: bookId, publisherId: actor.publisherId },
+    select: { id: true, fullBookPdf: true, pages: true },
+  });
+  if (!book) throw new Error("The selected book is unavailable.");
+
+  if (book.fullBookPdf && book.pages) {
+    const existing = await prisma.bookPdfVersion.findFirst({
+      where: { bookId, objectKey: book.fullBookPdf },
+      select: { id: true },
+    });
+    if (!existing) {
+      await prisma.bookPdfVersion.updateMany({ where: { bookId, active: true }, data: { active: false } });
+      await prisma.bookPdfVersion.create({
+        data: {
+          bookId,
+          objectKey: book.fullBookPdf,
+          originalFileName: pdfFileNameFromObjectKey(book.fullBookPdf),
+          pageCount: book.pages,
+          active: true,
+          activatedAt: new Date(),
+        },
+      });
+    } else {
+      await prisma.bookPdfVersion.updateMany({ where: { bookId, active: true, id: { not: existing.id } }, data: { active: false } });
+      await prisma.bookPdfVersion.update({ where: { id: existing.id }, data: { active: true, pageCount: book.pages } });
+    }
+  }
+
+  const rows = await prisma.bookPdfVersion.findMany({
+    where: { bookId },
+    orderBy: [{ active: "desc" }, { activatedAt: "desc" }, { createdAt: "desc" }],
+  });
+  return rows.map((row) => ({
+    id: row.id, objectKey: row.objectKey, originalFileName: row.originalFileName,
+    pageCount: row.pageCount, fileSizeBytes: row.fileSizeBytes?.toString() ?? null,
+    active: row.active, activatedAt: row.activatedAt?.toISOString() ?? null, createdAt: row.createdAt.toISOString(),
+  }));
+}
+
+export async function restoreOwnedBookPdfVersionAction(
+  bookId: string,
+  versionId: string,
+  options?: { clearMappings?: boolean },
+) {
+  const actor = await requireLivePublisherAdmin();
+  const version = await prisma.bookPdfVersion.findFirst({
+    where: { id: versionId, bookId, book: { publisherId: actor.publisherId } },
+    select: { id: true, objectKey: true },
+  });
+  if (!version) throw new Error("The selected PDF version is unavailable.");
+  const inspection = await inspectPublisherBookPdf(version.objectKey, actor.publisherId);
+  const clearMappings = options?.clearMappings === true;
+  if (!clearMappings) {
+    try {
+      await assertBookPdfReplacementMappingsFit(bookId, actor.publisherId, inspection.pageCount);
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("Cannot replace the full-book PDF:")) {
+        return { pageCount: inspection.pageCount, mappingResetRequired: true as const, mappingConflictMessage: error.message };
+      }
+      throw error;
+    }
+  }
+
+  await prisma.$transaction(async (tx) => {
+    if (clearMappings) {
+      await tx.bookFrontMatterItem.updateMany({ where: { bookId }, data: { startPage: null, endPage: null } });
+      await tx.bookPart.updateMany({ where: { bookId }, data: { startPage: null, endPage: null } });
+      await tx.bookUnit.updateMany({ where: { bookId }, data: { startPage: null, endPage: null } });
+      await tx.bookChapter.updateMany({ where: { bookId }, data: { startPage: null, endPage: null } });
+      await tx.bookModule.updateMany({ where: { bookId }, data: { startPage: null, endPage: null } });
+      await tx.bookExercise.updateMany({ where: { bookId }, data: { startPage: null, endPage: null } });
+    }
+    await tx.bookPdfVersion.updateMany({ where: { bookId, active: true }, data: { active: false } });
+    await tx.bookPdfVersion.update({ where: { id: version.id }, data: { active: true, activatedAt: new Date(), pageCount: inspection.pageCount } });
+    await tx.book.update({ where: { id: bookId }, data: { fullBookPdf: version.objectKey, pages: inspection.pageCount } });
+    await writeSecurityAuditEvent(tx, {
+      actor: publisherAdminAuditActor(actor), action: "publisher.book.update", targetType: "Book", targetId: bookId,
+      outcome: SecurityAuditOutcome.SUCCESS, metadata: { changedFields: clearMappings ? ["fullBookPdf", "pages", "pageMappings"] : ["fullBookPdf", "pages"] },
+    });
+  }, { maxWait: 10_000, timeout: 20_000 });
+  refresh(bookId);
+  return { pageCount: inspection.pageCount, mappingResetRequired: false as const };
+}
+
+export async function attachOwnedBookFullPdfAction(
+  bookId: string,
+  objectKey: string,
+  options?: { clearMappings?: boolean },
+) {
   const actor = await requireLivePublisherAdmin();
   const key = normalizeAndValidateObjectKey(objectKey);
   const inspection = await inspectPublisherBookPdf(key, actor.publisherId);
-  const updated = await prisma.book.updateMany({
-    where: { id: bookId, publisherId: actor.publisherId },
-    data: { fullBookPdf: key, pages: inspection.pageCount },
+
+  const clearMappings = options?.clearMappings === true;
+
+  if (!clearMappings) {
+    try {
+      await assertBookPdfReplacementMappingsFit(
+        bookId,
+        actor.publisherId,
+        inspection.pageCount,
+      );
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        error.message.startsWith("Cannot replace the full-book PDF:")
+      ) {
+        return {
+          pageCount: inspection.pageCount,
+          mappingResetRequired: true as const,
+          mappingConflictMessage: error.message,
+        };
+      }
+
+      throw error;
+    }
+  }
+
+  await prisma.$transaction(async (tx) => {
+    const book = await tx.book.findFirst({
+      where: {
+        id: bookId,
+        publisherId: actor.publisherId,
+      },
+      select: { id: true, fullBookPdf: true, pages: true },
+    });
+
+    if (!book) {
+      throw new Error("The selected book is unavailable.");
+    }
+
+    if (clearMappings) {
+      await tx.bookFrontMatterItem.updateMany({
+        where: { bookId },
+        data: { startPage: null, endPage: null },
+      });
+
+      await tx.bookPart.updateMany({
+        where: { bookId },
+        data: { startPage: null, endPage: null },
+      });
+
+      await tx.bookUnit.updateMany({
+        where: { bookId },
+        data: { startPage: null, endPage: null },
+      });
+
+      await tx.bookChapter.updateMany({
+        where: { bookId },
+        data: { startPage: null, endPage: null },
+      });
+
+      await tx.bookModule.updateMany({
+        where: { bookId },
+        data: { startPage: null, endPage: null },
+      });
+
+      await tx.bookExercise.updateMany({
+        where: { bookId },
+        data: { startPage: null, endPage: null },
+      });
+    }
+
+    if (book.fullBookPdf && book.pages && book.fullBookPdf !== key) {
+      const previous = await tx.bookPdfVersion.findFirst({ where: { bookId, objectKey: book.fullBookPdf }, select: { id: true } });
+      if (previous) {
+        await tx.bookPdfVersion.update({ where: { id: previous.id }, data: { active: false } });
+      } else {
+        await tx.bookPdfVersion.create({ data: { bookId, objectKey: book.fullBookPdf, originalFileName: pdfFileNameFromObjectKey(book.fullBookPdf), pageCount: book.pages, active: false } });
+      }
+    }
+    await tx.bookPdfVersion.updateMany({ where: { bookId, active: true }, data: { active: false } });
+    const currentVersion = await tx.bookPdfVersion.findFirst({ where: { bookId, objectKey: key }, select: { id: true } });
+    if (currentVersion) {
+      await tx.bookPdfVersion.update({ where: { id: currentVersion.id }, data: { active: true, activatedAt: new Date(), pageCount: inspection.pageCount, originalFileName: pdfFileNameFromObjectKey(key) } });
+    } else {
+      await tx.bookPdfVersion.create({ data: { bookId, objectKey: key, originalFileName: pdfFileNameFromObjectKey(key), pageCount: inspection.pageCount, active: true, activatedAt: new Date() } });
+    }
+
+    await tx.book.update({
+      where: { id: bookId },
+      data: { fullBookPdf: key, pages: inspection.pageCount },
+    });
+
+    await writeSecurityAuditEvent(tx, {
+      actor: publisherAdminAuditActor(actor),
+      action: "publisher.book.update",
+      targetType: "Book",
+      targetId: bookId,
+      outcome: SecurityAuditOutcome.SUCCESS,
+      metadata: {
+        changedFields: clearMappings
+          ? ["fullBookPdf", "pages", "pageMappings"]
+          : ["fullBookPdf", "pages"],
+      },
+    });
+  }, {
+    maxWait: 10_000,
+    timeout: 20_000,
   });
-  if (updated.count !== 1) throw new Error("The selected book is unavailable.");
+
   refresh(bookId);
-  return { pageCount: inspection.pageCount };
+
+  return {
+    pageCount: inspection.pageCount,
+    mappingResetRequired: false as const,
+  };
 }
 
 function slugCode(value: string) {
@@ -965,101 +1184,158 @@ export async function createContentChildAction(
   parentId: string,
   form: FormData,
 ) {
-  const type =
-    text(
-      form,
-      "type",
-    ) as BookStructureNodeType;
+  const type = text(form, "type");
 
-  const allowed: Record<
-    string,
-    BookStructureNodeType[]
-  > = {
+  const allowed: Record<string, string[]> = {
     BOOK: ["PART"],
     PART: ["UNIT"],
     UNIT: ["CHAPTER"],
-    CHAPTER: ["MODULE"],
+    CHAPTER: ["MODULE", "EXERCISE"],
     MODULE: [],
+    EXERCISE: [],
   };
 
-  if (
-    !allowed[parentType]?.includes(type)
-  ) {
+  if (!allowed[parentType]?.includes(type)) {
     throw new Error(
       "This child type is not valid for the selected parent.",
     );
   }
 
+  if (type === "EXERCISE" && parentType === "CHAPTER") {
+    const actor = await requireLivePublisherAdmin();
+
+    const chapter = await prisma.bookChapter.findFirst({
+      where: {
+        id: parentId,
+        bookId,
+        book: { publisherId: actor.publisherId },
+      },
+      select: { id: true },
+    });
+
+    if (!chapter) {
+      throw new Error("Parent Chapter not found.");
+    }
+
+    const existing = await prisma.bookExercise.findFirst({
+      where: {
+        bookId,
+        chapterId: parentId,
+        moduleId: null,
+        topicId: null,
+        type: CurriculumExerciseType.PRACTICE,
+        archived: false,
+      },
+      select: { id: true },
+    });
+
+    if (existing) {
+      throw new Error("This chapter already has an Exercise.");
+    }
+
+    const lastExercise = await prisma.bookExercise.findFirst({
+      where: {
+        bookId,
+        chapterId: parentId,
+        moduleId: null,
+        topicId: null,
+      },
+      select: { displayOrder: true },
+      orderBy: [
+        { displayOrder: "desc" },
+        { id: "desc" },
+      ],
+    });
+
+    const exercise = await prisma.$transaction(async (tx) => {
+      const created = await tx.bookExercise.create({
+        data: {
+          bookId,
+          chapterId: parentId,
+          moduleId: null,
+          topicId: null,
+          title: text(form, "title", 200) || "Exercise",
+          type: CurriculumExerciseType.PRACTICE,
+          difficulty: null,
+          marks: null,
+          estimatedMinutes: null,
+          displayOrder: (lastExercise?.displayOrder ?? -10) + 10,
+          published: false,
+          archived: false,
+          instructions: Prisma.JsonNull,
+        },
+      });
+
+      await writeSecurityAuditEvent(tx, {
+        actor: publisherAdminAuditActor(actor),
+        action: "publisher.curriculum.exercise.create",
+        targetType: "BookExercise",
+        targetId: created.id,
+        outcome: SecurityAuditOutcome.SUCCESS,
+        metadata: { changedFields: ["hierarchyExercise"] },
+      });
+
+      return created;
+    });
+
+    refresh(bookId);
+
+    return {
+      id: exercise.id,
+      type: "EXERCISE" as const,
+    };
+  }
+
+  const structureType = type as BookStructureNodeType;
+
   let parent: string | null = null;
   let secondary: string | null = null;
 
-  if (
-    type === "UNIT" &&
-    parentType === "PART"
-  ) {
+  if (structureType === "UNIT" && parentType === "PART") {
     parent = parentId;
   } else if (
-    type === "CHAPTER" &&
+    structureType === "CHAPTER" &&
     parentType === "UNIT"
   ) {
     parent = parentId;
 
-    const unit =
-      await prisma.bookUnit.findFirst({
-        where: {
-          id: parentId,
-          bookId,
-        },
-        select: {
-          partId: true,
-        },
-      });
+    const unit = await prisma.bookUnit.findFirst({
+      where: {
+        id: parentId,
+        bookId,
+      },
+      select: {
+        partId: true,
+      },
+    });
 
     if (!unit) {
-      throw new Error(
-        "Parent Unit not found.",
-      );
+      throw new Error("Parent Unit not found.");
     }
 
     secondary = unit.partId;
   } else if (
-    type === "MODULE" &&
+    structureType === "MODULE" &&
     parentType === "CHAPTER"
   ) {
     parent = parentId;
   }
 
-  const created =
-    await saveBookStructureNode(
-      bookId,
-      {
-        type,
-        parentId: parent,
-        secondaryParentId: secondary,
-        title: text(
-          form,
-          "title",
-          200,
-        ),
-        label: nullable(
-          form,
-          "label",
-          80,
-        ),
-        description: nullable(
-          form,
-          "description",
-          2000,
-        ),
-        published: false,
-      },
-    );
+  const created = await saveBookStructureNode(bookId, {
+    type: structureType,
+    parentId: parent,
+    secondaryParentId: secondary,
+    title: text(form, "title", 200),
+    label: nullable(form, "label", 80),
+    description: nullable(form, "description", 2000),
+    published: false,
+  });
 
   refresh(bookId);
 
   return {
     id: created.id,
-    type,
+    type: structureType,
   };
 }
 
