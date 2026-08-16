@@ -3,7 +3,14 @@
 import { AcademicPlannerItemStatus } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { requireTeacherSubject } from "@/lib/teacher-experience";
+import { getTeacherPlannerFeatureAccess, requireTeacherSubject as requireTeacherSubjectBase } from "@/lib/teacher-experience";
+
+async function requireTeacherSubject(sectionId: string, sectionSubjectId?: string | null) {
+  const result = await requireTeacherSubjectBase(sectionId, sectionSubjectId);
+  const access = await getTeacherPlannerFeatureAccess(result.scope.teacher.school!);
+  if (!access.allowed) throw new Error(access.message);
+  return result;
+}
 
 export async function createTeachingPlanAction(formData: FormData) { const sectionId = String(formData.get("sectionId") ?? ""); const sectionSubjectId = String(formData.get("sectionSubjectId") ?? ""); const { scope, subject } = await requireTeacherSubject(sectionId, sectionSubjectId); const title = String(formData.get("title") ?? "").trim(); const date = new Date(String(formData.get("date") ?? "")); if (!title || title.length > 180 || Number.isNaN(date.getTime())) throw new Error("Enter a valid plan title and date."); await prisma.academicPlannerItem.create({ data: { schoolId: scope.schoolId, academicYearId: scope.academicYear.id, sectionId, sectionSubjectId: subject.id, type: "TEACHING", title, description: String(formData.get("description") ?? "").trim() || null, fixedDate: formData.get("fixedDate") === "on", originalDate: date, currentDate: date, status: "PLANNED" } }); revalidatePath(`/teacher-dashboard/classes/${sectionId}/plan`); revalidatePath("/teacher-dashboard/planner"); }
 

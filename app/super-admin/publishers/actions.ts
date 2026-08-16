@@ -9,6 +9,7 @@ import {
   recordTrustedDeniedAudit,
   runAuditedMutation,
 } from "@/lib/security-audit";
+import { getPublisherFeatureEnablementError } from "@/lib/platform-feature-policy";
 
 const text = (form: FormData, key: string, length = 120) =>
   String(form.get(key) ?? "").trim().slice(0, length);
@@ -19,7 +20,7 @@ export async function updatePublisher(id: string, form: FormData) {
   const existing = await prisma.publisher.findUnique({
     where: { id },
     select: {
-      id: true, active: true, shortName: true, logoUrl: true,
+      id: true, shortName: true, logoUrl: true,
       primaryColor: true, secondaryColor: true, accentColor: true,
       portalTitle: true, aiName: true, supportEmail: true, supportPhone: true,
     },
@@ -31,7 +32,6 @@ export async function updatePublisher(id: string, form: FormData) {
   const colors = ["primaryColor", "secondaryColor", "accentColor"].map((key) => text(form, key, 7));
   if (colors.some((color) => color && !/^#[0-9a-f]{6}$/i.test(color))) throw new Error("Use six-digit hex colors.");
   const data = {
-    active: form.get("active") === "on",
     shortName: text(form, "shortName", 60) || null,
     logoUrl: text(form, "logoUrl", 500) || null,
     primaryColor: colors[0] || null,
@@ -61,13 +61,27 @@ export async function togglePublisherFeature(publisherId: string, key: PlatformF
   if (!Object.values(PlatformFeatureKey).includes(key)) throw new Error("Unknown feature.");
   const [publisher, feature] = await Promise.all([
     prisma.publisher.findUnique({ where: { id: publisherId }, select: { id: true } }),
-    prisma.featureDefinition.findUnique({ where: { key }, select: { id: true } }),
+    prisma.featureDefinition.findUnique({
+      where: { key },
+      select: { id: true, implemented: true, active: true },
+    }),
   ]);
   if (!publisher || !feature) {
     await recordTrustedDeniedAudit({ actor, action: "platform.publisher.feature.set", targetType: "PublisherFeature", reasonCode: "TARGET_NOT_FOUND", metadata: { featureKey: key, scope: "platform" } });
     throw new Error("Publisher or feature not found.");
   }
   const enabled = form.get("enabled") === "true";
+  const readinessError = getPublisherFeatureEnablementError(feature, enabled);
+  if (readinessError) {
+    await recordTrustedDeniedAudit({
+      actor,
+      action: "platform.publisher.feature.set",
+      targetType: "PublisherFeature",
+      reasonCode: "VALIDATION_FAILED",
+      metadata: { featureKey: key, enabled, scope: "platform" },
+    });
+    throw new Error(readinessError);
+  }
   await runAuditedMutation({
     actor,
     action: "platform.publisher.feature.set",

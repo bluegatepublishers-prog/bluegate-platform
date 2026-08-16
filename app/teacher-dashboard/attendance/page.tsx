@@ -82,7 +82,7 @@ export default async function TeacherAttendancePage({ searchParams }: { searchPa
 
   if (access.status === "FEATURE_DISABLED" || access.status === "SUBSCRIPTION_BLOCKED" || access.status === "NO_ACADEMIC_YEAR") {
     return (
-      <main className="space-y-6 p-4 sm:p-6 lg:p-8">
+      <main className="space-y-4 p-3 sm:p-5 lg:p-6">
         <BlockedState title="Attendance unavailable" message={access.message} />
       </main>
     );
@@ -93,7 +93,10 @@ export default async function TeacherAttendancePage({ searchParams }: { searchPa
     ? query.sectionId
     : classes[0]?.sectionId ?? "";
   const selectedAssignment = selectedSectionId ? classes.find((item) => item.sectionId === selectedSectionId) ?? null : null;
-  const selectedSubjectId = selectedAssignment?.subjects[0]?.id ?? "";
+  const requestedSubjectId = query.subject?.trim();
+  const selectedSubjectId = selectedAssignment?.subjects.some((subject) => subject.id === requestedSubjectId)
+    ? requestedSubjectId!
+    : selectedAssignment?.subjects[0]?.id ?? "";
   const markDate = query.date ?? todayKey();
   const markSessionType = access.attendanceMode;
   const currentDayBounds = dayBounds(new Date());
@@ -212,15 +215,13 @@ export default async function TeacherAttendancePage({ searchParams }: { searchPa
     };
   });
 
-  const attendanceVisible = access.status === "READY" || access.status === "NO_ASSIGNMENTS";
-
   return (
-    <main className="space-y-6 p-4 sm:p-6 lg:p-8">
-      <header className="flex flex-wrap items-start justify-between gap-4">
+    <main className="space-y-4 p-3 sm:p-5 lg:p-6">
+      <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="text-sm font-semibold uppercase tracking-[0.2em] text-blue-700">Teacher Attendance</p>
-          <h1 className="mt-2 text-3xl font-bold text-slate-950">Attendance</h1>
-          <p className="mt-2 text-sm text-slate-600">
+          <h1 className="mt-1 text-2xl font-bold text-slate-950">Attendance</h1>
+          <p className="mt-1 text-xs text-slate-600">
             Mark attendance for your assigned classes, review history, and manage correction requests.
           </p>
         </div>
@@ -294,21 +295,9 @@ export default async function TeacherAttendancePage({ searchParams }: { searchPa
       ) : null}
 
       {view === "mark" ? (
-        <section className="space-y-4">
+        <section className="space-y-2">
           {classes.length ? (
             <>
-              <div className="rounded-3xl border bg-white p-5 shadow-sm">
-                <div className="grid gap-4 md:grid-cols-[1fr_auto] md:items-end">
-                  <div>
-                    <h2 className="text-xl font-bold text-slate-950">Mark Attendance</h2>
-                    <p className="mt-1 text-sm text-slate-600">Choose a class section and update the roster below.</p>
-                  </div>
-                  <div className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-700">
-                    <p className="font-semibold">Selected section</p>
-                    <p className="mt-1">{selectedAssignment ? `${selectedAssignment.className} - ${selectedAssignment.sectionName}` : "No section selected"}</p>
-                  </div>
-                </div>
-              </div>
 
               {workspace ? (
                 <TeacherAttendanceWorkspace

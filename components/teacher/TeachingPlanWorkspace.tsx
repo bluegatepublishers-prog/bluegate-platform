@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
+import type { TeachingPeriodStatus } from "@prisma/client";
 
 import V2ContentDocumentRenderer from "@/components/content/V2ContentDocumentRenderer";
 import {
@@ -24,6 +25,7 @@ type PageReference = Period["pageRefs"][number];
 type PageAvailability = Awaited<ReturnType<typeof getTeachingPlanPageAvailabilityAction>>;
 type AvailablePage = PageAvailability["pages"][number];
 type PagePreview = Awaited<ReturnType<typeof getTeachingPlanPagePreviewAction>>;
+type Chapter = { id: string; chapterNumber: number; title: string };
 
 type WorkspaceProps = {
   sectionId: string;
@@ -34,8 +36,16 @@ type WorkspaceProps = {
   academicYearName: string;
   books: Array<{ id: string; title: string }>;
   selectedBook: { id: string; title: string } | null;
+  chapters: Chapter[];
   initialPlan: Plan | null;
   pageAvailability: PageAvailability;
+};
+
+const STATUS_LABELS: Record<TeachingPeriodStatus, string> = {
+  PLANNED: "Planned",
+  COMPLETED: "Completed",
+  SKIPPED: "Skipped",
+  RESCHEDULED: "Rescheduled",
 };
 
 export default function TeachingPlanWorkspace({
@@ -47,6 +57,7 @@ export default function TeachingPlanWorkspace({
   academicYearName,
   books,
   selectedBook,
+  chapters,
   initialPlan,
   pageAvailability,
 }: WorkspaceProps) {
@@ -57,8 +68,14 @@ export default function TeachingPlanWorkspace({
   const [isPending, startTransition] = useTransition();
   const [addingPeriod, setAddingPeriod] = useState(false);
   const [newPeriodTitle, setNewPeriodTitle] = useState("");
+  const [newPeriodDate, setNewPeriodDate] = useState("");
+  const [newPeriodChapterId, setNewPeriodChapterId] = useState("");
   const [editingPeriodId, setEditingPeriodId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
+  const [editingDate, setEditingDate] = useState("");
+  const [editingChapterId, setEditingChapterId] = useState("");
+  const [editingStatus, setEditingStatus] = useState<TeachingPeriodStatus>("PLANNED");
+  const [pageManagerPeriodId, setPageManagerPeriodId] = useState<string | null>(null);
   const [pickerPeriodId, setPickerPeriodId] = useState<string | null>(null);
   const [availablePages, setAvailablePages] = useState<AvailablePage[]>(pageAvailability.pages);
   const [availabilityState, setAvailabilityState] = useState<PageAvailability["state"]>(pageAvailability.state);
@@ -68,7 +85,6 @@ export default function TeachingPlanWorkspace({
   const [selectedPageKeys, setSelectedPageKeys] = useState<string[]>([]);
   const [preview, setPreview] = useState<PagePreview | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
-
 
   const canMapPages = availabilityState === "V2_AVAILABLE" && availablePages.length > 0;
   const modules = useMemo(() => {
@@ -80,11 +96,14 @@ export default function TeachingPlanWorkspace({
     const search = pageSearch.trim().toLowerCase();
     return availablePages.filter((page) => {
       const matchesModule = moduleFilter === "all" || page.moduleId === moduleFilter;
-      const matchesSearch = !search || `page ${page.displayPageNumber} ${page.title}`.toLowerCase().includes(search);
+      const matchesSearch = !search || ("page " + page.displayPageNumber + " " + page.title).toLowerCase().includes(search);
       return matchesModule && matchesSearch;
     });
   }, [availablePages, moduleFilter, pageSearch]);
-  const selectedPages = useMemo(() => availablePages.filter((page) => selectedPageKeys.includes(pageKey(page))), [availablePages, selectedPageKeys]);
+  const selectedPages = useMemo(
+    () => availablePages.filter((page) => selectedPageKeys.includes(pageKey(page))),
+    [availablePages, selectedPageKeys],
+  );
 
   function runMutation<T>(label: string, operation: () => Promise<T>, apply: (result: T) => void) {
     setError(null);
@@ -112,38 +131,79 @@ export default function TeachingPlanWorkspace({
     runMutation("create-plan", () => createTeachingPlanAction({ sectionSubjectId, bookId: selectedBook.id }), setPlan);
   }
 
+  function resetAddForm() {
+    setNewPeriodTitle("");
+    setNewPeriodDate("");
+    setNewPeriodChapterId("");
+    setAddingPeriod(false);
+  }
+
   function createPeriod() {
     if (!plan || !newPeriodTitle.trim()) return;
-    runMutation("create-period", () => createTeachingPeriodAction({ planId: plan.id, title: newPeriodTitle }), (period) => {
-      setPlan((current) => current ? { ...current, periods: [...current.periods, period].sort((left, right) => left.sequence - right.sequence) } : current);
-      setNewPeriodTitle("");
-      setAddingPeriod(false);
+    runMutation("create-period", () => createTeachingPeriodAction({
+      planId: plan.id,
+      title: newPeriodTitle,
+      plannedDate: newPeriodDate || null,
+      chapterId: newPeriodChapterId || null,
+    }), (period) => {
+      setPlan((current) => current ? {
+        ...current,
+        periods: [...current.periods, period].sort((left, right) => left.sequence - right.sequence),
+      } : current);
+      resetAddForm();
+      if (canMapPages) openPagePicker(period.id);
     });
   }
 
-  function savePeriod(periodId: string) {
-    if (!editingTitle.trim()) return;
-    runMutation("edit-period", () => updateTeachingPeriodAction({ periodId, title: editingTitle }), (period) => {
+  function startEdit(period: Period) {
+    setEditingPeriodId(period.id);
+    setEditingTitle(period.title);
+    setEditingDate(dateInputValue(period.plannedDate));
+    setEditingChapterId(period.chapterId ?? "");
+    setEditingStatus(period.status);
+  }
+
+  function closeEdit() {
+    setEditingPeriodId(null);
+    setEditingTitle("");
+    setEditingDate("");
+    setEditingChapterId("");
+    setEditingStatus("PLANNED");
+  }
+
+  function savePeriod() {
+    if (!editingPeriodId || !editingTitle.trim()) return;
+    runMutation("edit-period", () => updateTeachingPeriodAction({
+      periodId: editingPeriodId,
+      title: editingTitle,
+      plannedDate: editingDate || null,
+      status: editingStatus,
+      chapterId: editingChapterId || null,
+    }), (period) => {
       replacePeriod(period);
-      setEditingPeriodId(null);
-      setEditingTitle("");
+      closeEdit();
     });
   }
 
   function deletePeriod(period: Period) {
-    if (period.pageRefs.length && !window.confirm(`Delete Period ${period.sequence}? This removes the teaching-period mapping only. The Publisher book is not changed.`)) return;
+    const message = period.pageRefs.length
+      ? "Delete Period " + period.sequence + "? Its page mapping will be removed. The Publisher book is unchanged."
+      : "Delete Period " + period.sequence + "?";
+    if (!window.confirm(message)) return;
     runMutation("delete-period", () => deleteTeachingPeriodAction({ periodId: period.id }), ({ deletedPeriodId }) => {
       setPlan((current) => current ? { ...current, periods: current.periods.filter((entry) => entry.id !== deletedPeriodId) } : current);
+      if (pageManagerPeriodId === deletedPeriodId) setPageManagerPeriodId(null);
     });
   }
 
   function movePeriod(period: Period, direction: "EARLIER" | "LATER") {
-    runMutation(`move-period-${direction}`, () => moveTeachingPeriodAction({ periodId: period.id, direction }), setPlan);
+    runMutation("move-period-" + direction, () => moveTeachingPeriodAction({ periodId: period.id, direction }), setPlan);
   }
 
   function openPagePicker(periodId: string) {
     if (!selectedBook) return;
     setPickerPeriodId(periodId);
+    setPageManagerPeriodId(null);
     setPagesLoading(true);
     setPreview(null);
     setSelectedPageKeys([]);
@@ -157,6 +217,7 @@ export default function TeachingPlanWorkspace({
       .catch((caught) => setError(toTeacherMessage(caught)))
       .finally(() => setPagesLoading(false));
   }
+
   function togglePage(page: AvailablePage) {
     const key = pageKey(page);
     setSelectedPageKeys((current) => current.includes(key) ? current.filter((value) => value !== key) : [...current, key]);
@@ -198,207 +259,197 @@ export default function TeachingPlanWorkspace({
     const nextIndex = direction === "EARLIER" ? index - 1 : index + 1;
     if (index < 0 || nextIndex < 0 || nextIndex >= period.pageRefs.length) return;
     const orderedPageRefIds = period.pageRefs.map((entry) => entry.refId);
-    const [moved] = orderedPageRefIds.splice(index, 1);
+    const moved = orderedPageRefIds.splice(index, 1)[0];
     orderedPageRefIds.splice(nextIndex, 0, moved);
-    runMutation(`move-page-${direction}`, () => reorderTeachingPeriodPagesAction({ periodId: period.id, orderedPageRefIds }), replacePeriod);
+    runMutation("move-page-" + direction, () => reorderTeachingPeriodPagesAction({ periodId: period.id, orderedPageRefIds }), replacePeriod);
   }
 
   function selectBook(bookId: string) {
+    if (!bookId) return;
     const params = new URLSearchParams({ subject: sectionSubjectId, bookId });
-    router.replace(`/teacher-dashboard/classes/${sectionId}/plan?${params.toString()}`);
+    router.replace("/teacher-dashboard/classes/" + sectionId + "/plan?" + params.toString());
   }
 
+  const editingPeriod = plan?.periods.find((period) => period.id === editingPeriodId) ?? null;
+  const pageManagerPeriod = plan?.periods.find((period) => period.id === pageManagerPeriodId) ?? null;
+
   return (
-    <section className="mx-auto max-w-5xl space-y-4">
-      <header className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-        <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">Teaching Plan</p>
-        <h2 className="mt-1 text-xl font-bold text-slate-950">{subjectName}</h2>
-        <p className="mt-1 text-sm text-slate-600">{className} / {sectionName} · {academicYearName}</p>
-        <label className="mt-4 block max-w-md text-sm font-semibold text-slate-800">
-          Book
-          <select
-            aria-label="Select entitled book"
-            value={selectedBook?.id ?? ""}
-            onChange={(event) => selectBook(event.target.value)}
-            disabled={!books.length || Boolean(busy)}
-            className="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium"
-          >
-            {!books.length ? <option value="">No entitled books</option> : null}
-            {books.map((book) => <option key={book.id} value={book.id}>{book.title}</option>)}
-          </select>
-        </label>
+    <main className="mx-auto max-w-6xl space-y-3 px-3 py-3 sm:px-4">
+      <header className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-[0.68rem] font-bold uppercase tracking-[0.16em] text-teal-700">Subject Planner</p>
+            <h1 className="mt-0.5 text-[1.35rem] font-bold leading-tight text-slate-950">Teaching Plan</h1>
+            <p className="mt-1 text-xs text-slate-500">{className} · {sectionName} · {subjectName} · {academicYearName}</p>
+          </div>
+          <label className="w-full text-[0.7rem] font-bold text-slate-500 sm:w-auto">
+            Assigned book
+            <select aria-label="Select assigned book" value={selectedBook?.id ?? ""} onChange={(event) => selectBook(event.target.value)} disabled={!books.length || Boolean(busy)} className="mt-1 h-8 w-full min-w-[220px] rounded-md border border-slate-300 bg-white px-2 text-xs font-semibold text-slate-800 sm:w-auto">
+              {!books.length ? <option value="">No book assigned by School</option> : null}
+              {books.map((book) => <option key={book.id} value={book.id}>{book.title}</option>)}
+            </select>
+          </label>
+        </div>
       </header>
 
-      {error ? <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">{error}</p> : null}
-      {!selectedBook ? <EmptyEntitlement /> : null}
+      {error ? <p role="alert" className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">{error}</p> : null}
+      {!selectedBook ? <EmptyBookState /> : null}
       {selectedBook && !plan ? (
-        <section className="rounded-xl border border-dashed border-slate-300 bg-white p-4 text-sm text-slate-600">
+        <section className="rounded-lg border border-dashed border-slate-300 bg-white px-3 py-3 text-xs text-slate-600">
           <p className="font-semibold text-slate-900">No teaching plan yet.</p>
-          <p className="mt-1">Create a compact plan for {selectedBook.title}. It stays separate from plans for other entitled books.</p>
-          <button type="button" onClick={createPlan} disabled={isPending || busy === "create-plan"} className="mt-3 h-9 rounded-lg bg-blue-700 px-3 text-sm font-semibold text-white disabled:opacity-60">
-            {busy === "create-plan" ? "Creating…" : "Create Teaching Plan"}
-          </button>
+          <p className="mt-1">Create a plan for {selectedBook.title}. It remains scoped to this assigned book.</p>
+          <button type="button" onClick={createPlan} disabled={isPending || busy === "create-plan"} className="mt-2 h-8 rounded-md bg-teal-700 px-3 text-xs font-bold text-white disabled:opacity-60">{busy === "create-plan" ? "Creating..." : "Create Teaching Plan"}</button>
         </section>
       ) : null}
 
       {plan ? (
         <>
-          <section className="rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-600 shadow-sm">
-            <span className="font-semibold text-slate-900">Plan summary</span> · {plan.periods.length} {plan.periods.length === 1 ? "period" : "periods"} · {plan.periods.reduce((count, period) => count + period.pageRefs.length, 0)} mapped pages
-          </section>
-          {contentNotice(pageAvailability.state)}
-          <div className="space-y-3">
-            {plan.periods.map((period, index) => (
-              <PeriodCard
-                key={period.id}
-                period={period}
-                sectionId={sectionId}
-                sectionSubjectId={sectionSubjectId}
-                canMapPages={canMapPages}
-                busy={busy}
-                isFirst={index === 0}
-                isLast={index === plan.periods.length - 1}
-                editing={editingPeriodId === period.id}
-                editingTitle={editingTitle}
-                onEditingTitleChange={setEditingTitle}
-                onStartEdit={() => { setEditingPeriodId(period.id); setEditingTitle(period.title); }}
-                onCancelEdit={() => { setEditingPeriodId(null); setEditingTitle(""); }}
-                onSaveEdit={() => savePeriod(period.id)}
-                onDelete={() => deletePeriod(period)}
-                onMove={(direction) => movePeriod(period, direction)}
-                onAddPages={() => openPagePicker(period.id)}
-                onRemovePage={(refId) => removePage(period.id, refId)}
-                onMovePage={(ref, direction) => movePage(period, ref, direction)}
-              />
-            ))}
+          <SummaryStrip periods={plan.periods} />
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div><h2 className="text-sm font-bold text-slate-900">Teaching periods</h2><p className="text-[0.7rem] text-slate-500">{selectedBook?.title}</p></div>
+            <button type="button" onClick={() => setAddingPeriod(true)} disabled={Boolean(busy)} className="h-8 rounded-md bg-teal-700 px-3 text-xs font-bold text-white disabled:opacity-50">+ Add Teaching Period</button>
           </div>
-          <section className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
-            {addingPeriod ? (
-              <div className="flex flex-wrap items-end gap-2">
-                <label className="min-w-[220px] flex-1 text-sm font-semibold">Period title
-                  <input value={newPeriodTitle} onChange={(event) => setNewPeriodTitle(event.target.value)} maxLength={180} autoFocus className="mt-1 h-9 w-full rounded-lg border border-slate-300 px-3 text-sm" />
-                </label>
-                <button type="button" onClick={createPeriod} disabled={!newPeriodTitle.trim() || isPending} className="h-9 rounded-lg bg-blue-700 px-3 text-sm font-semibold text-white disabled:opacity-60">Create</button>
-                <button type="button" onClick={() => { setAddingPeriod(false); setNewPeriodTitle(""); }} className="h-9 rounded-lg border border-slate-300 px-3 text-sm font-semibold">Cancel</button>
-              </div>
-            ) : <button type="button" onClick={() => setAddingPeriod(true)} className="h-9 rounded-lg border border-blue-200 bg-blue-50 px-3 text-sm font-semibold text-blue-800">+ Add Period</button>}
-          </section>
+          {contentNotice(pageAvailability.state)}
+          {!plan.periods.length ? (
+            <section className="rounded-lg border border-dashed border-slate-300 bg-white px-3 py-5 text-center">
+              <p className="text-xs font-semibold text-slate-800">No teaching periods planned yet.</p>
+              <button type="button" onClick={() => setAddingPeriod(true)} className="mt-2 h-8 rounded-md border border-teal-200 bg-teal-50 px-3 text-xs font-bold text-teal-800">+ Add Teaching Period</button>
+            </section>
+          ) : (
+            <PeriodList periods={plan.periods} busy={busy} canMapPages={canMapPages} onEdit={startEdit} onDelete={deletePeriod} onMove={movePeriod} onManagePages={setPageManagerPeriodId} onAddPages={openPagePicker} />
+          )}
         </>
       ) : null}
 
-      {pickerPeriodId && selectedBook ? (
-        <PagePicker
-          pages={visiblePages}
-          modules={modules}
-          moduleFilter={moduleFilter}
-          pageSearch={pageSearch}
-          selectedPageKeys={selectedPageKeys}
-          selectedCount={selectedPages.length}
-          loading={pagesLoading}
-          preview={preview}
-          previewLoading={previewLoading}
-          contentState={availabilityState}
-          busy={busy === "add-pages"}
-          onClose={() => { setPickerPeriodId(null); setPreview(null); }}
-          onModuleChange={setModuleFilter}
-          onSearchChange={setPageSearch}
-          onToggle={togglePage}
-          onPreview={previewPage}
-          onAdd={addSelectedPages}
-        />
-      ) : null}
-    </section>
+      {addingPeriod ? <PeriodDialog title="Add Teaching Period" periodTitle={newPeriodTitle} date={newPeriodDate} chapterId={newPeriodChapterId} status="PLANNED" chapters={chapters} saving={busy === "create-period"} onTitleChange={setNewPeriodTitle} onDateChange={setNewPeriodDate} onChapterChange={setNewPeriodChapterId} onStatusChange={() => undefined} onClose={resetAddForm} onSave={createPeriod} saveLabel="Add Period" statusReadOnly /> : null}
+      {editingPeriod ? <PeriodDialog title="Edit Teaching Period" periodTitle={editingTitle} date={editingDate} chapterId={editingChapterId} status={editingStatus} chapters={chapters} saving={busy === "edit-period"} onTitleChange={setEditingTitle} onDateChange={setEditingDate} onChapterChange={setEditingChapterId} onStatusChange={setEditingStatus} onClose={closeEdit} onSave={savePeriod} saveLabel="Save Changes" /> : null}
+      {pageManagerPeriod ? <PageReferenceManager period={pageManagerPeriod} sectionId={sectionId} sectionSubjectId={sectionSubjectId} busy={busy} onClose={() => setPageManagerPeriodId(null)} onAddPages={() => openPagePicker(pageManagerPeriod.id)} onRemovePage={(refId) => removePage(pageManagerPeriod.id, refId)} onMovePage={(ref, direction) => movePage(pageManagerPeriod, ref, direction)} /> : null}
+      {pickerPeriodId && selectedBook ? <PagePicker pages={visiblePages} modules={modules} moduleFilter={moduleFilter} pageSearch={pageSearch} selectedPageKeys={selectedPageKeys} selectedCount={selectedPages.length} loading={pagesLoading} preview={preview} previewLoading={previewLoading} contentState={availabilityState} busy={busy === "add-pages"} onClose={() => { setPickerPeriodId(null); setPreview(null); }} onModuleChange={setModuleFilter} onSearchChange={setPageSearch} onToggle={togglePage} onPreview={previewPage} onAdd={addSelectedPages} /> : null}
+    </main>
   );
 }
 
-function PeriodCard({ period, sectionId, sectionSubjectId, canMapPages, busy, isFirst, isLast, editing, editingTitle, onEditingTitleChange, onStartEdit, onCancelEdit, onSaveEdit, onDelete, onMove, onAddPages, onRemovePage, onMovePage }: {
+function SummaryStrip({ periods }: { periods: Period[] }) {
+  const planned = periods.filter((period) => period.status === "PLANNED").length;
+  const completed = periods.filter((period) => period.status === "COMPLETED").length;
+  const unscheduled = periods.filter((period) => !period.plannedDate).length;
+  return <div className="grid grid-cols-2 divide-x divide-slate-200 rounded-lg border border-slate-200 bg-white sm:grid-cols-4"><SummaryItem label="Periods" value={periods.length} /><SummaryItem label="Planned" value={planned} /><SummaryItem label="Completed" value={completed} /><SummaryItem label="Unscheduled" value={unscheduled} /></div>;
+}
+
+function SummaryItem({ label, value }: { label: string; value: number }) {
+  return <div className="px-3 py-2"><p className="text-[0.68rem] text-slate-500">{label}</p><p className="text-base font-bold leading-tight text-slate-900">{value}</p></div>;
+}
+
+function PeriodList({ periods, busy, canMapPages, onEdit, onDelete, onMove, onManagePages, onAddPages }: {
+  periods: Period[];
+  busy: string | null;
+  canMapPages: boolean;
+  onEdit: (period: Period) => void;
+  onDelete: (period: Period) => void;
+  onMove: (period: Period, direction: "EARLIER" | "LATER") => void;
+  onManagePages: (periodId: string) => void;
+  onAddPages: (periodId: string) => void;
+}) {
+  return <>
+    <div className="hidden overflow-hidden rounded-lg border border-slate-200 bg-white md:block">
+      <table className="w-full border-collapse text-left text-xs">
+        <thead className="bg-slate-50 text-[0.68rem] font-bold uppercase tracking-wide text-slate-500"><tr><th className="w-14 px-3 py-2">Period</th><th className="w-24 px-2 py-2">Date</th><th className="px-2 py-2">Content</th><th className="w-28 px-2 py-2">Pages</th><th className="w-28 px-2 py-2">Status</th><th className="w-52 px-2 py-2">Action</th></tr></thead>
+        <tbody className="divide-y divide-slate-100">{periods.map((period, index) => <PeriodTableRow key={period.id} period={period} index={index} total={periods.length} busy={busy} canMapPages={canMapPages} onEdit={onEdit} onDelete={onDelete} onMove={onMove} onManagePages={onManagePages} onAddPages={onAddPages} />)}</tbody>
+      </table>
+    </div>
+    <div className="space-y-2 md:hidden">{periods.map((period, index) => <article key={period.id} className="rounded-lg border border-slate-200 bg-white px-3 py-2.5"><div className="flex items-start justify-between gap-2"><div className="min-w-0"><p className="text-[0.68rem] font-bold uppercase tracking-wide text-teal-700">Period {period.sequence}</p><p className="truncate text-sm font-bold text-slate-900">{periodContent(period)}</p></div><StatusBadge status={period.status} /></div><p className="mt-1 text-[0.7rem] text-slate-500">{formatPeriodDate(period.plannedDate)} · {pageSummary(period)}</p><div className="mt-2 flex flex-wrap gap-1.5"><PeriodActions period={period} index={index} total={periods.length} busy={busy} canMapPages={canMapPages} onEdit={onEdit} onDelete={onDelete} onMove={onMove} onManagePages={onManagePages} onAddPages={onAddPages} /></div></article>)}</div>
+  </>;
+}
+
+function PeriodTableRow({ period, index, total, busy, canMapPages, onEdit, onDelete, onMove, onManagePages, onAddPages }: {
+  period: Period;
+  index: number;
+  total: number;
+  busy: string | null;
+  canMapPages: boolean;
+  onEdit: (period: Period) => void;
+  onDelete: (period: Period) => void;
+  onMove: (period: Period, direction: "EARLIER" | "LATER") => void;
+  onManagePages: (periodId: string) => void;
+  onAddPages: (periodId: string) => void;
+}) {
+  return <tr className="h-12 align-middle"><td className="px-3 font-bold text-slate-800">{period.sequence}</td><td className="px-2 text-slate-600">{formatPeriodDate(period.plannedDate)}</td><td className="max-w-[18rem] px-2"><p className="truncate font-semibold text-slate-900">{periodContent(period)}</p>{periodContentModule(period) ? <p className="truncate text-[0.68rem] text-slate-500">{periodContentModule(period)}</p> : null}</td><td className="px-2 text-slate-600">{pageSummary(period)}</td><td className="px-2"><StatusBadge status={period.status} /></td><td className="px-2"><PeriodActions period={period} index={index} total={total} busy={busy} canMapPages={canMapPages} onEdit={onEdit} onDelete={onDelete} onMove={onMove} onManagePages={onManagePages} onAddPages={onAddPages} /></td></tr>;
+}
+
+function PeriodActions({ period, index, total, busy, canMapPages, onEdit, onDelete, onMove, onManagePages, onAddPages }: {
+  period: Period;
+  index: number;
+  total: number;
+  busy: string | null;
+  canMapPages: boolean;
+  onEdit: (period: Period) => void;
+  onDelete: (period: Period) => void;
+  onMove: (period: Period, direction: "EARLIER" | "LATER") => void;
+  onManagePages: (periodId: string) => void;
+  onAddPages: (periodId: string) => void;
+}) {
+  const disabled = Boolean(busy);
+  return <><button type="button" onClick={() => onEdit(period)} disabled={disabled} className="h-7 rounded border border-slate-300 px-2 text-[0.7rem] font-bold text-slate-700">Edit</button><button type="button" onClick={() => onManagePages(period.id)} disabled={disabled} className="h-7 rounded border border-slate-300 px-2 text-[0.7rem] font-bold text-slate-700">Pages</button><button type="button" onClick={() => onAddPages(period.id)} disabled={!canMapPages || disabled} className="h-7 rounded border border-teal-200 bg-teal-50 px-2 text-[0.7rem] font-bold text-teal-800 disabled:cursor-not-allowed disabled:opacity-40">+ Pages</button><button type="button" onClick={() => onMove(period, "EARLIER")} disabled={index === 0 || disabled} aria-label={"Move Period " + period.sequence + " earlier"} className="h-7 rounded border border-slate-200 px-1.5 text-[0.7rem] font-bold text-slate-600 disabled:opacity-35">↑</button><button type="button" onClick={() => onMove(period, "LATER")} disabled={index === total - 1 || disabled} aria-label={"Move Period " + period.sequence + " later"} className="h-7 rounded border border-slate-200 px-1.5 text-[0.7rem] font-bold text-slate-600 disabled:opacity-35">↓</button><button type="button" onClick={() => onDelete(period)} disabled={disabled} className="h-7 rounded border border-rose-200 px-2 text-[0.7rem] font-bold text-rose-700 disabled:opacity-40">Delete</button></>;
+}
+
+function StatusBadge({ status }: { status: TeachingPeriodStatus }) {
+  const styles: Record<TeachingPeriodStatus, string> = { PLANNED: "bg-blue-50 text-blue-700", COMPLETED: "bg-emerald-50 text-emerald-700", SKIPPED: "bg-slate-100 text-slate-600", RESCHEDULED: "bg-amber-50 text-amber-700" };
+  return <span className={"inline-flex rounded-full px-2 py-0.5 text-[0.65rem] font-bold uppercase tracking-wide " + styles[status]}>{STATUS_LABELS[status]}</span>;
+}
+
+function PeriodDialog({ title, periodTitle, date, chapterId, status, chapters, saving, onTitleChange, onDateChange, onChapterChange, onStatusChange, onClose, onSave, saveLabel, statusReadOnly = false }: {
+  title: string;
+  periodTitle: string;
+  date: string;
+  chapterId: string;
+  status: TeachingPeriodStatus;
+  chapters: Chapter[];
+  saving: boolean;
+  onTitleChange: (value: string) => void;
+  onDateChange: (value: string) => void;
+  onChapterChange: (value: string) => void;
+  onStatusChange: (value: TeachingPeriodStatus) => void;
+  onClose: () => void;
+  onSave: () => void;
+  saveLabel: string;
+  statusReadOnly?: boolean;
+}) {
+  return <div role="dialog" aria-modal="true" aria-label={title} className="fixed inset-0 z-40 overflow-y-auto bg-slate-950/30 p-3">
+    <section className="mx-auto mt-8 max-w-md rounded-lg border border-slate-200 bg-white p-3 shadow-xl">
+      <div className="flex items-center justify-between gap-3"><h2 className="text-sm font-bold text-slate-950">{title}</h2><button type="button" onClick={onClose} disabled={saving} className="text-xs font-bold text-slate-500">Close</button></div>
+      <div className="mt-3 space-y-2.5">
+        <label className="block text-xs font-bold text-slate-700">Title<input value={periodTitle} onChange={(event) => onTitleChange(event.target.value)} maxLength={180} autoFocus className="mt-1 h-8 w-full rounded-md border border-slate-300 px-2 text-xs" /></label>
+        <label className="block text-xs font-bold text-slate-700">Planned date <span className="font-normal text-slate-400">(optional)</span><input type="date" value={date} onChange={(event) => onDateChange(event.target.value)} className="mt-1 h-8 w-full rounded-md border border-slate-300 px-2 text-xs" /></label>
+        {chapters.length ? <label className="block text-xs font-bold text-slate-700">Chapter <span className="font-normal text-slate-400">(optional)</span><select value={chapterId} onChange={(event) => onChapterChange(event.target.value)} className="mt-1 h-8 w-full rounded-md border border-slate-300 bg-white px-2 text-xs"><option value="">No chapter</option>{chapters.map((chapter) => <option key={chapter.id} value={chapter.id}>Chapter {chapter.chapterNumber}: {chapter.title}</option>)}</select></label> : null}
+        <label className="block text-xs font-bold text-slate-700">Status{statusReadOnly ? <p className="mt-1 h-8 rounded-md bg-slate-50 px-2 py-2 text-xs font-semibold text-slate-600">Planned</p> : <select value={status} onChange={(event) => onStatusChange(event.target.value as TeachingPeriodStatus)} className="mt-1 h-8 w-full rounded-md border border-slate-300 bg-white px-2 text-xs">{(Object.keys(STATUS_LABELS) as TeachingPeriodStatus[]).map((value) => <option key={value} value={value}>{STATUS_LABELS[value]}</option>)}</select>}</label>
+      </div>
+      <div className="mt-3 flex justify-end gap-2"><button type="button" onClick={onClose} disabled={saving} className="h-8 rounded-md border border-slate-300 px-3 text-xs font-bold text-slate-700">Cancel</button><button type="button" onClick={onSave} disabled={!periodTitle.trim() || saving} className="h-8 rounded-md bg-teal-700 px-3 text-xs font-bold text-white disabled:opacity-50">{saving ? "Saving..." : saveLabel}</button></div>
+    </section>
+  </div>;
+}
+
+function PageReferenceManager({ period, sectionId, sectionSubjectId, busy, onClose, onAddPages, onRemovePage, onMovePage }: {
   period: Period;
   sectionId: string;
   sectionSubjectId: string;
-  canMapPages: boolean;
   busy: string | null;
-  isFirst: boolean;
-  isLast: boolean;
-  editing: boolean;
-  editingTitle: string;
-  onEditingTitleChange: (value: string) => void;
-  onStartEdit: () => void;
-  onCancelEdit: () => void;
-  onSaveEdit: () => void;
-  onDelete: () => void;
-  onMove: (direction: "EARLIER" | "LATER") => void;
+  onClose: () => void;
   onAddPages: () => void;
   onRemovePage: (refId: string) => void;
   onMovePage: (ref: PageReference, direction: "EARLIER" | "LATER") => void;
 }) {
-  return (
-    <article className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <p className="text-xs font-bold uppercase tracking-wide text-blue-700">Period {period.sequence}</p>
-          {editing ? (
-            <div className="mt-1 flex flex-wrap gap-2">
-              <label className="sr-only" htmlFor={`period-title-${period.id}`}>Period {period.sequence} title</label>
-              <input id={`period-title-${period.id}`} value={editingTitle} onChange={(event) => onEditingTitleChange(event.target.value)} maxLength={180} className="h-9 min-w-[220px] flex-1 rounded-lg border border-slate-300 px-3 text-sm font-semibold" />
-              <button type="button" onClick={onSaveEdit} disabled={!editingTitle.trim() || Boolean(busy)} className="h-9 rounded-lg bg-blue-700 px-3 text-sm font-semibold text-white disabled:opacity-60">Save</button>
-              <button type="button" onClick={onCancelEdit} disabled={Boolean(busy)} className="h-9 rounded-lg border border-slate-300 px-3 text-sm font-semibold">Cancel</button>
-            </div>
-          ) : <h3 className="mt-1 text-base font-bold text-slate-950">{period.title}</h3>}
-        </div>
-        <div className="flex flex-wrap gap-1">
-          <button type="button" onClick={() => onMove("EARLIER")} disabled={isFirst || Boolean(busy)} aria-label={`Move Period ${period.sequence} earlier`} className="h-9 rounded-lg border border-slate-300 px-2 text-xs font-semibold disabled:opacity-40">Earlier</button>
-          <button type="button" onClick={() => onMove("LATER")} disabled={isLast || Boolean(busy)} aria-label={`Move Period ${period.sequence} later`} className="h-9 rounded-lg border border-slate-300 px-2 text-xs font-semibold disabled:opacity-40">Later</button>
-          {!editing ? <button type="button" onClick={onStartEdit} disabled={Boolean(busy)} className="h-9 rounded-lg border border-slate-300 px-2 text-xs font-semibold">Edit</button> : null}
-          <button type="button" onClick={onDelete} disabled={Boolean(busy)} className="h-9 rounded-lg border border-rose-200 px-2 text-xs font-semibold text-rose-700">Delete</button>
-        </div>
+  return <div role="dialog" aria-modal="true" aria-label={"Pages for Period " + period.sequence} className="fixed inset-0 z-30 overflow-y-auto bg-slate-950/30 p-3">
+    <section className="mx-auto mt-8 max-w-lg rounded-lg border border-slate-200 bg-white p-3 shadow-xl">
+      <div className="flex items-center justify-between gap-3"><div><h2 className="text-sm font-bold text-slate-950">Period {period.sequence} pages</h2><p className="text-[0.7rem] text-slate-500">{periodContent(period)}</p></div><button type="button" onClick={onClose} className="text-xs font-bold text-slate-500">Close</button></div>
+      <div className="mt-3 divide-y divide-slate-100 rounded-md border border-slate-200">
+        {!period.pageRefs.length ? <p className="px-2 py-3 text-xs text-slate-500">No pages mapped to this period.</p> : period.pageRefs.map((ref, index) => {
+          const href = ref.state === "MISSING_PAGE" || !ref.chapterId ? null : teacherViewerHref(sectionId, sectionSubjectId, ref);
+          return <div key={ref.refId} className="flex items-center gap-2 px-2 py-2"><span className="w-5 text-[0.7rem] font-bold text-slate-400">{index + 1}</span><div className="min-w-0 flex-1"><p className="truncate text-xs font-semibold text-slate-800">{ref.state === "MISSING_PAGE" ? "Page unavailable" : "Page " + (ref.displayPageNumber ?? "") + " - " + ref.title}</p>{ref.moduleTitle ? <p className="truncate text-[0.68rem] text-slate-500">{ref.moduleTitle}</p> : null}</div>{href ? <Link href={href} className="text-[0.68rem] font-bold text-teal-700">Open</Link> : null}<button type="button" onClick={() => onMovePage(ref, "EARLIER")} disabled={index === 0 || Boolean(busy)} aria-label="Move page earlier" className="text-xs disabled:opacity-30">↑</button><button type="button" onClick={() => onMovePage(ref, "LATER")} disabled={index === period.pageRefs.length - 1 || Boolean(busy)} aria-label="Move page later" className="text-xs disabled:opacity-30">↓</button><button type="button" onClick={() => onRemovePage(ref.refId)} disabled={Boolean(busy)} className="text-[0.68rem] font-bold text-rose-700 disabled:opacity-40">Remove</button></div>;
+        })}
       </div>
-
-      <div className="mt-3 border-t border-slate-100 pt-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Pages</p>
-          <button type="button" onClick={onAddPages} disabled={!canMapPages || Boolean(busy)} className="h-9 rounded-lg border border-blue-200 bg-blue-50 px-3 text-sm font-semibold text-blue-800 disabled:cursor-not-allowed disabled:opacity-50">Add Pages</button>
-        </div>
-        {!period.pageRefs.length ? <p className="mt-2 text-sm text-slate-500">No book pages added.</p> : (
-          <ol className="mt-2 space-y-2">
-            {period.pageRefs.map((ref, index) => <PageReferenceRow key={ref.refId} refItem={ref} period={period} index={index} sectionId={sectionId} sectionSubjectId={sectionSubjectId} busy={busy} onRemove={() => onRemovePage(ref.refId)} onMove={(direction) => onMovePage(ref, direction)} />)}
-          </ol>
-        )}
-      </div>
-    </article>
-  );
-}
-
-function PageReferenceRow({ refItem, period, index, sectionId, sectionSubjectId, busy, onRemove, onMove }: {
-  refItem: PageReference;
-  period: Period;
-  index: number;
-  sectionId: string;
-  sectionSubjectId: string;
-  busy: string | null;
-  onRemove: () => void;
-  onMove: (direction: "EARLIER" | "LATER") => void;
-}) {
-  const viewerHref = refItem.state === "MISSING_PAGE" || !refItem.chapterId ? null : teacherViewerHref(sectionId, sectionSubjectId, refItem);
-  const label = refItem.state === "MISSING_PAGE" ? "Page unavailable" : `Page ${refItem.displayPageNumber ?? ""} — ${refItem.title}`;
-  return (
-    <li className="rounded-lg border border-slate-100 bg-slate-50 px-2 py-2">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="min-w-0">
-          <p className="text-sm font-semibold text-slate-900">{index + 1}. {label}</p>
-          {refItem.moduleTitle ? <p className="text-xs text-slate-500">{refItem.moduleTitle}</p> : null}
-          {refItem.visualMode === "EXACT_REPLICA" ? <span className="mt-1 inline-flex rounded-full bg-fuchsia-100 px-2 py-0.5 text-xs font-semibold text-fuchsia-800">Exact Replica</span> : null}
-          {refItem.state === "SOURCE_CHANGED" ? <p role="status" className="mt-1 text-xs font-semibold text-amber-800">Content updated by Publisher.</p> : null}
-          {refItem.state === "MISSING_PAGE" ? <p role="status" className="mt-1 text-xs font-semibold text-amber-800">Publisher content is no longer available. The mapping is preserved until you remove it.</p> : null}
-        </div>
-        <div className="flex flex-wrap gap-1">
-          {viewerHref ? <Link href={viewerHref} className="inline-flex h-9 items-center rounded-lg border border-blue-200 bg-white px-2 text-xs font-semibold text-blue-800">Open Page</Link> : null}
-          <button type="button" onClick={() => onMove("EARLIER")} disabled={index === 0 || Boolean(busy)} aria-label={`Move ${label} earlier`} className="h-9 rounded-lg border border-slate-300 px-2 text-xs font-semibold disabled:opacity-40">Earlier</button>
-          <button type="button" onClick={() => onMove("LATER")} disabled={index === period.pageRefs.length - 1 || Boolean(busy)} aria-label={`Move ${label} later`} className="h-9 rounded-lg border border-slate-300 px-2 text-xs font-semibold disabled:opacity-40">Later</button>
-          <button type="button" onClick={onRemove} disabled={Boolean(busy)} className="h-9 rounded-lg border border-rose-200 bg-white px-2 text-xs font-semibold text-rose-700">Remove</button>
-        </div>
-      </div>
-    </li>
-  );
+      <button type="button" onClick={onAddPages} disabled={Boolean(busy)} className="mt-3 h-8 rounded-md bg-teal-700 px-3 text-xs font-bold text-white disabled:opacity-50">+ Add Pages</button>
+    </section>
+  </div>;
 }
 
 function PagePicker({ pages, modules, moduleFilter, pageSearch, selectedPageKeys, selectedCount, loading, preview, previewLoading, contentState, busy, onClose, onModuleChange, onSearchChange, onToggle, onPreview, onAdd }: {
@@ -420,82 +471,79 @@ function PagePicker({ pages, modules, moduleFilter, pageSearch, selectedPageKeys
   onPreview: (page: AvailablePage) => void;
   onAdd: () => void;
 }) {
-  return (
-    <div role="dialog" aria-modal="true" aria-label="Add book pages to teaching period" className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/40 p-3 sm:p-6">
-      <section className="mx-auto my-0 max-w-6xl rounded-xl bg-white p-3 shadow-xl sm:my-8 sm:p-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div><h2 className="text-base font-bold text-slate-950">Add Pages</h2><p id="picker-guidance" className="mt-1 text-xs text-slate-500">Selected pages are added in current book list order.</p></div>
-          <button type="button" onClick={onClose} disabled={busy} className="h-9 rounded-lg border border-slate-300 px-3 text-sm font-semibold">Close</button>
+  return <div role="dialog" aria-modal="true" aria-label="Add book pages to teaching period" className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/40 p-3 sm:p-5">
+    <section className="mx-auto max-w-5xl rounded-lg bg-white p-3 shadow-xl">
+      <div className="flex items-center justify-between gap-3"><div><h2 className="text-sm font-bold text-slate-950">Add book pages</h2><p className="text-[0.7rem] text-slate-500">Select ordered V2 pages, then add them to the period.</p></div><button type="button" onClick={onClose} disabled={busy} className="h-8 rounded-md border border-slate-300 px-3 text-xs font-bold">Close</button></div>
+      {loading ? <p className="mt-3 rounded-md bg-slate-50 p-3 text-xs text-slate-600">Loading available pages...</p> : null}
+      {!loading && contentState === "V1_ONLY" ? <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">Page-level mapping is available for V2 content.</p> : null}
+      {!loading && contentState === "NO_DIGITAL_CONTENT" ? <p className="mt-3 rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">No digital pages are available for this book.</p> : null}
+      {!loading && contentState === "V2_AVAILABLE" ? <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,0.9fr)_minmax(300px,1.1fr)]">
+        <div className="space-y-2">
+          <div className="grid gap-2 sm:grid-cols-2"><label className="text-[0.7rem] font-bold text-slate-700">Module<select value={moduleFilter} onChange={(event) => onModuleChange(event.target.value)} className="mt-1 h-8 w-full rounded-md border border-slate-300 bg-white px-2 text-xs"><option value="all">All Modules</option>{modules.map((moduleItem) => <option key={moduleItem.id} value={moduleItem.id}>{moduleItem.title}</option>)}</select></label><label className="text-[0.7rem] font-bold text-slate-700">Search pages<input value={pageSearch} onChange={(event) => onSearchChange(event.target.value)} placeholder="Page number or title" className="mt-1 h-8 w-full rounded-md border border-slate-300 px-2 text-xs" /></label></div>
+          <div className="max-h-[48vh] overflow-y-auto rounded-md border border-slate-200">{pages.map((page) => { const key = pageKey(page); const checked = selectedPageKeys.includes(key); const inputId = "teach-page-" + key; return <div key={key} className="flex items-center gap-2 border-b border-slate-100 p-2 last:border-0"><input id={inputId} type="checkbox" checked={checked} onChange={() => onToggle(page)} className="h-4 w-4" /><label htmlFor={inputId} className="min-w-0 flex-1 cursor-pointer text-xs"><span className="font-bold">Page {page.displayPageNumber}</span> - {page.title}<span className="block text-[0.68rem] text-slate-500">{page.moduleTitle}</span></label><button type="button" onClick={() => onPreview(page)} className="h-7 rounded border border-slate-300 px-2 text-[0.68rem] font-bold">Preview</button></div>; })}{!pages.length ? <p className="p-3 text-xs text-slate-500">No pages match this filter.</p> : null}</div>
+          <div className="flex flex-wrap items-center justify-between gap-2"><span className="text-xs font-bold text-slate-600">{selectedCount} selected</span><button type="button" onClick={onAdd} disabled={!selectedCount || busy} className="h-8 rounded-md bg-teal-700 px-3 text-xs font-bold text-white disabled:opacity-50">{busy ? "Adding..." : "Add Selected Pages"}</button></div>
         </div>
-        {loading ? <p className="mt-4 rounded-lg bg-slate-50 p-3 text-sm text-slate-600">Loading available pages…</p> : null}
-        {!loading && contentState === "V1_ONLY" ? <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Page-level Teaching Plan mapping is available for V2 content.</p> : null}
-        {!loading && contentState === "NO_DIGITAL_CONTENT" ? <p className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">No digital pages are available for this book.</p> : null}
-        {!loading && contentState === "V2_AVAILABLE" ? (
-          <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,0.8fr)_minmax(360px,1.2fr)]">
-            <div className="space-y-3">
-              <div className="grid gap-2 sm:grid-cols-2">
-                <label className="text-xs font-semibold text-slate-700">Module
-                  <select value={moduleFilter} onChange={(event) => onModuleChange(event.target.value)} className="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2 text-sm"><option value="all">All Modules</option>{modules.map((moduleItem) => <option key={moduleItem.id} value={moduleItem.id}>{moduleItem.title}</option>)}</select>
-                </label>
-                <label className="text-xs font-semibold text-slate-700">Search pages
-                  <input value={pageSearch} onChange={(event) => onSearchChange(event.target.value)} placeholder="Page number or title" className="mt-1 h-9 w-full rounded-lg border border-slate-300 px-2 text-sm" />
-                </label>
-              </div>
-              <div className="max-h-[48vh] overflow-y-auto rounded-lg border border-slate-200">
-                {pages.map((page) => {
-                  const key = pageKey(page);
-                  const checked = selectedPageKeys.includes(key);
-                  const inputId = `teach-page-${key}`;
-                  return <div key={key} className="flex items-center gap-2 border-b border-slate-100 p-2 last:border-0">
-                    <input id={inputId} type="checkbox" checked={checked} onChange={() => onToggle(page)} aria-describedby="picker-guidance" className="h-4 w-4" />
-                    <label htmlFor={inputId} className="min-w-0 flex-1 cursor-pointer text-sm"><span className="font-semibold">Page {page.displayPageNumber}</span> — {page.title}<span className="block text-xs text-slate-500">{page.moduleTitle}{page.visualMode === "EXACT_REPLICA" ? " · Exact Replica" : ""}</span></label>
-                    <button type="button" onClick={() => onPreview(page)} className="h-9 rounded-lg border border-slate-300 px-2 text-xs font-semibold">Preview</button>
-                  </div>;
-                })}
-                {!pages.length ? <p className="p-3 text-sm text-slate-500">No pages match this filter.</p> : null}
-              </div>
-              <div className="flex flex-wrap items-center justify-between gap-2"><span className="text-sm font-semibold text-slate-700">{selectedCount} {selectedCount === 1 ? "page" : "pages"} selected</span><button type="button" onClick={onAdd} disabled={!selectedCount || busy} className="h-9 rounded-lg bg-blue-700 px-3 text-sm font-semibold text-white disabled:opacity-60">{busy ? "Adding…" : `Add ${selectedCount || ""} Selected Pages`}</button></div>
-            </div>
-            <div className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 p-2">
-              <p className="px-1 text-xs font-bold uppercase tracking-wide text-slate-500">Preview</p>
-              {previewLoading ? <p className="p-3 text-sm text-slate-600">Loading page preview…</p> : null}
-              {!previewLoading && !preview ? <p className="p-3 text-sm text-slate-500">Choose Preview for one page. Only the active page is rendered.</p> : null}
-              {preview ? <div className="mt-2 max-h-[65vh] overflow-y-auto rounded-lg bg-white p-2"><p className="mb-2 text-sm font-semibold text-slate-800">Page {preview.metadata.displayPageNumber} — {preview.metadata.title}</p><V2ContentDocumentRenderer document={preview.document} mode="TEACHER" linkedAssets={preview.linkedAssets} activities={preview.activities} worksheets={preview.worksheets} media={preview.media} sectionDefinitions={preview.sectionDefinitions} knowledgeDefinitions={preview.knowledgeDefinitions} resourceUrls={preview.resourceUrls} pageNumberOffset={preview.metadata.displayPageNumber - 1} /></div> : null}
-            </div>
-          </div>
-        ) : null}
-      </section>
-    </div>
-  );
+        <div className="min-w-0 rounded-md border border-slate-200 bg-slate-50 p-2"><p className="px-1 text-[0.68rem] font-bold uppercase tracking-wide text-slate-500">Preview</p>{previewLoading ? <p className="p-3 text-xs text-slate-600">Loading preview...</p> : null}{!previewLoading && !preview ? <p className="p-3 text-xs text-slate-500">Choose Preview for one page.</p> : null}{preview ? <div className="mt-2 max-h-[62vh] overflow-y-auto rounded-md bg-white p-2"><p className="mb-2 text-xs font-bold text-slate-800">Page {preview.metadata.displayPageNumber} - {preview.metadata.title}</p><V2ContentDocumentRenderer document={preview.document} mode="TEACHER" linkedAssets={preview.linkedAssets} activities={preview.activities} worksheets={preview.worksheets} media={preview.media} sectionDefinitions={preview.sectionDefinitions} knowledgeDefinitions={preview.knowledgeDefinitions} resourceUrls={preview.resourceUrls} pageNumberOffset={preview.metadata.displayPageNumber - 1} /></div> : null}</div>
+      </div> : null}
+    </section>
+  </div>;
 }
 
-function EmptyEntitlement() {
-  return <section className="rounded-xl border border-dashed border-slate-300 bg-white p-4 text-sm text-slate-600"><p className="font-semibold text-slate-900">No entitled books are available for this subject.</p><p className="mt-1">A Teaching Plan can be created when a school-approved book is available.</p></section>;
+function EmptyBookState() {
+  return <section className="rounded-lg border border-dashed border-slate-300 bg-white px-3 py-4 text-xs text-slate-600"><p className="font-semibold text-slate-900">No book assigned by School</p><p className="mt-1">Period and page authoring becomes available after a school-approved book is assigned.</p></section>;
 }
 
 function contentNotice(state: PageAvailability["state"]) {
-  if (state === "V1_ONLY") return <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">Page-level Teaching Plan mapping is available for V2 content.</p>;
-  if (state === "NO_DIGITAL_CONTENT") return <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">No digital pages are available for this book.</p>;
+  if (state === "V1_ONLY") return <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">Page mapping is available for V2 content.</p>;
+  if (state === "NO_DIGITAL_CONTENT") return <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">No digital pages are available for this book.</p>;
   return null;
 }
 
+function periodContent(period: Period) {
+  return period.chapterTitle || uniqueModuleTitles(period)[0] || period.title;
+}
+
+function periodContentModule(period: Period) {
+  const modules = uniqueModuleTitles(period);
+  return period.chapterTitle && modules.length ? modules.join(" · ") : null;
+}
+
+function uniqueModuleTitles(period: Period) {
+  return [...new Set(period.pageRefs.map((ref) => ref.moduleTitle).filter((title): title is string => Boolean(title)))];
+}
+
+function pageSummary(period: Period) {
+  const numbers = period.pageRefs.map((ref) => ref.displayPageNumber).filter((value): value is number => typeof value === "number");
+  if (!numbers.length) return period.pageRefs.length ? period.pageRefs.length + " pages" : "No pages";
+  const sorted = [...new Set(numbers)].sort((left, right) => left - right);
+  const contiguous = sorted.every((value, index) => index === 0 || value === sorted[index - 1] + 1);
+  if (contiguous && sorted.length > 1) return "Pages " + sorted[0] + "-" + sorted[sorted.length - 1];
+  if (sorted.length === 1) return "Page " + sorted[0];
+  return sorted.length + " pages";
+}
+
+function formatPeriodDate(value: Date | null) {
+  if (!value) return "Unscheduled";
+  return new Intl.DateTimeFormat("en-IN", { day: "2-digit", month: "short", timeZone: "UTC" }).format(new Date(value));
+}
+
+function dateInputValue(value: Date | null) {
+  return value ? new Date(value).toISOString().slice(0, 10) : "";
+}
+
 function pageKey(page: Pick<AvailablePage, "moduleId" | "pageId">) {
-  return `${page.moduleId}:${page.pageId}`;
+  return page.moduleId + ":" + page.pageId;
 }
 
 function teacherViewerHref(sectionId: string, sectionSubjectId: string, refItem: PageReference) {
-  const params = new URLSearchParams({
-    subject: sectionSubjectId,
-    bookId: refItem.deepLink.bookId,
-    moduleId: refItem.deepLink.moduleId,
-    pageId: refItem.deepLink.pageId,
-  });
-  return `/teacher-dashboard/classes/${sectionId}/content/${refItem.chapterId}?${params.toString()}#${refItem.deepLink.anchor}`;
+  const params = new URLSearchParams({ subject: sectionSubjectId, bookId: refItem.deepLink.bookId, moduleId: refItem.deepLink.moduleId, pageId: refItem.deepLink.pageId });
+  return "/teacher-dashboard/classes/" + sectionId + "/content/" + refItem.chapterId + "?" + params.toString() + "#" + refItem.deepLink.anchor;
 }
 
 function toTeacherMessage(error: unknown) {
   const message = error instanceof Error ? error.message : "";
   if (/book.*(not authorized|not available)|BOOK_NOT_ENTITLED/i.test(message)) return "This book is no longer available to this school.";
+  if (/date|chapter|status|planned/i.test(message)) return "Check the period date, chapter, or status and try again.";
   if (/V2 page|selected.*page|INVALID_PAGE/i.test(message)) return "One or more selected pages are no longer available.";
   if (/not assigned|unauthorized|access/i.test(message)) return "This teaching plan is not available to your account.";
   if (/concurrent|stale|CONFLICT/i.test(message)) return "The teaching order changed. Please try again.";

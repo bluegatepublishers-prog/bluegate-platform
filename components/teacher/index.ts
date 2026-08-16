@@ -11,3 +11,4 @@ export { default as TeacherStats } from "./TeacherStats";
 export { default as ResourceSection } from "./ResourceSection";
 export { default as FAQ } from "./FAQ";
 export { default as CTA } from "./CTA";
+export * from "./TeacherUI";

@@ -1,0 +1,23 @@
+import { LoginForm } from "@/components/auth";
+
+export default async function SuperAdminLoginPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ callbackUrl?: string | string[] }>;
+}) {
+  const { callbackUrl } = await searchParams;
+
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-slate-950 px-4">
+      <div className="w-full max-w-md rounded-3xl bg-white">
+        <LoginForm
+          callbackUrl={typeof callbackUrl === "string" ? callbackUrl : undefined}
+          redirectPath="/super-admin"
+          title="Platform Administrator"
+          description="Sign in to manage publisher tenants."
+          showDemo={false}
+        />
+      </div>
+    </main>
+  );
+}

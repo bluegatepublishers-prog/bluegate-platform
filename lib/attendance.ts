@@ -6,16 +6,13 @@ import {
   AttendanceMode,
   AttendanceSessionType,
   AttendanceStatus,
-  PlatformFeatureKey,
   SecurityAuditOutcome,
   UserRole,
 } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
-import { getPlatformFeatureAvailability } from "@/lib/publisher-features";
-import { requireSchoolFeature } from "@/lib/school-feature-access";
+import { getSchoolFeatureAccessForSchool, requireSchoolFeature } from "@/lib/school-feature-access";
 import { requireSchool } from "@/lib/school-dashboard";
-import { isSchoolFeatureEnabled } from "@/lib/school-feature-entitlements";
 import { requireTeacher } from "@/lib/teacher-dashboard";
 import { requireTeacherClass } from "@/lib/classroom";
 import { requireStudent } from "@/lib/student-dashboard";
@@ -88,6 +85,56 @@ function parseDateInput(value: string | Date | undefined) {
   const parsed = value ? new Date(value) : new Date();
   if (Number.isNaN(parsed.getTime())) return new Date();
   return parsed;
+}
+
+function utcDayStart(input: Date) {
+  return new Date(Date.UTC(input.getUTCFullYear(), input.getUTCMonth(), input.getUTCDate()));
+}
+
+function utcDayBounds(input: Date) {
+  const start = utcDayStart(input);
+  const end = new Date(start);
+  end.setUTCDate(end.getUTCDate() + 1);
+  return { start, end };
+}
+
+function parseTeacherAttendanceDate(value: string | undefined, allowToday = false) {
+  if (value === undefined && allowToday) return utcDayStart(new Date());
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    throw new Error("Attendance date must use YYYY-MM-DD.");
+  }
+  const [year, month, day] = value.split("-").map(Number);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  if (
+    parsed.getUTCFullYear() !== year ||
+    parsed.getUTCMonth() !== month - 1 ||
+    parsed.getUTCDate() !== day
+  ) {
+    throw new Error("Attendance date is invalid.");
+  }
+  return parsed;
+}
+
+function assertAttendanceDateWithinAcademicYear(
+  date: Date,
+  academicYear: { startDate: Date; endDate: Date },
+) {
+  const target = utcDayStart(date).getTime();
+  const start = utcDayStart(academicYear.startDate).getTime();
+  const end = utcDayStart(academicYear.endDate).getTime();
+  if (target < start || target > end) {
+    throw new Error("Attendance date is outside the academic year.");
+  }
+}
+
+function assertTeacherAttendanceDate(
+  date: Date,
+  academicYear: { startDate: Date; endDate: Date },
+) {
+  const target = utcDayStart(date).getTime();
+  const today = utcDayStart(new Date()).getTime();
+  if (target > today) throw new Error("Future attendance dates cannot be marked.");
+  assertAttendanceDateWithinAcademicYear(date, academicYear);
 }
 
 function lockCutoff(input: Date, lockHour: number) {
@@ -165,25 +212,47 @@ async function currentAcademicYearId(schoolId: string) {
   return year?.id ?? null;
 }
 
+async function requireTeacherAttendanceEntitlement(
+  teacher: Awaited<ReturnType<typeof requireTeacher>>,
+) {
+  if (!teacher.schoolId || !teacher.school?.publisherId) {
+    throw new Error("Attendance is not enabled for this school.");
+  }
+  const access = await getSchoolFeatureAccessForSchool(teacher.school, "ATTENDANCE");
+  if (!access.allowed) throw new Error(access.message);
+  return access;
+}
 export async function getTeacherAttendanceAccessState() {
   const teacher = await requireTeacher();
   if (!teacher.schoolId || !teacher.school?.publisherId) {
     return { status: "SUBSCRIPTION_BLOCKED", message: "Teacher attendance is not configured for this school." } as const;
   }
 
-  const [platformAvailability, subscription, academicYearId, assignmentCount, policy] = await Promise.all([
-    getPlatformFeatureAvailability(),
-    prisma.schoolAccessSubscription.findUnique({
-      where: { schoolId: teacher.schoolId },
-      select: {
-        publisherId: true,
-        featureConfig: true,
-        plan: true,
-        status: true,
-        startsAt: true,
-        expiresAt: true,
-      },
-    }),
+  const subscription = await prisma.schoolAccessSubscription.findUnique({
+    where: { schoolId: teacher.schoolId },
+    select: {
+      publisherId: true,
+      featureConfig: true,
+      plan: true,
+      status: true,
+      startsAt: true,
+      expiresAt: true,
+    },
+  });
+
+  if (!subscription || subscription.publisherId !== teacher.school.publisherId) {
+    return { status: "SUBSCRIPTION_BLOCKED", message: "Attendance is not enabled for this school." } as const;
+  }
+  if (effectiveSchoolAccessStatus(subscription) !== "ACTIVE") {
+    return { status: "SUBSCRIPTION_BLOCKED", message: "School access is inactive." } as const;
+  }
+
+  const featureAccess = await getSchoolFeatureAccessForSchool(teacher.school, "ATTENDANCE");
+  if (!featureAccess.allowed) {
+    return { status: "FEATURE_DISABLED", message: featureAccess.message } as const;
+  }
+
+  const [academicYearId, assignmentCount, policy] = await Promise.all([
     currentAcademicYearId(teacher.schoolId),
     prisma.teacherAssignment.count({
       where: {
@@ -198,18 +267,6 @@ export async function getTeacherAttendanceAccessState() {
     getSchoolAttendancePolicyBySchoolId(teacher.schoolId),
   ]);
 
-  if (!platformAvailability[PlatformFeatureKey.ATTENDANCE]) {
-    return { status: "FEATURE_DISABLED", message: "Attendance is unavailable at the platform level." } as const;
-  }
-  if (!subscription || subscription.publisherId !== teacher.school.publisherId) {
-    return { status: "SUBSCRIPTION_BLOCKED", message: "Attendance is not enabled for this school." } as const;
-  }
-  if (effectiveSchoolAccessStatus(subscription) !== "ACTIVE") {
-    return { status: "SUBSCRIPTION_BLOCKED", message: "School access is inactive." } as const;
-  }
-  if (!isSchoolFeatureEnabled(subscription, "ATTENDANCE")) {
-    return { status: "FEATURE_DISABLED", message: "This feature has been disabled by your publisher." } as const;
-  }
   if (!academicYearId) {
     return { status: "NO_ACADEMIC_YEAR", message: "Current academic year is not configured." } as const;
   }
@@ -250,37 +307,53 @@ async function findOrCreateTeacherSession(input: {
   period?: string;
   sessionType: AttendanceSessionType;
 }) {
-  const { start, end } = dayBounds(input.date);
-  const existing = await prisma.attendanceSession.findFirst({
-    where: {
-      schoolId: input.schoolId,
-      academicYearId: input.academicYearId,
-      classSectionId: input.classSectionId,
-      sectionSubjectId: input.sectionSubjectId ?? null,
-      teacherId: input.teacherId,
-      sessionType: input.sessionType,
-      period: input.period?.trim() || null,
-      date: { gte: start, lt: end },
-    },
-    include: { records: true },
-  });
-  if (existing) return existing;
+  const { start, end } = utcDayBounds(input.date);
+  const sectionSubjectId = input.sectionSubjectId?.trim() || null;
+  const period = input.period?.trim() || null;
+  const identityKey = [
+    input.schoolId,
+    input.academicYearId,
+    input.classSectionId,
+    sectionSubjectId ?? "",
+    input.teacherId,
+    input.sessionType,
+    period ?? "",
+    start.toISOString().slice(0, 10),
+  ].join("|");
 
-  return prisma.attendanceSession.create({
-    data: {
-      schoolId: input.schoolId,
-      academicYearId: input.academicYearId,
-      classSectionId: input.classSectionId,
-      sectionSubjectId: input.sectionSubjectId ?? null,
-      teacherId: input.teacherId,
-      date: start,
-      period: input.period?.trim() || null,
-      sessionType: input.sessionType,
-      submittedAt: null,
-      submittedBy: null,
-      locked: false,
-    },
-    include: { records: true },
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${identityKey}))`;
+    const existing = await tx.attendanceSession.findFirst({
+      where: {
+        schoolId: input.schoolId,
+        academicYearId: input.academicYearId,
+        classSectionId: input.classSectionId,
+        sectionSubjectId,
+        teacherId: input.teacherId,
+        sessionType: input.sessionType,
+        period,
+        date: { gte: start, lt: end },
+      },
+      include: { records: true },
+    });
+    if (existing) return existing;
+
+    return tx.attendanceSession.create({
+      data: {
+        schoolId: input.schoolId,
+        academicYearId: input.academicYearId,
+        classSectionId: input.classSectionId,
+        sectionSubjectId,
+        teacherId: input.teacherId,
+        date: start,
+        period,
+        sessionType: input.sessionType,
+        submittedAt: null,
+        submittedBy: null,
+        locked: false,
+      },
+      include: { records: true },
+    });
   });
 }
 
@@ -297,11 +370,12 @@ export async function getTeacherAttendanceWorkspace(input: {
   }
   const scope = await requireTeacherClass(input.sectionId);
   const teacher = await requireTeacher();
-  const policy = await getSchoolAttendancePolicyBySchoolId(scope.schoolId);
   if (scope.teacher.id !== teacher.id) throw new Error("Unauthorized attendance scope.");
   const sectionSubjectId = resolveAssignedSectionSubjectId(scope, input.sectionSubjectId);
 
-  const date = parseDateInput(input.date);
+  const date = parseTeacherAttendanceDate(input.date, true);
+  assertTeacherAttendanceDate(date, scope.academicYear);
+  const policy = await getSchoolAttendancePolicyBySchoolId(scope.schoolId);
   const sessionType = ATTENDANCE_SESSION_TYPE_OPTIONS.includes(input.sessionType as AttendanceSessionType)
     ? (input.sessionType as AttendanceSessionType)
     : AttendanceSessionType.DAILY;
@@ -369,9 +443,12 @@ async function writeTeacherAttendance(input: {
   records: AttendanceRecordInput[];
   submit: boolean;
 }) {
+  const teacher = await requireTeacher();
+  await requireTeacherAttendanceEntitlement(teacher);
   const scope = await requireTeacherClass(input.sectionId);
+  const date = parseTeacherAttendanceDate(input.date);
+  assertTeacherAttendanceDate(date, scope.academicYear);
   const policy = await getSchoolAttendancePolicyBySchoolId(scope.schoolId);
-  const date = parseDateInput(input.date);
   const sectionSubjectId = resolveAssignedSectionSubjectId(scope, input.sectionSubjectId);
   const sessionType = ATTENDANCE_SESSION_TYPE_OPTIONS.includes(input.sessionType as AttendanceSessionType)
     ? (input.sessionType as AttendanceSessionType)
@@ -535,6 +612,8 @@ export async function requestAttendanceCorrection(input: {
   newStatus: AttendanceStatus;
   reason: string;
 }) {
+  const teacher = await requireTeacher();
+  await requireTeacherAttendanceEntitlement(teacher);
   const scope = await requireTeacherClass(input.sectionId);
   const reason = input.reason.trim();
   if (reason.length < 5 || reason.length > 500) {
@@ -973,8 +1052,14 @@ export async function bulkLockSchoolAttendanceByDate(input: { date: string }) {
   const school = await requireSchool();
   const academicYearId = await currentAcademicYearId(school.id);
   if (!academicYearId) throw new Error("Current academic year is not configured.");
-  const date = parseDateInput(input.date);
-  const { start, end } = dayBounds(date);
+  const date = parseTeacherAttendanceDate(input.date);
+  const currentAcademicYear = await prisma.academicYear.findUnique({
+    where: { id: academicYearId },
+    select: { startDate: true, endDate: true },
+  });
+  if (!currentAcademicYear) throw new Error("Current academic year is not configured.");
+  assertAttendanceDateWithinAcademicYear(date, currentAcademicYear);
+  const { start, end } = utcDayBounds(date);
 
   const result = await prisma.$transaction(async (tx) => {
     const rows = await tx.attendanceSession.findMany({

@@ -15,15 +15,22 @@ function createPlatformAvailabilityMap(defaultValue: boolean) {
 }
 
 async function loadPlatformFeatureCatalogue() {
-  return null as Partial<SafeFeatureMap> | null;
+  try {
+    const rows = await prisma.featureDefinition.findMany({
+      select: { key: true, implemented: true, active: true },
+    });
+    return Object.fromEntries(
+      rows.map((row) => [row.key, row.implemented && row.active]),
+    ) as Partial<SafeFeatureMap>;
+  } catch {
+    return null as Partial<SafeFeatureMap> | null;
+  }
 }
 
 export async function getPlatformFeatureAvailability(): Promise<SafeFeatureMap> {
   const catalogue = await loadPlatformFeatureCatalogue();
-  if (!catalogue) {
-    return createPlatformAvailabilityMap(true);
-  }
-  return { ...createPlatformAvailabilityMap(true), ...catalogue };
+  if (!catalogue) return createPlatformAvailabilityMap(false);
+  return { ...createPlatformAvailabilityMap(false), ...catalogue };
 }
 
 export async function getPublisherFeatures(publisherId: string): Promise<SafeFeatureMap> {

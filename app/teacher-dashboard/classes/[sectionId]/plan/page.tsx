@@ -26,6 +26,7 @@ export default async function TeachingPlanPage({
       academicYearName={data.academicYearName}
       books={data.books}
       selectedBook={data.selectedBook}
+      chapters={data.chapters}
       initialPlan={data.plan}
       pageAvailability={data.pageAvailability}
     />

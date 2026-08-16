@@ -1,6 +1,6 @@
 import "server-only";
 
-import { Prisma } from "@prisma/client";
+import { Prisma, TeachingPeriodStatus } from "@prisma/client";
 
 import { isLayoutV2Document, type LayoutV2Page, type LayoutV2VisualMode } from "@/lib/content-layout-v2";
 import { loadPublishedModuleStructuredContent } from "@/lib/content-delivery";
@@ -11,6 +11,8 @@ import {
   buildTeachingPageDeepLink,
   deriveTeachingPageTitle,
   getTeachingPageSourceHash,
+  parseTeachingPeriodDate,
+  parseTeachingPeriodStatus,
   resolveTeachingPageTargetFromDocuments,
   TeachingPlanError,
   type TeachingModuleDocument,
@@ -24,7 +26,7 @@ import { requireBookEntitlement } from "@/lib/entitlements/book";
 import { SafeEntitlementError } from "@/lib/entitlements/errors";
 import { requireSchool } from "@/lib/school-dashboard";
 import { requireTeacher } from "@/lib/teacher-dashboard";
-import { requireTeacherSubject } from "@/lib/teacher-experience";
+import { getTeacherPlannerFeatureAccess, requireTeacherSubject } from "@/lib/teacher-experience";
 
 export {
   TeachingPlanError,
@@ -40,6 +42,7 @@ export const TEACHING_PLAN_LIMITS = { title: 180, identifier: 128, pageTargets: 
 
 export type TeachingPlanContextInput = { sectionSubjectId: string; bookId: string; academicYearId?: string };
 export type TeachingPlanBookOption = { id: string; title: string };
+export type TeachingPlanChapterOption = { id: string; chapterNumber: number; title: string };
 export type TeachingPlanPageAvailability = {
   state: "V2_AVAILABLE" | "V1_ONLY" | "NO_DIGITAL_CONTENT";
   pages: TeachingPageMetadata[];
@@ -67,6 +70,10 @@ export type TeachingPeriodReadModel = {
   planId: string;
   sequence: number;
   title: string;
+  plannedDate: Date | null;
+  status: TeachingPeriodStatus;
+  chapterId: string | null;
+  chapterTitle: string | null;
   createdAt: Date;
   updatedAt: Date;
   pageRefs: TeachingPageRefReadModel[];
@@ -113,7 +120,14 @@ const PLAN_SCOPE_SELECT = {
 } satisfies Prisma.TeachingPlanSelect;
 
 type TeachingPlanWithPeriods = Prisma.TeachingPlanGetPayload<{
-  include: { periods: { include: { pageRefs: true } } };
+  include: {
+    periods: {
+      include: {
+        chapter: { select: { id: true, title: true } };
+        pageRefs: true;
+      };
+    };
+  };
 }>;
 
 function invalidInput(message: string): never {
@@ -171,6 +185,23 @@ function scopeKey(context: TeachingPlanContext) {
   };
 }
 
+async function assertTeacherPlannerAccess(teacher: TeachingTeacher) {
+  if (!teacher.school) throw new TeachingPlanError("UNAUTHORIZED", "Teacher school access is unavailable.");
+  const access = await getTeacherPlannerFeatureAccess(teacher.school);
+  if (!access.allowed) throw new TeachingPlanError("FEATURE_DISABLED", access.message);
+}
+
+async function validateChapterForPlan(context: TeachingPlanContext, chapterId: unknown) {
+  if (chapterId === null || chapterId === undefined) return null;
+  const id = cleanIdentifier(chapterId, "chapter");
+  const chapter = await prisma.bookChapter.findFirst({
+    where: { id, bookId: context.book.id },
+    select: { id: true, title: true },
+  });
+  if (!chapter) throw new TeachingPlanError("CHAPTER_INVALID", "The chapter is not part of the selected book.");
+  return chapter;
+}
+
 export function assertTeachingPlanScope(
   plan: { schoolId: string; academicYearId: string; sectionSubjectId: string; teacherId: string; bookId: string },
   context: TeachingPlanContext,
@@ -189,6 +220,7 @@ export async function resolveTeachingPlanContext(input: TeachingPlanContextInput
   const academicYearId = input.academicYearId ? cleanIdentifier(input.academicYearId, "academic year") : undefined;
   const teacher = await requireTeacher();
   if (!teacher.schoolId || !teacher.school?.publisherId) throw new TeachingPlanError("UNAUTHORIZED", "Teacher school access is unavailable.");
+  await assertTeacherPlannerAccess(teacher);
 
   const academicYear = await prisma.academicYear.findFirst({
     where: { id: academicYearId, schoolId: teacher.schoolId, active: true, ...(academicYearId ? {} : { current: true }) },
@@ -269,6 +301,7 @@ export async function listTeachingPlanBookOptions(input: { sectionId: string; se
   const sectionId = cleanIdentifier(input.sectionId, "section");
   const requestedSubjectId = input.sectionSubjectId ? cleanIdentifier(input.sectionSubjectId, "SectionSubject") : undefined;
   const { scope, subject } = await requireTeacherSubject(sectionId, requestedSubjectId);
+  await assertTeacherPlannerAccess(scope.teacher);
   const candidates = await prisma.schoolBookAdoption.findMany({
     where: {
       schoolId: scope.schoolId,
@@ -329,13 +362,18 @@ export async function getTeachingPlanPageData(input: { sectionId: string; sectio
   const scope = await listTeachingPlanBookOptions({ sectionId: input.sectionId, sectionSubjectId: input.sectionSubjectId });
   const requestedBookId = input.bookId ? cleanIdentifier(input.bookId, "Book") : undefined;
   const selectedBook = scope.books.find((book) => book.id === requestedBookId) ?? scope.books[0] ?? null;
-  if (!selectedBook) return { ...scope, selectedBook: null, plan: null, pageAvailability: { state: "NO_DIGITAL_CONTENT" as const, pages: [] } };
+  if (!selectedBook) return { ...scope, selectedBook: null, chapters: [], plan: null, pageAvailability: { state: "NO_DIGITAL_CONTENT" as const, pages: [] } };
   const context = { sectionSubjectId: scope.sectionSubjectId, bookId: selectedBook.id } satisfies TeachingPlanContextInput;
-  const [plans, pageAvailability] = await Promise.all([
+  const [plans, pageAvailability, chapters] = await Promise.all([
     listTeachingPlans(context),
     getTeachingPlanPageAvailability(context),
+    prisma.bookChapter.findMany({
+      where: { bookId: selectedBook.id },
+      select: { id: true, chapterNumber: true, title: true },
+      orderBy: [{ chapterNumber: "asc" }, { sortOrder: "asc" }, { id: "asc" }],
+    }),
   ]);
-  return { ...scope, selectedBook, plan: plans[0] ?? null, pageAvailability };
+  return { ...scope, selectedBook, chapters, plan: plans[0] ?? null, pageAvailability };
 }
 
 export async function getTeachingPlanPagePreview(input: TeachingPlanContextInput & { pageId: string; moduleId: string }) {
@@ -377,7 +415,7 @@ async function authorizePlan(planId: string) {
 
 async function authorizePeriod(periodId: string) {
   const id = cleanIdentifier(periodId, "TeachingPeriod");
-  const period = await prisma.teachingPeriod.findUnique({ where: { id }, select: { id: true, planId: true } });
+  const period = await prisma.teachingPeriod.findUnique({ where: { id }, select: { id: true, planId: true, chapterId: true } });
   if (!period) throw new TeachingPlanError("PERIOD_NOT_FOUND", "Teaching period not found.");
   const authorization = await authorizePlan(period.planId);
   return { period, ...authorization };
@@ -391,7 +429,10 @@ export async function getTeachingPlan(input: { planId: string }): Promise<Teachi
     include: {
       periods: {
         orderBy: [{ sequence: "asc" }, { id: "asc" }],
-        include: { pageRefs: { orderBy: [{ sequence: "asc" }, { id: "asc" }] } },
+        include: {
+          chapter: { select: { id: true, title: true } },
+          pageRefs: { orderBy: [{ sequence: "asc" }, { id: "asc" }] },
+        },
       },
     },
   });
@@ -436,6 +477,7 @@ export async function createTeachingPlan(input: TeachingPlanContextInput): Promi
 export async function listTeachingPlans(input: { academicYearId?: string; sectionSubjectId?: string; bookId?: string } = {}) {
   const teacher = await requireTeacher();
   if (!teacher.schoolId) throw new TeachingPlanError("UNAUTHORIZED", "Teacher school access is unavailable.");
+  await assertTeacherPlannerAccess(teacher);
   const academicYearId = input.academicYearId ? cleanIdentifier(input.academicYearId, "academic year") : undefined;
   const year = await prisma.academicYear.findFirst({
     where: { id: academicYearId, schoolId: teacher.schoolId, active: true, ...(academicYearId ? {} : { current: true }) },
@@ -485,16 +527,33 @@ export function buildCollisionSafeSequencePlan(ids: string[], temporaryOffset = 
   return ids.map((id, index) => ({ id, temporarySequence: temporaryOffset + index + 1, finalSequence: index + 1 }));
 }
 
-export async function createTeachingPeriod(input: { planId: string; title: string }) {
+export async function createTeachingPeriod(input: {
+  planId: string;
+  title: string;
+  plannedDate?: string | null;
+  chapterId?: string | null;
+}) {
   const planId = cleanIdentifier(input.planId, "TeachingPlan");
-  await authorizePlan(planId);
+  const { context } = await authorizePlan(planId);
   const title = cleanTitle(input.title);
+  const plannedDate = parseTeachingPeriodDate(input.plannedDate, context.academicYear);
+  const chapter = await validateChapterForPlan(context, input.chapterId);
   try {
     const created = await serializableTransaction(async (tx) => {
       const last = await tx.teachingPeriod.findFirst({ where: { planId }, orderBy: [{ sequence: "desc" }, { id: "desc" }], select: { sequence: true } });
       const sequence = (last?.sequence ?? 0) + 1;
       if (sequence > TEACHING_PLAN_LIMITS.periods) throw new TeachingPlanError("CONFLICT", "A teaching plan cannot contain more periods.");
-      return tx.teachingPeriod.create({ data: { planId, sequence, title }, select: { id: true } });
+      return tx.teachingPeriod.create({
+        data: {
+          planId,
+          sequence,
+          title,
+          plannedDate,
+          status: TeachingPeriodStatus.PLANNED,
+          chapterId: chapter?.id ?? null,
+        },
+        select: { id: true },
+      });
     });
     return getTeachingPeriod({ periodId: created.id });
   } catch (error) {
@@ -503,12 +562,30 @@ export async function createTeachingPeriod(input: { planId: string; title: strin
   }
 }
 
-export async function updateTeachingPeriod(input: { periodId: string; title: string }) {
+export async function updateTeachingPeriod(input: {
+  periodId: string;
+  title: string;
+  plannedDate?: string | null;
+  status?: TeachingPeriodStatus;
+  chapterId?: string | null;
+}) {
   const periodId = cleanIdentifier(input.periodId, "TeachingPeriod");
-  await authorizePeriod(periodId);
+  const { period, context } = await authorizePeriod(periodId);
   const title = cleanTitle(input.title);
+  const data: Prisma.TeachingPeriodUncheckedUpdateInput = { title };
+  if (Object.prototype.hasOwnProperty.call(input, "plannedDate")) {
+    data.plannedDate = parseTeachingPeriodDate(input.plannedDate, context.academicYear);
+  }
+  if (Object.prototype.hasOwnProperty.call(input, "status")) {
+    data.status = parseTeachingPeriodStatus(input.status);
+  }
+  if (Object.prototype.hasOwnProperty.call(input, "chapterId")) {
+    const chapter = await validateChapterForPlan(context, input.chapterId);
+    await assertPersistedPageRefsMatchChapter(period.id, chapter?.id ?? null, context);
+    data.chapterId = chapter?.id ?? null;
+  }
   try {
-    await prisma.teachingPeriod.update({ where: { id: periodId }, data: { title } });
+    await prisma.teachingPeriod.update({ where: { id: periodId }, data });
     return getTeachingPeriod({ periodId });
   } catch (error) {
     toSaveError(error);
@@ -565,7 +642,10 @@ export async function getTeachingPeriod(input: { periodId: string }) {
   const { period, context } = await authorizePeriod(periodId);
   const result = await prisma.teachingPeriod.findUnique({
     where: { id: period.id },
-    include: { pageRefs: { orderBy: [{ sequence: "asc" }, { id: "asc" }] } },
+    include: {
+      chapter: { select: { id: true, title: true } },
+      pageRefs: { orderBy: [{ sequence: "asc" }, { id: "asc" }] },
+    },
   });
   if (!result) throw new TeachingPlanError("PERIOD_NOT_FOUND", "Teaching period not found.");
   return {
@@ -573,6 +653,10 @@ export async function getTeachingPeriod(input: { periodId: string }) {
     planId: result.planId,
     sequence: result.sequence,
     title: result.title,
+    plannedDate: result.plannedDate,
+    status: result.status,
+    chapterId: result.chapterId,
+    chapterTitle: result.chapter?.title ?? null,
     createdAt: result.createdAt,
     updatedAt: result.updatedAt,
     pageRefs: await resolvePersistedPageRefs(result.pageRefs, context),
@@ -703,6 +787,30 @@ async function resolvePersistedPageRefs(
   });
 }
 
+function assertPageCandidatesMatchChapter(chapterId: string | null, candidates: TeachingPageCandidate[]) {
+  if (!chapterId) return;
+  if (candidates.some((candidate) => candidate.module.chapterId && candidate.module.chapterId !== chapterId)) {
+    throw new TeachingPlanError("CHAPTER_INVALID", "Selected pages do not belong to the selected chapter.");
+  }
+}
+
+async function assertPersistedPageRefsMatchChapter(
+  periodId: string,
+  chapterId: string | null,
+  context: TeachingPlanContext,
+) {
+  if (!chapterId) return;
+  const refs = await prisma.teachingPeriodPageRef.findMany({
+    where: { periodId },
+    orderBy: [{ sequence: "asc" }, { id: "asc" }],
+    select: { id: true, periodId: true, pageId: true, moduleId: true, pageSourceHash: true, sequence: true },
+  });
+  const resolved = await resolvePersistedPageRefs(refs, context);
+  if (resolved.some((ref) => ref.state !== "MISSING_PAGE" && ref.chapterId && ref.chapterId !== chapterId)) {
+    throw new TeachingPlanError("CHAPTER_INVALID", "Existing pages do not belong to the selected chapter.");
+  }
+}
+
 async function buildPlanReadModel(plan: TeachingPlanWithPeriods, context: TeachingContentContext): Promise<TeachingPlanReadModel> {
   return {
     id: plan.id,
@@ -718,6 +826,10 @@ async function buildPlanReadModel(plan: TeachingPlanWithPeriods, context: Teachi
       planId: period.planId,
       sequence: period.sequence,
       title: period.title,
+      plannedDate: period.plannedDate,
+      status: period.status,
+      chapterId: period.chapterId,
+      chapterTitle: period.chapter?.title ?? null,
       createdAt: period.createdAt,
       updatedAt: period.updatedAt,
       pageRefs: await resolvePersistedPageRefs(period.pageRefs, context),
@@ -733,6 +845,7 @@ export async function addTeachingPeriodPages(input: { periodId: string; pages: u
   const periodId = cleanIdentifier(input.periodId, "TeachingPeriod");
   const { period, context } = await authorizePeriod(periodId);
   const candidates = await resolvePageTargets(context, input.pages);
+  assertPageCandidatesMatchChapter(period.chapterId, candidates);
   const uniqueCandidates = candidates.filter((candidate, index, all) => all.findIndex((entry) => entry.page.id === candidate.page.id) === index);
   try {
     await serializableTransaction(async (tx) => {
@@ -809,7 +922,10 @@ export async function getTeachingPlanForSchool(planId: string) {
       book: { select: { id: true, title: true, publisherId: true } },
       periods: {
         orderBy: [{ sequence: "asc" }, { id: "asc" }],
-        include: { pageRefs: { orderBy: [{ sequence: "asc" }, { id: "asc" }] } },
+        include: {
+          chapter: { select: { id: true, title: true } },
+          pageRefs: { orderBy: [{ sequence: "asc" }, { id: "asc" }] },
+        },
       },
     },
   });

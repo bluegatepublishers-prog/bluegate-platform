@@ -5,15 +5,12 @@ import TeacherMobileNavigation from "@/components/dashboard/TeacherMobileNavigat
 import { getTeacherAttendanceAccessState } from "@/lib/attendance";
 import { requireTeacher, TeacherAccessError } from "@/lib/teacher-dashboard";
 import { getBrandingForAuthenticatedUser } from "@/lib/publisher-context";
-import { resolveFeaturesForAuthenticatedUser } from "@/lib/publisher-features";
+import { getSchoolFeatureAccessMap } from "@/lib/school-feature-access";
+import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 
-export default async function TeacherDashboardLayout({
-  children,
-}: {
-  children: ReactNode;
-}) {
+export default async function TeacherDashboardLayout({ children }: { children: ReactNode }) {
   let teacher;
   try {
     teacher = await requireTeacher();
@@ -23,10 +20,11 @@ export default async function TeacherDashboardLayout({
     }
     throw error;
   }
-  const [branding, features, attendanceAccess] = await Promise.all([
+  const [branding, features, attendanceAccess, academicYear] = await Promise.all([
     getBrandingForAuthenticatedUser(),
-    resolveFeaturesForAuthenticatedUser(),
+    getSchoolFeatureAccessMap(teacher.school!),
     getTeacherAttendanceAccessState(),
+    prisma.academicYear.findFirst({ where: { schoolId: teacher.schoolId!, current: true, active: true }, select: { name: true } }),
   ]);
   const attendanceVisible = attendanceAccess.status === "READY" || attendanceAccess.status === "NO_ASSIGNMENTS";
 
@@ -34,7 +32,7 @@ export default async function TeacherDashboardLayout({
     <div className="flex min-h-screen bg-slate-100">
       <Sidebar teacherName={teacher.user.name} schoolName={teacher.school?.schoolName ?? teacher.schoolName} branding={branding} features={features} attendanceVisible={attendanceVisible}/>
       <div className="min-w-0 flex-1">
-        <Header teacherName={teacher.user.name} designation={teacher.subject || teacher.designation} />
+        <Header teacherName={teacher.user.name} schoolName={teacher.school?.schoolName ?? teacher.schoolName} academicYear={academicYear?.name} designation={teacher.subject || teacher.designation} />
         <TeacherMobileNavigation features={features} attendanceVisible={attendanceVisible} />
         <div className="pb-20 lg:pb-0">{children}</div>
       </div>

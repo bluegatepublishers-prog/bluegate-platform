@@ -1,5 +1,7 @@
 "use server";
 
+import type { TeachingPeriodStatus } from "@prisma/client";
+
 import {
   addTeachingPeriodPages,
   createTeachingPeriod,
@@ -37,11 +39,22 @@ export async function getOrCreateTeachingPlanAction(input: TeachingPlanContextIn
   return getOrCreateTeachingPlan(input);
 }
 
-export async function createTeachingPeriodAction(input: { planId: string; title: string }) {
+export async function createTeachingPeriodAction(input: {
+  planId: string;
+  title: string;
+  plannedDate?: string | null;
+  chapterId?: string | null;
+}) {
   return createTeachingPeriod(input);
 }
 
-export async function updateTeachingPeriodAction(input: { periodId: string; title: string }) {
+export async function updateTeachingPeriodAction(input: {
+  periodId: string;
+  title: string;
+  plannedDate?: string | null;
+  status?: TeachingPeriodStatus;
+  chapterId?: string | null;
+}) {
   return updateTeachingPeriod(input);
 }
 

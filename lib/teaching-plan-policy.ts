@@ -1,5 +1,6 @@
 import type { ContentDocument } from "@/lib/content-document";
 import { isLayoutV2Document, type LayoutV2Page, type LayoutV2VisualMode } from "@/lib/content-layout-v2";
+import { TeachingPeriodStatus } from "@prisma/client";
 
 export const TEACHING_PLAN_POLICY_LIMITS = { identifier: 128 } as const;
 
@@ -7,6 +8,7 @@ export type TeachingPlanErrorCode =
   | "UNAUTHORIZED" | "INVALID_INPUT" | "ACADEMIC_YEAR_INVALID" | "SECTION_SUBJECT_INVALID"
   | "BOOK_NOT_ENTITLED" | "PLAN_NOT_FOUND" | "PERIOD_NOT_FOUND" | "PAGE_REF_NOT_FOUND"
   | "INVALID_PAGE" | "V1_UNSUPPORTED" | "INVALID_MODULE" | "DUPLICATE_PAGE"
+  | "DATE_INVALID" | "STATUS_INVALID" | "CHAPTER_INVALID" | "FEATURE_DISABLED"
   | "CONFLICT" | "SAVE_FAILED";
 
 export class TeachingPlanError extends Error {
@@ -65,6 +67,54 @@ function cleanIdentifier(value: unknown, label: string): string {
   const valueAsString = value.trim();
   if (!valueAsString || valueAsString.length > TEACHING_PLAN_POLICY_LIMITS.identifier) invalidInput("Invalid " + label + ".");
   return valueAsString;
+}
+
+export const TEACHING_PERIOD_STATUS_VALUES = [
+  TeachingPeriodStatus.PLANNED,
+  TeachingPeriodStatus.COMPLETED,
+  TeachingPeriodStatus.SKIPPED,
+  TeachingPeriodStatus.RESCHEDULED,
+] as const;
+
+export function parseTeachingPeriodStatus(value: unknown): TeachingPeriodStatus {
+  if (typeof value === "string" && TEACHING_PERIOD_STATUS_VALUES.includes(value as TeachingPeriodStatus)) {
+    return value as TeachingPeriodStatus;
+  }
+  throw new TeachingPlanError("STATUS_INVALID", "Invalid teaching period status.");
+}
+
+function utcCalendarDay(value: Date) {
+  const day = new Date(0);
+  day.setUTCHours(0, 0, 0, 0);
+  day.setUTCFullYear(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate());
+  return day;
+}
+
+export function parseTeachingPeriodDate(
+  value: unknown,
+  academicYear: { startDate: Date; endDate: Date },
+): Date | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/u.test(value)) {
+    throw new TeachingPlanError("DATE_INVALID", "Use a valid date in YYYY-MM-DD format.");
+  }
+  const [year, month, date] = value.split("-").map(Number);
+  const parsed = new Date(0);
+  parsed.setUTCHours(0, 0, 0, 0);
+  parsed.setUTCFullYear(year, month - 1, date);
+  if (
+    parsed.getUTCFullYear() !== year ||
+    parsed.getUTCMonth() !== month - 1 ||
+    parsed.getUTCDate() !== date
+  ) {
+    throw new TeachingPlanError("DATE_INVALID", "Use a real calendar date.");
+  }
+  const start = utcCalendarDay(academicYear.startDate);
+  const end = utcCalendarDay(academicYear.endDate);
+  if (parsed < start || parsed > end) {
+    throw new TeachingPlanError("DATE_INVALID", "The planned date must be within the academic year.");
+  }
+  return parsed;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

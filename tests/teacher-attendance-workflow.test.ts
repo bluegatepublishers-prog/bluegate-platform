@@ -51,7 +51,7 @@ test("8 duplicate rejected", () => {
 test("9 locked session read only", () => {
   const source = read("lib/attendance.ts");
   assert.match(source, /Attendance is locked for this session date\./);
-  assert.match(source, /if \(!canTeacherEdit\(session\.date, session\.locked\)\)/);
+  assert.match(source, /if \(!canTeacherEdit\(session\.date, session\.locked, policy\.lockHour\)\)/);
 });
 
 test("10 correction request created", () => {
@@ -85,7 +85,7 @@ test("14 cross school blocked", () => {
 
 test("15 performance with 100 students", () => {
   const source = read("components/classroom/TeacherAttendanceWorkspace.tsx");
-  assert.match(source, /const rowHeight = 86/);
+  assert.match(source, /const rowHeight = 48/);
   assert.match(source, /filtered\.slice\(startIndex, endIndex\)/);
   assert.match(source, /useMemo\(/);
 });

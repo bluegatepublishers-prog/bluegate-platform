@@ -3,6 +3,7 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import { getTeacherClasses, requireTeacherClass } from "@/lib/classroom";
 import { requireTeacher } from "@/lib/teacher-dashboard";
+import { getSchoolFeatureAccessForSchool, getSchoolFeatureAccessMap } from "@/lib/school-feature-access";
 
 export async function requireTeacherSubject(sectionId: string, sectionSubjectId?: string | null) {
   const scope = await requireTeacherClass(sectionId);
@@ -11,23 +12,41 @@ export async function requireTeacherSubject(sectionId: string, sectionSubjectId?
   return { scope, subject };
 }
 
+export async function getTeacherPlannerFeatureAccess(school: { id: string; publisherId: string | null }) {
+  return getSchoolFeatureAccessForSchool(school, "PLANNER");
+}
+
 export async function getTeacherHomeData() {
-  const teacher = await requireTeacher(); const classes = await getTeacherClasses(); const sectionIds = classes.map((item) => item.sectionId); const now = new Date(); const start = new Date(now.getFullYear(), now.getMonth(), now.getDate()); const end = new Date(start); end.setDate(end.getDate() + 7);
-  const [plans, assignmentReview, assessmentGrade, notice, messages] = await Promise.all([
-    prisma.academicPlannerItem.findMany({ where: { schoolId: teacher.schoolId!, academicYear: { current: true, active: true }, sectionId: { in: sectionIds }, type: "TEACHING", currentDate: { gte: start, lt: end }, status: { notIn: ["CANCELLED", "SKIPPED"] } }, include: { section: { include: { schoolClass: true } }, sectionSubject: { include: { subject: true } }, reschedules: { orderBy: { createdAt: "desc" }, take: 1 } }, orderBy: { currentDate: "asc" } }),
+  const teacher = await requireTeacher();
+  const classes = await getTeacherClasses();
+  const plannerAccess = teacher.school ? await getTeacherPlannerFeatureAccess(teacher.school) : { allowed: false };
+  const sectionIds = classes.map((item) => item.sectionId);
+  const subjectIds = classes.flatMap((item) => item.subjects.map((subject) => subject.id));
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const end = new Date(start);
+  end.setDate(end.getDate() + 7);
+  const [plans, teachingPlanCount, assignmentReview, assessmentGrade, notice, messages, adoptions, featureAccess] = await Promise.all([
+    plannerAccess.allowed ? prisma.academicPlannerItem.findMany({ where: { schoolId: teacher.schoolId!, academicYear: { current: true, active: true }, sectionId: { in: sectionIds }, type: "TEACHING", currentDate: { gte: start, lt: end }, status: { notIn: ["CANCELLED", "SKIPPED"] } }, include: { section: { include: { schoolClass: true } }, sectionSubject: { include: { subject: true } }, reschedules: { orderBy: { createdAt: "desc" }, take: 1 } }, orderBy: { currentDate: "asc" } }) : Promise.resolve([]),
+    plannerAccess.allowed ? prisma.teachingPlan.count({ where: { teacherId: teacher.id, schoolId: teacher.schoolId!, academicYear: { current: true, active: true, schoolId: teacher.schoolId! } } }) : Promise.resolve(0),
     prisma.assignmentSubmission.count({ where: { assignment: { teacherId: teacher.id, sectionId: { in: sectionIds } }, status: { in: ["SUBMITTED", "RESUBMITTED"] } } }),
     prisma.assessmentResponse.count({ where: { attempt: { assessment: { createdById: teacher.userId, sectionId: { in: sectionIds } } }, reviewStatus: "PENDING" } }),
-    prisma.academicPlannerItem.findFirst({ where: { schoolId: teacher.schoolId!, academicYear: { current: true, active: true }, sectionId: null, type: "NOTICE", status: { not: "CANCELLED" } }, orderBy: [{ currentDate: "desc" }, { createdAt: "desc" }] }),
+    plannerAccess.allowed ? prisma.academicPlannerItem.findFirst({ where: { schoolId: teacher.schoolId!, academicYear: { current: true, active: true }, sectionId: null, type: "NOTICE", status: { not: "CANCELLED" } }, orderBy: [{ currentDate: "desc" }, { createdAt: "desc" }] }) : Promise.resolve(null),
     prisma.sectionChatMessage.findMany({ where: { room: { schoolId: teacher.schoolId!, sectionId: { in: sectionIds } }, deletedAt: null }, include: { sender: { select: { name: true, role: true } }, room: { include: { section: { include: { schoolClass: true } } } } }, orderBy: { createdAt: "desc" }, take: 5 }),
+    prisma.schoolBookAdoption.findMany({ where: { schoolId: teacher.schoolId!, publisherId: teacher.school?.publisherId ?? "", sectionSubjectId: { in: subjectIds }, status: "APPROVED", active: true, book: { archived: false, schoolEntitlements: { some: { schoolId: teacher.schoolId!, publisherId: teacher.school?.publisherId ?? "", status: "ACTIVE" } } } }, select: { sectionSubjectId: true, academicYearId: true, book: { select: { id: true, title: true } } } }),
+    teacher.school ? getSchoolFeatureAccessMap(teacher.school) : Promise.resolve({} as Record<string, boolean>),
   ]);
-  return { teacher, classes, plans, assignmentReview, assessmentGrade, notice, messages };
+  const adoptedBookBySubject = new Map(adoptions.map((item) => [`${item.sectionSubjectId}:${item.academicYearId}`, item.book]));
+  const assignments = classes.flatMap((item) => item.subjects.map((subject) => ({ sectionId: item.sectionId, academicYearId: item.academicYearId, className: item.className, sectionName: item.sectionName, subjectId: subject.id, subjectName: subject.name, book: adoptedBookBySubject.get(`${subject.id}:${item.academicYearId}`) ?? null })));
+  return { teacher, classes, assignments, plans, teachingPlanCount, assignmentReview, assessmentGrade, notice, messages, featureAccess };
 }
 
 export async function getTeacherWorkspaceData(sectionId: string, sectionSubjectId?: string | null) {
   const { scope, subject } = await requireTeacherSubject(sectionId, sectionSubjectId); const now = new Date();
+  const plannerAccess = await getTeacherPlannerFeatureAccess(scope.teacher.school!);
   const [studentCount, plans, assignments, assessments, materials, attention] = await Promise.all([
     prisma.studentEnrollment.count({ where: { schoolId: scope.schoolId, academicYearId: scope.academicYear.id, sectionId, status: "ACTIVE", student: { active: true } } }),
-    prisma.academicPlannerItem.findMany({ where: { schoolId: scope.schoolId, academicYearId: scope.academicYear.id, sectionId, sectionSubjectId: subject.id, type: "TEACHING", status: { notIn: ["CANCELLED", "SKIPPED"] } }, orderBy: { currentDate: "asc" }, take: 6 }),
+    plannerAccess.allowed ? prisma.academicPlannerItem.findMany({ where: { schoolId: scope.schoolId, academicYearId: scope.academicYear.id, sectionId, sectionSubjectId: subject.id, type: "TEACHING", status: { notIn: ["CANCELLED", "SKIPPED"] } }, orderBy: { currentDate: "asc" }, take: 6 }) : Promise.resolve([]),
     prisma.classroomAssignment.findMany({ where: { teacherId: scope.teacher.id, schoolId: scope.schoolId, academicYearId: scope.academicYear.id, sectionId, sectionSubjectId: subject.id }, include: { submissions: { where: { status: { in: ["SUBMITTED", "RESUBMITTED"] } }, select: { id: true } } }, orderBy: { updatedAt: "desc" }, take: 8 }),
     prisma.assessment.findMany({ where: { schoolId: scope.schoolId, academicYearId: scope.academicYear.id, sectionId, sectionSubjectId: subject.id }, include: { attempts: { select: { id: true, status: true } } }, orderBy: { updatedAt: "desc" }, take: 8 }),
     prisma.classMaterial.count({ where: { teacherId: scope.teacher.id, sectionId, sectionSubjectId: subject.id, archivedAt: null } }),
@@ -37,7 +56,8 @@ export async function getTeacherWorkspaceData(sectionId: string, sectionSubjectI
 }
 
 export async function getTeacherPlannerData() {
-  const teacher = await requireTeacher(); const classes = await getTeacherClasses(); const allowed = new Set(classes.flatMap((item) => item.subjects.map((subject) => subject.id)));
+  const teacher = await requireTeacher(); const plannerAccess = teacher.school ? await getTeacherPlannerFeatureAccess(teacher.school) : { allowed: false }; const classes = await getTeacherClasses(); const allowed = new Set(classes.flatMap((item) => item.subjects.map((subject) => subject.id)));
+  if (!plannerAccess.allowed) return { teacher, classes, items: [] };
   const items = await prisma.academicPlannerItem.findMany({ where: { schoolId: teacher.schoolId!, academicYear: { current: true, active: true }, sectionSubjectId: { in: [...allowed] } }, include: { section: { include: { schoolClass: true } }, sectionSubject: { include: { subject: true } }, reschedules: { orderBy: { createdAt: "desc" } }, assignment: { select: { id: true, title: true } }, assessment: { select: { id: true, title: true } } }, orderBy: { currentDate: "asc" } });
   return { teacher, classes, items };
 }

@@ -159,7 +159,7 @@ test("plan creation uses canonical composite scope and resolves unique races", (
 test("period creation appends server-side and does not require page references", () => {
   assert.match(service, /findFirst\(\{ where: \{ planId \}/);
   assert.match(service, /sequence = \(last\?\.sequence \?\? 0\) \+ 1/);
-  assert.match(service, /data: \{ planId, sequence, title \}/);
+  assert.match(service, /planId,\s+sequence,\s+title,\s+plannedDate,\s+status:\s+TeachingPeriodStatus\.PLANNED/);
   assert.match(service, /deleteTeachingPeriod/);
   assert.match(service, /normalizePeriodsInTransaction/);
 });
