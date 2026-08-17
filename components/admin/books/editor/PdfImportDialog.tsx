@@ -168,14 +168,13 @@ export default function PdfImportDialog({
         file: selectedFile,
         scope: "book-full",
         targetId: bookId,
-        transport: "SAME_ORIGIN_PROXY",
         failurePrefix: "BOOK_PDF",
       });
     } catch (cause) {
       recordPdfImportFailure(uploadFailureStage(cause), cause);
       setGeneratedPages(null);
       setStage("upload");
-      setError(safePdfImportMessage(cause, "The PDF upload could not be completed. Check the file and retry."));
+      setError(safePdfImportMessage(cause, "Could not upload the PDF to storage. Check the file and retry."));
       return;
     }
     try {

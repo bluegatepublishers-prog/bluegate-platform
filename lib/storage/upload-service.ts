@@ -388,7 +388,7 @@ export async function initUpload(
     contentLength: sizeBytes,
     checksumSHA256: checksumSha256,
     customMetadata: {
-      "original-filename": encodeURIComponent(fileName),
+      "original-filename": fileName,
       "upload-scope": scope,
       ...(authorization.userId ? { "uploader-user-id": authorization.userId } : {}),
       ...(authorization.targetId ? { "target-id": authorization.targetId } : {}),

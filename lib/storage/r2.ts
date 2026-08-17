@@ -109,7 +109,17 @@ export class R2StorageProvider implements StorageProvider {
     });
 
     try {
-      const url = await getSignedUrl(this.client, command, { expiresIn: expiresInSeconds });
+      const metadataHeaders = new Set(
+  Object.keys(sanitizedMetadata).map(
+    (metadataKey) => `x-amz-meta-${metadataKey}`,
+  ),
+);
+
+const url = await getSignedUrl(this.client, command, {
+  expiresIn: expiresInSeconds,
+  unhoistableHeaders: metadataHeaders,
+  signableHeaders: new Set(["content-type"]),
+});
       const expires = new Date(Date.now() + expiresInSeconds * 1000);
 
       // The client MUST use these headers in its PUT request.
@@ -121,6 +131,12 @@ export class R2StorageProvider implements StorageProvider {
         expires,
         headers: {
           "Content-Type": input.contentType,
+          ...Object.fromEntries(
+            Object.entries(sanitizedMetadata).map(([metadataKey, value]) => [
+              `x-amz-meta-${metadataKey}`,
+              value,
+            ]),
+          ),
         },
       };
     } catch (error) {
