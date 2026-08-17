@@ -62,8 +62,7 @@ export async function loadServerPdfJs() {
     };
 
   if (!globalWithPdfWorker.pdfjsWorker) {
-    globalWithPdfWorker.pdfjsWorker =
-      worker;
+    globalWithPdfWorker.pdfjsWorker = worker;
   }
 
   return pdfjs;
@@ -106,11 +105,9 @@ async function parsePdf(
       stopAtErrors: strict,
     }) as PdfLoadingTask;
 
-    document =
-      await loadingTask.promise;
+    document = await loadingTask.promise;
 
-    const pageCount =
-      document.numPages;
+    const pageCount = document.numPages;
 
     if (
       !Number.isInteger(pageCount) ||
@@ -126,8 +123,7 @@ async function parsePdf(
      * A page count alone is not sufficient.
      * Require PDF.js to resolve the first actual page.
      */
-    const firstPage =
-      await document.getPage(1);
+    const firstPage = await document.getPage(1);
 
     firstPage.cleanup?.();
 
@@ -153,8 +149,7 @@ export async function inspectPdfBook(
 ): Promise<PdfBookInspection> {
   if (
     !data.byteLength ||
-    data.byteLength >
-      limits.maxBytes
+    data.byteLength > limits.maxBytes
   ) {
     throw new PdfBookValidationError(
       "TOO_LARGE",
@@ -181,11 +176,10 @@ export async function inspectPdfBook(
      * Pass 1:
      * strict parsing.
      */
-    pageCount =
-      await parsePdf(
-        data,
-        true,
-      );
+    pageCount = await parsePdf(
+      data,
+      true,
+    );
   } catch (strictError) {
     if (
       strictError instanceof
@@ -222,11 +216,10 @@ export async function inspectPdfBook(
        * commonly produced by print/export software, while we still
        * require a legitimate page tree and a readable first page.
        */
-      pageCount =
-        await parsePdf(
-          data,
-          false,
-        );
+      pageCount = await parsePdf(
+        data,
+        false,
+      );
     } catch (tolerantError) {
       if (
         tolerantError instanceof
@@ -235,33 +228,25 @@ export async function inspectPdfBook(
         throw tolerantError;
       }
 
-      if (
-        process.env.NODE_ENV !==
-        "production"
-      ) {
-        console.error(
-          "[PDFJS REAL PARSE ERROR]",
-          {
-            name:
-              tolerantError instanceof
-              Error
-                ? tolerantError.name
-                : "Unknown",
-            message:
-              tolerantError instanceof
-              Error
-                ? tolerantError.message
-                : String(
-                    tolerantError,
-                  ),
-            stack:
-              tolerantError instanceof
-              Error
-                ? tolerantError.stack
-                : undefined,
-          },
-        );
-      }
+      /*
+       * Intentionally log the safe underlying PDF.js error in production.
+       * This does not expose the PDF contents or infrastructure secrets.
+       * It is needed to distinguish runtime/bundling failures from a
+       * genuinely malformed PDF.
+       */
+      console.error(
+        "[PDFJS REAL PARSE ERROR]",
+        {
+          name:
+            tolerantError instanceof Error
+              ? tolerantError.name
+              : "Unknown",
+          message:
+            tolerantError instanceof Error
+              ? tolerantError.message
+              : String(tolerantError),
+        },
+      );
 
       throw new PdfBookValidationError(
         "MALFORMED",
