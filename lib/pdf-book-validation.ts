@@ -46,23 +46,56 @@ type PdfLoadingTask = {
 /**
  * Load PDF.js for server-side use.
  *
- * Next.js/Turbopack can relocate the bundled PDF.js modules.
+ * PDF.js expects browser-style geometry globals such as DOMMatrix,
+ * ImageData, and Path2D.
+ *
+ * Vercel's Node runtime does not provide those globals, so expose
+ * the implementations from @napi-rs/canvas before importing PDF.js.
+ *
+ * Next.js/Turbopack can also relocate bundled PDF.js modules.
  * Explicitly loading the worker keeps PDF.js from attempting to find
- * a fake worker beside the generated .next server chunk.
+ * a fake worker beside a generated Next.js server chunk.
  */
 export async function loadServerPdfJs() {
+  const canvas = await import("@napi-rs/canvas");
+
+  /*
+   * Do not intersect with typeof globalThis here.
+   *
+   * TypeScript's browser DOMMatrix/ImageData/Path2D definitions are
+   * structurally different from @napi-rs/canvas even though PDF.js can
+   * use the Node canvas implementations at runtime.
+   */
+  const runtime = globalThis as unknown as {
+    DOMMatrix?: unknown;
+    ImageData?: unknown;
+    Path2D?: unknown;
+    pdfjsWorker?: PdfJsWorkerModule;
+  };
+
+  if (!runtime.DOMMatrix) {
+    runtime.DOMMatrix = canvas.DOMMatrix;
+  }
+
+  if (!runtime.ImageData) {
+    runtime.ImageData = canvas.ImageData;
+  }
+
+  if (!runtime.Path2D) {
+    runtime.Path2D = canvas.Path2D;
+  }
+
+  /*
+   * Import PDF.js only after the Node canvas globals exist because
+   * PDF.js evaluates these globals during module initialization.
+   */
   const [pdfjs, worker] = await Promise.all([
     import("pdfjs-dist/legacy/build/pdf.mjs"),
     import("pdfjs-dist/legacy/build/pdf.worker.mjs"),
   ]);
 
-  const globalWithPdfWorker =
-    globalThis as typeof globalThis & {
-      pdfjsWorker?: PdfJsWorkerModule;
-    };
-
-  if (!globalWithPdfWorker.pdfjsWorker) {
-    globalWithPdfWorker.pdfjsWorker = worker;
+  if (!runtime.pdfjsWorker) {
+    runtime.pdfjsWorker = worker;
   }
 
   return pdfjs;
@@ -229,10 +262,10 @@ export async function inspectPdfBook(
       }
 
       /*
-       * Intentionally log the safe underlying PDF.js error in production.
-       * This does not expose the PDF contents or infrastructure secrets.
-       * It is needed to distinguish runtime/bundling failures from a
-       * genuinely malformed PDF.
+       * Safe diagnostic.
+       *
+       * Do not log PDF contents, signed URLs, credentials, cookies,
+       * or other infrastructure secrets.
        */
       console.error(
         "[PDFJS REAL PARSE ERROR]",
