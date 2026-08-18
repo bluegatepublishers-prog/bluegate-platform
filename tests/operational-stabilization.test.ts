@@ -43,12 +43,12 @@ test("classroom assignments require one officially assigned subject", () => {
   assert.doesNotMatch(builder, /General class work/);
 });
 
-test("book assignment requires exact approved adoption", () => {
+test("book assignment requires direct entitled book compatibility", () => {
   const policy = read("lib/section-subject-content-policy.ts");
   const actions = read("app/school-dashboard/academic-actions.ts");
-  assert.match(policy, /schoolAdoptions:/);
-  assert.match(policy, /status: "APPROVED"/);
-  assert.match(policy, /sectionSubjectId/);
+  assert.match(policy, /schoolEntitlements:/);
+  assert.match(policy, /isSectionSubjectBookCompatible/);
+  assert.match(actions, /isSectionSubjectBookCompatible/);
   assert.match(actions, /assignApprovedBook/);
   assert.match(actions, /data: \{ bookId \}/);
 });

@@ -1,6 +1,6 @@
 import "server-only";
 
-import { BookAdoptionStatus, EnrollmentStatus } from "@prisma/client";
+import { EnrollmentStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { effectiveSchoolAccessStatus } from "@/lib/school-access-policy";
 import { SafeEntitlementError } from "./errors";
@@ -26,7 +26,7 @@ const deniedFacts = (
   assignment: false,
   enrollment: false,
   schoolEntitled: false,
-  adoptionApproved: false,
+  scopeAssigned: false,
 });
 
 function schoolAccessIsActive(school: { status: string; accessSubscription: { plan: "FREE" | "PAID"; status: "ACTIVE" | "SUSPENDED" | "EXPIRED"; startsAt: Date | null; expiresAt: Date | null } | null } | null | undefined) {
@@ -87,23 +87,7 @@ export async function getBookEntitlementForAuthenticatedUser(
       select: { id: true },
     });
     base.academicContext = Boolean(year);
-    base.adoptionApproved = Boolean(
-      year &&
-        (await prisma.schoolBookAdoption.findFirst({
-          where: {
-            bookId: book.id,
-            schoolId: school.id,
-            publisherId: school.publisherId,
-            academicYearId: year.id,
-            sectionId: request.sectionId,
-            sectionSubjectId: request.sectionSubjectId,
-            status: BookAdoptionStatus.APPROVED,
-            active: true,
-            book: { publisherId: school.publisherId },
-          },
-          select: { id: true },
-        })),
-    );
+    base.scopeAssigned = Boolean(year);
     return decideBookEntitlement(base);
   }
 
@@ -161,27 +145,38 @@ export async function getBookEntitlementForAuthenticatedUser(
     });
     base.academicContext = assignments.length > 0;
     base.assignment = assignments.length > 0;
-    base.adoptionApproved = Boolean(
-      assignments.length &&
-        (await prisma.schoolBookAdoption.findFirst({
+    const assignedSectionSubjects = assignments.length
+      ? await prisma.sectionSubject.findMany({
           where: {
-            bookId: book.id,
-            schoolId: teacher.schoolId,
-            publisherId: teacher.school.publisherId,
-            status: BookAdoptionStatus.APPROVED,
             active: true,
-            sectionSubjectId: request.sectionSubjectId,
-            book: { publisherId: teacher.school.publisherId },
-            OR: assignments.map((assignment) => ({
-              academicYearId: assignment.academicYearId,
-              sectionId: assignment.sectionId,
-              ...(assignment.type === "SUBJECT_TEACHER"
-                ? { sectionSubject: { subjectId: assignment.subjectId ?? "" } }
-                : {}),
-            })),
+            bookId: book.id,
+            ...(request.sectionSubjectId
+              ? { id: request.sectionSubjectId }
+              : { sectionId: { in: assignments.map((assignment) => assignment.sectionId) } }),
+            section: {
+              active: true,
+              schoolClass: {
+                schoolId: teacher.schoolId,
+                active: true,
+                academicYear: request.academicYearId
+                  ? { id: request.academicYearId, active: true }
+                  : { current: true, active: true },
+              },
+            },
           },
-          select: { id: true },
-        })),
+          select: {
+            sectionId: true,
+            subjectId: true,
+            section: { select: { schoolClass: { select: { academicYearId: true } } } },
+          },
+        })
+      : [];
+    base.scopeAssigned = assignedSectionSubjects.some((sectionSubject) =>
+      assignments.some((assignment) =>
+        assignment.sectionId === sectionSubject.sectionId &&
+        assignment.academicYearId === sectionSubject.section.schoolClass.academicYearId &&
+        (assignment.type === "CLASS_TEACHER" || assignment.subjectId === sectionSubject.subjectId),
+      ),
     );
     return decideBookEntitlement(base);
   }
@@ -222,27 +217,31 @@ export async function getBookEntitlementForAuthenticatedUser(
         schoolClass: { active: true },
         section: { active: true },
       },
-      select: { academicYearId: true, sectionId: true },
+      select: { academicYearId: true, sectionId: true, schoolClassId: true },
     });
     base.academicContext = Boolean(enrollment);
     base.enrollment = Boolean(enrollment);
-    base.adoptionApproved = Boolean(
-      enrollment &&
-        (await prisma.schoolBookAdoption.findFirst({
+    const assignedSectionSubject = enrollment
+      ? await prisma.sectionSubject.findFirst({
           where: {
-            bookId: book.id,
-            schoolId: student.schoolId,
-            publisherId: student.school.publisherId,
-            academicYearId: enrollment.academicYearId,
-            sectionId: enrollment.sectionId,
-            sectionSubjectId: request.sectionSubjectId,
-            status: BookAdoptionStatus.APPROVED,
             active: true,
-            book: { publisherId: student.school.publisherId },
+            bookId: book.id,
+            ...(request.sectionSubjectId ? { id: request.sectionSubjectId } : {}),
+            sectionId: enrollment.sectionId,
+            section: {
+              active: true,
+              schoolClass: {
+                id: enrollment.schoolClassId,
+                schoolId: student.schoolId,
+                academicYearId: enrollment.academicYearId,
+                active: true,
+              },
+            },
           },
           select: { id: true },
-        })),
-    );
+        })
+      : null;
+    base.scopeAssigned = Boolean(assignedSectionSubject);
     return decideBookEntitlement(base);
   }
 
@@ -284,11 +283,8 @@ export async function getTeacherEntitledBookIds(userId: string) {
     select: { academicYearId: true, sectionId: true, subjectId: true, type: true },
   });
   if (!assignments.length) return [];
-  const adoptions = await prisma.schoolBookAdoption.findMany({
+  const sectionSubjects = await prisma.sectionSubject.findMany({
     where: {
-      schoolId: teacher.schoolId,
-      publisherId: teacher.school.publisherId,
-      status: BookAdoptionStatus.APPROVED,
       active: true,
       book: {
         publisherId: teacher.school.publisherId,
@@ -302,15 +298,23 @@ export async function getTeacherEntitledBookIds(userId: string) {
           },
         },
       },
-      OR: assignments.map((assignment) => ({
-        academicYearId: assignment.academicYearId,
-        sectionId: assignment.sectionId,
-        ...(assignment.type === "SUBJECT_TEACHER"
-          ? { sectionSubject: { subjectId: assignment.subjectId ?? "" } }
-          : {}),
-      })),
+      section: {
+        active: true,
+        schoolClass: {
+          schoolId: teacher.schoolId,
+          active: true,
+          academicYear: { current: true, active: true },
+        },
+      },
     },
-    select: { bookId: true },
+    select: { bookId: true, sectionId: true, subjectId: true, section: { select: { schoolClass: { select: { academicYearId: true } } } } },
   });
-  return [...new Set(adoptions.map((adoption) => adoption.bookId))];
+  return [...new Set(sectionSubjects
+    .filter((sectionSubject) => assignments.some((assignment) =>
+      assignment.sectionId === sectionSubject.sectionId &&
+      assignment.academicYearId === sectionSubject.section.schoolClass.academicYearId &&
+      (assignment.type === "CLASS_TEACHER" || assignment.subjectId === sectionSubject.subjectId),
+    ))
+    .map((sectionSubject) => sectionSubject.bookId)
+    .filter((bookId): bookId is string => Boolean(bookId)))];
 }

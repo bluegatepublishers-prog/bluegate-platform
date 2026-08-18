@@ -1,7 +1,24 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
-import StudentPdfReader from "@/components/student/StudentPdfReader";
-import { requireStudent } from "@/lib/student-dashboard";
+import SmartBookReader from "@/components/books/SmartBookReader";
+import { loadSmartBookStructuredContent } from "@/lib/content-delivery";
+import { getSmartBookContents } from "@/lib/smart-book-reader";
 import { getStudentBook } from "@/lib/student-books";
-import { getStudentMappedModules, getStudentRevisionChapters } from "@/lib/student-revision";
-export default async function Page({params,searchParams}:{params:Promise<{bookId:string}>;searchParams:Promise<{page?:string}>}){await requireStudent();const{bookId}=await params;const book=await getStudentBook(bookId);if(!book)notFound();const raw=Number((await searchParams).page),page=Number.isInteger(raw)&&raw>=1&&(!book.progress?.totalPages||raw<=book.progress.totalPages)?raw:null;const[chapters,modules]=await Promise.all([getStudentRevisionChapters(bookId),getStudentMappedModules(bookId)]);return <main className="space-y-5 p-3 sm:p-5 lg:p-7"><h1 className="text-2xl font-bold">{book.title}</h1><StudentPdfReader bookId={book.id} title={book.title} subjectPath={`/student-dashboard/subjects/${book.sectionSubjectId}`} initialPage={page??book.progress?.lastPage??1} initialTotalPages={book.progress?.totalPages??null} initialBookmarks={book.bookmarkPages}/><section className="rounded-3xl border bg-white p-6"><h2 className="text-xl font-bold">Chapters</h2>{chapters.map(c=><div key={c.id} className="mt-3 rounded-xl border p-4"><Link href={`/student-dashboard/books/${book.id}/chapters/${c.id}/revision`}><b>Chapter {c.chapterNumber}: {c.title}</b></Link>{c.startPage&&<Link className="ml-3 text-sm text-blue-700" href={`/student-dashboard/books/${book.id}?page=${c.startPage}`}>Read chapter (page {c.startPage})</Link>}</div>)}</section><section className="rounded-3xl border bg-white p-6"><h2 className="text-xl font-bold">Modules</h2>{modules.map(m=><div key={m.id} className="mt-3 rounded-xl border p-4"><b>{m.title}</b>{m.startPage?<Link className="ml-3 text-sm text-blue-700" href={`/student-dashboard/books/${book.id}?page=${m.startPage}`}>Read module (page {m.startPage})</Link>:<span className="ml-3 text-sm text-slate-500">PDF pages not mapped</span>}</div>)}</section></main>}
+
+export default async function StudentBookPage({ params, searchParams }: { params: Promise<{ bookId: string }>; searchParams: Promise<{ page?: string }> }) {
+  const { bookId } = await params;
+  const book = await getStudentBook(bookId);
+  if (!book) notFound();
+  const requested = Number((await searchParams).page);
+  const initialPage = Number.isInteger(requested) && requested >= 1 ? requested : book.progress?.lastPage ?? 1;
+  const [contents, content] = await Promise.all([
+    getSmartBookContents(book.id),
+    loadSmartBookStructuredContent({ publisherId: await getStudentPublisherId(), bookId: book.id, mode: "STUDENT" }),
+  ]);
+  return <main className="min-h-screen bg-slate-50 p-3 sm:p-6 lg:p-8"><div className="mx-auto max-w-7xl"><SmartBookReader role="STUDENT" bookId={book.id} title={book.title} subjectPath={`/student-dashboard/subjects/${book.sectionSubjectId}`} initialPage={initialPage} initialTotalPages={book.progress?.totalPages} initialBookmarks={book.bookmarkPages} contents={contents} document={content?.document} linkedAssets={content?.linkedAssets} activities={content?.activities} worksheets={content?.worksheets} media={content?.media} sections={content?.sections} knowledgeDefinitions={content?.knowledgeDefinitions} resourceUrls={content?.v2ResourceUrls} /></div></main>;
+}
+
+async function getStudentPublisherId() {
+  const { requireStudent } = await import("@/lib/student-dashboard");
+  const identity = await requireStudent();
+  return identity.publisher.id;
+}

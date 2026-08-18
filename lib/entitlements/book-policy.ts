@@ -12,7 +12,7 @@ export interface BookEntitlementFacts {
   assignment: boolean;
   enrollment: boolean;
   schoolEntitled: boolean;
-  adoptionApproved: boolean;
+  scopeAssigned: boolean;
 }
 
 export function decideBookEntitlement(
@@ -47,7 +47,7 @@ export function decideBookEntitlement(
   if (facts.role === "STUDENT" && !facts.enrollment) {
     return { allowed: false, reason: "NO_ENROLLMENT" };
   }
-  if (!facts.adoptionApproved) {
+  if ((facts.role === "TEACHER" || facts.role === "STUDENT") && !facts.scopeAssigned) {
     return { allowed: false, reason: "BOOK_NOT_APPROVED" };
   }
   if (facts.role === "TEACHER") {
@@ -59,6 +59,6 @@ export function decideBookEntitlement(
   return {
     allowed: true,
     reason: "ALLOWED",
-    source: "SCHOOL_BOOK_ADOPTION",
+    source: "SCHOOL_BOOK_ENTITLEMENT",
   };
 }

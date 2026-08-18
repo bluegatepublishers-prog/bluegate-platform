@@ -17,7 +17,7 @@ const allowed: BookEntitlementFacts = {
   assignment: true,
   enrollment: false,
   schoolEntitled: true,
-  adoptionApproved: true,
+  scopeAssigned: true,
 };
 
 test("Publisher Admin may open a same-publisher book", () => {
@@ -40,7 +40,7 @@ test("Publisher Admin may not open another publisher's book", () => {
   );
 });
 
-test("School approved annual adoption allows book access", () => {
+test("School active entitlement allows book access", () => {
   assert.deepEqual(
     decideBookEntitlement({
       ...allowed,
@@ -50,26 +50,19 @@ test("School approved annual adoption allows book access", () => {
     {
       allowed: true,
       reason: "ALLOWED",
-      source: "SCHOOL_BOOK_ADOPTION",
+      source: "SCHOOL_BOOK_ENTITLEMENT",
     },
   );
 });
 
-for (const status of ["PENDING", "REVOKED"] as const) {
-  test(`School ${status.toLowerCase()} adoption denies book access`, () => {
-    assert.deepEqual(
-      decideBookEntitlement({
-        ...allowed,
-        role: "SCHOOL",
-        assignment: false,
-        adoptionApproved: false,
-      }),
-      { allowed: false, reason: "BOOK_NOT_APPROVED" },
-    );
-  });
-}
+test("School without an active entitlement is denied", () => {
+  assert.deepEqual(
+    decideBookEntitlement({ ...allowed, role: "SCHOOL", assignment: false, schoolEntitled: false }),
+    { allowed: false, reason: "BOOK_NOT_APPROVED" },
+  );
+});
 
-test("Teacher valid assignment and approved adoption allows book access", () => {
+test("Teacher valid assignment and direct section-subject mapping allows book access", () => {
   assert.deepEqual(decideBookEntitlement(allowed), {
     allowed: true,
     reason: "ALLOWED",
@@ -91,7 +84,7 @@ test("Teacher wrong publisher denies before adoption", () => {
   });
 });
 
-test("Student valid enrollment and adoption allows a full book without premium", () => {
+test("Student valid enrollment and direct section-subject mapping allows a full book without premium", () => {
   const facts: BookEntitlementFacts = {
     ...allowed,
     role: "STUDENT",

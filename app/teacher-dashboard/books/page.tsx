@@ -1,0 +1,8 @@
+import Link from "next/link";
+import { BookOpen } from "lucide-react";
+import { getTeacherBooks } from "@/lib/teacher-books";
+
+export default async function TeacherBooksPage() {
+  const books = await getTeacherBooks();
+  return <main className="space-y-7 p-4 sm:p-6 lg:p-8"><header><p className="text-sm font-bold text-teal-700">Teacher library</p><h1 className="mt-1 text-3xl font-bold">My Books</h1><p className="mt-2 text-slate-600">Open the published books assigned to your current classes.</p></header>{books.length ? <section className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">{books.map((book) => <article key={book.id} className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm"><div className="flex min-h-56 items-center justify-center bg-slate-100 p-6">{book.coverImage ? <img src={book.coverImage} alt="" className="h-48 w-36 rounded-xl object-cover shadow" /> : <BookOpen className="h-16 w-16 text-slate-300" />}</div><div className="space-y-3 p-5"><h2 className="text-xl font-bold">{book.title}</h2><p className="text-sm text-slate-600">{book.className} � {book.subjectName}</p><p className="text-sm text-slate-500">Sections: {[...new Set(book.contexts.map((context) => context.sectionName))].join(", ")}</p><Link href={`/teacher-dashboard/books/${book.id}`} className="inline-flex min-h-11 items-center rounded-xl bg-teal-700 px-4 py-2 font-bold text-white">Open Book</Link></div></article>)}</section> : <section className="rounded-3xl border bg-white p-12 text-center shadow-sm"><h2 className="text-2xl font-bold">No books are currently assigned to your classes.</h2></section>}</main>;
+}

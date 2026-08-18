@@ -116,26 +116,18 @@ export async function getTeacherDashboard() {
           sectionId: {
             in: [...new Set(teachingAssignments.map((assignment) => assignment.sectionId))],
           },
+          subjectId: { in: [...new Set(teachingAssignments.map((assignment) => assignment.subjectId).filter((id): id is string => Boolean(id))) ] },
+          book: {
+            publisherId,
+            published: true,
+            archived: false,
+            schoolEntitlements: {
+              some: { schoolId, publisherId, status: "ACTIVE" },
+            },
+          },
         },
         include: {
-          bookAdoptions: {
-            where: {
-              status: "APPROVED",
-              active: true,
-              publisherId,
-              book: {
-                archived: false,
-                schoolEntitlements: {
-                  some: {
-                    schoolId,
-                    publisherId,
-                    status: "ACTIVE",
-                  },
-                },
-              },
-            },
-            include: { book: { include: { series: true } } },
-          },
+          book: { include: { series: true } },
           resources: {
             where: {
               publisherId,
@@ -188,10 +180,7 @@ export async function getTeacherDashboard() {
           candidate.subjectId === assignment.subjectId,
       );
       if (!item) return null;
-      const adoption = item.bookAdoptions.find(
-        (candidate) => candidate.academicYearId === assignment.academicYearId,
-      );
-      return adoption ? { ...item, book: adoption.book } : null;
+      return item.book ? { ...item, book: item.book } : null;
     })(),
   }));
 

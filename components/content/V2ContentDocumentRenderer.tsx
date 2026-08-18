@@ -37,6 +37,8 @@ export default function V2ContentDocumentRenderer({
   studentWorkHighlights = [],
   pageNumberOffset = 0,
   assessmentPreview = false,
+  pageNumber,
+  overlayOnly = false,
 }: {
   document: ContentDocument;
   mode: ContentRenderMode;
@@ -54,14 +56,16 @@ export default function V2ContentDocumentRenderer({
   studentWorkHighlights?: StudentWorkHighlightTarget[];
   pageNumberOffset?: number;
   assessmentPreview?: boolean;
+  pageNumber?: number;
+  overlayOnly?: boolean;
 }) {
   if (getContentLayoutVersion(document) !== 2) {
     return <StructuredContentRenderer document={document} mode={mode} className={className} linkedAssets={linkedAssets} activities={activities} worksheets={worksheets} media={media} sectionDefinitions={sectionDefinitions} knowledgeDefinitions={knowledgeDefinitions} />;
   }
-  return <V2DeliveryDocument document={document} mode={mode} className={className} linkedAssets={linkedAssets} activities={activities} worksheets={worksheets} media={media} sectionDefinitions={sectionDefinitions} knowledgeDefinitions={knowledgeDefinitions} resourceUrls={resourceUrls} semanticOverlay={semanticOverlay} studentWorkOverlay={studentWorkOverlay} studentWorkPageActions={studentWorkPageActions} studentWorkHighlights={studentWorkHighlights} pageNumberOffset={pageNumberOffset} assessmentPreview={assessmentPreview} />;
+  return <V2DeliveryDocument document={document} mode={mode} className={className} linkedAssets={linkedAssets} activities={activities} worksheets={worksheets} media={media} sectionDefinitions={sectionDefinitions} knowledgeDefinitions={knowledgeDefinitions} resourceUrls={resourceUrls} semanticOverlay={semanticOverlay} studentWorkOverlay={studentWorkOverlay} studentWorkPageActions={studentWorkPageActions} studentWorkHighlights={studentWorkHighlights} pageNumberOffset={pageNumberOffset} assessmentPreview={assessmentPreview} pageNumber={pageNumber} overlayOnly={overlayOnly} />;
 }
 
-function V2DeliveryDocument({ document, mode, className, linkedAssets, activities, worksheets, media, sectionDefinitions, knowledgeDefinitions, resourceUrls, semanticOverlay, studentWorkOverlay, studentWorkPageActions, studentWorkHighlights, pageNumberOffset, assessmentPreview }: {
+function V2DeliveryDocument({ document, mode, className, linkedAssets, activities, worksheets, media, sectionDefinitions, knowledgeDefinitions, resourceUrls, semanticOverlay, studentWorkOverlay, studentWorkPageActions, studentWorkHighlights, pageNumberOffset, assessmentPreview, pageNumber, overlayOnly }: {
   document: ContentDocument;
   mode: ContentRenderMode;
   className: string;
@@ -78,6 +82,8 @@ function V2DeliveryDocument({ document, mode, className, linkedAssets, activitie
   studentWorkHighlights: StudentWorkHighlightTarget[];
   pageNumberOffset: number;
   assessmentPreview: boolean;
+  pageNumber?: number;
+  overlayOnly: boolean;
   activeSegment?: NarrationSegment;
 }) {
   const normalized = useMemo(() => normalizeContentDocument(document), [document]);
@@ -88,7 +94,7 @@ function V2DeliveryDocument({ document, mode, className, linkedAssets, activitie
   if (!layout) return null;
   return (
     <div className={`min-w-0 max-w-full space-y-8 ${className}`} data-v2-delivery-renderer="true">
-      {layout.pages.map((page, index) => (
+      {(pageNumber === undefined ? layout.pages : layout.pages.filter((page, index) => (page.pdfBackground?.pageNumber ?? index + 1) === pageNumber)).map((page, index) => (
         <V2DeliveryPage
           key={page.id}
           page={page}
@@ -97,7 +103,7 @@ function V2DeliveryDocument({ document, mode, className, linkedAssets, activitie
           resourceUrls={resourceUrls}
           mode={mode}
           semanticOverlay={semanticOverlay}
-          renderBlock={(block) => <StructuredContentRenderer document={{ ...normalized, blocks: [block] }} mode={mode} linkedAssets={linkedAssets} activities={activities} worksheets={worksheets} media={media} sectionDefinitions={sectionDefinitions} knowledgeDefinitions={knowledgeDefinitions} />} activeSegment={activeSegment} studentWorkOverlay={studentWorkOverlay} studentWorkPageActions={studentWorkPageActions} studentWorkHighlights={studentWorkHighlights} assessmentPreview={assessmentPreview}
+          renderBlock={(block) => <StructuredContentRenderer document={{ ...normalized, blocks: [block] }} mode={mode} linkedAssets={linkedAssets} activities={activities} worksheets={worksheets} media={media} sectionDefinitions={sectionDefinitions} knowledgeDefinitions={knowledgeDefinitions} />} activeSegment={activeSegment} studentWorkOverlay={studentWorkOverlay} studentWorkPageActions={studentWorkPageActions} studentWorkHighlights={studentWorkHighlights} assessmentPreview={assessmentPreview} overlayOnly={overlayOnly}
         />
       ))}
     </div>
@@ -106,7 +112,7 @@ function V2DeliveryDocument({ document, mode, className, linkedAssets, activitie
 
 type V2Page = NonNullable<ContentDocument["pageLayout"]>["pages"][number];
 
-function V2DeliveryPage({ page, pageNumber, blocksById, resourceUrls, renderBlock, mode, semanticOverlay, activeSegment, studentWorkOverlay, studentWorkPageActions, studentWorkHighlights, assessmentPreview }: {
+function V2DeliveryPage({ page, pageNumber, blocksById, resourceUrls, renderBlock, mode, semanticOverlay, activeSegment, studentWorkOverlay, studentWorkPageActions, studentWorkHighlights, assessmentPreview, overlayOnly }: {
   page: V2Page;
   pageNumber: number;
   blocksById: Map<string, ContentBlock>;
@@ -118,6 +124,7 @@ function V2DeliveryPage({ page, pageNumber, blocksById, resourceUrls, renderBloc
   studentWorkPageActions?: (input: StudentWorkPageActionsArgs) => ReactNode;
   studentWorkHighlights: StudentWorkHighlightTarget[];
   assessmentPreview: boolean;
+  overlayOnly: boolean;
   activeSegment?: NarrationSegment;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -125,14 +132,21 @@ function V2DeliveryPage({ page, pageNumber, blocksById, resourceUrls, renderBloc
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
-    const update = () => setScale(Math.min(1, Math.max(0.1, (host.clientWidth - 24) / page.width)));
+    const update = () => setScale(Math.min(1, Math.max(0.1, overlayOnly ? Math.min(host.clientWidth / page.width, host.clientHeight / page.height) : (host.clientWidth - 24) / page.width)));
     update();
     const observer = new ResizeObserver(update);
     observer.observe(host);
     return () => observer.disconnect();
-  }, [page.width]);
+  }, [overlayOnly, page.height, page.width]);
   const frames = useMemo(() => sortV2Frames(page.frames), [page.frames]);
   const replicaUrl = page.replica?.resourceId ? resourceUrls[page.replica.resourceId] : undefined;
+  if (overlayOnly) {
+    return <div ref={hostRef} className="absolute inset-0 overflow-hidden">
+      <div className="absolute left-1/2 top-1/2 origin-center" style={{ width: page.width, height: page.height, transform: `translate(-50%, -50%) scale(${scale})` }}>
+        {frames.map((frame) => <V2DeliveryFrame key={frame.id} frame={frame} page={page} pageNumber={pageNumber} frames={frames} blocksById={blocksById} pageWidth={page.width} pageHeight={page.height} resourceUrls={resourceUrls} renderBlock={renderBlock} mode={mode} semanticOverlay={semanticOverlay} activeSegment={activeSegment} studentWorkOverlay={studentWorkOverlay} studentWorkHighlights={studentWorkHighlights} assessmentPreview={assessmentPreview} />)}
+      </div>
+    </div>;
+  }
   return (
     <section id={`page-${encodeURIComponent(page.id)}`} className="scroll-mt-6 space-y-2" aria-label={`Page ${pageNumber}`} data-v2-delivery-page-id={page.id} data-v2-visual-mode={page.visualMode ?? "EDITABLE"}>
       <div className="flex items-center gap-2 px-1 text-xs font-semibold text-slate-500">

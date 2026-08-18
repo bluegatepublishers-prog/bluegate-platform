@@ -32,6 +32,20 @@ export interface StudentSubjectCandidate {
   active: boolean;
   sortOrder: number;
   subject: { id: string; name: string; code: string; active: boolean };
+  book?: {
+    id: string;
+    publisherId: string | null;
+    subjectId: string;
+    title: string;
+    coverImage: string | null;
+    published: boolean;
+    archived: boolean;
+    class: { name: string };
+    subject: { name: string };
+    series: { name: string } | null;
+    schoolEntitlements?: Array<{ id: string }>;
+  } | null;
+  /** Legacy pure-projection input only; runtime queries populate book directly. */
   adoptions: Array<{
     schoolId: string;
     publisherId: string | null;
@@ -113,7 +127,8 @@ export function buildStudentSubjectViewModels(
     .filter((candidate) => candidate.active && candidate.subject.active && candidate.sectionId === context.sectionId)
     .sort((left, right) => left.sortOrder - right.sortOrder || left.subject.name.localeCompare(right.subject.name))
     .map((candidate) => {
-      const adoption = candidate.adoptions.find((item) =>
+      const directBook = candidate.book ?? null;
+      const legacyBook = candidate.adoptions.find((item) =>
         item.active &&
         item.status === "APPROVED" &&
         item.schoolId === context.schoolId &&
@@ -121,12 +136,18 @@ export function buildStudentSubjectViewModels(
         item.academicYearId === context.academicYearId &&
         item.schoolClassId === context.schoolClassId &&
         item.sectionId === context.sectionId &&
-        item.sectionSubjectId === candidate.id &&
-        item.book.published &&
-        item.book.publisherId === context.publisherId &&
-        item.book.subjectId === candidate.subject.id &&
-        normalizeAcademicName(item.book.class.name) === classKey,
-      );
+        item.sectionSubjectId === candidate.id,
+      )?.book ?? null;
+      const candidateBook = directBook ?? legacyBook;
+      const book = candidateBook &&
+        candidateBook.published &&
+        (!('archived' in candidateBook) || !candidateBook.archived) &&
+        candidateBook.publisherId === context.publisherId &&
+        candidateBook.subjectId === candidate.subject.id &&
+        (!("schoolEntitlements" in candidateBook) || !candidateBook.schoolEntitlements || Array.isArray(candidateBook.schoolEntitlements) && candidateBook.schoolEntitlements.length > 0) &&
+        normalizeAcademicName(candidateBook.class.name) === classKey
+        ? candidateBook
+        : null;
       const assignment = candidate.assignments.find((item) =>
         item.active &&
         item.type === "SUBJECT_TEACHER" &&
@@ -138,7 +159,7 @@ export function buildStudentSubjectViewModels(
         item.teacher.active &&
         item.teacher.schoolId === context.schoolId,
       );
-      const resources = context.resourcesEnabled && adoption
+      const resources = context.resourcesEnabled && book
         ? candidate.resources
             .filter((resource) =>
               resource.published &&
@@ -163,13 +184,13 @@ export function buildStudentSubjectViewModels(
         subjectName: candidate.subject.name,
         subjectSlug: candidate.subject.code.toLowerCase().replaceAll("_", "-"),
         teacherName: assignment?.teacher.user.name ?? null,
-        book: adoption ? {
-          id: adoption.book.id,
-          title: adoption.book.title,
-          coverImage: bookCoverPath(adoption.book.id, adoption.book.coverImage),
-          series: adoption.book.series?.name ?? null,
-          className: adoption.book.class.name,
-          subjectName: adoption.book.subject.name,
+        book: book ? {
+          id: book.id,
+          title: book.title,
+          coverImage: bookCoverPath(book.id, book.coverImage),
+          series: book.series?.name ?? null,
+          className: book.class.name,
+          subjectName: book.subject.name,
         } : null,
         resources,
         resourceCounts: {
@@ -180,7 +201,7 @@ export function buildStudentSubjectViewModels(
           other: count("ZIP"),
         },
         totalStudentResources: resources.length,
-        hasApprovedBook: Boolean(adoption),
+        hasApprovedBook: Boolean(book),
       };
     });
 }

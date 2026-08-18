@@ -11,6 +11,7 @@ import {
   buildAssignableResourcesWhere,
   buildSectionSubjectContentScopeWhere,
   buildSectionSubjectContentUpdate,
+  isSectionSubjectBookCompatible,
   isSectionSubjectContentSelectionValid,
 } from "@/lib/section-subject-content-policy";
 import { accountAuditActor, writeSecurityAuditEvent } from "@/lib/security-audit";
@@ -204,9 +205,14 @@ export async function assignApprovedBook(schoolClassId: string, form: FormData) 
         bookId,
         link.subjectId,
       ),
-      select: { id: true },
+      select: { id: true, publisherId: true, subjectId: true, class: { select: { name: true } } },
     });
-    if (!approved) return;
+    if (!approved || !isSectionSubjectBookCompatible({
+      publisherId: school.publisherId,
+      className: link.section.schoolClass.name,
+      subjectId: link.subjectId,
+      book: approved,
+    })) return;
   }
   await prisma.sectionSubject.update({
     where: { id: link.id },

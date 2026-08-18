@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import {
   ChevronLeft,
@@ -25,6 +26,8 @@ export type SmartBookViewerProps = {
     totalPages: number;
   }) => void;
   showFullscreen?: boolean;
+  minimalControls?: boolean;
+  pageOverlay?: ReactNode;
   className?: string;
 };
 
@@ -60,6 +63,8 @@ export default function SmartBookViewer({
   onPageChange,
   onDocumentLoad,
   showFullscreen = true,
+  minimalControls = false,
+  pageOverlay,
   className = "",
 }: SmartBookViewerProps) {
   const shellRef =
@@ -404,83 +409,16 @@ export default function SmartBookViewer({
       className={`flex min-h-[65vh] flex-col overflow-hidden rounded-3xl border bg-slate-900 shadow-xl ${className}`}
     >
       <div className="flex flex-wrap items-center gap-2 border-b border-white/10 bg-slate-950 p-3 text-white">
-        <button
-          type="button"
-          onClick={() =>
-            setFitMode("PAGE")
-          }
-          className={buttonClass}
-        >
-          Fit Page
-        </button>
+        {!minimalControls ? <>
+          <button type="button" onClick={() => setFitMode("PAGE")} className={buttonClass}>Fit Page</button>
+          <button type="button" onClick={() => setFitMode("WIDTH")} className={buttonClass}>Fit Width</button>
+          <button type="button" onClick={() => { setFitMode(null); setZoom((value) => Math.max(0.5, value - 0.2)); }} className={buttonClass} aria-label="Zoom out"><Minus className="h-4 w-4" /></button>
+          <span className="min-w-14 text-center text-sm">{Math.round((fitMode ? 1 : zoom) * 100)}%</span>
+          <button type="button" onClick={() => { setFitMode(null); setZoom((value) => Math.min(3, value + 0.2)); }} className={buttonClass} aria-label="Zoom in"><Plus className="h-4 w-4" /></button>
+          <button type="button" onClick={() => setPan((value) => !value)} className={buttonClass} aria-pressed={pan}><Hand className="h-4 w-4" />Pan</button>
+        </> : null}
 
-        <button
-          type="button"
-          onClick={() =>
-            setFitMode("WIDTH")
-          }
-          className={buttonClass}
-        >
-          Fit Width
-        </button>
-
-        <button
-          type="button"
-          onClick={() => {
-            setFitMode(null);
-            setZoom((value) =>
-              Math.max(
-                0.5,
-                value - 0.2,
-              ),
-            );
-          }}
-          className={buttonClass}
-          aria-label="Zoom out"
-        >
-          <Minus className="h-4 w-4" />
-        </button>
-
-        <span className="min-w-14 text-center text-sm">
-          {Math.round(
-            (fitMode ? 1 : zoom) *
-              100,
-          )}
-          %
-        </span>
-
-        <button
-          type="button"
-          onClick={() => {
-            setFitMode(null);
-            setZoom((value) =>
-              Math.min(
-                3,
-                value + 0.2,
-              ),
-            );
-          }}
-          className={buttonClass}
-          aria-label="Zoom in"
-        >
-          <Plus className="h-4 w-4" />
-        </button>
-
-        <button
-          type="button"
-          onClick={() =>
-            setPan(
-              (value) => !value,
-            )
-          }
-          className={buttonClass}
-          aria-pressed={pan}
-        >
-          <Hand className="h-4 w-4" />
-          Pan
-        </button>
-
-        {showFullscreen ? (
+        {!minimalControls && showFullscreen ? (
           <button
             type="button"
             onClick={() =>
@@ -620,7 +558,7 @@ export default function SmartBookViewer({
             : ""
         }`}
       >
-        <div className="m-auto">
+        <div className="relative m-auto">
           {loading ? (
             <p className="p-10 text-white">
               Loading book...
@@ -644,6 +582,7 @@ export default function SmartBookViewer({
               }
             />
           )}
+          {pageOverlay ? <div className="pointer-events-auto absolute inset-0">{pageOverlay}</div> : null}
         </div>
       </div>
     </div>

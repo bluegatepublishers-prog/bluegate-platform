@@ -1,12 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { CircleHelp, GraduationCap, Home, Library, MessageCircle, School, CalendarDays } from "lucide-react";
+import { CircleHelp, GraduationCap, Home, Library, MessageCircle, School, CalendarDays, BookOpen } from "lucide-react";
 import { usePathname } from "next/navigation";
 
 export const teacherNavigation = [
   { name: "Home", href: "/teacher-dashboard", icon: Home },
   { name: "My Classes", href: "/teacher-dashboard/classes", icon: School },
+  { name: "My Books", href: "/teacher-dashboard/books", icon: BookOpen },
   { name: "Planner", href: "/teacher-dashboard/planner", icon: CalendarDays },
   { name: "Messages", href: "/teacher-dashboard/messages", icon: MessageCircle },
   { name: "Resources", href: "/teacher-dashboard/resources", icon: Library },

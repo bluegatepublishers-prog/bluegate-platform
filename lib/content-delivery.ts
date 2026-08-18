@@ -67,6 +67,54 @@ export async function loadPublishedModuleStructuredContent(input: {
   });
 }
 
+export async function loadSmartBookStructuredContent(input: {
+  publisherId: string;
+  bookId: string;
+  mode: ContentRenderMode;
+}) {
+  const book = await prisma.book.findFirst({
+    where: { id: input.bookId, publisherId: input.publisherId, published: true, archived: false },
+    select: { id: true, title: true, content: true },
+  });
+  if (!book) return null;
+
+  const publishedDocument = await loadPublishedContentDocument({
+    publisherId: input.publisherId,
+    bookId: input.bookId,
+    targetType: "BOOK",
+    targetId: input.bookId,
+  });
+  const rawDocument = publishedDocument ?? normalizeContentDocument(book.content ?? { version: 2, blocks: [] });
+  const [scope, sections] = await Promise.all([
+    getContentNodeScope(input.publisherId, input.bookId, "BOOK", input.bookId),
+    loadContentSectionDefinitions(input.publisherId, input.bookId),
+  ]);
+  const document = filterDocumentForMode(rawDocument, input.mode, sections);
+  const v2ResourceUrls = isLayoutV2Document(document)
+    ? await resolveV2ResourceUrls(document, input.publisherId, input.bookId, input.mode)
+    : {};
+  const activityBlocks = document.blocks
+    .filter(isLinkedAssetBlock)
+    .map((block) => ({ id: block.id, targetType: block.targetType, targetId: block.targetId }));
+  const [linkedAssets, activities, worksheets, media, knowledgeDefinitions] = await Promise.all([
+    resolveLinkedAssetsForDocument(scope, document),
+    resolveActivitiesForLinkedAssetDocument({ publisherId: input.publisherId, bookId: input.bookId, mode: input.mode, blocks: activityBlocks }),
+    resolveWorksheetsForLinkedAssetDocument({ publisherId: input.publisherId, bookId: input.bookId, mode: input.mode, blocks: activityBlocks }),
+    resolveMediaForDocument(scope, document),
+    resolveKnowledgeDefinitionsForDocument(scope, document),
+  ]);
+  return {
+    document,
+    linkedAssets: filterResolvedAssetsForMode(document, linkedAssets, input.mode),
+    activities,
+    worksheets,
+    media: filterResolvedMediaForMode(document, media, input.mode),
+    sections,
+    knowledgeDefinitions: filterResolvedKnowledgeForMode(knowledgeDefinitions, input.mode),
+    v2ResourceUrls,
+  };
+}
+
 export async function loadStudentChapterStructuredContent(
   sectionSubjectId: string,
   chapterId: string,
@@ -123,15 +171,13 @@ export async function loadTeacherChapterStructuredContent(input: {
   moduleId?: string | null;
 }) {
   const { scope, subject } = await requireTeacherSubject(input.sectionId, input.sectionSubjectId);
-  const defaultBook = subject.bookAdoptions[0]?.book;
+  const defaultBook = subject.book;
   const bookId = input.bookId?.trim() || defaultBook?.id;
   if (!bookId) return null;
-  if (input.bookId?.trim()) {
-    await requireBookEntitlement(
-      { id: scope.teacher.userId, role: "TEACHER" },
-      { bookId, academicYearId: scope.academicYear.id, sectionId: scope.section.id, sectionSubjectId: subject.id },
-    );
-  }
+  await requireBookEntitlement(
+    { id: scope.teacher.userId, role: "TEACHER" },
+    { bookId, academicYearId: scope.academicYear.id, sectionId: scope.section.id, sectionSubjectId: subject.id },
+  );
   const chapter = await prisma.bookChapter.findFirst({
     where: {
       id: input.chapterId,

@@ -252,8 +252,8 @@ export async function archivePublisherTeacherResource(input: { publisherId: stri
 
 export async function getPublisherTeacherResourceForDelivery(input: { publisherId: string; bookId: string; resourceId: string }) {
   return prisma.publisherTeacherResource.findFirst({
-    where: { id: input.resourceId, publisherId: input.publisherId, bookId: input.bookId, archivedAt: null },
-    select: { id: true, title: true, objectKey: true, originalFileName: true, contentType: true },
+    where: { id: input.resourceId, publisherId: input.publisherId, bookId: input.bookId, published: true, archivedAt: null },
+    select: { id: true, title: true, publisherId: true, objectKey: true, originalFileName: true, contentType: true },
   });
 }
 

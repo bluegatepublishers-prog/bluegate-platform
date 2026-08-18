@@ -26,18 +26,18 @@ export async function getTeacherHomeData() {
   const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const end = new Date(start);
   end.setDate(end.getDate() + 7);
-  const [plans, teachingPlanCount, assignmentReview, assessmentGrade, notice, messages, adoptions, featureAccess] = await Promise.all([
+  const [plans, teachingPlanCount, assignmentReview, assessmentGrade, notice, messages, sectionSubjectBooks, featureAccess] = await Promise.all([
     plannerAccess.allowed ? prisma.academicPlannerItem.findMany({ where: { schoolId: teacher.schoolId!, academicYear: { current: true, active: true }, sectionId: { in: sectionIds }, type: "TEACHING", currentDate: { gte: start, lt: end }, status: { notIn: ["CANCELLED", "SKIPPED"] } }, include: { section: { include: { schoolClass: true } }, sectionSubject: { include: { subject: true } }, reschedules: { orderBy: { createdAt: "desc" }, take: 1 } }, orderBy: { currentDate: "asc" } }) : Promise.resolve([]),
     plannerAccess.allowed ? prisma.teachingPlan.count({ where: { teacherId: teacher.id, schoolId: teacher.schoolId!, academicYear: { current: true, active: true, schoolId: teacher.schoolId! } } }) : Promise.resolve(0),
     prisma.assignmentSubmission.count({ where: { assignment: { teacherId: teacher.id, sectionId: { in: sectionIds } }, status: { in: ["SUBMITTED", "RESUBMITTED"] } } }),
     prisma.assessmentResponse.count({ where: { attempt: { assessment: { createdById: teacher.userId, sectionId: { in: sectionIds } } }, reviewStatus: "PENDING" } }),
     plannerAccess.allowed ? prisma.academicPlannerItem.findFirst({ where: { schoolId: teacher.schoolId!, academicYear: { current: true, active: true }, sectionId: null, type: "NOTICE", status: { not: "CANCELLED" } }, orderBy: [{ currentDate: "desc" }, { createdAt: "desc" }] }) : Promise.resolve(null),
     prisma.sectionChatMessage.findMany({ where: { room: { schoolId: teacher.schoolId!, sectionId: { in: sectionIds } }, deletedAt: null }, include: { sender: { select: { name: true, role: true } }, room: { include: { section: { include: { schoolClass: true } } } } }, orderBy: { createdAt: "desc" }, take: 5 }),
-    prisma.schoolBookAdoption.findMany({ where: { schoolId: teacher.schoolId!, publisherId: teacher.school?.publisherId ?? "", sectionSubjectId: { in: subjectIds }, status: "APPROVED", active: true, book: { archived: false, schoolEntitlements: { some: { schoolId: teacher.schoolId!, publisherId: teacher.school?.publisherId ?? "", status: "ACTIVE" } } } }, select: { sectionSubjectId: true, academicYearId: true, book: { select: { id: true, title: true } } } }),
+    prisma.sectionSubject.findMany({ where: { id: { in: subjectIds }, active: true, book: { publisherId: teacher.school?.publisherId ?? "", published: true, archived: false, schoolEntitlements: { some: { schoolId: teacher.schoolId!, publisherId: teacher.school?.publisherId ?? "", status: "ACTIVE" } } }, section: { active: true, schoolClass: { schoolId: teacher.schoolId!, active: true, academicYear: { active: true, current: true } } } }, select: { id: true, section: { select: { schoolClass: { select: { academicYearId: true } } } }, book: { select: { id: true, title: true } } } }),
     teacher.school ? getSchoolFeatureAccessMap(teacher.school) : Promise.resolve({} as Record<string, boolean>),
   ]);
-  const adoptedBookBySubject = new Map(adoptions.map((item) => [`${item.sectionSubjectId}:${item.academicYearId}`, item.book]));
-  const assignments = classes.flatMap((item) => item.subjects.map((subject) => ({ sectionId: item.sectionId, academicYearId: item.academicYearId, className: item.className, sectionName: item.sectionName, subjectId: subject.id, subjectName: subject.name, book: adoptedBookBySubject.get(`${subject.id}:${item.academicYearId}`) ?? null })));
+  const directBookBySubject = new Map(sectionSubjectBooks.map((item) => [`${item.id}:${item.section.schoolClass.academicYearId}`, item.book]));
+  const assignments = classes.flatMap((item) => item.subjects.map((subject) => ({ sectionId: item.sectionId, academicYearId: item.academicYearId, className: item.className, sectionName: item.sectionName, subjectId: subject.id, subjectName: subject.name, book: directBookBySubject.get(`${subject.id}:${item.academicYearId}`) ?? null })));
   return { teacher, classes, assignments, plans, teachingPlanCount, assignmentReview, assessmentGrade, notice, messages, featureAccess };
 }
 

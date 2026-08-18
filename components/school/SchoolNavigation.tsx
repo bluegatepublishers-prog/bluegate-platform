@@ -10,13 +10,16 @@ const people = [
   ["Staff", "/school-dashboard/people?tab=staff", Users],
   ["Parents", "/school-dashboard/people?tab=parents", UsersRound],
   ["Mentors", "/school-dashboard/people/mentors", UsersRound],
+  ["Registration Requests", "/school-dashboard/teacher-requests", UserRoundCheck],
 ] as const;
 const academics = [
   ["Academic Year", "/school-dashboard/academics?tab=years", CalendarDays],
   ["Classes & Sections", "/school-dashboard/academics?tab=classes", School],
   ["Subjects", "/school-dashboard/academics?tab=subjects", BookOpen],
   ["Teacher Assignments", "/school-dashboard/academics?tab=assignments", UserRoundCheck],
-  ["Books & Resources", "/school-dashboard/academics?tab=content", BookOpen],
+  ["Books", "/school-dashboard/books", BookOpen],
+] as const;
+const planning = [
   ["Teaching Plans", "/school-dashboard/teaching-plans", BookOpen],
   ["Timetable", "/school-dashboard/timetable", CalendarDays],
 ] as const;
@@ -33,7 +36,8 @@ type Props = { mobile?: boolean; schoolName: string; logoUrl?: string | null; br
 export default function SchoolNavigation({ mobile = false, schoolName, logoUrl, branding, features }: Props) {
   const pathname = usePathname();
   const isHome = pathname === "/school-dashboard";
-  const visibleAcademics = academics.filter(([label]) => label !== "Timetable" || features.TIMETABLE);
+  const visibleAcademics = academics;
+  const visiblePlanning = planning.filter(([label]) => label !== "Timetable" || features.TIMETABLE);
   const link = (label: string, href: string, Icon: typeof Home, nested = false) => {
     const base = href.split("?")[0];
     const active = base === "/school-dashboard" ? pathname === base : pathname.startsWith(base);
@@ -42,7 +46,8 @@ export default function SchoolNavigation({ mobile = false, schoolName, logoUrl, 
   const links = <>
     {link("Home", "/school-dashboard", Home)}
     <details open={isHome || pathname.startsWith("/school-dashboard/people")} className="group"><summary className="flex min-h-10 cursor-pointer list-none items-center gap-3 rounded-lg px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"><Users className="h-4 w-4" /><span className="flex-1">People</span><ChevronDown className="h-4 w-4 group-open:rotate-180" /></summary><div className="ml-4 space-y-0.5 border-l border-slate-200 pl-2">{people.map(([label, href, Icon]) => link(label, href, Icon, true))}</div></details>
-    <details open={isHome || pathname.startsWith("/school-dashboard/academics") || pathname.startsWith("/school-dashboard/teaching-plans") || pathname.startsWith("/school-dashboard/timetable")} className="group"><summary className="flex min-h-10 cursor-pointer list-none items-center gap-3 rounded-lg px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"><GraduationCap className="h-4 w-4" /><span className="flex-1">Academics</span><ChevronDown className="h-4 w-4 group-open:rotate-180" /></summary><div className="ml-4 space-y-0.5 border-l border-slate-200 pl-2">{visibleAcademics.map(([label, href, Icon]) => link(label, href, Icon, true))}</div></details>
+    <details open={isHome || pathname.startsWith("/school-dashboard/academics") || pathname.startsWith("/school-dashboard/books")} className="group"><summary className="flex min-h-10 cursor-pointer list-none items-center gap-3 rounded-lg px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"><GraduationCap className="h-4 w-4" /><span className="flex-1">Academics</span><ChevronDown className="h-4 w-4 group-open:rotate-180" /></summary><div className="ml-4 space-y-0.5 border-l border-slate-200 pl-2">{visibleAcademics.map(([label, href, Icon]) => link(label, href, Icon, true))}</div></details>
+    <details open={isHome || pathname.startsWith("/school-dashboard/teaching-plans") || pathname.startsWith("/school-dashboard/timetable")} className="group"><summary className="flex min-h-10 cursor-pointer list-none items-center gap-3 rounded-lg px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"><CalendarDays className="h-4 w-4" /><span className="flex-1">Planning</span><ChevronDown className="h-4 w-4 group-open:rotate-180" /></summary><div className="ml-4 space-y-0.5 border-l border-slate-200 pl-2">{visiblePlanning.map(([label, href, Icon]) => link(label, href, Icon, true))}</div></details>
     <details open={isHome || pathname.startsWith("/school-dashboard/planner") || pathname.startsWith("/school-dashboard/attendance") || pathname.startsWith("/school-dashboard/reports")} className="group"><summary className="flex min-h-10 cursor-pointer list-none items-center gap-3 rounded-lg px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"><ClipboardCheck className="h-4 w-4" /><span className="flex-1">School Operations</span><ChevronDown className="h-4 w-4 group-open:rotate-180" /></summary><div className="ml-4 space-y-0.5 border-l border-slate-200 pl-2">{operations.map(([label, href, Icon]) => link(label, href, Icon, true))}</div></details>
   </>;
   if (mobile) return <details className="border-b bg-white lg:hidden"><summary className="flex min-h-10 cursor-pointer list-none items-center gap-3 px-3 text-sm font-bold"><Menu className="h-4 w-4" />School menu</summary><nav aria-label="School navigation" className="max-h-[70vh] space-y-1 overflow-y-auto p-2">{links}</nav></details>;

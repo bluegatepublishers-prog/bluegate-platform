@@ -1,6 +1,6 @@
 import "server-only";
 
-import { BookAdoptionStatus, PlatformFeatureKey, ResourceAudience, ResourceType, TeacherAssignmentType } from "@prisma/client";
+import { PlatformFeatureKey, ResourceAudience, ResourceType, TeacherAssignmentType } from "@prisma/client";
 import { cache } from "react";
 import { prisma } from "@/lib/prisma";
 import { isPublisherFeatureEnabled } from "@/lib/publisher-features";
@@ -34,47 +34,21 @@ export const getStudentSubjects = cache(async () => {
       active: true,
       sortOrder: true,
       subject: { select: { id: true, name: true, code: true, active: true } },
-      bookAdoptions: {
-        where: {
-          schoolId: school.id,
-          publisherId: publisher.id,
-          academicYearId: enrollment.academicYearId,
-          schoolClassId: enrollment.schoolClassId,
-          sectionId: enrollment.sectionId,
-          status: BookAdoptionStatus.APPROVED,
-          active: true,
-          book: {
-            archived: false,
-            schoolEntitlements: {
-              some: {
-                schoolId: school.id,
-                publisherId: publisher.id,
-                status: "ACTIVE",
-              },
-            },
-          },
-        },
+      book: {
         select: {
-          schoolId: true,
+          id: true,
           publisherId: true,
-          academicYearId: true,
-          schoolClassId: true,
-          sectionId: true,
-          sectionSubjectId: true,
-          status: true,
-          active: true,
-          book: {
-            select: {
-              id: true,
-              publisherId: true,
-              subjectId: true,
-              title: true,
-              coverImage: true,
-              published: true,
-              class: { select: { name: true } },
-              subject: { select: { name: true } },
-              series: { select: { name: true } },
-            },
+          subjectId: true,
+          title: true,
+          coverImage: true,
+          published: true,
+          archived: true,
+          class: { select: { name: true } },
+          subject: { select: { name: true } },
+          series: { select: { name: true } },
+          schoolEntitlements: {
+            where: { schoolId: school.id, publisherId: publisher.id, status: "ACTIVE" },
+            select: { id: true },
           },
         },
       },
@@ -162,7 +136,7 @@ export const getStudentSubjects = cache(async () => {
     },
     subjects.map((subject) => ({
       ...subject,
-      adoptions: subject.bookAdoptions,
+      adoptions: [],
       resources: subject.resources
         .filter((resource) => resource.type !== ResourceType.IMAGE)
         .map((resource) => ({ ...resource, type: resource.type as StudentResourceType })),

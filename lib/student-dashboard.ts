@@ -88,15 +88,12 @@ async function hasStudentEntitlements(identity: StudentIdentity) {
           active: true,
         },
       },
-      bookAdoptions: {
-        some: {
-          schoolId: identity.school.id,
-          publisherId: identity.publisher.id,
-          academicYearId: identity.enrollment.academicYearId,
-          schoolClassId: identity.enrollment.schoolClassId,
-          sectionId: identity.enrollment.sectionId,
-          status: "APPROVED",
-          active: true,
+      book: {
+        publisherId: identity.publisher.id,
+        published: true,
+        archived: false,
+        schoolEntitlements: {
+          some: { schoolId: identity.school.id, publisherId: identity.publisher.id, status: "ACTIVE" },
         },
       },
     },

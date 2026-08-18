@@ -111,16 +111,6 @@ test("assignment lookup builders retain publisher ownership", () => {
           status: "ACTIVE",
         },
       },
-      schoolAdoptions: {
-        some: {
-          publisherId: "publisher-a",
-          schoolId: "school-a",
-          academicYearId: "year-a",
-          sectionSubjectId: "section-subject-a",
-          status: "APPROVED",
-          active: true,
-        },
-      },
     },
   );
   assert.deepEqual(

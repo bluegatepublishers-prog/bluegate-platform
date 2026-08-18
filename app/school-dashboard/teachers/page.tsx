@@ -1,138 +1,18 @@
-import { Search, Users } from "lucide-react";
-
+import { Search } from "lucide-react";
 import { getSchoolTeachers } from "@/lib/school-dashboard";
-import {
-  createSchoolTeacher,
-  setSchoolTeacherActive,
-  updateSchoolTeacher,
-} from "../school-actions";
+import { createSchoolTeacher, setSchoolTeacherActive, updateSchoolTeacher } from "../school-actions";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+const input = "h-9 w-full rounded-lg border border-slate-300 px-3 text-sm";
 
-const input = "w-full rounded-xl border px-4 py-3";
-
-export default async function SchoolTeachersPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ query?: string }>;
-}) {
+export default async function SchoolTeachersPage({ searchParams }: { searchParams: Promise<{ query?: string }> }) {
   const { query } = await searchParams;
   const teachers = await getSchoolTeachers(query?.trim());
-
-  return (
-    <main className="space-y-7 p-4 sm:p-6 lg:p-8">
-      <header>
-        <h1 className="text-3xl font-bold">Teachers</h1>
-        <p className="mt-2 text-slate-600">
-          Manage school teachers. Classes and subjects come only from official
-          teacher assignments.
-        </p>
-      </header>
-
-      <details className="rounded-3xl border bg-white p-6 shadow-sm">
-        <summary className="cursor-pointer text-lg font-bold text-blue-700">
-          + Add teacher
-        </summary>
-        <form
-          action={createSchoolTeacher}
-          className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4"
-        >
-          <input name="name" required placeholder="Teacher name" className={input} />
-          <input name="email" type="email" required placeholder="Email" className={input} />
-          <input name="phone" placeholder="Phone" className={input} />
-          <input name="designation" placeholder="Designation" className={input} />
-          <button className="rounded-xl bg-blue-600 px-5 py-3 font-bold text-white">
-            Add teacher
-          </button>
-        </form>
-        <p className="mt-4 text-sm text-slate-500">
-          A secure activation email is sent after account creation. The teacher
-          chooses a private password, then receives classes and subjects from
-          Teacher Assignments.
-        </p>
-      </details>
-
-      <form className="rounded-3xl border bg-white p-6 shadow-sm">
-        <label className="relative block max-w-xl">
-          <Search className="absolute left-4 top-3.5 h-5 w-5 text-slate-400" />
-          <input
-            name="query"
-            defaultValue={query}
-            placeholder="Search name, email, assigned subject or class"
-            className="w-full rounded-xl border py-3 pl-12 pr-4"
-          />
-        </label>
-      </form>
-
-      {teachers.length ? (
-        <div className="grid gap-5 xl:grid-cols-2">
-          {teachers.map((teacher) => (
-            <article key={teacher.id} className="rounded-3xl border bg-white p-6 shadow-sm">
-              <div className="flex flex-wrap items-start justify-between gap-4">
-                <div className="min-w-0">
-                  <h2 className="break-words text-xl font-bold">{teacher.user.name}</h2>
-                  <p className="mt-1 break-words text-sm text-slate-500">
-                    {teacher.user.email} · {teacher.designation}
-                  </p>
-                </div>
-                <span className={`rounded-full px-3 py-1 text-xs font-bold ${teacher.active ? "bg-green-100 text-green-700" : "bg-slate-100 text-slate-600"}`}>
-                  {teacher.active ? "Active" : "Inactive"}
-                </span>
-              </div>
-
-              <div className="mt-5 rounded-2xl bg-slate-50 p-4">
-                <p className="font-semibold">Current assignments</p>
-                {teacher.assignments.length ? (
-                  <ul className="mt-2 space-y-1 text-sm text-slate-600">
-                    {teacher.assignments.map((item) => (
-                      <li key={item.id}>
-                        {item.type === "CLASS_TEACHER" ? "Class Teacher" : item.subject?.name}:{" "}
-                        {item.schoolClass.name} · Section {item.section.name}
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="mt-2 text-sm text-slate-500">No active assignments.</p>
-                )}
-              </div>
-
-              <details className="mt-5">
-                <summary className="cursor-pointer font-semibold text-blue-700">
-                  Edit teacher
-                </summary>
-                <form
-                  action={updateSchoolTeacher.bind(null, teacher.id)}
-                  className="mt-4 grid gap-3 sm:grid-cols-2"
-                >
-                  <input name="name" required defaultValue={teacher.user.name} className={input} />
-                  <input name="email" type="email" required defaultValue={teacher.user.email} className={input} />
-                  <input name="phone" defaultValue={teacher.user.phone ?? ""} placeholder="Phone" className={input} />
-                  <input name="designation" defaultValue={teacher.designation} className={input} />
-                  <button className="rounded-xl bg-slate-900 px-5 py-3 font-bold text-white">
-                    Save changes
-                  </button>
-                </form>
-              </details>
-
-              <form action={setSchoolTeacherActive} className="mt-4">
-                <input type="hidden" name="teacherId" value={teacher.id} />
-                <input type="hidden" name="active" value={teacher.active ? "false" : "true"} />
-                <button className={`rounded-xl border px-4 py-2 font-semibold ${teacher.active ? "border-red-200 text-red-600" : "border-green-200 text-green-700"}`}>
-                  {teacher.active ? "Deactivate teacher" : "Reactivate teacher"}
-                </button>
-              </form>
-            </article>
-          ))}
-        </div>
-      ) : (
-        <div className="rounded-3xl border bg-white p-14 text-center">
-          <Users className="mx-auto h-12 w-12 text-slate-300" />
-          <h2 className="mt-4 text-xl font-bold">
-            {query ? "No matching teachers" : "No teachers added"}
-          </h2>
-        </div>
-      )}
-    </main>
-  );
+  return <main className="space-y-5 p-4 text-[15px] sm:p-6 lg:p-8">
+    <header className="flex flex-wrap items-end justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-[0.16em] text-blue-700">People</p><h1 className="mt-1 text-2xl font-bold text-slate-950">Teachers</h1><p className="mt-1 text-sm text-slate-600">Accounts receive classroom visibility only through Teacher Assignments.</p></div><a href="#add-teacher" className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-bold text-white">+ Add teacher</a></header>
+    <details id="add-teacher" className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"><summary className="cursor-pointer text-sm font-bold text-blue-700">Create a school teacher account</summary><form action={createSchoolTeacher} className="mt-3 grid gap-3 md:grid-cols-4"><input name="name" required placeholder="Name" className={input}/><input name="email" type="email" required placeholder="Email" className={input}/><input name="phone" placeholder="Mobile (optional)" className={input}/><input name="designation" placeholder="Designation" className={input}/><button className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-bold text-white md:col-start-4">Create and invite</button></form><p className="mt-2 text-xs text-slate-500">Activation is sent through the existing secure password workflow.</p></details>
+    <form className="flex gap-2 rounded-xl border border-slate-200 bg-white p-3 shadow-sm"><Search className="mt-2 h-4 w-4 text-slate-400"/><input name="query" defaultValue={query} placeholder="Search name, email, subject, or class" className="h-9 flex-1 rounded-lg border border-slate-300 px-3 text-sm"/><button className="rounded-lg bg-slate-900 px-3 text-sm font-bold text-white">Search</button></form>
+    <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">{teachers.length ? <div className="overflow-x-auto"><table className="w-full min-w-[800px] text-left text-sm"><thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500"><tr><th className="px-4 py-2.5">Name</th><th className="px-4 py-2.5">Email</th><th className="px-4 py-2.5">Assignments</th><th className="px-4 py-2.5">Status</th><th className="px-4 py-2.5">Actions</th></tr></thead><tbody className="divide-y divide-slate-100">{teachers.map((teacher) => <tr key={teacher.id}><td className="px-4 py-3 font-semibold">{teacher.user.name}<span className="block text-xs font-normal text-slate-500">{teacher.designation}</span></td><td className="px-4 py-3 text-slate-600">{teacher.user.email}</td><td className="max-w-[280px] px-4 py-3 text-xs text-slate-600">{teacher.assignments.length ? teacher.assignments.map((item) => (item.subject?.name ?? "Class teacher") + " · " + item.schoolClass.name + " " + item.section.name).join(", ") : "No active assignments"}</td><td className="px-4 py-3"><span className={"rounded-full px-2 py-1 text-xs font-bold " + (teacher.active ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600")}>{teacher.active ? "Active" : "Inactive"}</span></td><td className="px-4 py-3"><details><summary className="cursor-pointer font-bold text-blue-700">Edit</summary><form action={updateSchoolTeacher.bind(null, teacher.id)} className="mt-2 grid gap-2 rounded-lg border bg-slate-50 p-2"><input name="name" required defaultValue={teacher.user.name} className={input}/><input name="email" type="email" required defaultValue={teacher.user.email} className={input}/><input name="phone" defaultValue={teacher.user.phone ?? ""} placeholder="Mobile" className={input}/><input name="designation" defaultValue={teacher.designation} className={input}/><button className="rounded-lg bg-slate-900 px-3 py-2 text-xs font-bold text-white">Save</button></form><form action={setSchoolTeacherActive} className="mt-2"><input type="hidden" name="teacherId" value={teacher.id}/><input type="hidden" name="active" value={teacher.active ? "false" : "true"}/><button className="text-xs font-bold text-rose-700">{teacher.active ? "Deactivate" : "Reactivate"}</button></form></details></td></tr>)}</tbody></table></div> : <p className="px-4 py-10 text-center text-sm text-slate-500">No teachers found.</p>}</section>
+  </main>;
 }

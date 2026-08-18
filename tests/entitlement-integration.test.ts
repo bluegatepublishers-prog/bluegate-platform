@@ -8,13 +8,13 @@ const source = (path: string) => readFileSync(resolve(path), "utf8");
 test("full-book route authorizes before selecting and preparing protected storage", () => {
   const route = source("app/api/books/[bookId]/full-pdf/route.ts");
   const authorize = route.indexOf("const decision = await getBookEntitlementForAuthenticatedUser");
-  const selectUrl = route.indexOf("select: { fullBookPdf: true, publisherId: true");
-  const redirect = route.indexOf("NextResponse.redirect(downloadUrl");
-  assert.ok(authorize >= 0 && authorize < selectUrl && selectUrl < redirect);
-  assert.match(route, /createSignedDownloadUrl/);
+  const selectUrl = route.indexOf("fullBookPdf: true");
+  const readObject = route.indexOf("getObjectBytes");
+  assert.ok(authorize >= 0 && authorize < selectUrl && selectUrl < readObject);
+  assert.doesNotMatch(route, /NextResponse\.redirect|createSignedDownloadUrl/);
   assert.match(route, /proxyLegacyBlob/);
-  assert.match(route, /Cache-Control", "private, no-store"/);
-  assert.match(route, /Referrer-Policy", "no-referrer"/);
+  assert.match(route, /Cache-Control":\s*"private, no-store"/);
+  assert.match(route, /Referrer-Policy":\s*"no-referrer"/);
 });
 
 test("full-book denial uses a centralized safe message", () => {

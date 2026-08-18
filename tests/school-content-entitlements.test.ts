@@ -115,7 +115,7 @@ test("paused school book entitlement denies otherwise valid teacher access", () 
       assignment: true,
       enrollment: false,
       schoolEntitled: false,
-      adoptionApproved: true,
+      scopeAssigned: true,
     }),
     { allowed: false, reason: "BOOK_NOT_APPROVED" },
   );

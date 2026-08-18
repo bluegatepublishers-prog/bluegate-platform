@@ -7,6 +7,7 @@ export type EntitlementSubjectType =
 
 export type EntitlementSource =
   | "PUBLISHER_ADMIN"
+  | "SCHOOL_BOOK_ENTITLEMENT"
   | "SCHOOL_BOOK_ADOPTION"
   | "SCHOOL_RESOURCE_ASSIGNMENT"
   | "TEACHER_ASSIGNMENT"

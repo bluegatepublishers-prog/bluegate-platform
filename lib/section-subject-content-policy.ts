@@ -76,6 +76,20 @@ interface CompatibleBook {
   class: { name: string };
 }
 
+export function isSectionSubjectBookCompatible(input: {
+  publisherId: string;
+  className: string;
+  subjectId: string;
+  book: CompatibleBook | null;
+}) {
+  return Boolean(
+    input.book &&
+      input.book.publisherId === input.publisherId &&
+      input.book.subjectId === input.subjectId &&
+      normalizeAcademicName(input.book.class.name) === normalizeAcademicName(input.className),
+  );
+}
+
 interface CompatibleResource {
   id: string;
   publisherId: string | null;
@@ -96,10 +110,12 @@ export function isSectionSubjectContentSelectionValid(input: {
   const classKey = normalizeAcademicName(input.className);
   if (
     input.requestedBookId &&
-    (!input.book ||
-      input.book.publisherId !== input.publisherId ||
-      input.book.subjectId !== input.subjectId ||
-      normalizeAcademicName(input.book.class.name) !== classKey)
+    !isSectionSubjectBookCompatible({
+      publisherId: input.publisherId,
+      className: input.className,
+      subjectId: input.subjectId,
+      book: input.book,
+    })
   ) {
     return false;
   }

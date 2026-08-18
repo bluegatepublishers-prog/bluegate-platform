@@ -120,27 +120,22 @@ export async function requireTeacherClass(sectionId: string) {
       active: true,
       subject: { active: true },
       subjectId: { in: assignedSubjectIds },
+      book: {
+        publisherId: teacher.school.publisherId,
+        published: true,
+        archived: false,
+        schoolEntitlements: {
+          some: { schoolId: teacher.schoolId, publisherId: teacher.school.publisherId, status: "ACTIVE" },
+        },
+      },
     },
     include: {
       subject: true,
-      bookAdoptions: {
-        where: {
-          publisherId: teacher.school.publisherId,
-          schoolId: teacher.schoolId,
-          academicYearId: first.academicYearId,
-          schoolClassId: first.schoolClassId,
-          sectionId,
-          status: "APPROVED",
-          active: true,
-        },
+      book: {
         include: {
-          book: {
-            include: {
-              chapters: {
-                where: { approved: true },
-                orderBy: [{ sortOrder: "asc" }, { chapterNumber: "asc" }],
-              },
-            },
+          chapters: {
+            where: { approved: true },
+            orderBy: [{ sortOrder: "asc" }, { chapterNumber: "asc" }],
           },
         },
       },
@@ -161,7 +156,14 @@ export async function requireTeacherClass(sectionId: string) {
     section: first.section,
     assignments: canonical,
     isClassTeacher,
-    sectionSubjects,
+    sectionSubjects: sectionSubjects.map((sectionSubject) => ({
+      ...sectionSubject,
+      // Compatibility shape for existing teacher authoring consumers. The row is
+      // derived from SectionSubject.book and is never read from SchoolBookAdoption.
+      bookAdoptions: sectionSubject.book
+        ? [{ academicYearId: first.academicYearId, bookId: sectionSubject.book.id, book: sectionSubject.book }]
+        : [],
+    })),
   };
 }
 
