@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import {
   addManualQuestionToAssessment,
   addPublisherQuestionsToAssessment,
+  addTeacherQuestionsToAssessment,
   addSnapshotQuestionsToAssessment,
   archiveTeacherAssessment,
   auditTeacherAssessmentDenial,
@@ -110,7 +111,18 @@ export async function addPublisherQuestionsAction(sectionId: string, assessmentI
   if (result.ok) refresh(sectionId, assessmentId);
 }
 
-export async function addTeacherBankQuestionsAction(sectionId: string, assessmentId: string, formData: FormData) {
+export async function addMyQuestionsAction(sectionId: string, assessmentId: string, formData: FormData) {
+  const teacherQuestionIds = formData
+    .getAll("teacherQuestionId")
+    .map((value) => String(value).trim())
+    .filter(Boolean);
+  const result = await safely(sectionId, "classroom.assessment.update", () =>
+    addTeacherQuestionsToAssessment(sectionId, assessmentId, teacherQuestionIds),
+  );
+  if (result.ok) refresh(sectionId, assessmentId);
+}
+
+export async function addPreviousAssessmentQuestionsAction(sectionId: string, assessmentId: string, formData: FormData) {
   const snapshotIds = formData
     .getAll("snapshotId")
     .map((value) => String(value).trim())

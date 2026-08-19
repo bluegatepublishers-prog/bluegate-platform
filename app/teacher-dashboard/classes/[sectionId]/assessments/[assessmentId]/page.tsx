@@ -3,7 +3,8 @@ import { notFound } from "next/navigation";
 import {
   addManualQuestionAction,
   addPublisherQuestionsAction,
-  addTeacherBankQuestionsAction,
+  addMyQuestionsAction,
+  addPreviousAssessmentQuestionsAction,
   closeAssessmentAction,
   duplicateQuestionAction,
   moveQuestionAction,
@@ -328,17 +329,24 @@ export default async function TeacherAssessmentEditorPage({
           </article>
 
           <article className="rounded-2xl border p-4">
-            <h4 className="font-bold">Teacher Question Bank</h4>
-            <form action={addTeacherBankQuestionsAction.bind(null, sectionId, assessmentId)} className="mt-3 space-y-3">
+            <h4 className="font-bold">My Questions</h4>
+            <p className="mt-1 text-xs text-slate-500">Your active private TeacherQuestion bank.</p>
+            <form action={addMyQuestionsAction.bind(null, sectionId, assessmentId)} className="mt-3 space-y-3">
               <div className="max-h-64 space-y-2 overflow-auto rounded-xl border p-3">
-                {editor.teacherBank.length ? editor.teacherBank.map((question) => (
+                {editor.myQuestions.length ? editor.myQuestions.map((question) => (
                   <label key={question.id} className="flex gap-2 text-sm">
-                    <input type="checkbox" name="snapshotId" value={question.id} disabled={question.alreadyAdded || !editor.canEditQuestions} />
+                    <input type="checkbox" name="teacherQuestionId" value={question.id} disabled={question.alreadyAdded || !editor.canEditQuestions} />
                     <span>
-                      <strong>{question.assessmentTitle}</strong> · {question.questionText}
+                      <strong>{question.questionType}</strong> - {question.questionText}
+                      <span className="block text-xs text-slate-500">
+                        {question.marks} mark(s) - {question.difficulty ?? "Difficulty not specified"}
+                        {question.chapterId ? " - Chapter context" : " - General context"}
+                        {question.moduleId ? " - Module context" : ""}
+                        {question.tags.length ? " - " + question.tags.join(", ") : ""}
+                      </span>
                     </span>
                   </label>
-                )) : <p className="text-sm text-slate-500">No teacher bank questions yet.</p>}
+                )) : <p className="text-sm text-slate-500">No matching My Questions found.</p>}
               </div>
               <button type="submit" disabled={!editor.canEditQuestions} className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">Add Selected</button>
             </form>
@@ -346,7 +354,7 @@ export default async function TeacherAssessmentEditorPage({
 
           <article className="rounded-2xl border p-4">
             <h4 className="font-bold">Previous Assessment Questions</h4>
-            <form action={addTeacherBankQuestionsAction.bind(null, sectionId, assessmentId)} className="mt-3 space-y-3">
+            <form action={addPreviousAssessmentQuestionsAction.bind(null, sectionId, assessmentId)} className="mt-3 space-y-3">
               <div className="max-h-64 space-y-2 overflow-auto rounded-xl border p-3">
                 {editor.previousSnapshots.length ? editor.previousSnapshots.map((question) => (
                   <label key={question.id} className="flex gap-2 text-sm">
