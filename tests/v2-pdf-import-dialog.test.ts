@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import { hasMeaningfulV2Content } from "../components/admin/books/editor/V2DocumentWorkspace";
+import { uploadFileToR2 } from "../lib/storage/client-upload";
 import type { ContentDocument } from "../lib/content-document";
 
 const read = (path: string) => readFileSync(path, "utf8");
@@ -55,7 +56,8 @@ test("dialog errors and generated pages reset on close and before each import", 
   assert.match(dialog, /recordPdfImportFailure\("EXISTING_PDF", cause\)/);
   assert.match(dialog, /recordPdfImportFailure\(uploadFailureStage\(cause\), cause\)/);
   assert.match(dialog, /"UPLOAD_INIT" \| "SIGNED_PUT" \| "UPLOAD_COMPLETE" \| "BOOK_ASSOCIATION" \| "PDF_VALIDATION" \| "V2_GENERATION"/);
-  assert.match(dialog, /transport: "SAME_ORIGIN_PROXY"/);
+  assert.doesNotMatch(dialog, /transport: "SAME_ORIGIN_PROXY"/);
+  assert.match(dialog, /scope: "book-full"[\s\S]*targetId: bookId[\s\S]*failurePrefix: "BOOK_PDF"/);
   assert.match(dialog, /function safePdfImportMessage/);
   assert.match(dialog, /The PDF exceeds the 100 MB book upload limit\./);
   assert.match(dialog, /setError\(safePdfImportMessage\(cause,/);
@@ -67,7 +69,7 @@ test("upload association is owned, validated, and refreshes the boolean before n
   const editor = read("components/admin/books/ContentManuscriptEditor.tsx");
   const workspace = read("components/admin/books/editor/V2DocumentWorkspace.tsx");
 
-  assert.match(action, /attachOwnedBookFullPdfAction\(bookId: string, objectKey: string\)[\s\S]*requireLivePublisherAdmin\(\)[\s\S]*inspectPublisherBookPdf\(key, actor\.publisherId\)[\s\S]*assertBookPdfReplacementMappingsFit\(bookId, actor\.publisherId, inspection\.pageCount\)[\s\S]*where: \{ id: bookId, publisherId: actor\.publisherId \}[\s\S]*fullBookPdf: key/);
+  assert.match(action, /attachOwnedBookFullPdfAction\(bookId: string, objectKey: string\)[\s\S]*requireLivePublisherAdmin\(\)[\s\S]*inspectPublisherBookPdf\(key, actor\.publisherId\)[\s\S]*assertBookPdfReplacementMappingsFit\(bookId, actor\.publisherId, inspection\.pageCount\)[\s\S]*where:\s*\{\s*id: bookId,\s*publisherId: actor\.publisherId\s*\}[\s\S]*fullBookPdf: key/);
   assert.match(read("lib/book-pdf.ts"), /Cannot replace the full-book PDF/);
   assert.match(page, /const hasFullBookPdf = Boolean\([\s\S]*select: \{ fullBookPdf: true \}/);
   assert.match(page, /hasFullBookPdf=\{hasFullBookPdf\}/);
@@ -101,4 +103,97 @@ test("replacement confirmation distinguishes empty layouts from authored V2 cont
   assert.equal(hasMeaningfulV2Content(documentWith([{ frames: [{}] }])), true);
   assert.equal(hasMeaningfulV2Content(documentWith([{ background: { resourceId: "background" } }])), true);
   assert.equal(hasMeaningfulV2Content(documentWith([{}], [{}])), true);
+});
+test("full-book PDF uses the direct presigned PUT transport", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests: Array<{ url: string; init?: RequestInit }> = [];
+  const file = { name: "book.pdf", type: "application/pdf", size: 42 } as File;
+
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    requests.push({ url, init });
+    if (url === "/api/storage/upload/init") {
+      return new Response(JSON.stringify({
+        ok: true,
+        uploadUrl: "https://r2.example/upload",
+        objectKey: "books/full-books/publisher-a/book.pdf",
+        requiredHeaders: {
+          "Content-Type": "application/pdf",
+          "x-amz-meta-original-filename": "book.pdf",
+          "x-amz-meta-upload-scope": "book-full",
+          "x-amz-meta-target-id": "book-1",
+        },
+      }), { status: 200 });
+    }
+    if (url === "https://r2.example/upload") {
+      assert.equal(init?.method, "PUT");
+      assert.equal((init?.headers as Record<string, string>)["Content-Type"], "application/pdf");
+      assert.equal((init?.headers as Record<string, string>)["x-amz-meta-upload-scope"], "book-full");
+      assert.equal(init?.body, file);
+      return new Response(null, { status: 200 });
+    }
+    if (url === "/api/storage/upload/complete") {
+      return new Response(JSON.stringify({
+        ok: true,
+        objectKey: "books/full-books/publisher-a/book.pdf",
+        contentType: "application/pdf",
+        sizeBytes: 42,
+      }), { status: 200 });
+    }
+    throw new Error(`Unexpected upload request: ${url}`);
+  }) as typeof fetch;
+
+  try {
+    const result = await uploadFileToR2({
+      file,
+      scope: "book-full",
+      targetId: "book-1",
+      failurePrefix: "BOOK_PDF",
+    });
+    assert.equal(result.objectKey, "books/full-books/publisher-a/book.pdf");
+    assert.deepEqual(requests.map((request) => request.url), [
+      "/api/storage/upload/init",
+      "https://r2.example/upload",
+      "/api/storage/upload/complete",
+    ]);
+    assert.equal(requests.some((request) => request.url === "/api/storage/upload/proxy"), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("failed direct full-book PDF PUT does not call complete", async () => {
+  const originalFetch = globalThis.fetch;
+  let completeCalled = false;
+  const file = { name: "book.pdf", type: "application/pdf", size: 42 } as File;
+
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url === "/api/storage/upload/init") {
+      return new Response(JSON.stringify({
+        ok: true,
+        uploadUrl: "https://r2.example/upload",
+        objectKey: "books/full-books/publisher-a/book.pdf",
+        requiredHeaders: { "Content-Type": "application/pdf" },
+      }), { status: 200 });
+    }
+    if (url === "https://r2.example/upload") {
+      return new Response("storage rejected", { status: 503 });
+    }
+    if (url === "/api/storage/upload/complete") {
+      completeCalled = true;
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }
+    throw new Error(`Unexpected upload request: ${url}`);
+  }) as typeof fetch;
+
+  try {
+    await assert.rejects(
+      uploadFileToR2({ file, scope: "book-full", failurePrefix: "BOOK_PDF" }),
+      /BOOK_PDF_STORAGE_TRANSFER_FAILED/,
+    );
+    assert.equal(completeCalled, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });

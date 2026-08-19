@@ -17,6 +17,7 @@ export function getR2Client(): S3Client {
   }
 
   const config = getR2Config();
+
   global.r2Client = new S3Client({
     region: "auto",
     endpoint: config.endpoint,
@@ -24,6 +25,8 @@ export function getR2Client(): S3Client {
       accessKeyId: config.accessKeyId,
       secretAccessKey: config.secretAccessKey,
     },
+    requestChecksumCalculation: "WHEN_REQUIRED",
+    responseChecksumValidation: "WHEN_REQUIRED",
   });
 
   return global.r2Client;
