@@ -151,7 +151,7 @@ export default function V2AssessmentLauncherVisual({
       {open && payload.launcherType === "publisher-assessment" ? (
         <V2PublisherAssessmentLauncherOverlay
           assessmentId={payload.assessmentId}
-          mode={mode}
+          mode={mode === "PREVIEW" ? "PREVIEW" : "STUDENT"}
           onClose={close}
         />
       ) : null}

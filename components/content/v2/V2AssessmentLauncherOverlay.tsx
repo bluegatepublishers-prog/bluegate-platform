@@ -3,19 +3,31 @@
 import {
   useEffect,
   useId,
+  useMemo,
   useRef,
   useState,
 } from "react";
 import { createPortal } from "react-dom";
 
 import type { V2PracticeQuestionType } from "@/lib/v2-assessment-launcher";
-import { InteractiveQuestionRenderer } from "@/components/questions/InteractiveQuestionRenderer";
-import { adaptBookQuestion, getBookQuestionPracticeMode, type InteractiveQuestion, type NormalizedQuestion } from "@/lib/normalized-question";
-import { evaluateObjectiveQuestionResponse } from "@/lib/question-response-evaluator";
 import { v2PracticeQuestionLabel } from "@/lib/v2-assessment-launcher";
+
+import { InteractiveQuestionRenderer } from "@/components/questions/InteractiveQuestionRenderer";
+
+import {
+  adaptBookQuestion,
+  getBookQuestionPracticeMode,
+  type InteractiveQuestion,
+  type NormalizedQuestion,
+} from "@/lib/normalized-question";
+
+import {
+  evaluateObjectiveQuestionResponse,
+} from "@/lib/question-response-evaluator";
 
 export type V2AssessmentLauncherOverlayMode =
   | "STUDENT"
+  | "TEACHER"
   | "PREVIEW";
 
 type RuntimeOption = {
@@ -54,6 +66,39 @@ type Props = {
   onRetry?: () => void;
 };
 
+type LauncherResponse = {
+  ok?: boolean;
+  message?: string;
+  attemptId?: string;
+
+  attempt?: {
+    id?: string;
+    status?: string;
+
+    questions?: Array<{
+      questionId: string;
+      questionType?: string;
+      questionText: string;
+      options: string[];
+      marks: number;
+      interactiveQuestion: InteractiveQuestion;
+      answered: boolean;
+      studentAnswer: unknown;
+      feedback: RuntimeFeedback | null;
+    }>;
+  };
+
+  questions?: Array<{
+    id: string;
+    questionType?: string;
+    questionText: string;
+    options: unknown;
+    marks: number;
+    correctAnswer?: string | null;
+    explanation?: string | null;
+  }>;
+};
+
 export default function V2AssessmentLauncherOverlay({
   exerciseId,
   groupId,
@@ -64,45 +109,78 @@ export default function V2AssessmentLauncherOverlay({
   onRetry,
 }: Props) {
   const titleId = useId();
-  const closeRef = useRef<HTMLButtonElement>(null);
 
-  const [questions, setQuestions] = useState<
-    RuntimeQuestion[]
-  >([]);
-  const [answers, setAnswers] = useState<
-    Record<string, unknown>
-  >({});
-  const [attemptId, setAttemptId] = useState("");
+  const closeRef =
+    useRef<HTMLButtonElement>(null);
+
+  const [questions, setQuestions] =
+    useState<RuntimeQuestion[]>([]);
+
+  const [answers, setAnswers] =
+    useState<Record<string, unknown>>(
+      {},
+    );
+
+  const [attemptId, setAttemptId] =
+    useState("");
+
   const [submitted, setSubmitted] =
     useState(false);
-  const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState("");
 
-  const selectedIds = [
-    ...new Set(
-      questionIds
-        .map((id) => id.trim())
-        .filter(Boolean),
-    ),
-  ];
+  const [loading, setLoading] =
+    useState(true);
+
+  const [busy, setBusy] =
+    useState(false);
+
+  const [message, setMessage] =
+    useState("");
+
+  /*
+   * Publisher Preview and Teacher Preview are
+   * read-only server-data modes.
+   *
+   * Neither mode creates StudentPracticeAttempt.
+   */
+  const previewMode =
+    mode === "PREVIEW" ||
+    mode === "TEACHER";
+
+  const selectedIds = useMemo(
+    () => [
+      ...new Set(
+        questionIds
+          .map((id) =>
+            id.trim(),
+          )
+          .filter(Boolean),
+      ),
+    ],
+    [questionIds],
+  );
 
   const label =
-    v2PracticeQuestionLabel(questionType);
+    v2PracticeQuestionLabel(
+      questionType,
+    );
 
   useEffect(() => {
     const previousOverflow =
-      globalThis.document.body.style.overflow;
+      globalThis.document.body.style
+        .overflow;
 
-    globalThis.document.body.style.overflow =
-      "hidden";
+    globalThis.document.body.style
+      .overflow = "hidden";
 
     closeRef.current?.focus();
 
     const onKeyDown = (
       event: KeyboardEvent,
     ) => {
-      if (event.key === "Escape") {
+      if (
+        event.key ===
+        "Escape"
+      ) {
         onClose();
       }
     };
@@ -117,7 +195,9 @@ export default function V2AssessmentLauncherOverlay({
         "keydown",
         onKeyDown,
       );
-      globalThis.document.body.style.overflow =
+
+      globalThis.document.body.style
+        .overflow =
         previousOverflow;
     };
   }, [onClose]);
@@ -125,123 +205,161 @@ export default function V2AssessmentLauncherOverlay({
   useEffect(() => {
     let cancelled = false;
 
+    setLoading(true);
+    setMessage("");
+    setSubmitted(false);
+    setAnswers({});
+    setAttemptId("");
+
+    const previewEndpoint =
+      mode === "TEACHER"
+        ? "/api/teacher/book-questions/preview"
+        : "/api/admin/book-questions/preview";
+
     const request =
-      mode === "PREVIEW"
+      previewMode
         ? fetch(
-            `/api/admin/book-questions/preview?exerciseId=${encodeURIComponent(
+            `${previewEndpoint}?exerciseId=${encodeURIComponent(
               exerciseId,
             )}&groupId=${encodeURIComponent(
               groupId,
             )}`,
             {
-              cache: "no-store",
+              cache:
+                "no-store",
             },
           )
         : fetch(
             "/api/student/practice/launcher",
             {
-              method: "POST",
+              method:
+                "POST",
+
               headers: {
                 "Content-Type":
                   "application/json",
               },
-              body: JSON.stringify({
-                exerciseId,
-                groupId,
-                questionType,
-                questionIds: selectedIds,
-              }),
+
+              body:
+                JSON.stringify(
+                  {
+                    exerciseId,
+                    groupId,
+                    questionType,
+                    questionIds:
+                      selectedIds,
+                  },
+                ),
             },
           );
 
     void request
-      .then(async (response) => {
-        const body =
-          (await response.json()) as {
-            ok?: boolean;
-            message?: string;
-            attempt?: {
-              id?: string;
-              status?: string;
-              questions?: Array<{
-                questionId: string;
-                questionType?: string;
-                questionText: string;
-                options: string[];
-                marks: number;
-                interactiveQuestion: InteractiveQuestion;
-                answered: boolean;
-                studentAnswer: unknown;
-                feedback: RuntimeFeedback | null;
-              }>;
-            };
-            questions?: Array<{
-              id: string;
-              questionType?: string;
-              questionText: string;
-              options: unknown;
-              marks: number;
-              correctAnswer?: string | null;
-              explanation?: string | null;
-            }>;
-          };
+      .then(
+        async (
+          response,
+        ) => {
+          const body =
+            (await response.json()) as LauncherResponse;
 
-        if (!response.ok || !body.ok) {
-          throw new Error(
-            body.message ??
-              "This practice collection is unavailable.",
+          if (
+            !response.ok ||
+            !body.ok
+          ) {
+            throw new Error(
+              body.message ??
+                "This practice collection is unavailable.",
+            );
+          }
+
+          const previewRows =
+            previewMode
+              ? (
+                  body.questions ??
+                  []
+                ).filter(
+                  (
+                    question,
+                  ) =>
+                    normalizeQuestionType(
+                      question.questionType,
+                    ) ===
+                      questionType &&
+                    (!selectedIds.length ||
+                      selectedIds.includes(
+                        question.id,
+                      )),
+                )
+              : [];
+
+          const source:
+            RuntimeQuestion[] =
+            previewMode
+              ? previewRows.map(
+                  mapPreviewQuestion,
+                )
+              : (
+                  body.attempt
+                    ?.questions ??
+                  []
+                ).map(
+                  mapAttemptQuestion,
+                );
+
+          if (
+            !source.length
+          ) {
+            throw new Error(
+              "This practice activity is not available.",
+            );
+          }
+
+          if (cancelled) {
+            return;
+          }
+
+          setQuestions(
+            source,
           );
-        }
 
-        const previewRows =
-          mode === "PREVIEW"
-            ? (body.questions ?? []).filter(
-                (question) =>
-                  normalizeQuestionType(
-                    question.questionType,
-                  ) === questionType &&
-                  (!selectedIds.length ||
-                    selectedIds.includes(
-                      question.id,
-                    )),
-              )
-            : [];
+          if (
+            !previewMode
+          ) {
+            setAttemptId(
+              body.attemptId ??
+                body.attempt?.id ??
+                "",
+            );
 
-        const source: RuntimeQuestion[] =
-          mode === "PREVIEW"
-            ? previewRows.map(
-                mapPreviewQuestion,
-              )
-            : (
-                body.attempt?.questions ?? []
-              ).map(mapAttemptQuestion);
+            if (
+              !body.attemptId &&
+              !body.attempt?.id
+            ) {
+              throw new Error(
+                "This practice activity is not available.",
+              );
+            }
+          }
+        },
+      )
+      .catch(
+        (
+          error: unknown,
+        ) => {
+          if (cancelled) {
+            return;
+          }
 
-        if (!source.length) {
-          throw new Error(
-            `No approved ${label} questions are available in this practice collection yet.`,
-          );
-        }
+          setQuestions([]);
 
-        if (!cancelled) {
-          setQuestions(source);
-          setAttemptId(
-            body.attempt?.id ?? "",
-          );
-          setSubmitted(
-            body.attempt?.status ===
-              "SUBMITTED",
-          );
-        }
-      })
-      .catch((cause) => {
-        if (!cancelled) {
           setMessage(
-            cause instanceof Error
-              ? cause.message
-              : "This practice collection is unavailable.",
+            error instanceof
+                Error &&
+              error.message
+              ? error.message
+              : "This practice activity is not available.",
           );
-        }
-      })
+        },
+      )
       .finally(() => {
         if (!cancelled) {
           setLoading(false);
@@ -255,164 +373,348 @@ export default function V2AssessmentLauncherOverlay({
     exerciseId,
     groupId,
     mode,
+    previewMode,
     questionType,
-    selectedIds.join("|"),
-    label,
+    selectedIds,
   ]);
 
-  function hasAnswer(question: RuntimeQuestion) {
-    const value = answers[question.questionId];
-    if (typeof value === "string") return Boolean(value.trim());
-    if (Array.isArray(value)) return value.length > 0;
-    return value !== null && value !== undefined;
+  function hasAnswer(
+    question: RuntimeQuestion,
+  ) {
+    const value =
+      answers[
+        question.questionId
+      ];
+
+    if (
+      Array.isArray(value)
+    ) {
+      return (
+        value.length > 0
+      );
+    }
+
+    if (
+      typeof value ===
+      "string"
+    ) {
+      return Boolean(
+        value.trim(),
+      );
+    }
+
+    if (
+      typeof value ===
+      "boolean"
+    ) {
+      return true;
+    }
+
+    if (
+      typeof value ===
+      "number"
+    ) {
+      return true;
+    }
+
+    return (
+      value !== null &&
+      value !== undefined
+    );
   }
 
   async function submit() {
     if (
-      busy ||
-      submitted ||
       questions.some(
-        (question) => !hasAnswer(question),
+        (question) =>
+          !hasAnswer(
+            question,
+          ),
       )
     ) {
+      setMessage(
+        "Please answer all questions before submitting.",
+      );
+
       return;
     }
 
     setBusy(true);
     setMessage("");
 
-    try {
-      if (mode === "PREVIEW") {
-        setQuestions((current) =>
-          current.map((question) => ({
-            ...question,
-            answered: true,
-            studentAnswer:
-              answers[question.questionId],
-            feedback: {
-              correct: previewCorrect(
+    /*
+     * Teacher and Publisher preview:
+     *
+     * Grade locally using the existing normalized
+     * question evaluator.
+     *
+     * No StudentPracticeAttempt is created.
+     */
+    if (previewMode) {
+      try {
+        setQuestions(
+          (current) =>
+            current.map(
+              (
                 question,
-                answers[
-                  question.questionId
-                ],
-              ),
-              correctAnswer:
-                question.correctAnswer ??
-                null,
-              explanation:
-                question.feedback
-                  ?.explanation ?? null,
-            },
-          })),
+              ) => {
+                const answer =
+                  answers[
+                    question
+                      .questionId
+                  ];
+
+                const practiceMode =
+                  getBookQuestionPracticeMode(
+                    question.questionType,
+                  );
+
+                if (
+                  practiceMode ===
+                  "MANUAL_RESPONSE"
+                ) {
+                  return {
+                    ...question,
+
+                    answered:
+                      true,
+
+                    studentAnswer:
+                      answer,
+
+                    feedback:
+                      {
+                        correct:
+                          null,
+
+                        explanation:
+                          question.feedback
+                            ?.explanation ??
+                          null,
+                      },
+                  };
+                }
+
+                const correct =
+                  previewCorrect(
+                    question,
+                    answer,
+                  );
+
+                return {
+                  ...question,
+
+                  answered:
+                    true,
+
+                  studentAnswer:
+                    answer,
+
+                  feedback:
+                    {
+                      correct,
+
+                      correctAnswer:
+                        correct
+                          ? null
+                          : question.correctAnswer ??
+                            null,
+
+                      explanation:
+                        question.feedback
+                          ?.explanation ??
+                        null,
+                    },
+                };
+              },
+            ),
         );
 
-        setSubmitted(true);
-        return;
+        setSubmitted(
+          true,
+        );
+      } catch {
+        setMessage(
+          "We could not check these answers. Please try again.",
+        );
+      } finally {
+        setBusy(false);
       }
 
-      if (!attemptId) {
-        throw new Error(
-          "This practice collection is unavailable.",
-        );
-      }
+      return;
+    }
 
-      for (const question of questions) {
-        const response = await fetch(
-          `/api/student/practice/${encodeURIComponent(
-            attemptId,
-          )}/answer`,
-          {
-            method: "PATCH",
-            headers: {
-              "Content-Type":
-                "application/json",
+    /*
+     * Student mode retains the existing persistent
+     * StudentPracticeAttempt workflow.
+     *
+     * Answers are stored first and the practice is
+     * submitted once after all answers are saved.
+     */
+    if (!attemptId) {
+      setMessage(
+        "This practice activity is not available.",
+      );
+
+      setBusy(false);
+
+      return;
+    }
+
+    try {
+      const returnedFeedback =
+        new Map<
+          string,
+          RuntimeFeedback
+        >();
+
+      for (
+        const question of
+        questions
+      ) {
+        const response =
+          await fetch(
+            `/api/student/practice/${encodeURIComponent(
+              attemptId,
+            )}/answer`,
+            {
+              method:
+                "PATCH",
+
+              headers: {
+                "Content-Type":
+                  "application/json",
+              },
+
+              body:
+                JSON.stringify(
+                  {
+                    questionId:
+                      question.questionId,
+
+                    answer:
+                      answers[
+                        question
+                          .questionId
+                      ],
+                  },
+                ),
             },
-            body: JSON.stringify({
-              questionId:
-                question.questionId,
-              answer:
-                answers[
-                  question.questionId
-                ],
-            }),
-          },
-        );
+          );
 
         const body =
           (await response.json()) as {
             ok?: boolean;
             message?: string;
+            correct?: boolean | null;
+            correctAnswer?: string | null;
+            explanation?: string | null;
           };
 
-        if (!response.ok || !body.ok) {
+        if (
+          !response.ok ||
+          !body.ok
+        ) {
           throw new Error(
             body.message ??
-              "We could not save your answers.",
+              "We could not save your answer. Please try again.",
+          );
+        }
+
+        if (
+          body.correct !==
+            undefined ||
+          body.correctAnswer !==
+            undefined ||
+          body.explanation !==
+            undefined
+        ) {
+          returnedFeedback.set(
+            question.questionId,
+            {
+              correct:
+                body.correct ??
+                null,
+
+              correctAnswer:
+                body.correctAnswer ??
+                null,
+
+              explanation:
+                body.explanation ??
+                null,
+            },
           );
         }
       }
 
-      const response = await fetch(
-        `/api/student/practice/${encodeURIComponent(
-          attemptId,
-        )}/submit`,
-        {
-          method: "POST",
-        },
-      );
+      const submitResponse =
+        await fetch(
+          `/api/student/practice/${encodeURIComponent(
+            attemptId,
+          )}/submit`,
+          {
+            method:
+              "POST",
+          },
+        );
 
-      const body =
-        (await response.json()) as {
+      const submitBody =
+        (await submitResponse.json()) as {
           ok?: boolean;
           message?: string;
-          attempt?: {
-            questions?: Array<{
-              questionId: string;
-              feedback: RuntimeFeedback | null;
-              studentAnswer: unknown;
-              answered: boolean;
-            }>;
-          };
         };
 
-      if (!response.ok || !body.ok) {
+      if (
+        !submitResponse.ok ||
+        !submitBody.ok
+      ) {
         throw new Error(
-          body.message ??
-            "We could not submit this practice collection.",
+          submitBody.message ??
+            "Please answer all questions before submitting.",
         );
       }
 
-      const feedbackById = new Map(
-        (
-          body.attempt?.questions ?? []
-        ).map((question) => [
-          question.questionId,
-          question,
-        ]),
-      );
+      setQuestions(
+        (current) =>
+          current.map(
+            (
+              question,
+            ) => ({
+              ...question,
 
-      setQuestions((current) =>
-        current.map((question) => ({
-          ...question,
-          answered: true,
-          studentAnswer:
-            feedbackById.get(
-              question.questionId,
-            )?.studentAnswer ??
-            answers[question.questionId],
-          feedback:
-            feedbackById.get(
-              question.questionId,
-            )?.feedback ?? null,
-        })),
+              answered:
+                true,
+
+              studentAnswer:
+                answers[
+                  question
+                    .questionId
+                ],
+
+              feedback:
+                returnedFeedback.get(
+                  question.questionId,
+                ) ??
+                question.feedback ??
+                {
+                  correct:
+                    null,
+                },
+            }),
+          ),
       );
 
       setSubmitted(true);
-    } catch (cause) {
+    } catch (
+      error
+    ) {
       setMessage(
-        cause instanceof Error
-          ? cause.message
-          : "We could not submit this practice collection.",
+        error instanceof
+            Error &&
+          error.message
+          ? error.message
+          : "We could not submit this practice. Please try again.",
       );
     } finally {
       setBusy(false);
@@ -431,7 +733,9 @@ export default function V2AssessmentLauncherOverlay({
       data-v2-assessment-launcher-overlay
       role="presentation"
       className="fixed inset-0 z-[115] flex items-center justify-center bg-slate-950/70 p-4"
-      onMouseDown={(event) => {
+      onMouseDown={(
+        event,
+      ) => {
         if (
           event.target ===
           event.currentTarget
@@ -443,18 +747,26 @@ export default function V2AssessmentLauncherOverlay({
       <section
         role="dialog"
         aria-modal="true"
-        aria-labelledby={titleId}
+        aria-labelledby={
+          titleId
+        }
         className="w-full max-w-2xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl"
-        onMouseDown={(event) =>
+        onMouseDown={(
+          event,
+        ) =>
           event.stopPropagation()
         }
       >
         <header className="flex items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-5 py-4">
           <div>
             <p className="text-xs font-bold uppercase tracking-wide text-indigo-700">
-              {mode === "PREVIEW"
-                ? "Publisher Preview"
-                : "Practice"}
+              {mode ===
+              "TEACHER"
+                ? "Teacher Preview"
+                : mode ===
+                    "PREVIEW"
+                  ? "Publisher Preview"
+                  : "Practice"}
             </p>
 
             <h2
@@ -475,7 +787,9 @@ export default function V2AssessmentLauncherOverlay({
             ref={closeRef}
             type="button"
             aria-label={`Close ${label}`}
-            onClick={onClose}
+            onClick={
+              onClose
+            }
             className="rounded-lg px-3 py-1 text-xl font-bold leading-none text-slate-600 hover:bg-slate-200"
           >
             ×
@@ -485,7 +799,8 @@ export default function V2AssessmentLauncherOverlay({
         <div className="max-h-[75vh] space-y-5 overflow-y-auto p-5">
           {loading ? (
             <p className="rounded-xl bg-slate-50 p-5 text-sm text-slate-500">
-              Loading questions…
+              Loading
+              questions…
             </p>
           ) : message ? (
             <p
@@ -497,7 +812,10 @@ export default function V2AssessmentLauncherOverlay({
           ) : (
             <>
               {questions.map(
-                (question, index) => (
+                (
+                  question,
+                  index,
+                ) => (
                   <article
                     key={
                       question.questionId
@@ -505,15 +823,24 @@ export default function V2AssessmentLauncherOverlay({
                     className="rounded-xl border border-slate-200 p-4"
                   >
                     <p className="text-xs font-bold text-slate-500">
-                      Question {index + 1} ·{" "}
-                      {question.marks} mark
-                      {question.marks === 1
+                      Question{" "}
+                      {index +
+                        1}{" "}
+                      ·{" "}
+                      {
+                        question.marks
+                      }{" "}
+                      mark
+                      {question.marks ===
+                      1
                         ? ""
                         : "s"}
                     </p>
 
                     <p className="mt-2 whitespace-pre-wrap text-base font-semibold leading-7 text-slate-900">
-                      {question.questionText}
+                      {
+                        question.questionText
+                      }
                     </p>
 
                     {question.feedback &&
@@ -525,13 +852,37 @@ export default function V2AssessmentLauncherOverlay({
                       />
                     ) : (
                       <InteractiveQuestionRenderer
-                        question={question.interactiveQuestion}
-                        response={answers[question.questionId] ?? ""}
-                        onChange={(value) => setAnswers((current) => ({ ...current, [question.questionId]: value }))}
-                        disabled={submitted}
-                        showPrompt={false}
-                      />
+                        question={
+                          question.interactiveQuestion
+                        }
+                        response={
+                          answers[
+                            question
+                              .questionId
+                          ] ??
+                          ""
+                        }
+                        onChange={(
+                          value,
+                        ) =>
+                          setAnswers(
+                            (
+                              current,
+                            ) => ({
+                              ...current,
 
+                              [question.questionId]:
+                                value,
+                            }),
+                          )
+                        }
+                        disabled={
+                          submitted
+                        }
+                        showPrompt={
+                          false
+                        }
+                      />
                     )}
                   </article>
                 ),
@@ -539,8 +890,12 @@ export default function V2AssessmentLauncherOverlay({
 
               <div className="flex items-center justify-between gap-3">
                 <span className="text-xs font-semibold text-slate-500">
-                  {questions.length} question
-                  {questions.length === 1
+                  {
+                    questions.length
+                  }{" "}
+                  question
+                  {questions.length ===
+                  1
                     ? ""
                     : "s"}
                 </span>
@@ -550,7 +905,9 @@ export default function V2AssessmentLauncherOverlay({
                   onRetry ? (
                     <button
                       type="button"
-                      onClick={onRetry}
+                      onClick={
+                        onRetry
+                      }
                       className="rounded-xl border border-indigo-200 px-5 py-3 text-sm font-bold text-indigo-700"
                     >
                       Try Again
@@ -563,7 +920,9 @@ export default function V2AssessmentLauncherOverlay({
                       disabled={
                         busy ||
                         questions.some(
-                          (question) =>
+                          (
+                            question,
+                          ) =>
                             !hasAnswer(
                               question,
                             ),
@@ -586,7 +945,8 @@ export default function V2AssessmentLauncherOverlay({
         </div>
       </section>
     </div>,
-    globalThis.document.body,
+    globalThis.document
+      .body,
   );
 }
 
@@ -595,7 +955,10 @@ function Feedback({
 }: {
   feedback: RuntimeFeedback;
 }) {
-  const manual = feedback.correct === null;
+  const manual =
+    feedback.correct ===
+    null;
+
   return (
     <div
       className={`mt-3 rounded-xl p-3 ${
@@ -618,7 +981,8 @@ function Feedback({
       !feedback.correct &&
       feedback.correctAnswer ? (
         <p className="mt-1 text-sm">
-          Correct answer:{" "}
+          Correct
+          answer:{" "}
           {friendlyAnswer(
             feedback.correctAnswer,
           )}
@@ -627,68 +991,121 @@ function Feedback({
 
       {feedback.explanation ? (
         <p className="mt-2 text-sm leading-6">
-          {feedback.explanation}
+          {
+            feedback.explanation
+          }
         </p>
       ) : null}
     </div>
   );
 }
 
-function mapPreviewQuestion(question: {
-  id: string;
-  questionType?: string;
-  questionText: string;
-  options: unknown;
-  marks: number;
-  correctAnswer?: string | null;
-  explanation?: string | null;
-}): RuntimeQuestion {
+function mapPreviewQuestion(
+  question: {
+    id: string;
+    questionType?: string;
+    questionText: string;
+    options: unknown;
+    marks: number;
+    correctAnswer?:
+      | string
+      | null;
+    explanation?:
+      | string
+      | null;
+  },
+): RuntimeQuestion {
   const questionType =
     normalizeQuestionType(
       question.questionType,
     );
-  const previewQuestion = adaptBookQuestion({
-    id: question.id,
-    bookId: "",
-    chapterId: "",
-    questionType: question.questionType ?? questionType,
-    questionText: question.questionText,
-    options: question.options,
-    correctAnswer: question.correctAnswer ?? null,
-    explanation: question.explanation ?? null,
-    marks: question.marks,
-  });
+
+  const previewQuestion =
+    adaptBookQuestion({
+      id: question.id,
+      bookId: "",
+      chapterId: "",
+      questionType:
+        question.questionType ??
+        questionType,
+      questionText:
+        question.questionText,
+      options:
+        question.options,
+      correctAnswer:
+        question.correctAnswer ??
+        null,
+      explanation:
+        question.explanation ??
+        null,
+      marks:
+        question.marks,
+    });
 
   const options =
-    questionType === "MCQ" || questionType === "MULTIPLE_SELECT"
+    questionType ===
+      "MCQ" ||
+    questionType ===
+      "MULTIPLE_SELECT"
       ? normalizeOptions(
           question.options,
         )
       : [];
 
   return {
-    questionId: question.id,
+    questionId:
+      question.id,
+
     questionType,
-    questionText: question.questionText,
-    interactiveQuestion: previewQuestion,
+
+    questionText:
+      question.questionText,
+
+    interactiveQuestion:
+      previewQuestion,
+
     previewQuestion,
+
     options,
-    marks: question.marks,
-    answered: false,
-    studentAnswer: null,
-    feedback: question.explanation
-      ? {
-          correct: getBookQuestionPracticeMode(questionType) === "MANUAL_RESPONSE" ? null : false,
-          explanation:
-            question.explanation,
-        }
-      : null,
-    correctAnswer:
-      getBookQuestionPracticeMode(questionType) === "AUTO_GRADED"
-        ? formatCorrectAnswer(previewQuestion)
+
+    marks:
+      question.marks,
+
+    answered:
+      false,
+
+    studentAnswer:
+      null,
+
+    feedback:
+      question.explanation
+        ? {
+            correct:
+              getBookQuestionPracticeMode(
+                questionType,
+              ) ===
+              "MANUAL_RESPONSE"
+                ? null
+                : false,
+
+            explanation:
+              question.explanation,
+          }
         : null,
+
+    correctAnswer:
+      getBookQuestionPracticeMode(
+        questionType,
+      ) ===
+      "AUTO_GRADED"
+        ? formatCorrectAnswer(
+            previewQuestion,
+          )
+        : null,
+
     acceptedAnswers:
-      questionType === "FILL_BLANK"
+      questionType ===
+      "FILL_BLANK"
         ? readAcceptedAnswers(
             question.options,
           )
@@ -696,56 +1113,77 @@ function mapPreviewQuestion(question: {
   };
 }
 
-function mapAttemptQuestion(question: {
-  questionId: string;
-  questionType?: string;
-  questionText: string;
-  options: string[];
-  marks: number;
-  answered: boolean;
-  studentAnswer: unknown;
-  feedback: RuntimeFeedback | null;
-  interactiveQuestion: InteractiveQuestion;
-}): RuntimeQuestion {
+function mapAttemptQuestion(
+  question: {
+    questionId: string;
+    questionType?: string;
+    questionText: string;
+    options: string[];
+    marks: number;
+    answered: boolean;
+    studentAnswer: unknown;
+    feedback:
+      RuntimeFeedback | null;
+    interactiveQuestion:
+      InteractiveQuestion;
+  },
+): RuntimeQuestion {
   return {
     ...question,
+
     questionType:
       normalizeQuestionType(
         question.questionType,
       ),
+
     options: (
       question.options ?? []
-    ).map((option) => ({
-      value: option,
-      text: option,
-    })),
+    ).map(
+      (
+        option,
+      ) => ({
+        value: option,
+        text: option,
+      }),
+    ),
   };
 }
 
 function normalizeOptions(
   value: unknown,
 ): RuntimeOption[] {
-  if (!Array.isArray(value)) {
+  if (
+    !Array.isArray(value)
+  ) {
     return [];
   }
 
   return value.flatMap(
-    (option, index) => {
+    (
+      option,
+      index,
+    ) => {
       if (
-        typeof option === "string"
+        typeof option ===
+        "string"
       ) {
         return [
           {
-            value: option,
-            text: option,
+            value:
+              option,
+            text:
+              option,
           },
         ];
       }
 
       if (
         !option ||
-        typeof option !== "object" ||
-        Array.isArray(option)
+        typeof option !==
+          "object" ||
+        Array.isArray(
+          option,
+        )
       ) {
         return [];
       }
@@ -762,11 +1200,15 @@ function normalizeOptions(
         record.value,
       ].find(
         (entry) =>
-          typeof entry === "string" &&
+          typeof entry ===
+            "string" &&
           entry.trim(),
       );
 
-      if (typeof text !== "string") {
+      if (
+        typeof text !==
+        "string"
+      ) {
         return [];
       }
 
@@ -778,7 +1220,9 @@ function normalizeOptions(
             record.id.trim()
               ? record.id
               : `option-${index + 1}`,
-          text,
+
+          text:
+            text.trim(),
         },
       ];
     },
@@ -790,7 +1234,8 @@ function readAcceptedAnswers(
 ) {
   if (
     !value ||
-    typeof value !== "object" ||
+    typeof value !==
+      "object" ||
     Array.isArray(value)
   ) {
     return [];
@@ -803,38 +1248,93 @@ function readAcceptedAnswers(
       }
     ).acceptedAnswers;
 
-  return Array.isArray(accepted)
+  return Array.isArray(
+    accepted,
+  )
     ? accepted.filter(
-        (item): item is string =>
-          typeof item === "string",
+        (
+          item,
+        ): item is string =>
+          typeof item ===
+          "string",
       )
     : [];
 }
 
-function previewCorrect(question: RuntimeQuestion, answer: unknown) {
-  if (getBookQuestionPracticeMode(question.questionType) !== "AUTO_GRADED") return null;
+function previewCorrect(
+  question:
+    RuntimeQuestion,
+  answer: unknown,
+) {
+  if (
+    getBookQuestionPracticeMode(
+      question.questionType,
+    ) !== "AUTO_GRADED"
+  ) {
+    return null;
+  }
+
   return question.previewQuestion
-    ? evaluateObjectiveQuestionResponse(question.previewQuestion, answer).correct === true
+    ? evaluateObjectiveQuestionResponse(
+        question.previewQuestion,
+        answer,
+      ).correct === true
     : false;
 }
 
-function formatCorrectAnswer(question: NormalizedQuestion) {
-  if (question.questionType === "TRUE_FALSE") {
-    return question.answer.correctBoolean === undefined ? null : question.answer.correctBoolean ? "True" : "False";
+function formatCorrectAnswer(
+  question:
+    NormalizedQuestion,
+) {
+  if (
+    question.questionType ===
+    "TRUE_FALSE"
+  ) {
+    return question.answer
+      .correctBoolean ===
+      undefined
+      ? null
+      : question.answer
+            .correctBoolean
+        ? "True"
+        : "False";
   }
-  if (question.answer.correctOptionIds?.length) {
+
+  if (
+    question.answer
+      .correctOptionIds
+      ?.length
+  ) {
     return question.answer.correctOptionIds
-      .map((id) => question.options.find((option) => option.id === id)?.text ?? id)
+      .map(
+        (id) =>
+          question.options.find(
+            (option) =>
+              option.id === id,
+          )?.text ??
+          id,
+      )
       .join(", ");
   }
-  return question.answer.acceptedAnswers?.join(" / ") ?? null;
+
+  return (
+    question.answer
+      .acceptedAnswers?.join(
+        " / ",
+      ) ?? null
+  );
 }
-function friendlyAnswer(value: string) {
+
+function friendlyAnswer(
+  value: string,
+) {
   if (value === "true") {
     return "True";
   }
 
-  if (value === "false") {
+  if (
+    value === "false"
+  ) {
     return "False";
   }
 
@@ -844,10 +1344,14 @@ function friendlyAnswer(value: string) {
 function normalizeQuestionType(
   value: unknown,
 ): V2PracticeQuestionType {
-  return value === "TRUE_FALSE" ||
-    value === "FILL_BLANK" ||
-    value === "MULTIPLE_SELECT" ||
-    value === "SHORT_ANSWER"
+  return value ===
+      "TRUE_FALSE" ||
+    value ===
+      "FILL_BLANK" ||
+    value ===
+      "MULTIPLE_SELECT" ||
+    value ===
+      "SHORT_ANSWER"
     ? value
     : "MCQ";
 }

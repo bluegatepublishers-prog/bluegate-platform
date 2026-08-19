@@ -1,7 +1,14 @@
-import type { ReactNode } from "react";
+import type {
+  ReactNode,
+} from "react";
 
-import type { ContentBlock } from "@/lib/content-document";
-import type { LayoutV2Frame } from "@/lib/content-layout-v2";
+import type {
+  ContentBlock,
+} from "@/lib/content-document";
+
+import type {
+  LayoutV2Frame,
+} from "@/lib/content-layout-v2";
 
 import V2EducationalButtonVisual, {
   isV2EducationalButtonBlock,
@@ -38,39 +45,67 @@ export default function V2FrameContent({
   renderBlock,
   renderFrame,
   onPayloadChange,
-  videoPresentation = "AUTHORING",
+  videoPresentation =
+    "AUTHORING",
+  deliveryMode,
 }: {
-  frame: LayoutV2Frame;
-  frames: LayoutV2Frame[];
-  block?: ContentBlock;
-  pageWidth: number;
-  pageHeight: number;
+  frame:
+    LayoutV2Frame;
+
+  frames:
+    LayoutV2Frame[];
+
+  block?:
+    ContentBlock;
+
+  pageWidth:
+    number;
+
+  pageHeight:
+    number;
+
   resourceUrlResolver: (
     resourceId: string,
   ) => string | null;
+
   renderBlock?: (
     block: ContentBlock,
   ) => ReactNode;
+
   renderFrame?: (
-    frame: LayoutV2Frame,
-    frames: LayoutV2Frame[],
+    frame:
+      LayoutV2Frame,
+    frames:
+      LayoutV2Frame[],
   ) => ReactNode;
+
   onPayloadChange?: (
-    payload: Record<string, unknown>,
+    payload: Record<
+      string,
+      unknown
+    >,
   ) => void;
+
   videoPresentation?:
     | "AUTHORING"
     | "DELIVERY"
     | "PREVIEW";
+
+  /*
+   * Actual delivery audience.
+   *
+   * DELIVERY alone is insufficient because both
+   * Teacher My Books and Student My Books are
+   * delivery surfaces.
+   */
+  deliveryMode?:
+    | "TEACHER"
+    | "STUDENT";
 }) {
   /*
-   * ---------------------------------------------------------
-   * Interactive launcher frames MUST be detected before the
-   * generic Educational / Worksheet frame fallback.
-   * ---------------------------------------------------------
+   * Interactive launcher frames MUST be
+   * detected before generic educational frames.
    */
-
-  // frame.type === "ASSESSMENT_LAUNCHER" is intentionally handled before legacy educational frames.
   if (
     frame.type ===
     "ASSESSMENT_LAUNCHER"
@@ -86,27 +121,27 @@ export default function V2FrameContent({
           videoPresentation ===
           "PREVIEW"
             ? "PREVIEW"
-            : "STUDENT"
+            : deliveryMode ===
+                "TEACHER"
+              ? "TEACHER"
+              : "STUDENT"
         }
       />
     );
   }
 
   /*
-   * A WORKSHEET frame can mean two different things:
-   *
-   * 1. legacy/static Worksheet educational object
-   * 2. interactive V2 Worksheet Launcher
-   *
-   * Therefore payload identification MUST happen before
-   * the generic WORKSHEET rendering branch below.
+   * WORKSHEET can be either an old/static
+   * worksheet object or an interactive launcher.
    */
   const worksheetLauncher =
     getV2WorksheetLauncherPayload(
       frame,
     );
 
-  if (worksheetLauncher) {
+  if (
+    worksheetLauncher
+  ) {
     return (
       <V2WorksheetLauncherVisual
         frame={frame}
@@ -125,8 +160,8 @@ export default function V2FrameContent({
   }
 
   /*
-   * Existing Educational Block behavior starts here.
-   * Do not move launcher detection below this branch.
+   * Existing Educational Block behaviour.
+   * Keep this unchanged.
    */
   if (
     block &&
@@ -143,18 +178,16 @@ export default function V2FrameContent({
           "DELIVERY"
         }
         overlayContent={
-          renderBlock?.(block)
+          renderBlock?.(
+            block,
+          )
         }
       />
     );
   }
 
   /*
-   * Legacy/static educational-object frames.
-   *
-   * WORKSHEET remains here intentionally so old Worksheet
-   * content keeps its existing behavior. Interactive
-   * Worksheet Launchers have already returned above.
+   * Legacy/static educational frames.
    */
   if (
     [
@@ -162,7 +195,9 @@ export default function V2FrameContent({
       "ACTIVITY",
       "WORKSHEET",
       "EXERCISE",
-    ].includes(frame.type)
+    ].includes(
+      frame.type,
+    )
   ) {
     return (
       <V2EducationalButtonVisual
@@ -176,7 +211,10 @@ export default function V2FrameContent({
     );
   }
 
-  if (frame.type === "TEXT") {
+  if (
+    frame.type ===
+    "TEXT"
+  ) {
     return (
       <div
         data-v2-delivery-text-container
@@ -186,7 +224,9 @@ export default function V2FrameContent({
           <V2TextVisual
             frame={frame}
             block={block}
-            frames={frames}
+            frames={
+              frames
+            }
             pageWidth={
               pageWidth
             }
@@ -200,20 +240,25 @@ export default function V2FrameContent({
           (child) =>
             renderFrame?.(
               child,
-              frame.children ?? [],
+              frame.children ??
+                [],
             ) ?? null,
         )}
       </div>
     );
   }
 
-  if (frame.type === "IMAGE") {
+  if (
+    frame.type ===
+    "IMAGE"
+  ) {
     const resourceId =
       getV2FrameResourceId(
         frame,
       ) ??
       (block &&
-      "resourceId" in block
+      "resourceId" in
+        block
         ? block.resourceId
         : undefined);
 
@@ -236,7 +281,10 @@ export default function V2FrameContent({
     );
   }
 
-  if (frame.type === "SHAPE") {
+  if (
+    frame.type ===
+    "SHAPE"
+  ) {
     const payload =
       frame.payload &&
       typeof frame.payload ===
@@ -249,7 +297,9 @@ export default function V2FrameContent({
 
     return (
       <V2ShapeVisual
-        payload={payload}
+        payload={
+          payload
+        }
         frame={frame}
         editable={
           videoPresentation ===
@@ -270,28 +320,34 @@ export default function V2FrameContent({
     );
   }
 
-  if (frame.type === "VIDEO") {
+  if (
+    frame.type ===
+    "VIDEO"
+  ) {
     const resourceId =
       getV2FrameResourceId(
         frame,
       ) ??
       (block &&
-      "resourceId" in block &&
+      "resourceId" in
+        block &&
       typeof block.resourceId ===
         "string"
         ? block.resourceId
         : undefined) ??
-      (block?.type === "media" &&
+      (block?.type ===
+        "media" &&
       block.targetType ===
         "RESOURCE"
         ? block.targetId
         : undefined);
 
-    const src = resourceId
-      ? resourceUrlResolver(
-          resourceId,
-        )
-      : null;
+    const src =
+      resourceId
+        ? resourceUrlResolver(
+            resourceId,
+          )
+        : null;
 
     return src ? (
       <V2VideoVisual
@@ -310,11 +366,16 @@ export default function V2FrameContent({
         }
       />
     ) : (
-      <Unavailable label="Video resource unavailable" />
+      <Unavailable
+        label="Video resource unavailable"
+      />
     );
   }
 
-  if (frame.type === "TABLE") {
+  if (
+    frame.type ===
+    "TABLE"
+  ) {
     const payload =
       frame.payload &&
       typeof frame.payload ===
@@ -327,7 +388,9 @@ export default function V2FrameContent({
 
     return (
       <V2TableVisual
-        payload={payload}
+        payload={
+          payload
+        }
         onChange={
           onPayloadChange
         }
@@ -335,13 +398,18 @@ export default function V2FrameContent({
     );
   }
 
-  if (block && renderBlock) {
+  if (
+    block &&
+    renderBlock
+  ) {
     return (
       <div
         data-v2-bounded-block
         className="h-full w-full max-w-full overflow-auto p-2"
       >
-        {renderBlock(block)}
+        {renderBlock(
+          block,
+        )}
       </div>
     );
   }

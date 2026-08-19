@@ -1,10 +1,21 @@
-import type { Prisma, ResourceAudience, ResourceType } from "@prisma/client";
-import { ResourceAudience as Audience } from "@prisma/client";
+import type {
+  Prisma,
+  ResourceAudience,
+  ResourceType,
+} from "@prisma/client";
+
+import {
+  ResourceAudience as Audience,
+} from "@prisma/client";
 
 export function getTeacherVisibleResourceWhere(
   publisherId: string,
 ): Prisma.ResourceWhereInput {
-  return { publisherId, published: true, archived: false };
+  return {
+    publisherId,
+    published: true,
+    archived: false,
+  };
 }
 
 export function getStudentVisibleResourceWhere(
@@ -14,7 +25,13 @@ export function getStudentVisibleResourceWhere(
     publisherId,
     published: true,
     archived: false,
-    audience: { in: [Audience.STUDENT, Audience.BOTH] },
+
+    audience: {
+      in: [
+        Audience.STUDENT,
+        Audience.BOTH,
+      ],
+    },
   };
 }
 
@@ -32,10 +49,23 @@ export function buildActiveTeacherAssignmentsWhere(
     teacherId,
     schoolId,
     active: true,
-    subjectId: { not: null },
-    academicYear: { active: true, current: true },
-    schoolClass: { active: true },
-    section: { active: true },
+
+    subjectId: {
+      not: null,
+    },
+
+    academicYear: {
+      active: true,
+      current: true,
+    },
+
+    schoolClass: {
+      active: true,
+    },
+
+    section: {
+      active: true,
+    },
   };
 }
 
@@ -44,38 +74,128 @@ export function buildEntitledSectionSubjectsWhere(
 ): Prisma.SectionSubjectWhereInput {
   return {
     active: true,
-    OR: assignments.map((item) => ({
-      sectionId: item.sectionId,
-      subjectId: item.subjectId!,
-    })),
+
+    OR: assignments.map(
+      (item) => ({
+        sectionId:
+          item.sectionId,
+
+        subjectId:
+          item.subjectId!,
+      }),
+    ),
   };
 }
 
+/**
+ * Teacher Resource authorization.
+ *
+ * There are deliberately TWO valid paths.
+ *
+ * PATH 1 — existing standalone Resource Library:
+ *
+ * TeacherAssignment
+ * -> SectionSubject
+ * -> Resource.sectionSubjects
+ * -> Resource.schoolEntitlements
+ *
+ * PATH 2 — Smart Book embedded Resource:
+ *
+ * TeacherAssignment
+ * -> SectionSubject.bookId
+ * -> Resource.bookId
+ * -> Book.schoolEntitlements
+ *
+ * The Smart Book path does NOT make arbitrary publisher
+ * resources available. Resource.bookId must match an
+ * actually assigned SectionSubject.bookId and that Book
+ * must be actively entitled to the teacher's school.
+ */
 export function buildTeacherResourceWhere(
   publisherId: string,
   schoolId: string,
   sectionSubjectIds: string[],
+  bookIds: string[] = [],
 ): Prisma.ResourceWhereInput {
-  return {
-    publisherId,
-    published: true,
-    archived: false,
-    sectionSubjects: { some: { id: { in: sectionSubjectIds } } },
-    schoolEntitlements: { some: { schoolId, publisherId, status: "ACTIVE" } },
+  const normalResourcePath:
+    Prisma.ResourceWhereInput = {
+    sectionSubjects: {
+      some: {
+        id: {
+          in:
+            sectionSubjectIds,
+        },
+      },
+    },
+
+    schoolEntitlements: {
+      some: {
+        schoolId,
+        publisherId,
+        status: "ACTIVE",
+      },
+    },
+
     AND: [
       {
         OR: [
-          { bookId: null },
+          {
+            bookId: null,
+          },
+
           {
             book: {
               schoolEntitlements: {
-                some: { schoolId, publisherId, status: "ACTIVE" },
+                some: {
+                  schoolId,
+                  publisherId,
+                  status:
+                    "ACTIVE",
+                },
               },
             },
           },
         ],
       },
     ],
+  };
+
+  const allowedPaths:
+    Prisma.ResourceWhereInput[] = [
+    normalResourcePath,
+  ];
+
+  /*
+   * Never create a broad Smart Book branch when the
+   * teacher has no assigned books.
+   */
+  if (bookIds.length > 0) {
+    allowedPaths.push({
+      bookId: {
+        in: bookIds,
+      },
+
+      book: {
+        published: true,
+        archived: false,
+
+        schoolEntitlements: {
+          some: {
+            schoolId,
+            publisherId,
+            status: "ACTIVE",
+          },
+        },
+      },
+    });
+  }
+
+  return {
+    publisherId,
+    published: true,
+    archived: false,
+
+    OR: allowedPaths,
   };
 }
 
@@ -87,30 +207,53 @@ export function buildSchoolResourceWhere(
     publisherId,
     published: true,
     archived: false,
-    schoolEntitlements: { some: { schoolId, publisherId, status: "ACTIVE" } },
+
+    schoolEntitlements: {
+      some: {
+        schoolId,
+        publisherId,
+        status: "ACTIVE",
+      },
+    },
+
     AND: [
       {
         OR: [
-          { bookId: null },
+          {
+            bookId: null,
+          },
+
           {
             book: {
               schoolEntitlements: {
-                some: { schoolId, publisherId, status: "ACTIVE" },
+                some: {
+                  schoolId,
+                  publisherId,
+                  status:
+                    "ACTIVE",
+                },
               },
             },
           },
         ],
       },
     ],
+
     sectionSubjects: {
       some: {
         active: true,
+
         section: {
           active: true,
+
           schoolClass: {
             schoolId,
             active: true,
-            academicYear: { active: true, current: true },
+
+            academicYear: {
+              active: true,
+              current: true,
+            },
           },
         },
       },
@@ -136,16 +279,47 @@ export function buildAdminResourceWhere(
     type: input.type,
     audience: input.audience,
     classId: input.classId,
-    subjectId: input.subjectId,
-    seriesId: input.seriesId,
-    bookId: input.bookId,
-    published: input.published,
+    subjectId:
+      input.subjectId,
+    seriesId:
+      input.seriesId,
+    bookId:
+      input.bookId,
+    published:
+      input.published,
     archived: false,
+
     OR: input.query
       ? [
-          { title: { contains: input.query, mode: "insensitive" } },
-          { subject: { contains: input.query, mode: "insensitive" } },
-          { classLevel: { contains: input.query, mode: "insensitive" } },
+          {
+            title: {
+              contains:
+                input.query,
+
+              mode:
+                "insensitive",
+            },
+          },
+
+          {
+            subject: {
+              contains:
+                input.query,
+
+              mode:
+                "insensitive",
+            },
+          },
+
+          {
+            classLevel: {
+              contains:
+                input.query,
+
+              mode:
+                "insensitive",
+            },
+          },
         ]
       : undefined,
   };

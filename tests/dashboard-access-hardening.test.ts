@@ -21,7 +21,12 @@ function makeDependencies(
     findTeacherAssignments: async () => [
       { sectionId: "section-1", subjectId: "subject-1", academicYearId: "ay-1" },
     ],
-    findEntitledSectionSubjects: async () => [{ id: "section-subject-1" }],
+    findEntitledSectionSubjects: async () => [
+  {
+    id: "section-subject-1",
+    bookId: null,
+  },
+],
     findSchool: async () => ({
       id: "school-1",
       status: "APPROVED",
