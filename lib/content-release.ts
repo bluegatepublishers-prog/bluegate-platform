@@ -17,6 +17,7 @@ import {
 } from "@/lib/content-linked-assets";
 import { validateKnowledgeDocument } from "@/lib/content-knowledge";
 import { validateMediaDocument } from "@/lib/content-media";
+import { getV2AssessmentLauncherPayload } from "@/lib/v2-assessment-launcher";
 import { prisma } from "@/lib/prisma";
 
 export type ReleaseActor = {
@@ -57,7 +58,7 @@ export type ReleaseSummary = {
   }[];
 };
 
-type Snapshot = {
+export type ReleaseSnapshot = {
   schemaVersion: 1;
   targetType: ContentReleaseTargetType;
   targetId: string;
@@ -65,6 +66,19 @@ type Snapshot = {
   title: string;
   record: Record<string, unknown>;
   contentDocument?: ContentDocument;
+};
+
+type SnapshotQuestionLauncher = {
+  exerciseId: string;
+  groupId: string;
+  questionType: string;
+  questionIds: string[];
+};
+
+export type SnapshotDependencyIds = {
+  resourceIds: string[];
+  exerciseIds: string[];
+  questionLaunchers: SnapshotQuestionLauncher[];
 };
 
 export type ReleaseVersionPreview = {
@@ -257,6 +271,7 @@ export async function transitionRelease(input: {
       },
     });
     await updateLegacyPublishedFlag(tx, input.actor.publisherId, input.bookId, input.targetType, input.targetId, true);
+    await publishSnapshotDependencies(tx, input.actor.publisherId, input.bookId, snapshot);
     return tx.contentRelease.update({
       where: { id: release.id },
       data: {
@@ -541,7 +556,7 @@ async function buildTargetSnapshot(
   bookId: string,
   targetType: ContentReleaseTargetType,
   targetId: string,
-): Promise<Snapshot> {
+): Promise<ReleaseSnapshot> {
   if (targetType === "BOOK") {
     const row = await prisma.book.findFirst({ where: { id: targetId, publisherId }, select: { id: true, title: true, slug: true, content: true, published: true, archived: true, updatedAt: true } });
     if (!row) throw new Error("Book not found.");
@@ -643,19 +658,216 @@ async function upsertRelease(
   });
 }
 
-function collectDependencies(snapshot: Snapshot) {
+export function collectSnapshotDependencyIds(snapshot: ReleaseSnapshot): SnapshotDependencyIds {
+  const resourceIds = new Set<string>();
+  const exerciseIds = new Set<string>();
+  const questionLaunchers: SnapshotQuestionLauncher[] = [];
+  const launcherKeys = new Set<string>();
+
+  for (const block of snapshot.contentDocument?.blocks ?? []) {
+    collectBlockResourceIds(block, resourceIds);
+
+    if (isLinkedAssetBlock(block)) {
+      if (block.targetType === "RESOURCE") addResourceId(resourceIds, block.targetId);
+      if (block.targetType === "BOOK_EXERCISE") addResourceId(exerciseIds, block.targetId);
+    }
+
+    if (isMediaBlock(block)) {
+      if (block.targetType === "RESOURCE") addResourceId(resourceIds, block.targetId);
+      addResourceId(resourceIds, block.posterResourceId);
+    }
+  }
+
+  for (const page of snapshot.contentDocument?.pageLayout?.pages ?? []) {
+    addResourceId(resourceIds, page.background?.resourceId);
+    addResourceId(resourceIds, page.replica?.resourceId);
+    addResourceId(resourceIds, page.narration?.resourceId);
+    for (const segment of page.narration?.segments ?? []) addResourceId(resourceIds, segment.resourceId);
+    for (const frame of page.frames) collectFrameDependencies(frame, resourceIds, exerciseIds, questionLaunchers, launcherKeys);
+  }
+
+  return {
+    resourceIds: [...resourceIds],
+    exerciseIds: [...exerciseIds],
+    questionLaunchers,
+  };
+}
+
+export async function publishSnapshotDependencies(
+  tx: Prisma.TransactionClient,
+  publisherId: string,
+  bookId: string,
+  snapshot: ReleaseSnapshot,
+) {
+  const dependencies = collectSnapshotDependencyIds(snapshot);
+  const resourceIds = new Set(dependencies.resourceIds);
+  const exerciseIds = new Set(dependencies.exerciseIds);
+
+  for (const launcher of dependencies.questionLaunchers) exerciseIds.add(launcher.exerciseId);
+
+  await publishResources(tx, publisherId, bookId, resourceIds);
+
+  if (exerciseIds.size) {
+    await tx.bookExercise.updateMany({
+      where: {
+        id: { in: [...exerciseIds] },
+        bookId,
+        book: { publisherId },
+        archived: false,
+      },
+      data: { published: true },
+    });
+  }
+
+  for (const launcher of dependencies.questionLaunchers) {
+    const group = await tx.bookExerciseQuestionGroup.findFirst({
+      where: {
+        id: launcher.groupId,
+        exerciseId: launcher.exerciseId,
+        exercise: {
+          bookId,
+          book: { publisherId },
+          archived: false,
+        },
+      },
+      select: { id: true },
+    });
+    if (!group) continue;
+
+    await tx.bookExerciseQuestionGroup.updateMany({
+      where: {
+        id: group.id,
+        exerciseId: launcher.exerciseId,
+        exercise: {
+          bookId,
+          book: { publisherId },
+          archived: false,
+        },
+      },
+      data: { active: true },
+    });
+
+    const questionWhere: Prisma.BookQuestionWhereInput = {
+      ...(launcher.questionIds.length ? { id: { in: launcher.questionIds } } : {}),
+      bookId,
+      exerciseId: launcher.exerciseId,
+      exerciseGroupId: group.id,
+      questionType: launcher.questionType,
+      archived: false,
+      exercise: {
+        bookId,
+        book: { publisherId },
+        archived: false,
+      },
+      exerciseGroup: {
+        id: group.id,
+        exerciseId: launcher.exerciseId,
+        active: true,
+      },
+    };
+    const questions = await tx.bookQuestion.findMany({
+      where: questionWhere,
+      select: { imageResourceId: true },
+    });
+    if (!questions.length) continue;
+
+    await tx.bookQuestion.updateMany({
+      where: questionWhere,
+      data: { approved: true },
+    });
+    for (const question of questions) addResourceId(resourceIds, question.imageResourceId);
+  }
+
+  await publishResources(tx, publisherId, bookId, resourceIds);
+}
+
+function collectBlockResourceIds(block: ContentDocument["blocks"][number], resourceIds: Set<string>) {
+  if ((block.type === "image" || block.type === "diagram") && "resourceId" in block) {
+    addResourceId(resourceIds, block.resourceId);
+  }
+  if (block.type === "imageGallery") {
+    for (const image of block.images) addResourceId(resourceIds, image.resourceId);
+  }
+  if (block.type === "activity") {
+    for (const field of block.fields) addResourceId(resourceIds, field.resourceId);
+  }
+  if (block.type === "worksheet") {
+    for (const question of block.questions) addResourceId(resourceIds, question.resourceId);
+  }
+}
+
+function collectFrameDependencies(
+  frame: NonNullable<ContentDocument["pageLayout"]>["pages"][number]["frames"][number],
+  resourceIds: Set<string>,
+  exerciseIds: Set<string>,
+  questionLaunchers: SnapshotQuestionLauncher[],
+  launcherKeys: Set<string>,
+) {
+  addResourceId(resourceIds, frame.resourceId);
+  addResourceId(resourceIds, frame.contentRef?.resourceId);
+
+  if (frame.type === "ASSESSMENT_LAUNCHER") {
+    const payload = getV2AssessmentLauncherPayload(frame);
+    if (payload?.launcherType === "question") {
+      const target = payload.target;
+      const exerciseId = target.exerciseId.trim();
+      const groupId = target.groupId.trim();
+      if (exerciseId && groupId) {
+        exerciseIds.add(exerciseId);
+        const questionIds = [...new Set((target.questionIds ?? []).map((id) => id.trim()).filter(Boolean))];
+        const key = [exerciseId, groupId, target.questionType, ...questionIds].join("|");
+        if (!launcherKeys.has(key)) {
+          launcherKeys.add(key);
+          questionLaunchers.push({ exerciseId, groupId, questionType: target.questionType, questionIds });
+        }
+      }
+    }
+  }
+
+  for (const child of frame.children ?? []) {
+    collectFrameDependencies(child, resourceIds, exerciseIds, questionLaunchers, launcherKeys);
+  }
+}
+
+function addResourceId(ids: Set<string>, value: unknown) {
+  if (typeof value === "string" && value.trim()) ids.add(value.trim());
+}
+
+async function publishResources(
+  tx: Prisma.TransactionClient,
+  publisherId: string,
+  bookId: string,
+  resourceIds: Set<string>,
+) {
+  if (!resourceIds.size) return;
+  await tx.resource.updateMany({
+    where: {
+      id: { in: [...resourceIds] },
+      publisherId,
+      archived: false,
+      OR: [{ bookId }, { bookId: null }],
+    },
+    data: { published: true },
+  });
+}
+
+function collectDependencies(snapshot: ReleaseSnapshot) {
   const dependencies: Record<string, string[]> = {};
   for (const block of snapshot.contentDocument?.blocks ?? []) {
     if (isLinkedAssetBlock(block)) {
-      const key = block.targetType;
-      dependencies[key] = [...(dependencies[key] ?? []), block.targetId];
+      if (block.targetId) {
+        const key = block.targetType;
+        dependencies[key] = [...(dependencies[key] ?? []), block.targetId];
+      }
       if (block.sectionDefinitionId) {
         dependencies.CONTENT_SECTION = [...(dependencies.CONTENT_SECTION ?? []), block.sectionDefinitionId];
       }
     }
     if (isMediaBlock(block)) {
-      const key = `MEDIA_${block.targetType}`;
-      dependencies[key] = [...(dependencies[key] ?? []), block.targetId];
+      if (block.targetId) {
+        const key = `MEDIA_${block.targetType}`;
+        dependencies[key] = [...(dependencies[key] ?? []), block.targetId];
+      }
       if (block.posterResourceId) dependencies.RESOURCE = [...(dependencies.RESOURCE ?? []), block.posterResourceId];
       if (block.sectionDefinitionId) {
         dependencies.CONTENT_SECTION = [...(dependencies.CONTENT_SECTION ?? []), block.sectionDefinitionId];
@@ -668,7 +880,27 @@ function collectDependencies(snapshot: Snapshot) {
       }
     }
   }
-  return { schemaVersion: 1, dependencies };
+
+  const snapshotDependencies = collectSnapshotDependencyIds(snapshot);
+  if (snapshotDependencies.resourceIds.length) {
+    dependencies.RESOURCE = [...(dependencies.RESOURCE ?? []), ...snapshotDependencies.resourceIds];
+  }
+  if (snapshotDependencies.exerciseIds.length) {
+    dependencies.BOOK_EXERCISE = [...(dependencies.BOOK_EXERCISE ?? []), ...snapshotDependencies.exerciseIds];
+  }
+  for (const launcher of snapshotDependencies.questionLaunchers) {
+    dependencies.BOOK_EXERCISE_GROUP = [...(dependencies.BOOK_EXERCISE_GROUP ?? []), launcher.groupId];
+    if (launcher.questionIds.length) {
+      dependencies.BOOK_QUESTION = [...(dependencies.BOOK_QUESTION ?? []), ...launcher.questionIds];
+    }
+  }
+
+  return {
+    schemaVersion: 1,
+    dependencies: Object.fromEntries(
+      Object.entries(dependencies).map(([key, ids]) => [key, [...new Set(ids)]]),
+    ),
+  };
 }
 
 async function assertNoPublishedDependents(

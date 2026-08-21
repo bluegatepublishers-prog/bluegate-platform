@@ -1457,7 +1457,7 @@ export default function ContentManuscriptEditor({
           bookId,
           chapterId,
           moduleId: nodeType === "MODULE" ? nodeId : undefined,
-          published: true,
+          published: false,
           originalFileName: input.file.name,
           mimeType: uploaded.contentType,
           fileSizeBytes: String(uploaded.sizeBytes),
@@ -1489,7 +1489,7 @@ export default function ContentManuscriptEditor({
       thumbnail: payload.thumbnail ?? null,
       type: payload.type ?? input.type,
       mimeType: payload.mimeType ?? input.file.type,
-      published: payload.published ?? true,
+      published: payload.published ?? false,
       audience: payload.audience ?? input.audience,
     };
     setResourceChoices((current) => [nextResource, ...current.filter((item) => item.id !== nextResource.id)]);
