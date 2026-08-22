@@ -252,7 +252,7 @@ export function normalizeQuestionType(value: string | null | undefined): Normali
   const type = normalizedTypeKey(value ?? "");
   if (type === "MCQ" || type === "MULTIPLE_CHOICE") return "MCQ";
   if (type === "TRUE_FALSE" || type === "TRUEFALSE") return "TRUE_FALSE";
-  if (type === "FILL_BLANK" || type === "FILL_IN_THE_BLANKS") return "FILL_BLANK";
+  if (type === "FILL_BLANK" || type === "FILL_IN_THE_BLANK" || type === "FILL_IN_THE_BLANKS") return "FILL_BLANK";
   if (type === "MATCH" || type === "MATCH_THE_FOLLOWING") return "MATCH";
   if (type === "MULTIPLE_SELECT" || type === "MULTI_SELECT") return "MULTIPLE_SELECT";
   if (type === "ORDERING" || type === "SEQUENCE") return "ORDERING";

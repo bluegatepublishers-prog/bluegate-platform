@@ -6,6 +6,8 @@ import {
 } from "@/lib/book-questions";
 
 import { prisma } from "@/lib/prisma";
+import { canLaunchBookQuestionPractice } from '@/lib/normalized-question';
+import { normalizeV2PracticeQuestionType } from '@/lib/v2-assessment-launcher';
 import { getTeacherBook } from "@/lib/teacher-books";
 
 export async function GET(request: Request) {
@@ -20,6 +22,9 @@ export async function GET(request: Request) {
     const groupId =
       params.get("groupId")?.trim() ??
       "";
+
+    const requestedQuestionType = params.get('questionType')?.trim() ?? '';
+    const requestedQuestionIds = [...new Set((params.get('questionIds') ?? '').split(',').map((id) => id.trim()).filter(Boolean))];
 
     if (
       !exerciseId ||
@@ -145,11 +150,21 @@ export async function GET(request: Request) {
      * Teacher Smart Book preview should expose
      * only active approved questions.
      */
+    if (requestedQuestionType && !canLaunchBookQuestionPractice(requestedQuestionType)) {
+      return NextResponse.json({ ok: false, message: 'Book Questions are unavailable.' }, { status: 404 });
+    }
+
+    const normalizedQuestionType = requestedQuestionType
+      ? normalizeV2PracticeQuestionType(requestedQuestionType)
+      : null;
+
     const questions =
       result.questions.filter(
         (question) =>
           question.approved &&
-          !question.archived,
+          !question.archived &&
+          (!normalizedQuestionType || normalizeV2PracticeQuestionType(question.questionType) === normalizedQuestionType) &&
+          (!requestedQuestionIds.length || requestedQuestionIds.includes(question.id)),
       );
 
     return NextResponse.json({

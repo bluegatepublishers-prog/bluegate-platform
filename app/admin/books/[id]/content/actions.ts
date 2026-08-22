@@ -113,10 +113,12 @@ const signedInteger = (form: FormData, key: string) => {
 };
 
 function refresh(bookId: string) {
-  revalidatePath(`/admin/books/${bookId}/content`);
+  try {
+    revalidatePath(`/admin/books/${bookId}/content`);
+  } catch (error) {
+    console.error("Content revalidation failed after a successful mutation.", { bookId, error });
+  }
 }
-
-
 export async function prepareBookReadAloudAction(bookId: string) {
   const result = await prepareOwnedBookReadAloud(bookId);
   refresh(bookId);
@@ -422,23 +424,26 @@ async function recordContentReleaseAudit(
   targetId: string,
   releaseAction: string,
 ) {
-  await prisma.$transaction(async (tx) => {
-    await writeSecurityAuditEvent(tx, {
-      actor: publisherAdminAuditActor(actor),
-      action: "publisher.book.update",
-      targetType: "Book",
-      targetId: bookId,
-      outcome: SecurityAuditOutcome.SUCCESS,
-      metadata: {
-        changedFields: ["contentRelease"],
-        releaseAction,
-        releaseTargetType: targetType,
-        releaseTargetId: targetId,
-      },
+  try {
+    await prisma.$transaction(async (tx) => {
+      await writeSecurityAuditEvent(tx, {
+        actor: publisherAdminAuditActor(actor),
+        action: "publisher.book.update",
+        targetType: "Book",
+        targetId: bookId,
+        outcome: SecurityAuditOutcome.SUCCESS,
+        metadata: {
+          changedFields: ["contentRelease"],
+          releaseAction,
+          releaseTargetType: targetType,
+          releaseTargetId: targetId,
+        },
+      });
     });
-  });
+  } catch (error) {
+    console.error("Content release audit failed after a successful release.", { bookId, targetType, targetId, releaseAction, error });
+  }
 }
-
 async function normalizeFormContent(
   scope: Awaited<ReturnType<typeof getContentNodeScope>>,
   form: FormData,

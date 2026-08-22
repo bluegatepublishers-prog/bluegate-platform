@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { createV2PageLayout, normalizePageLayoutV2 } from "../lib/content-layout-v2";
 import { normalizeContentDocument, serializeContentDocument } from "../lib/content-document";
-import { createV2AssessmentLauncherPayload, getV2AssessmentLauncherPayload } from "../lib/v2-assessment-launcher";
+import { createV2AssessmentLauncherPayload, getV2AssessmentLauncherPayload, normalizeV2PracticeQuestionType } from "../lib/v2-assessment-launcher";
 import { canLaunchBookQuestionPractice, getBookQuestionPracticeMode } from "../lib/normalized-question";
 import { gradePracticeAnswer, isSupportedPracticeQuestion, type PracticeQuestionCandidate } from "../lib/student-practice-policy";
 
@@ -18,6 +18,24 @@ test("ASSESSMENT_LAUNCHER survives V2 normalization and document serialization",
   assert.equal(frame?.type, "ASSESSMENT_LAUNCHER");
   assert.deepEqual(getV2AssessmentLauncherPayload(frame!), payload);
   assert.deepEqual(normalizePageLayoutV2(JSON.parse(JSON.stringify(layout)))?.pages[0].frames[0].payload, payload);
+});
+
+
+test("published launcher payloads resolve canonical question types and preserve explicit targets", () => {
+  const payload = getV2AssessmentLauncherPayload({
+    type: "ASSESSMENT_LAUNCHER",
+    payload: {
+      kind: "assessment-launcher", launcherType: "question",
+      target: { exerciseId: "exercise-1", groupId: "group-1", questionIds: ["question-1"], questionType: "FILL_IN_THE_BLANK" },
+      display: { label: "FILL BLANK" },
+    },
+  });
+  assert.equal(payload?.launcherType, "question");
+  if (payload?.launcherType !== "question") throw new Error("Expected question launcher payload.");
+  assert.equal(payload.target.questionType, "FILL_BLANK");
+  assert.deepEqual(payload?.target.questionIds, ["question-1"]);
+  assert.equal(normalizeV2PracticeQuestionType("TRUEFALSE"), "TRUE_FALSE");
+  assert.equal(normalizeV2PracticeQuestionType("MULTIPLE_CHOICE"), "MCQ");
 });
 
 test("practice policy supports authoritative object options without exposing the answer", () => {
@@ -41,12 +59,17 @@ test("authoring and delivery use the isolated MCQ launcher path", () => {
 test("student launcher resolution is server-side constrained to the requested approved practice type", () => {
   const source = readFileSync("lib/student-practice.ts", "utf8");
   const route = readFileSync("app/api/student/practice/launcher/route.ts", "utf8");
+  const teacherRoute = readFileSync("app/api/teacher/book-questions/preview/route.ts", "utf8");
   assert.match(source, /exerciseGroupId:\s*input\.groupId/);
   assert.match(source, /approved: true/);
   assert.match(source, /archived: false/);
-  assert.match(source, /questionType:\s*input\.questionType/);
+  assert.match(source, /questionType:\s*questionType/);
   assert.match(source, /canLaunchBookQuestionPractice\(input\.questionType\)/);
   assert.match(route, /canLaunchBookQuestionPractice\(body\.questionType\)/);
+  assert.match(source, /normalizeV2PracticeQuestionType/);
+  assert.match(teacherRoute, /published: true/);
+  assert.match(teacherRoute, /requestedQuestionIds/);
+  assert.match(teacherRoute, /normalizeV2PracticeQuestionType\(question\.questionType\)/);
 });
 
 test("Book Questions authoring and grouped practice keep one launcher, one window, and one submit", () => {

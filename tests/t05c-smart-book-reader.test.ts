@@ -94,3 +94,17 @@ test("T-05C reader pages are read-only entry points", () => {
   assert.doesNotMatch(teacherRoute, /startPage|endPage|mapping|Content Studio/);
   assert.doesNotMatch(reader, /save.*mapping|delete.*resource|assessment.*author/i);
 });
+
+test("T-05C teacher book, cover, and Auth.js route handlers remain registered", () => {
+  const authRoute = read("app/api/auth/[...nextauth]/route.ts");
+  const coverRoute = read("app/api/books/[bookId]/asset/[kind]/route.ts");
+  const teacherRoute = read("app/teacher-dashboard/books/[bookId]/page.tsx");
+  const logoutButton = read("components/dashboard/LogoutButton.tsx");
+
+  assert.match(authRoute, /export const \{ GET, POST \} = handlers/);
+  assert.match(coverRoute, /kind !== "cover" && kind !== "preview"/);
+  assert.match(coverRoute, /getStorageProvider/);
+  assert.match(teacherRoute, /getTeacherBook\(bookId\)/);
+  assert.match(teacherRoute, /notFound\(\)/);
+  assert.match(logoutButton, /callbackUrl: "\/teacher-login"/);
+});

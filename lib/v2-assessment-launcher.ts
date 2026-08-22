@@ -1,4 +1,5 @@
 import type { LayoutV2Frame } from "@/lib/content-layout-v2";
+import { normalizeQuestionType as normalizeCanonicalQuestionType } from '@/lib/normalized-question';
 import { getPublisherAssessmentLauncherLabel } from "@/lib/publisher-assessment-presentation";
 
 export type V2PracticeQuestionType =
@@ -45,7 +46,7 @@ const LABELS: Record<V2PracticeQuestionType, string> = {
 export function createV2AssessmentLauncherPayload(
   target: V2AssessmentLauncherTarget,
 ): V2QuestionAssessmentLauncherPayload {
-  const questionType = normalizeQuestionType(target.questionType);
+  const questionType = normalizeV2PracticeQuestionType(target.questionType);
   return {
     kind: "assessment-launcher",
     launcherType: "question",
@@ -111,7 +112,7 @@ export function getV2AssessmentLauncherPayload(
     : legacyQuestionId ? [legacyQuestionId] : [];
   if (value.kind !== "assessment-launcher" || value.launcherType !== "question" || (!exerciseId && !groupId && !legacyQuestionId)) return null;
 
-  const questionType = normalizeQuestionType(target?.questionType);
+  const questionType = normalizeV2PracticeQuestionType(target?.questionType);
   const display = value.display && typeof value.display === "object" && !Array.isArray(value.display)
     ? (value.display as Record<string, unknown>) : {};
   return {
@@ -126,7 +127,11 @@ export function v2PracticeQuestionLabel(questionType: V2PracticeQuestionType) {
   return LABELS[questionType];
 }
 
-function normalizeQuestionType(value: unknown): V2PracticeQuestionType {
-  return value === "TRUE_FALSE" || value === "FILL_BLANK" || value === "MULTIPLE_SELECT" || value === "SHORT_ANSWER"
-    ? value : "MCQ";
+export function normalizeV2PracticeQuestionType(value: unknown): V2PracticeQuestionType {
+  const normalized = normalizeCanonicalQuestionType(
+    typeof value === 'string' ? value : null,
+  );
+  return normalized === 'TRUE_FALSE' || normalized === 'FILL_BLANK' || normalized === 'MULTIPLE_SELECT' || normalized === 'SHORT_ANSWER'
+    ? normalized
+    : 'MCQ';
 }

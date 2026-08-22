@@ -324,6 +324,7 @@ export async function loadBookQuestionsAuthoring(
             input.chapterId,
           exerciseGroupId:
             group.id,
+          exerciseId: group.exerciseId,
           archived: false,
         },
         select:

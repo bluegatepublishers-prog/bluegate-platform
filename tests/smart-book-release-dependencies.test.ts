@@ -5,6 +5,8 @@ import test from "node:test";
 const release = readFileSync("lib/content-release.ts", "utf8");
 const questions = readFileSync("lib/book-questions.ts", "utf8");
 const editor = readFileSync("components/admin/books/ContentManuscriptEditor.tsx", "utf8");
+const actions = readFileSync("app/admin/books/[id]/content/actions.ts", "utf8");
+const workspace = readFileSync("components/admin/books/editor/V2DocumentWorkspace.tsx", "utf8");
 
 test("published snapshots extract only referenced media, image, frame, and launcher dependencies", () => {
   assert.match(release, /if \(block\.targetType === "RESOURCE"\) addResourceId\(resourceIds, block\.targetId\)/u);
@@ -32,6 +34,16 @@ test("publish promotes only owned, active, current-book dependencies and launche
   assert.match(release, /data: \{ approved: true \}/u);
   assert.match(release, /exerciseGroup: \{\s*id: group\.id,\s*exerciseId: launcher\.exerciseId,\s*active: true/u);
   assert.match(release, /await publishSnapshotDependencies\(tx, input\.actor\.publisherId, input\.bookId, snapshot\);/u);
+});
+
+test("publish success is not converted into a false failure by post-commit refresh or audit", () =>
+{
+  assert.match(actions, /function refresh\(bookId: string\) \{[\s\S]*?try \{[\s\S]*?revalidatePath/);
+  assert.match(actions, /Content revalidation failed after a successful mutation/);
+  assert.match(actions, /Content release audit failed after a successful release/);
+  assert.match(actions, /await transitionRelease\([\s\S]*?await recordContentReleaseAudit/);
+  assert.match(editor, /publishingRef\.current/);
+  assert.match(workspace, /disabled=\{publishing\}/);
 });
 
 test("Book Questions and Smart Book uploads remain draft until Smart Book Publish", () => {

@@ -9,6 +9,7 @@ import { requireStudent } from "@/lib/student-dashboard";
 import { getStudentBook } from "@/lib/student-books";
 import { getPremiumFeatureEntitlementForAuthenticatedUser } from "@/lib/entitlements/features";
 import { canLaunchBookQuestionPractice, getBookQuestionPracticeMode } from "@/lib/normalized-question";
+import { normalizeV2PracticeQuestionType } from '@/lib/v2-assessment-launcher';
 import {
   calculatePracticeResult,
   gradePracticeAnswer,
@@ -174,6 +175,8 @@ export async function startStudentBookQuestionsPractice(input: {
     | "SHORT_ANSWER";
   questionIds?: string[];
 }) {
+  const questionType = normalizeV2PracticeQuestionType(input.questionType);
+
   if (
     !input.exerciseId.trim() ||
     !input.groupId.trim() ||
@@ -250,8 +253,7 @@ export async function startStudentBookQuestionsPractice(input: {
           input.groupId,
         approved: true,
         archived: false,
-        questionType:
-          input.questionType,
+        questionType: questionType,
         ...(requestedIds.length
           ? {
               id: {
@@ -284,7 +286,7 @@ export async function startStudentBookQuestionsPractice(input: {
     )
   ) {
     throw new PracticeError(
-      `No approved ${practiceTypeLabel(input.questionType)} questions are available for this practice collection yet.`,
+      `No approved ${practiceTypeLabel(questionType)} questions are available for this practice collection yet.`,
       404,
     );
   }

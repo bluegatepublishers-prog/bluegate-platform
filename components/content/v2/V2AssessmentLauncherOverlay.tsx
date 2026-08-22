@@ -10,7 +10,7 @@ import {
 import { createPortal } from "react-dom";
 
 import type { V2PracticeQuestionType } from "@/lib/v2-assessment-launcher";
-import { v2PracticeQuestionLabel } from "@/lib/v2-assessment-launcher";
+import { normalizeV2PracticeQuestionType, v2PracticeQuestionLabel } from "@/lib/v2-assessment-launcher";
 
 import { InteractiveQuestionRenderer } from "@/components/questions/InteractiveQuestionRenderer";
 
@@ -223,7 +223,7 @@ export default function V2AssessmentLauncherOverlay({
               exerciseId,
             )}&groupId=${encodeURIComponent(
               groupId,
-            )}`,
+            )}&questionType=${encodeURIComponent(questionType)}&questionIds=${encodeURIComponent(selectedIds.join(","))}`,
             {
               cache:
                 "no-store",
@@ -280,7 +280,7 @@ export default function V2AssessmentLauncherOverlay({
                   (
                     question,
                   ) =>
-                    normalizeQuestionType(
+                    normalizeV2PracticeQuestionType(
                       question.questionType,
                     ) ===
                       questionType &&
@@ -1016,7 +1016,7 @@ function mapPreviewQuestion(
   },
 ): RuntimeQuestion {
   const questionType =
-    normalizeQuestionType(
+    normalizeV2PracticeQuestionType(
       question.questionType,
     );
 
@@ -1132,7 +1132,7 @@ function mapAttemptQuestion(
     ...question,
 
     questionType:
-      normalizeQuestionType(
+      normalizeV2PracticeQuestionType(
         question.questionType,
       ),
 
@@ -1339,19 +1339,4 @@ function friendlyAnswer(
   }
 
   return value;
-}
-
-function normalizeQuestionType(
-  value: unknown,
-): V2PracticeQuestionType {
-  return value ===
-      "TRUE_FALSE" ||
-    value ===
-      "FILL_BLANK" ||
-    value ===
-      "MULTIPLE_SELECT" ||
-    value ===
-      "SHORT_ANSWER"
-    ? value
-    : "MCQ";
 }
