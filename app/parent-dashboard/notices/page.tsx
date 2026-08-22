@@ -31,7 +31,7 @@ export default async function ParentNoticesPage({ searchParams }: { searchParams
         schoolId: child.student.schoolId,
         academicYearId: child.enrollment.academicYearId,
         OR: [{ sectionId: null }, { sectionId: child.enrollment.sectionId }],
-        type: { in: ["NOTICE", "HOLIDAY", "EVENT"] },
+        type: { in: ["NOTICE", "HOLIDAY", "EMERGENCY_HOLIDAY", "EVENT"] },
         status: { not: "CANCELLED" },
       },
       orderBy: [{ currentDate: "desc" }, { createdAt: "desc" }],

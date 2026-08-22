@@ -40,7 +40,7 @@ export async function getStudentPlannerItems() {
 
 export async function getStudentNotices(input: { type?: string; query?: string }) {
   const identity = await requireStudent();
-  const allowed = ["NOTICE", "HOLIDAY", "EVENT"] as const;
+  const allowed = ["NOTICE", "HOLIDAY", "EMERGENCY_HOLIDAY", "EVENT"] as const;
   const type = allowed.includes(input.type as typeof allowed[number]) ? input.type as typeof allowed[number] : undefined;
   return prisma.academicPlannerItem.findMany({ where: { schoolId: identity.school.id, academicYearId: identity.enrollment.academicYearId, AND: [{ OR: [{ sectionId: null }, { sectionId: identity.enrollment.sectionId }] }, ...(input.query ? [{ OR: [{ title: { contains: input.query, mode: "insensitive" as const } }, { description: { contains: input.query, mode: "insensitive" as const } }] }] : [])], type: type ?? { in: [...allowed] }, status: { not: "CANCELLED" } }, orderBy: [{ currentDate: "desc" }, { createdAt: "desc" }] });
 }

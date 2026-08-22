@@ -1,10 +1,11 @@
 import "server-only";
 
-import { Prisma, TimetableSlotType, Weekday } from "@prisma/client";
+import { Prisma, TimetableSeason, TimetableSlotType, Weekday } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
 import { requireSchool } from "@/lib/school-dashboard";
 import { requireSchoolFeature } from "@/lib/school-feature-access";
+import { selectApplicableTimetableConfig } from "@/lib/school-timetable-resolution";
 
 export class SchoolTimetableValidationError extends Error {
   constructor(message: string) {
@@ -18,6 +19,12 @@ export const TIMETABLE_SLOT_TYPES = Object.values(TimetableSlotType);
 
 export type TimetableConfigInput = {
   academicYearId: string;
+  configId?: string;
+  name: string;
+  season: TimetableSeason;
+  effectiveFrom: Date;
+  effectiveTo: Date | null;
+  active: boolean;
   schoolStartMinute: number;
   schoolEndMinute: number;
   workingDays: Weekday[];
@@ -25,6 +32,7 @@ export type TimetableConfigInput = {
 
 export type PeriodSlotInput = {
   academicYearId: string;
+  timetableConfigId?: string;
   label: string;
   sequence: number;
   startMinute: number;
@@ -34,6 +42,7 @@ export type PeriodSlotInput = {
 
 export type TimetableEntryInput = {
   academicYearId: string;
+  timetableConfigId?: string;
   sectionId: string;
   weekday: Weekday;
   periodSlotId: string;
@@ -62,6 +71,10 @@ function validateRange(startMinute: number, endMinute: number) {
 }
 
 function validateConfig(input: TimetableConfigInput) {
+  if (!input.name.trim() || input.name.trim().length > 120) fail("Enter a timetable name up to 120 characters.");
+  if (!Object.values(TimetableSeason).includes(input.season)) fail("Select a valid timetable season.");
+  if (Number.isNaN(input.effectiveFrom.getTime())) fail("Enter a valid effective-from date.");
+  if (input.effectiveTo && (Number.isNaN(input.effectiveTo.getTime()) || input.effectiveTo < input.effectiveFrom)) fail("Effective-to date must be on or after effective-from date.");
   validateRange(input.schoolStartMinute, input.schoolEndMinute);
   if (!input.workingDays.length) fail("Select at least one working day.");
   if (new Set(input.workingDays).size !== input.workingDays.length) fail("Working days cannot contain duplicates.");
@@ -112,17 +125,18 @@ async function lockScope(tx: Prisma.TransactionClient, identityKey: string) {
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${identityKey}))`;
 }
 
-async function configFor(tx: Prisma.TransactionClient, schoolId: string, academicYearId: string) {
-  const config = await tx.schoolTimetableConfig.findUnique({
-    where: { schoolId_academicYearId: { schoolId, academicYearId } },
+async function configFor(tx: Prisma.TransactionClient, schoolId: string, academicYearId: string, timetableConfigId?: string) {
+  const config = await tx.schoolTimetableConfig.findFirst({
+    where: { schoolId, academicYearId, ...(timetableConfigId ? { id: timetableConfigId } : {}) },
+    orderBy: [{ active: "desc" }, { effectiveFrom: "asc" }, { id: "asc" }],
   });
   if (!config) fail("Set the School timetable timing before editing period slots.");
   return config;
 }
 
-async function assertSlotDoesNotOverlap(tx: Prisma.TransactionClient, input: PeriodSlotInput, schoolId: string, excludeId?: string) {
+async function assertSlotDoesNotOverlap(tx: Prisma.TransactionClient, input: PeriodSlotInput, schoolId: string, timetableConfigId: string, excludeId?: string) {
   const slots = await tx.schoolPeriodSlot.findMany({
-    where: { schoolId, academicYearId: input.academicYearId, ...(excludeId ? { id: { not: excludeId } } : {}) },
+    where: { schoolId, academicYearId: input.academicYearId, timetableConfigId, ...(excludeId ? { id: { not: excludeId } } : {}) },
     select: { id: true, startMinute: true, endMinute: true },
   });
   if (slots.some((slot) => input.startMinute < slot.endMinute && input.endMinute > slot.startMinute)) {
@@ -130,7 +144,7 @@ async function assertSlotDoesNotOverlap(tx: Prisma.TransactionClient, input: Per
   }
 }
 
-export async function getSchoolTimetableWorkspace(yearId?: string, sectionId?: string) {
+export async function getSchoolTimetableWorkspace(yearId?: string, sectionId?: string, timetableConfigId?: string) {
   const school = await requireSchool();
   await requireSchoolFeature("TIMETABLE");
   const years = await prisma.academicYear.findMany({
@@ -157,15 +171,17 @@ export async function getSchoolTimetableWorkspace(yearId?: string, sectionId?: s
     orderBy: [{ current: "desc" }, { startDate: "desc" }],
   });
   const year = years.find((item) => item.id === yearId) ?? years.find((item) => item.current) ?? years[0] ?? null;
-  if (!year) return { school, years, year: null, section: null, config: null, slots: [], entries: [], assignments: [] };
+  if (!year) return { school, years, year: null, section: null, config: null, configs: [], slots: [], entries: [], assignments: [] };
   const classes = year.classes;
   const section = classes.flatMap((item) => item.sections).find((item) => item.id === sectionId) ?? classes[0]?.sections[0] ?? null;
-  if (!section) return { school, years, year, section: null, config: null, slots: [], entries: [], assignments: [] };
-  const [config, slots, entries, assignments] = await Promise.all([
-    prisma.schoolTimetableConfig.findUnique({ where: { schoolId_academicYearId: { schoolId: school.id, academicYearId: year.id } } }),
-    prisma.schoolPeriodSlot.findMany({ where: { schoolId: school.id, academicYearId: year.id }, orderBy: { sequence: "asc" } }),
+  if (!section) return { school, years, year, section: null, config: null, configs: [], slots: [], entries: [], assignments: [] };
+  const configs = await prisma.schoolTimetableConfig.findMany({ where: { schoolId: school.id, academicYearId: year.id }, orderBy: [{ active: "desc" }, { effectiveFrom: "asc" }, { id: "asc" }] });
+  const config = timetableConfigId === "new" ? null : configs.find((item) => item.id === timetableConfigId) ?? selectApplicableTimetableConfig(configs, new Date()) ?? configs[0] ?? null;
+  if (!config) return { school, years, year, section, config: null, configs, slots: [], entries: [], assignments: [] };
+  const [slots, entries, assignments] = await Promise.all([
+    prisma.schoolPeriodSlot.findMany({ where: { schoolId: school.id, academicYearId: year.id, timetableConfigId: config.id }, orderBy: { sequence: "asc" } }),
     prisma.classTimetableEntry.findMany({
-      where: { schoolId: school.id, academicYearId: year.id, sectionId: section.id },
+      where: { schoolId: school.id, academicYearId: year.id, timetableConfigId: config.id, sectionId: section.id },
       include: {
         periodSlot: true,
         sectionSubject: { include: { subject: true } },
@@ -187,7 +203,7 @@ export async function getSchoolTimetableWorkspace(yearId?: string, sectionId?: s
       orderBy: { teacher: { user: { name: "asc" } } },
     }),
   ]);
-  return { school, years, year, section, config, slots, entries, assignments };
+  return { school, years, year, section, config, configs, slots, entries, assignments };
 }
 
 export async function saveSchoolTimetableConfig(input: TimetableConfigInput) {
@@ -197,20 +213,19 @@ export async function saveSchoolTimetableConfig(input: TimetableConfigInput) {
     return await prisma.$transaction(async (tx) => {
       await lockScope(tx, structureLockKey(school.id, input.academicYearId));
       await schoolYear(school.id, input.academicYearId, tx);
-      const currentConfig = await tx.schoolTimetableConfig.findUnique({
-        where: { schoolId_academicYearId: { schoolId: school.id, academicYearId: input.academicYearId } },
-        select: { workingDays: true },
-      });
-      const [existingSlots, existingEntries] = await Promise.all([
-        tx.schoolPeriodSlot.findMany({ where: { schoolId: school.id, academicYearId: input.academicYearId }, select: { startMinute: true, endMinute: true } }),
-        tx.classTimetableEntry.findMany({ where: { schoolId: school.id, academicYearId: input.academicYearId }, select: { weekday: true } }),
+      validateConfig(input);
+      const currentConfig = input.configId ? await tx.schoolTimetableConfig.findFirst({ where: { id: input.configId, schoolId: school.id, academicYearId: input.academicYearId }, select: { id: true, workingDays: true } }) : null;
+      if (input.configId && !currentConfig) fail("Timetable configuration not found.");
+      const [existingSlots, existingEntries, otherConfigs] = await Promise.all([
+        tx.schoolPeriodSlot.findMany({ where: currentConfig ? { timetableConfigId: currentConfig.id } : { id: "__new_timetable_config__" }, select: { startMinute: true, endMinute: true } }),
+        tx.classTimetableEntry.findMany({ where: currentConfig ? { timetableConfigId: currentConfig.id } : { id: "__new_timetable_config__" }, select: { weekday: true } }),
+        tx.schoolTimetableConfig.findMany({ where: { schoolId: school.id, academicYearId: input.academicYearId, active: true, ...(input.configId ? { id: { not: input.configId } } : {}) }, select: { effectiveFrom: true, effectiveTo: true } }),
       ]);
       validateProposedConfig(input, currentConfig, existingSlots, existingEntries);
-      return tx.schoolTimetableConfig.upsert({
-        where: { schoolId_academicYearId: { schoolId: school.id, academicYearId: input.academicYearId } },
-        update: { schoolStartMinute: input.schoolStartMinute, schoolEndMinute: input.schoolEndMinute, workingDays: input.workingDays },
-        create: { schoolId: school.id, academicYearId: input.academicYearId, schoolStartMinute: input.schoolStartMinute, schoolEndMinute: input.schoolEndMinute, workingDays: input.workingDays },
-      });
+      const maxDate = new Date("9999-12-31T00:00:00.000Z");
+      if (input.active && otherConfigs.some((other) => input.effectiveFrom <= (other.effectiveTo ?? maxDate) && (input.effectiveTo ?? maxDate) >= other.effectiveFrom)) fail("Active timetable effective dates overlap another timetable configuration.");
+      const data = { name: input.name.trim(), season: input.season, effectiveFrom: input.effectiveFrom, effectiveTo: input.effectiveTo, active: input.active, schoolStartMinute: input.schoolStartMinute, schoolEndMinute: input.schoolEndMinute, workingDays: input.workingDays };
+      return currentConfig ? tx.schoolTimetableConfig.update({ where: { id: currentConfig.id }, data }) : tx.schoolTimetableConfig.create({ data: { schoolId: school.id, academicYearId: input.academicYearId, ...data } });
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   } catch (error) {
     if (error instanceof SchoolTimetableValidationError) throw error;
@@ -218,11 +233,13 @@ export async function saveSchoolTimetableConfig(input: TimetableConfigInput) {
   }
 }
 
-export async function listSchoolPeriodSlots(academicYearId: string) {
+export async function listSchoolPeriodSlots(academicYearId: string, timetableConfigId?: string) {
   const school = await requireSchool();
   await requireSchoolFeature("TIMETABLE");
   await schoolYear(school.id, academicYearId);
-  return prisma.schoolPeriodSlot.findMany({ where: { schoolId: school.id, academicYearId }, orderBy: { sequence: "asc" } });
+  const config = await prisma.schoolTimetableConfig.findFirst({ where: { schoolId: school.id, academicYearId, ...(timetableConfigId ? { id: timetableConfigId } : {}) }, orderBy: [{ active: "desc" }, { effectiveFrom: "asc" }, { id: "asc" }] });
+  if (!config) return [];
+  return prisma.schoolPeriodSlot.findMany({ where: { schoolId: school.id, academicYearId, timetableConfigId: config.id }, orderBy: { sequence: "asc" } });
 }
 
 export async function createSchoolPeriodSlot(input: PeriodSlotInput) {
@@ -233,10 +250,10 @@ export async function createSchoolPeriodSlot(input: PeriodSlotInput) {
       await lockScope(tx, structureLockKey(school.id, input.academicYearId));
       validateSlotShape(input);
       await schoolYear(school.id, input.academicYearId, tx);
-      const config = await configFor(tx, school.id, input.academicYearId);
+      const config = await configFor(tx, school.id, input.academicYearId, input.timetableConfigId);
       if (input.startMinute < config.schoolStartMinute || input.endMinute > config.schoolEndMinute) fail("Period slot must fit inside the School day.");
-      await assertSlotDoesNotOverlap(tx, input, school.id);
-      return tx.schoolPeriodSlot.create({ data: { ...input, schoolId: school.id } });
+      await assertSlotDoesNotOverlap(tx, input, school.id, config.id);
+      return tx.schoolPeriodSlot.create({ data: { academicYearId: input.academicYearId, timetableConfigId: config.id, label: input.label.trim(), sequence: input.sequence, startMinute: input.startMinute, endMinute: input.endMinute, type: input.type, schoolId: school.id } });
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   } catch (error) {
     if (error instanceof SchoolTimetableValidationError) throw error;
@@ -253,11 +270,11 @@ export async function updateSchoolPeriodSlot(id: string, input: PeriodSlotInput)
       await lockScope(tx, structureLockKey(school.id, input.academicYearId));
       validateSlotShape(input);
       await schoolYear(school.id, input.academicYearId, tx);
-      const current = await tx.schoolPeriodSlot.findFirst({ where: { id, schoolId: school.id, academicYearId: input.academicYearId } });
+      const config = await configFor(tx, school.id, input.academicYearId, input.timetableConfigId);
+      const current = await tx.schoolPeriodSlot.findFirst({ where: { id, schoolId: school.id, academicYearId: input.academicYearId, timetableConfigId: config.id } });
       if (!current) fail("Period slot not found.");
-      const config = await configFor(tx, school.id, input.academicYearId);
       if (input.startMinute < config.schoolStartMinute || input.endMinute > config.schoolEndMinute) fail("Period slot must fit inside the School day.");
-      await assertSlotDoesNotOverlap(tx, input, school.id, id);
+      await assertSlotDoesNotOverlap(tx, input, school.id, config.id, id);
       if (current.type === TimetableSlotType.TEACHING && input.type !== TimetableSlotType.TEACHING) {
         const linked = await tx.classTimetableEntry.count({ where: { periodSlotId: id } });
         if (linked) fail("Remove or reassign timetable entries before changing this teaching slot.");
@@ -271,14 +288,15 @@ export async function updateSchoolPeriodSlot(id: string, input: PeriodSlotInput)
   }
 }
 
-export async function deleteSchoolPeriodSlot(id: string, academicYearId: string) {
+export async function deleteSchoolPeriodSlot(id: string, academicYearId: string, timetableConfigId?: string) {
   const school = await requireSchool();
   await requireSchoolFeature("TIMETABLE");
   try {
     return await prisma.$transaction(async (tx) => {
       await lockScope(tx, structureLockKey(school.id, academicYearId));
       await schoolYear(school.id, academicYearId, tx);
-      const slot = await tx.schoolPeriodSlot.findFirst({ where: { id, schoolId: school.id, academicYearId } });
+      const config = await configFor(tx, school.id, academicYearId, timetableConfigId);
+      const slot = await tx.schoolPeriodSlot.findFirst({ where: { id, schoolId: school.id, academicYearId, timetableConfigId: config.id } });
       if (!slot) fail("Period slot not found.");
       const linked = await tx.classTimetableEntry.count({ where: { periodSlotId: id } });
       if (linked) fail("Remove or reassign timetable entries before deleting this slot.");
@@ -292,7 +310,7 @@ export async function deleteSchoolPeriodSlot(id: string, academicYearId: string)
 
 async function timetableEntryScope(tx: Prisma.TransactionClient, schoolId: string, input: TimetableEntryInput) {
   const year = await schoolYear(schoolId, input.academicYearId, tx);
-  const config = await configFor(tx, schoolId, input.academicYearId);
+  const config = await configFor(tx, schoolId, input.academicYearId, input.timetableConfigId);
   if (!config.workingDays.includes(input.weekday)) fail("That weekday is not configured as a School working day.");
   const section = await tx.classSection.findFirst({
     where: { id: input.sectionId, active: true, schoolClass: { schoolId, academicYearId: input.academicYearId, active: true } },
@@ -304,7 +322,7 @@ async function timetableEntryScope(tx: Prisma.TransactionClient, schoolId: strin
     select: { id: true, subjectId: true },
   });
   if (!sectionSubject) fail("Subject is not assigned to this section.");
-  const slot = await tx.schoolPeriodSlot.findFirst({ where: { id: input.periodSlotId, schoolId, academicYearId: input.academicYearId } });
+  const slot = await tx.schoolPeriodSlot.findFirst({ where: { id: input.periodSlotId, schoolId, academicYearId: input.academicYearId, timetableConfigId: config.id } });
   if (!slot) fail("Period slot is not available for this School academic year.");
   if (slot.type !== TimetableSlotType.TEACHING) fail("Break and non-teaching slots cannot receive a subject.");
   const now = new Date();
@@ -326,6 +344,67 @@ async function timetableEntryScope(tx: Prisma.TransactionClient, schoolId: strin
   return { year, config, section, sectionSubject, slot, assignment };
 }
 
+export async function saveCompleteClassTimetable(input: { academicYearId: string; sectionId: string; timetableConfigId?: string; entries: TimetableEntryInput[] }) {
+  const school = await requireSchool();
+  await requireSchoolFeature("TIMETABLE");
+  try {
+    return await prisma.$transaction(async (tx) => {
+      await lockScope(tx, structureLockKey(school.id, input.academicYearId));
+      await schoolYear(school.id, input.academicYearId, tx);
+      const config = await configFor(tx, school.id, input.academicYearId, input.timetableConfigId);
+      const existing = await tx.classTimetableEntry.findMany({
+        where: { schoolId: school.id, academicYearId: input.academicYearId, timetableConfigId: config.id, sectionId: input.sectionId },
+        select: { id: true, weekday: true, periodSlotId: true },
+      });
+      const existingByCell = new Map(existing.map((entry) => [entry.weekday + ":" + entry.periodSlotId, entry]));
+      const desiredKeys = new Set<string>();
+      const desired = input.entries.map((entry) => {
+        if (entry.academicYearId !== input.academicYearId || entry.sectionId !== input.sectionId) fail("Timetable entries must belong to the selected section and academic year.");
+        const key = entry.weekday + ":" + entry.periodSlotId;
+        if (desiredKeys.has(key)) fail("A timetable cell can contain only one entry.");
+        desiredKeys.add(key);
+        return { ...entry, timetableConfigId: entry.timetableConfigId ?? config.id, entryId: existingByCell.get(key)?.id };
+      });
+      for (const entry of desired) {
+        const scope = await timetableEntryScope(tx, school.id, entry);
+        await lockScope(tx, "school-timetable-entry:" + school.id + ":" + entry.academicYearId + ":" + entry.weekday + ":" + entry.periodSlotId + ":" + scope.assignment.teacherId);
+        const teacherConflict = await tx.classTimetableEntry.findFirst({
+          where: {
+            schoolId: school.id,
+            academicYearId: entry.academicYearId,
+            timetableConfigId: config.id,
+            weekday: entry.weekday,
+            periodSlotId: entry.periodSlotId,
+            teacherAssignment: { teacherId: scope.assignment.teacherId },
+            ...(entry.entryId ? { id: { not: entry.entryId } } : {}),
+          },
+          select: { id: true },
+        });
+        if (teacherConflict) fail("Teacher is already assigned to another class during this period.");
+      }
+      const staleIds = existing.filter((entry) => !desiredKeys.has(entry.weekday + ":" + entry.periodSlotId)).map((entry) => entry.id);
+      if (staleIds.length) await tx.classTimetableEntry.deleteMany({ where: { schoolId: school.id, id: { in: staleIds } } });
+      for (const entry of desired) {
+        if (entry.entryId) {
+          await tx.classTimetableEntry.update({
+            where: { id: entry.entryId },
+            data: { sectionSubjectId: entry.sectionSubjectId, teacherAssignmentId: entry.teacherAssignmentId },
+          });
+        } else {
+          await tx.classTimetableEntry.create({
+            data: { schoolId: school.id, academicYearId: entry.academicYearId, timetableConfigId: config.id, sectionId: entry.sectionId, weekday: entry.weekday, periodSlotId: entry.periodSlotId, sectionSubjectId: entry.sectionSubjectId, teacherAssignmentId: entry.teacherAssignmentId },
+          });
+        }
+      }
+      return { saved: desired.length, removed: staleIds.length };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  } catch (error) {
+    if (error instanceof SchoolTimetableValidationError) throw error;
+    if (isUniqueError(error)) throw new SchoolTimetableValidationError("This timetable cell is already occupied.");
+    throw new SchoolTimetableValidationError("Unable to save the complete timetable.");
+  }
+}
+
 export async function upsertClassTimetableEntry(input: TimetableEntryInput) {
   const school = await requireSchool();
   await requireSchoolFeature("TIMETABLE");
@@ -336,7 +415,7 @@ export async function upsertClassTimetableEntry(input: TimetableEntryInput) {
       await lockScope(tx, "school-timetable-entry:" + school.id + ":" + input.academicYearId + ":" + input.weekday + ":" + input.periodSlotId + ":" + scope.assignment.teacherId);
       await lockScope(tx, "school-timetable-cell:" + school.id + ":" + input.academicYearId + ":" + input.sectionId + ":" + input.weekday + ":" + input.periodSlotId);
       const existingAtCell = await tx.classTimetableEntry.findFirst({
-        where: { academicYearId: input.academicYearId, sectionId: input.sectionId, weekday: input.weekday, periodSlotId: input.periodSlotId },
+        where: { academicYearId: input.academicYearId, timetableConfigId: scope.config.id, sectionId: input.sectionId, weekday: input.weekday, periodSlotId: input.periodSlotId },
         select: { id: true },
       });
       if (existingAtCell && existingAtCell.id !== input.entryId) fail("This class already has a timetable entry during this period.");
@@ -345,6 +424,7 @@ export async function upsertClassTimetableEntry(input: TimetableEntryInput) {
         where: {
           schoolId: school.id,
           academicYearId: input.academicYearId,
+          timetableConfigId: scope.config.id,
           weekday: input.weekday,
           periodSlotId: input.periodSlotId,
           teacherAssignment: { teacherId: scope.assignment.teacherId },
@@ -360,7 +440,7 @@ export async function upsertClassTimetableEntry(input: TimetableEntryInput) {
         });
       }
       return tx.classTimetableEntry.create({
-        data: { schoolId: school.id, academicYearId: input.academicYearId, sectionId: input.sectionId, weekday: input.weekday, periodSlotId: input.periodSlotId, sectionSubjectId: input.sectionSubjectId, teacherAssignmentId: input.teacherAssignmentId },
+        data: { schoolId: school.id, academicYearId: input.academicYearId, timetableConfigId: scope.config.id, sectionId: input.sectionId, weekday: input.weekday, periodSlotId: input.periodSlotId, sectionSubjectId: input.sectionSubjectId, teacherAssignmentId: input.teacherAssignmentId },
       });
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   } catch (error) {
@@ -387,14 +467,16 @@ export async function deleteClassTimetableEntry(id: string) {
   }
 }
 
-export async function getSectionTimetable(academicYearId: string, sectionId: string) {
+export async function getSectionTimetable(academicYearId: string, sectionId: string, timetableConfigId?: string) {
   const school = await requireSchool();
   await requireSchoolFeature("TIMETABLE");
   await schoolYear(school.id, academicYearId);
   const section = await prisma.classSection.findFirst({ where: { id: sectionId, active: true, schoolClass: { schoolId: school.id, academicYearId } }, select: { id: true } });
   if (!section) fail("Section is not available for this School academic year.");
+  const config = await prisma.schoolTimetableConfig.findFirst({ where: { schoolId: school.id, academicYearId, ...(timetableConfigId ? { id: timetableConfigId } : {}) }, orderBy: [{ active: "desc" }, { effectiveFrom: "asc" }, { id: "asc" }] });
+  if (!config) return [];
   return prisma.classTimetableEntry.findMany({
-    where: { schoolId: school.id, academicYearId, sectionId },
+    where: { schoolId: school.id, academicYearId, timetableConfigId: config.id, sectionId },
     include: { periodSlot: true, sectionSubject: { include: { subject: true } }, teacherAssignment: { include: { teacher: { include: { user: true } } } } },
     orderBy: [{ periodSlot: { sequence: "asc" } }, { weekday: "asc" }],
   });

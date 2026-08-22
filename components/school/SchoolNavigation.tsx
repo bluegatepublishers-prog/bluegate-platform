@@ -36,7 +36,7 @@ type Props = { mobile?: boolean; schoolName: string; logoUrl?: string | null; br
 export default function SchoolNavigation({ mobile = false, schoolName, logoUrl, branding, features }: Props) {
   const pathname = usePathname();
   const isHome = pathname === "/school-dashboard";
-  const visibleAcademics = academics;
+  const visibleAcademics = academics.filter(([label]) => String(label) !== "Timetable" || features.TIMETABLE);
   const visiblePlanning = planning.filter(([label]) => label !== "Timetable" || features.TIMETABLE);
   const link = (label: string, href: string, Icon: typeof Home, nested = false) => {
     const base = href.split("?")[0];

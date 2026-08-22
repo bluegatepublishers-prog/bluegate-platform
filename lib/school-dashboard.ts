@@ -129,8 +129,8 @@ export async function getSchoolHomeData() {
       pendingClasses: attendanceStats.pendingClasses,
       pendingCorrections: attendanceStats.pendingCorrections,
     },
-    today: planner.filter((item) => item.currentDate < end && !["NOTICE", "HOLIDAY"].includes(item.type)).slice(0, 6),
-    notices: planner.filter((item) => ["NOTICE", "HOLIDAY"].includes(item.type)).slice(0, 4),
+    today: planner.filter((item) => item.currentDate < end && !["NOTICE", "HOLIDAY", "EMERGENCY_HOLIDAY"].includes(item.type)).slice(0, 6),
+    notices: planner.filter((item) => ["NOTICE", "HOLIDAY", "EMERGENCY_HOLIDAY"].includes(item.type)).slice(0, 4),
     upcoming: planner.slice(0, 8),
     performance: {
       measured: scores.length,

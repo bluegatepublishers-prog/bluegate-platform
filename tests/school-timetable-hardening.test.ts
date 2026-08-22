@@ -65,7 +65,7 @@ test("teacher collision and structure coordination remain transaction-safe", () 
 });
 
 test("navigation is feature-aware while direct route guards remain independent", () => {
-  assert.match(schoolNavigation, /visibleAcademics = academics\.filter\(\(\[label\]\)\s*=> label !== "Timetable" \|\| features\.TIMETABLE\)/);
+  assert.match(schoolNavigation, /visibleAcademics = academics\.filter\(\(\[label\]\)\s*=> String\(label\) !== "Timetable" \|\| features\.TIMETABLE\)/);
   assert.match(readFileSync("app/school-dashboard/timetable/page.tsx", "utf8"), /getSchoolFeatureAccess\("TIMETABLE"\)/);
 });
 
