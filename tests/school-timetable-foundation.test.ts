@@ -18,7 +18,7 @@ test("timetable persistence is additive, normalized, and restricts history delet
   assert.match(schema, /enum TimetableSlotType \{[\s\S]*TEACHING[\s\S]*BREAK[\s\S]*OTHER[\s\S]*\}/);
   assert.match(schema, /model SchoolTimetableConfig[\s\S]*name\s+String[\s\S]*season\s+TimetableSeason[\s\S]*effectiveFrom\s+DateTime[\s\S]*@@unique\(\[schoolId, academicYearId, name\]\)/);
   assert.match(schema, /model SchoolPeriodSlot[\s\S]*timetableConfigId\s+String[\s\S]*@@unique\(\[timetableConfigId, sequence\]\)[\s\S]*@@index\(\[timetableConfigId, startMinute\]\)/);
-  assert.match(schema, /model ClassTimetableEntry[\s\S]*timetableConfigId\s+String[\s\S]*@@unique\(\[timetableConfigId, sectionId, weekday, periodSlotId\]\)/);
+  assert.match(schema, /model ClassTimetableEntry[\s\S]*timetableConfigId\s+String[\s\S]*@@unique\(\[timetableConfigId, sectionId, weekday, periodSlotId\](?:, map: "[^"]+")?\)/);
   assert.match(migration, /CREATE TYPE "Weekday"/);
   assert.match(migration, /CREATE TYPE "TimetableSlotType"/);
   assert.match(migration, /CREATE TABLE "SchoolTimetableConfig"/);

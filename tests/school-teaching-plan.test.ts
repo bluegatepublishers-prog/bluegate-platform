@@ -11,12 +11,12 @@ const preview = read("lib/teaching-plan.ts");
 const navigation = read("components/school/SchoolNavigation.tsx");
 const resourceRoute = read("app/api/school/resources/[id]/open/route.ts");
 
-test("School Teaching Plans are integrated as a read-only dashboard route", () => {
-  assert.match(route, /getSchoolTeachingPlanPageData/);
-  assert.match(route, /SchoolTeachingPlanDetail/);
-  assert.match(navigation, /Teaching Plans/);
-  assert.match(navigation, /school-dashboard\/teaching-plans/);
-  assert.doesNotMatch(route, /createTeaching|updateTeaching|deleteTeaching|reorderTeaching|reschedule/i);
+test("School Teaching Plans are not exposed while teacher-owned plans remain intact", () => {
+  assert.ok(route.includes("redirect"));
+  assert.ok(route.includes("/school-dashboard/planner"));
+  assert.doesNotMatch(navigation, /Teaching Plans/);
+  assert.ok(!navigation.includes("school-dashboard/teaching-plans"));
+  assert.doesNotMatch(route, /getSchoolTeachingPlanPageData|SchoolTeachingPlanDetail/);
   assert.doesNotMatch(detail, /createTeaching|updateTeaching|deleteTeaching|reorderTeaching|AcademicPlannerItem/);
   assert.doesNotMatch(actions, /prisma|create|update|delete|reschedule/i);
 });

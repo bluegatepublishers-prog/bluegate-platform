@@ -16,7 +16,7 @@ const schoolPage = read("app/school-dashboard/planner/page.tsx");
 const plannerPage = read("app/teacher-dashboard/planner/page.tsx");
 
 function config(id: string, from: string, to: string | null, season: string) {
-  return { id, schoolId: "school", academicYearId: "year", name: id, season, effectiveFrom: new Date(from), effectiveTo: to ? new Date(to) : null, active: true, workingDays: [] };
+  return { id, schoolId: "school", academicYearId: "year", name: id, season, effectiveFrom: new Date(from), effectiveTo: to ? new Date(to) : null, active: true, workingDays: [], schoolStartMinute: 480, schoolEndMinute: 840 };
 }
 
 test("seasonal timetable schema owns slots and entries by configuration", () => {
@@ -24,7 +24,7 @@ test("seasonal timetable schema owns slots and entries by configuration", () => 
   assert.match(schema, /EMERGENCY_HOLIDAY/);
   assert.match(schema, /model SchoolTimetableConfig[\s\S]*effectiveFrom\s+DateTime[\s\S]*effectiveTo\s+DateTime\?[\s\S]*active\s+Boolean/);
   assert.match(schema, /model SchoolPeriodSlot[\s\S]*timetableConfigId\s+String[\s\S]*timetableConfig\s+SchoolTimetableConfig/);
-  assert.match(schema, /model ClassTimetableEntry[\s\S]*timetableConfigId\s+String[\s\S]*@@unique\(\[timetableConfigId, sectionId, weekday, periodSlotId\]\)/);
+  assert.match(schema, /model ClassTimetableEntry[\s\S]*timetableConfigId\s+String[\s\S]*@@unique\(\[timetableConfigId, sectionId, weekday, periodSlotId\](?:, map: "[^"]+")?\)/);
 });
 
 test("migration backfills existing configs, slots, and entries without deleting data", () => {

@@ -15,6 +15,8 @@ export type TimetableResolutionConfig = {
   effectiveTo: Date | null;
   active: boolean;
   workingDays: string[];
+  schoolStartMinute: number;
+  schoolEndMinute: number;
 };
 
 export function selectApplicableTimetableConfig(configs: TimetableResolutionConfig[], date: Date) {

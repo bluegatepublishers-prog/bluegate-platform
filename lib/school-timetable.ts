@@ -32,7 +32,7 @@ export type TimetableConfigInput = {
 
 export type PeriodSlotInput = {
   academicYearId: string;
-  timetableConfigId?: string;
+  timetableConfigId: string;
   label: string;
   sequence: number;
   startMinute: number;
@@ -42,7 +42,7 @@ export type PeriodSlotInput = {
 
 export type TimetableEntryInput = {
   academicYearId: string;
-  timetableConfigId?: string;
+  timetableConfigId: string;
   sectionId: string;
   weekday: Weekday;
   periodSlotId: string;
@@ -108,6 +108,10 @@ function isUniqueError(error: unknown) {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
 }
 
+function isClosedTransactionError(error: unknown) {
+  return error instanceof Error && /Transaction API error: Transaction (not found|already closed)|Transaction.*timed out/i.test(error.message);
+}
+
 async function schoolYear(schoolId: string, academicYearId: string, tx: Prisma.TransactionClient | typeof prisma = prisma) {
   const year = await tx.academicYear.findFirst({
     where: { id: academicYearId, schoolId, active: true },
@@ -125,9 +129,10 @@ async function lockScope(tx: Prisma.TransactionClient, identityKey: string) {
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${identityKey}))`;
 }
 
-async function configFor(tx: Prisma.TransactionClient, schoolId: string, academicYearId: string, timetableConfigId?: string) {
+async function configFor(tx: Prisma.TransactionClient, schoolId: string, academicYearId: string, timetableConfigId: string) {
+  if (!timetableConfigId) fail("Select a timetable configuration.");
   const config = await tx.schoolTimetableConfig.findFirst({
-    where: { schoolId, academicYearId, ...(timetableConfigId ? { id: timetableConfigId } : {}) },
+    where: { schoolId, academicYearId, id: timetableConfigId },
     orderBy: [{ active: "desc" }, { effectiveFrom: "asc" }, { id: "asc" }],
   });
   if (!config) fail("Set the School timetable timing before editing period slots.");
@@ -176,7 +181,7 @@ export async function getSchoolTimetableWorkspace(yearId?: string, sectionId?: s
   const section = classes.flatMap((item) => item.sections).find((item) => item.id === sectionId) ?? classes[0]?.sections[0] ?? null;
   if (!section) return { school, years, year, section: null, config: null, configs: [], slots: [], entries: [], assignments: [] };
   const configs = await prisma.schoolTimetableConfig.findMany({ where: { schoolId: school.id, academicYearId: year.id }, orderBy: [{ active: "desc" }, { effectiveFrom: "asc" }, { id: "asc" }] });
-  const config = timetableConfigId === "new" ? null : configs.find((item) => item.id === timetableConfigId) ?? selectApplicableTimetableConfig(configs, new Date()) ?? configs[0] ?? null;
+  const config = timetableConfigId === "new" ? null : timetableConfigId ? configs.find((item) => item.id === timetableConfigId) ?? null : selectApplicableTimetableConfig(configs, new Date()) ?? configs[0] ?? null;
   if (!config) return { school, years, year, section, config: null, configs, slots: [], entries: [], assignments: [] };
   const [slots, entries, assignments] = await Promise.all([
     prisma.schoolPeriodSlot.findMany({ where: { schoolId: school.id, academicYearId: year.id, timetableConfigId: config.id }, orderBy: { sequence: "asc" } }),
@@ -288,7 +293,7 @@ export async function updateSchoolPeriodSlot(id: string, input: PeriodSlotInput)
   }
 }
 
-export async function deleteSchoolPeriodSlot(id: string, academicYearId: string, timetableConfigId?: string) {
+export async function deleteSchoolPeriodSlot(id: string, academicYearId: string, timetableConfigId: string) {
   const school = await requireSchool();
   await requireSchoolFeature("TIMETABLE");
   try {
@@ -344,7 +349,7 @@ async function timetableEntryScope(tx: Prisma.TransactionClient, schoolId: strin
   return { year, config, section, sectionSubject, slot, assignment };
 }
 
-export async function saveCompleteClassTimetable(input: { academicYearId: string; sectionId: string; timetableConfigId?: string; entries: TimetableEntryInput[] }) {
+export async function saveCompleteClassTimetable(input: { academicYearId: string; sectionId: string; timetableConfigId: string; entries: TimetableEntryInput[] }) {
   const school = await requireSchool();
   await requireSchoolFeature("TIMETABLE");
   try {
@@ -363,7 +368,8 @@ export async function saveCompleteClassTimetable(input: { academicYearId: string
         const key = entry.weekday + ":" + entry.periodSlotId;
         if (desiredKeys.has(key)) fail("A timetable cell can contain only one entry.");
         desiredKeys.add(key);
-        return { ...entry, timetableConfigId: entry.timetableConfigId ?? config.id, entryId: existingByCell.get(key)?.id };
+        if (entry.timetableConfigId !== config.id) fail("Timetable entries must use the selected timetable configuration.");
+        return { ...entry, entryId: existingByCell.get(key)?.id };
       });
       for (const entry of desired) {
         const scope = await timetableEntryScope(tx, school.id, entry);
@@ -397,10 +403,12 @@ export async function saveCompleteClassTimetable(input: { academicYearId: string
         }
       }
       return { saved: desired.length, removed: staleIds.length };
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 10000, timeout: 20000 });
   } catch (error) {
     if (error instanceof SchoolTimetableValidationError) throw error;
     if (isUniqueError(error)) throw new SchoolTimetableValidationError("This timetable cell is already occupied.");
+    if (isClosedTransactionError(error)) throw new SchoolTimetableValidationError("Timetable save took too long. Please try again.");
+    console.error("saveCompleteClassTimetable failed", error);
     throw new SchoolTimetableValidationError("Unable to save the complete timetable.");
   }
 }
