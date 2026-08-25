@@ -18,7 +18,7 @@ const checks:[string,()=>void][]=[
  ["academics includes Classes",()=>assert.match(nav,/"Classes & Sections"/)],
  ["academics includes Subjects",()=>assert.match(nav,/"Subjects"/)],
  ["academics includes assignments",()=>assert.match(nav,/"Teacher Assignments"/)],
- ["academics includes content",()=>assert.match(nav,/"Books & Resources"/)],
+ ["academics includes content",()=>assert.match(nav,/"Books"/)],
  ["profile is absent from sidebar",()=>assert.doesNotMatch(nav,/"Profile"/)],
  ["profile is in avatar menu",()=>assert.match(header,/school-dashboard\/profile/)],
  ["settings is in avatar menu",()=>assert.match(header,/school-dashboard\/settings/)],

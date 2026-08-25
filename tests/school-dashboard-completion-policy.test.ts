@@ -84,7 +84,8 @@ test("student list supports required filters and login readiness state", () => {
   assert.match(studentPage, /name="sectionId"/);
   assert.match(studentPage, /name="active"/);
   assert.match(studentPage, /name="login"/);
-  assert.match(studentPage, /Login \{loginEnabled \? "Enabled" : "Not enabled"\}/);
+  assert.match(studentPage, />Login</);
+  assert.match(studentPage, /loginEnabled \? "Enabled" : "Not enabled"/);
 });
 
 test("dashboard checklist remains derived and school scoped", () => {

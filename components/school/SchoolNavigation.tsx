@@ -17,7 +17,7 @@ const academics = [
   ["Classes & Sections", "/school-dashboard/academics?tab=classes", School],
   ["Subjects", "/school-dashboard/academics?tab=subjects", BookOpen],
   ["Teacher Assignments", "/school-dashboard/academics?tab=assignments", UserRoundCheck],
-  ["Books & Resources", "/school-dashboard/books", BookOpen],
+  ["Books", "/school-dashboard/books", BookOpen],
 ] as const;
 const planning = [
   ["Timetable", "/school-dashboard/timetable", CalendarDays],

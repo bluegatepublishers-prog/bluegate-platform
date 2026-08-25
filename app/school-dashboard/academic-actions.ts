@@ -15,6 +15,7 @@ import {
   isSectionSubjectContentSelectionValid,
 } from "@/lib/section-subject-content-policy";
 import { accountAuditActor, writeSecurityAuditEvent } from "@/lib/security-audit";
+import { lockSchoolTeacherAssignmentScope } from "@/lib/school-teacher-assignments";
 
 const text = (form: FormData, key: string, max = 120) => String(form.get(key) ?? "").trim().slice(0, max);
 const checked = (form: FormData, key: string) => form.get(key) === "on" || form.get(key) === "true";
@@ -476,6 +477,7 @@ export async function saveTeacherAssignment(form: FormData) {
   });
   if (!memberships.length) return;
   await prisma.$transaction(async (tx) => {
+    await lockSchoolTeacherAssignmentScope(tx, school.id, section.schoolClass.academicYearId, sectionId);
     await tx.teacherAssignment.updateMany({ where: { schoolId: school.id, sectionId, type, subjectId, active: true }, data: { active: false, endedAt: new Date() } });
     const duplicate = await tx.teacherAssignment.findFirst({
       where: {

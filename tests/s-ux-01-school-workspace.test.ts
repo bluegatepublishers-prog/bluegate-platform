@@ -104,6 +104,14 @@ test('S-UX-01 reassignments deactivate previous subject assignments', () => {
   assert.match(service, /active: false, endedAt: new Date()/);
 });
 
+test('S-UX-01 assignment replacement serializes the school section scope', () => {
+  const service = source('lib/school-teacher-assignments.ts');
+  const legacyAction = source('app/school-dashboard/academic-actions.ts');
+  assert.match(service, /lockSchoolTeacherAssignmentScope/);
+  assert.match(service, /pg_advisory_xact_lock/);
+  assert.match(legacyAction, /lockSchoolTeacherAssignmentScope/);
+});
+
 test('S-UX-01 assignment removal is explicit and scoped to the current school', () => {
   const service = source('lib/school-teacher-assignments.ts');
   const page = source('app/school-dashboard/teacher-assignments/page.tsx');

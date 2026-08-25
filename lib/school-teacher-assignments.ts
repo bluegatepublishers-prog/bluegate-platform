@@ -1,6 +1,6 @@
 import "server-only";
 
-import { TeacherAssignmentType } from "@prisma/client";
+import { Prisma, TeacherAssignmentType } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 
 import { prisma } from "@/lib/prisma";
@@ -66,6 +66,15 @@ export async function getSchoolTeacherAssignmentWorkspace() {
 function formValue(form: FormData, key: string, max = 160) { return String(form.get(key) ?? "").trim().slice(0, max); }
 function formValues(form: FormData, key: string) { return [...new Set(form.getAll(key).filter((value): value is string => typeof value === "string" && Boolean(value.trim())).map((value) => value.trim()))]; }
 
+export async function lockSchoolTeacherAssignmentScope(
+  tx: Prisma.TransactionClient,
+  schoolId: string,
+  academicYearId: string,
+  sectionId: string,
+) {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`school-teacher-assignment:${schoolId}:${academicYearId}:${sectionId}`}))`;
+}
+
 export async function saveSchoolTeacherAssignments(form: FormData) {
   const school = await requireSchool();
   if (!school.publisherId) throw new SchoolTeacherAssignmentError("BOOK_NOT_AVAILABLE", "Books are not available for this school.");
@@ -86,6 +95,7 @@ export async function saveSchoolTeacherAssignments(form: FormData) {
   const entitledBooks = await prisma.book.findMany({ where: { publisherId: school.publisherId, published: true, archived: false, schoolEntitlements: { some: { schoolId: school.id, publisherId: school.publisherId, status: "ACTIVE" } } }, include: { class: { select: { name: true } }, subject: { select: { id: true } } } });
   const resolvedBooks = sectionSubjects.map((subject) => { const candidates = entitledBooks.filter((book) => book.subject.id === subject.subjectId && normalizeAcademicName(book.class.name) === normalizeAcademicName(section.schoolClass.name)); const selectedId = formValue(form, "book_" + subject.subjectId); if (selectedId && !candidates.some((book) => book.id === selectedId)) throw new SchoolTeacherAssignmentError("BOOK_NOT_ELIGIBLE", "This book is no longer available for the selected class and subject.", "book_" + subject.subjectId); const existing = candidates.find((book) => book.id === subject.book?.id); const resolved = selectedId || existing?.id || (candidates.length === 1 ? candidates[0].id : null); if (candidates.length > 1 && !resolved) throw new SchoolTeacherAssignmentError("BOOK_SELECTION_REQUIRED", "Choose a book because multiple eligible books are available.", "book_" + subject.subjectId); return { sectionSubjectId: subject.id, bookId: resolved }; });
   await prisma.$transaction(async (tx) => {
+    await lockSchoolTeacherAssignmentScope(tx, school.id, academicYearId, sectionId);
     if (subjectIds.length) { await tx.teacherAssignment.updateMany({ where: { schoolId: school.id, academicYearId, sectionId, type: TeacherAssignmentType.SUBJECT_TEACHER, subjectId: { in: subjectIds }, active: true }, data: { active: false, endedAt: new Date() } }); await tx.teacherAssignment.createMany({ data: subjectIds.map((subjectId) => ({ teacherId: teacher.id, schoolId: school.id, academicYearId, schoolClassId: section.schoolClass.id, sectionId, subjectId, type: TeacherAssignmentType.SUBJECT_TEACHER })) }); }
     if (makeClassTeacher) { await tx.teacherAssignment.updateMany({ where: { schoolId: school.id, academicYearId, sectionId, type: TeacherAssignmentType.CLASS_TEACHER, active: true }, data: { active: false, endedAt: new Date() } }); await tx.teacherAssignment.create({ data: { teacherId: teacher.id, schoolId: school.id, academicYearId, schoolClassId: section.schoolClass.id, sectionId, type: TeacherAssignmentType.CLASS_TEACHER } }); }
     for (const resolved of resolvedBooks) await tx.sectionSubject.update({ where: { id: resolved.sectionSubjectId }, data: { bookId: resolved.bookId } });
