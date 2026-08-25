@@ -11,7 +11,8 @@ import { accountAuditActor, writeSecurityAuditEvent } from "@/lib/security-audit
 
 const activationLifetimeMs = 7 * 24 * 60 * 60 * 1000;
 
-export async function issueSchoolTeacherActivation(user: { id: string; email: string }, schoolName: string) {
+export async function issueSchoolTeacherActivation(user: { id: string; email: string | null }, schoolName: string) {
+  if (!user.email) throw new Error("Teacher activation requires an email address.");
   const reference = randomUUID();
   const completionToken = generateResetCompletionToken();
   const now = new Date();
@@ -46,7 +47,7 @@ export async function activateSchoolTeacherAccount(input: { reference?: string; 
     const challenge = await tx.passwordResetChallenge.findUnique({ where: { reference: input.reference }, include: { user: { include: { publisher: { select: { active: true } }, teacher: { select: { active: true, schoolId: true } }, staffMemberships: { where: { active: true, status: SchoolStaffMembershipStatus.ACTIVE }, select: { id: true } } } } } });
     const valid = challenge && !challenge.consumedAt && !challenge.revokedAt && challenge.completionTokenHash && challenge.completionExpiresAt && challenge.completionExpiresAt > now && challenge.user.role === UserRole.TEACHER && challenge.user.teacher?.active && challenge.user.publisher?.active && challenge.user.staffMemberships.length > 0 && securelyMatchesHash(challenge.completionTokenHash, hashSecurityValue("password-reset-completion", input.reference!, input.token!));
     if (!valid) return { ok: false as const, message: "This teacher invitation is invalid or has expired. Ask your school to send a new invitation." };
-    await tx.user.update({ where: { id: challenge.userId }, data: { password: hashedPassword, emailVerifiedAt: now, mustChangePassword: false, active: true } });
+    await tx.user.update({ where: { id: challenge.userId }, data: { password: hashedPassword, passwordChangedAt: now, emailVerifiedAt: now, mustChangePassword: false, active: true } });
     await tx.passwordResetChallenge.update({ where: { id: challenge.id }, data: { consumedAt: now, completionTokenHash: null, completionExpiresAt: null } });
     await tx.passwordResetChallenge.updateMany({ where: { userId: challenge.userId, id: { not: challenge.id }, consumedAt: null, revokedAt: null }, data: { revokedAt: now } });
     await writeSecurityAuditEvent(tx, { actor: accountAuditActor({ id: challenge.user.id, role: UserRole.TEACHER, publisherId: challenge.user.publisherId }), action: "account.password_reset.complete", targetType: "User", targetId: challenge.user.id, outcome: SecurityAuditOutcome.SUCCESS, metadata: { scope: "teacher_activation" } });

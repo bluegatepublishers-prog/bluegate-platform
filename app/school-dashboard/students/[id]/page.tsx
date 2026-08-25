@@ -1,5 +1,6 @@
 import Link from "next/link";
 import ActivationCodeIssuer from "@/components/onboarding/ActivationCodeIssuer";
+import StudentPasswordResetPanel from "@/components/school/StudentPasswordResetPanel";
 import { moveStudentEnrollment, updateStudent } from "@/app/school-dashboard/academic-actions";
 import { getStudent } from "@/lib/academic";
 
@@ -105,6 +106,10 @@ export default async function StudentPage({ params }: { params: Promise<{ id: st
           eligible={student.active && !student.userId && Boolean(student.email)}
         />
       </section>
+
+      {student.userId && student.user ? (
+        <StudentPasswordResetPanel studentId={student.id} loginId={student.user.username ?? student.user.email} />
+      ) : null}
 
       <section id="move-student" className="rounded-3xl border bg-white p-6 shadow-sm">
         <h2 className="text-2xl font-bold">Move student</h2>

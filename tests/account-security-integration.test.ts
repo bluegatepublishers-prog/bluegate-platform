@@ -52,11 +52,12 @@ test("normal login remains password-only but denies unverified onboarding roles"
 
 test("forgot-password responses do not enumerate eligible, unknown, or unsupported accounts", () => {
   const service = security(), actions = read("app/account-security-actions.ts");
+  const forgotAction = actions.slice(actions.indexOf("export async function forgotPasswordAction"), actions.indexOf("export async function verifyResetCodeAction"));
   const response = "If an eligible account exists for this email, a reset code has been sent.";
   assert.match(service, new RegExp(response.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   assert.match(service, /if \(!user \|\| !resetEligible\(user\)\) return \{ reference: decoyReference, message: genericResetResponse \}/);
   assert.match(service, /if \(!validEmail\(email\)\) return \{ reference: decoyReference, message: genericResetResponse \}/);
-  assert.doesNotMatch(actions, /userId|publisherId|role/);
+  assert.doesNotMatch(forgotAction, /userId|publisherId|role/);
 });
 
 test("password reset supports only verified School, Teacher, and Student accounts, including recoverable suspension", () => {

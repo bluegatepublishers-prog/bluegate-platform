@@ -72,6 +72,7 @@ export async function PUT(
         "boardId",
         "isbn",
         "published",
+        "publicCatalogueVisible",
         "featured",
         "description",
       ]);
@@ -130,6 +131,7 @@ export async function PUT(
           fullBookPdf: true, galleryImages: true, subtitle: true, description: true,
           edition: true, publisher: true, language: true, board: true, binding: true,
           dimensions: true, featured: true, featuredOrder: true, published: true, boardId: true,
+          publicCatalogueVisible: true,
           publishedAt: true,
         },
       });
@@ -168,7 +170,8 @@ export async function PUT(
           changedFields: [
             "bookMetadata",
             ...(changedFiles ? ["fileAttachments"] : []),
-            ...(previous.published !== updated.published ? ["publicationState"] : []),
+          ...(previous.published !== updated.published ? ["publicationState"] : []),
+          ...(previous.publicCatalogueVisible !== updated.publicCatalogueVisible ? ["publicCatalogueVisibility"] : []),
             ...(changedFeaturedSettings ? ["featuredPlacement"] : []),
           ],
           fileCount: changedFiles,
@@ -186,6 +189,7 @@ export async function PUT(
     ]);
     revalidatePath("/admin/books");
     revalidatePath("/books");
+    revalidatePath("/");
     revalidatePath(`/books/${result.previous.slug}`);
     revalidatePath(`/books/${result.updated.slug}`);
     return NextResponse.json({ ...result.updated, ...parseBookFormData(result.updated) });

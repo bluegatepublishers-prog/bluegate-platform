@@ -190,7 +190,8 @@ export async function getSchoolMentor(mentorId: string) {
   };
 }
 
-async function issueActivation(user: { id: string; email: string }, schoolName: string) {
+async function issueActivation(user: { id: string; email: string | null }, schoolName: string) {
+  if (!user.email) return false;
   const reference = randomUUID();
   const completionToken = generateResetCompletionToken();
   const now = new Date();

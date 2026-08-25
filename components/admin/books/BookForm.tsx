@@ -566,7 +566,7 @@ export default function BookForm({
 
               <Check
                 label="Published"
-                description="Visible on the public website."
+                description="Platform release state used by school, teacher, and student access."
                 checked={form.published}
                 onChange={(value) =>
                   onChange(
@@ -575,7 +575,41 @@ export default function BookForm({
                   )
                 }
               />
+
+              <Check
+                label="Public Website Catalogue"
+                description="Show this book on the Bluegate website only. This does not affect school, teacher, or student access."
+                checked={form.publicCatalogueVisible}
+                onChange={(value) =>
+                  onChange(
+                    "publicCatalogueVisible",
+                    value,
+                  )
+                }
+              />
             </div>
+
+            <Field
+              label="Featured display order"
+              className="mt-4 max-w-xs"
+            >
+              <input
+                type="number"
+                min={0}
+                step={1}
+                value={form.featuredOrder}
+                onChange={(event) =>
+                  onChange(
+                    "featuredOrder",
+                    event.target.value,
+                  )
+                }
+                className={input}
+              />
+              <span className="mt-1 block text-xs font-normal text-slate-500">
+                Lower numbers appear first in featured sections.
+              </span>
+            </Field>
           </Card>
         </div>
       </section>

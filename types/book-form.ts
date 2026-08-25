@@ -63,6 +63,7 @@ export interface BookFormData {
   featured: boolean;
   featuredOrder: number | "";
   published: boolean;
+  publicCatalogueVisible: boolean;
 }
 
 export type BookFormField = keyof BookFormData;

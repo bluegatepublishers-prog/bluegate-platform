@@ -7,6 +7,7 @@ import { loadStudentIdentity } from "@/lib/student-identity";
 import { studentSessionClaims } from "@/lib/student-identity-service";
 import { getMentorPortalLoginReadinessForUserId, getParentPortalLoginReadinessForUserId } from "@/lib/portal-access";
 import { isCredentialRolePublisherInvariantValid } from "@/lib/role-publisher-policy";
+import { normalizeStudentLoginId } from "@/lib/student-login-id";
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   trustHost: true,
@@ -145,7 +146,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         },
       },
       async authorize(credentials) {
-        const loginId = String(credentials?.loginId ?? "").trim().toLowerCase();
+        const loginId = normalizeStudentLoginId(credentials?.loginId);
         const password = credentials?.password as string;
 
         if (!loginId || !password) {

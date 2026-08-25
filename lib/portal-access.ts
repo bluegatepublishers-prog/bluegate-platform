@@ -71,7 +71,7 @@ type ParentReadinessReady = {
   ok: true;
   category: "READY";
   actor: {
-    user: { id: string; name: string; email: string; active: boolean };
+    user: { id: string; name: string; email: string | null; active: boolean };
     parent: { id: string; userId: string; active: boolean; phone: string | null };
   };
   permissions: ParentPortalPermissions;
@@ -83,7 +83,7 @@ type MentorReadinessReady = {
   ok: true;
   category: "READY";
   actor: {
-    user: { id: string; name: string; email: string; phone: string | null; active: boolean; publisherId: string | null };
+    user: { id: string; name: string; email: string | null; phone: string | null; active: boolean; publisherId: string | null };
     mentor: { id: string; userId: string; publisherId: string; active: boolean; type: string };
   };
   permissions: MentorPortalPermissions;

@@ -4,13 +4,12 @@ import {
   Download,
   Globe,
   Moon,
-  Shield,
-  Lock,
   Monitor,
   Smartphone,
   Save,
-  LogOut,
 } from "lucide-react";
+import AccountSecurityPanel from "@/components/auth/AccountSecurityPanel";
+import { requireTeacher } from "@/lib/teacher-dashboard";
 
 export const metadata: Metadata = {
   title: "Settings | Bluegate Teacher Dashboard",
@@ -18,7 +17,8 @@ export const metadata: Metadata = {
     "Manage your account preferences, notifications, downloads and security.",
 };
 
-export default function SettingsPage() {
+export default async function SettingsPage() {
+  const teacher = await requireTeacher();
   return (
     <main className="min-h-screen bg-slate-100">
       <div className="mx-auto max-w-7xl space-y-8 p-8">
@@ -119,69 +119,10 @@ export default function SettingsPage() {
           </div>
         </section>
 
-        {/* Security */}
-
-        <section className="rounded-3xl bg-white p-8 shadow-sm">
-
-          <div className="mb-8 flex items-center gap-3">
-
-            <Shield className="h-7 w-7 text-green-600" />
-
-            <h2 className="text-2xl font-bold">
-              Security
-            </h2>
-
-          </div>
-
-          <div className="space-y-5">
-
-            <button className="flex w-full items-center justify-between rounded-2xl border border-slate-200 p-5 transition hover:border-blue-500">
-
-              <div className="flex items-center gap-4">
-
-                <Lock className="h-6 w-6 text-blue-700" />
-
-                <div className="text-left">
-
-                  <h3 className="font-semibold">
-                    Change Password
-                  </h3>
-
-                  <p className="text-sm text-slate-500">
-                    Update your account password.
-                  </p>
-
-                </div>
-
-              </div>
-
-            </button>
-
-            <button className="flex w-full items-center justify-between rounded-2xl border border-red-200 p-5 transition hover:bg-red-50">
-
-              <div className="flex items-center gap-4">
-
-                <LogOut className="h-6 w-6 text-red-600" />
-
-                <div className="text-left">
-
-                  <h3 className="font-semibold text-red-600">
-                    Logout From All Devices
-                  </h3>
-
-                  <p className="text-sm text-slate-500">
-                    End all active sessions.
-                  </p>
-
-                </div>
-
-              </div>
-
-            </button>
-
-          </div>
-
-        </section>
+        <AccountSecurityPanel
+          email={teacher.user.email ?? "Not provided"}
+          emailVerified={Boolean(teacher.user.emailVerifiedAt)}
+        />
 
         {/* Save */}
 

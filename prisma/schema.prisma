@@ -10,7 +10,7 @@ datasource db {
 model User {
   id                          String                       @id @default(cuid())
   name                        String
-  email                       String                       @unique
+  email                       String?                      @unique
   username                    String?                      @unique
   password                    String
   active                      Boolean                      @default(true)
@@ -1558,6 +1558,7 @@ model Book {
   featured                  Boolean                    @default(false)
   featuredOrder             Int                        @default(0)
   published                 Boolean                    @default(false)
+  publicCatalogueVisible    Boolean                    @default(false)
   archived                  Boolean                    @default(false)
   publishedAt               DateTime?
   archivedAt                DateTime?

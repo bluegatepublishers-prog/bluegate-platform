@@ -13,6 +13,7 @@ type InspectorBook = {
   boardId: string;
   isbn: string;
   published: boolean;
+  publicCatalogueVisible: boolean;
   featured: boolean;
   description: string;
   updatedAt: string;
@@ -207,6 +208,20 @@ export default function BookInspectorEditor({
             className="h-4 w-4 rounded border-slate-300 text-blue-600"
           />
         </label>
+        <label className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700">
+          <span className="flex items-center justify-between gap-3">
+            Public Website Catalogue
+            <input
+              type="checkbox"
+              checked={form.publicCatalogueVisible}
+              onChange={(event) => update("publicCatalogueVisible", event.target.checked)}
+              className="h-4 w-4 rounded border-slate-300 text-blue-600"
+            />
+          </span>
+          <span className="mt-1 block text-xs font-normal text-slate-500">
+            Show this book on the Bluegate website only; platform access is unchanged.
+          </span>
+        </label>
         <label className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700">
           Featured
           <input
@@ -282,6 +297,7 @@ function editableValue(book: InspectorBook): EditableBook {
     boardId: book.boardId,
     isbn: book.isbn,
     published: book.published,
+    publicCatalogueVisible: book.publicCatalogueVisible,
     featured: book.featured,
     description: book.description,
   };

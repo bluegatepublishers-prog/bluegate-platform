@@ -6,6 +6,7 @@ import BookFeatures from "@/components/books/BookFeatures";
 import TableOfContents from "@/components/books/TableOfContents";
 import RelatedBooks from "@/components/books/RelatedBooks";
 import { bookCoverPath, bookPreviewPath } from "@/lib/storage/book-asset-path";
+import { getPublicCatalogueBookWhere } from "@/lib/public-catalogue";
 
 interface PageProps {
   params: Promise<{ slug: string }>;
@@ -16,8 +17,9 @@ export const revalidate = 0;
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { slug } = await params;
   const book = await prisma.book.findFirst({
-    where: { slug, published: true, archived: false },
+    where: getPublicCatalogueBookWhere({ slug }),
     select: {
+      id: true,
       title: true,
       description: true,
       seoTitle: true,
@@ -33,7 +35,9 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     title: book.seoTitle || book.title,
     description: book.seoDescription || book.description || undefined,
     keywords: book.keywords,
-    openGraph: book.coverImage ? { images: [book.coverImage] } : undefined,
+    openGraph: book.coverImage
+      ? { images: [bookCoverPath(book.id, book.coverImage) ?? book.coverImage] }
+      : undefined,
   };
 }
 
@@ -41,7 +45,7 @@ export default async function BookDetailsPage({ params }: PageProps) {
   const { slug } = await params;
 
   const dbBook = await prisma.book.findFirst({
-    where: { slug, published: true, archived: false },
+    where: getPublicCatalogueBookWhere({ slug }),
     select: {
       id: true,
       publisherId: true,
@@ -104,13 +108,11 @@ export default async function BookDetailsPage({ params }: PageProps) {
   const book = mapBook(dbBook);
 
   const related = await prisma.book.findMany({
-    where: {
-      published: true,
+    where: getPublicCatalogueBookWhere({
       subjectId: dbBook.subjectId,
       classId: dbBook.classId,
       NOT: { id: dbBook.id },
-      OR: [{ publisherId: dbBook.publisherId }, { publisherId: null }],
-    },
+    }),
     select: {
       id: true,
       publisherId: true,

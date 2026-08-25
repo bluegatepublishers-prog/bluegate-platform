@@ -22,7 +22,7 @@ export default async function MentorProfilePage() {
           </label>
           <label className="text-sm font-semibold text-slate-700">
             Email
-            <input name="email" type="email" defaultValue={mentor.user.email} required className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" />
+            <input name="email" type="email" defaultValue={mentor.user.email ?? ""} required className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" />
           </label>
           <label className="text-sm font-semibold text-slate-700 md:col-span-2">
             Phone

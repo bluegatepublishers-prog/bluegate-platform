@@ -98,7 +98,7 @@ export async function getStudents(filters: {
 export async function getStudent(id: string) {
   const school = await requireSchool();
   const [student, years] = await Promise.all([
-    prisma.student.findFirst({ where: { id, schoolId: school.id }, include: { enrollments: { include: { academicYear: true, schoolClass: true, section: true }, orderBy: [{ joinedAt: "desc" }, { createdAt: "desc" }] } } }),
+    prisma.student.findFirst({ where: { id, schoolId: school.id }, include: { user: { select: { username: true, email: true, active: true, role: true } }, enrollments: { include: { academicYear: true, schoolClass: true, section: true }, orderBy: [{ joinedAt: "desc" }, { createdAt: "desc" }] } } }),
     prisma.academicYear.findMany({
       where: { schoolId: school.id, active: true },
       include: { classes: { where: { active: true }, include: { sections: { where: { active: true } } } } },

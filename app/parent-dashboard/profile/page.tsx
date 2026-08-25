@@ -8,7 +8,7 @@ export default async function ParentProfilePage() {
 
   return (
     <main className="space-y-6">
-      <ParentProfileForm name={parent.user.name} email={parent.user.email} phone={parent.phone ?? null} />
+      <ParentProfileForm name={parent.user.name} email={parent.user.email ?? ""} phone={parent.phone ?? null} />
 
       <section className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
         <h2 className="text-xl font-bold text-slate-950">Linked children</h2>

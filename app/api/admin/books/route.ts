@@ -78,6 +78,7 @@ export async function POST(request: NextRequest) {
     });
     revalidatePath("/admin/books");
     revalidatePath("/books");
+    revalidatePath("/");
     return NextResponse.json({ ...book, ...parseBookFormData(book) }, { status: 201 });
   } catch (error) {
     if (error instanceof Error && /PDF|uploaded book/i.test(error.message)) return NextResponse.json({ message: error.message }, { status: 400 });

@@ -7,7 +7,7 @@ import {
   type AssignmentActionResult,
 } from "@/app/school-dashboard/teacher-assignments/actions";
 
-type Teacher = { id: string; name: string; email: string };
+type Teacher = { id: string; name: string; email: string | null };
 type Section = {
   id: string;
   academicYearId: string;

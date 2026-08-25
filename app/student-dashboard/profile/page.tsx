@@ -1,8 +1,16 @@
 import { requireStudent } from "@/lib/student-dashboard";
+import { requireUser } from "@/lib/authz";
+import { prisma } from "@/lib/prisma";
 import Link from "next/link";
+import AccountSecurityPanel from "@/components/auth/AccountSecurityPanel";
 
 export default async function StudentProfilePage() {
+  const user = await requireUser(["STUDENT"]);
   const { student, enrollment, school, academicYear, effectivePlan } = await requireStudent();
+  const account = await prisma.user.findUnique({
+    where: { id: user.id },
+    select: { email: true, emailVerifiedAt: true },
+  });
   const fields = [
     ["Full name", student.name],
     ["Admission number", student.admissionNumber],
@@ -27,6 +35,7 @@ export default async function StudentProfilePage() {
       <dl className="grid gap-4 rounded-3xl border bg-white p-6 shadow-sm md:grid-cols-2">
         {fields.map(([label, value]) => <div key={label} className="rounded-2xl bg-slate-50 p-4"><dt className="text-xs font-bold uppercase tracking-wide text-slate-500">{label}</dt><dd className="mt-2 font-semibold text-slate-900">{value}</dd></div>)}
       </dl>
+      <AccountSecurityPanel email={account?.email ?? user.email ?? student.email ?? null} emailVerified={Boolean(account?.emailVerifiedAt)} />
     </main>
   );
 }

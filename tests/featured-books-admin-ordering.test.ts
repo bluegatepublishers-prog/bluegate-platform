@@ -6,9 +6,7 @@ const read = (path: string) => readFileSync(path, "utf8");
 
 test("home featured books query is publisher-scoped and deterministically ordered", () => {
   const source = read("components/home/FeaturedBooks.tsx");
-  assert.match(source, /publisherId:\s*BLUEGATE_PUBLISHER_ID/);
-  assert.match(source, /published:\s*true/);
-  assert.match(source, /featured:\s*true/);
+  assert.match(source, /getPublicCatalogueBookWhere\(\{ featured: true \}\)/);
   assert.match(source, /featuredOrder:\s*"asc"/);
   assert.match(source, /updatedAt:\s*"desc"/);
   assert.match(source, /id:\s*"asc"/);
@@ -32,7 +30,7 @@ test("admin book form and persistence include featured order", () => {
   assert.match(formData, /featuredOrder:\s*featuredOrderNumber\(input\.featuredOrder\)/);
   assert.match(formData, /featuredOrder:\s*data\.featuredOrder === "" \? 0 : data\.featuredOrder/);
   assert.match(form, /Featured display order/);
-  assert.match(form, /onChange\("featuredOrder"/);
+  assert.match(form, /onChange\(\s*"featuredOrder"/);
   assert.match(apiCreate, /toBookPersistenceData\(form\)/);
   assert.match(apiUpdate, /toBookPersistenceData\(form\)/);
 });

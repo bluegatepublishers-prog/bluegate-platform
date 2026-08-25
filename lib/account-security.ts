@@ -138,7 +138,7 @@ export async function getEmailVerificationView(reference: string | undefined) {
   });
   if (!challenge) return null;
   return {
-    maskedEmail: maskEmail(challenge.user.email),
+    maskedEmail: maskEmail(challenge.user.email ?? ""),
     expiresAt: challenge.expiresAt,
     available: !challenge.consumedAt && !challenge.revokedAt,
     backPath: verificationBackPath(challenge.purpose),
@@ -256,6 +256,7 @@ export async function resendEmailVerification(reference: string | undefined) {
         lastSentAt: null,
       },
     });
+    if (!challenge.user.email) return { state: "UNAVAILABLE" as const };
     return { state: "READY" as const, code, email: challenge.user.email, brandName: challenge.user.publisher?.name ?? "Bluegate" };
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   if (prepared.state !== "READY") {
@@ -304,6 +305,7 @@ async function consumeRequestThrottle(kind: SecurityThrottleKind, rawKey: string
 
 function resetEligible(user: {
   role: UserRole;
+  email: string | null;
   emailVerifiedAt: Date | null;
   publisher: { active: boolean; name: string } | null;
   school: { status: string; publisher: { active: boolean; name: string } | null } | null;
@@ -311,6 +313,7 @@ function resetEligible(user: {
   student: { active: boolean; school: { status: string; publisher: { active: boolean; name: string } | null } } | null;
 }) {
   if (
+    !user.email ||
     !user.emailVerifiedAt ||
     (user.role !== UserRole.SCHOOL &&
       user.role !== UserRole.TEACHER &&
@@ -338,6 +341,7 @@ export async function requestPasswordReset(emailValue: unknown, ipAddress?: stri
     },
   });
   if (!user || !resetEligible(user)) return { reference: decoyReference, message: genericResetResponse };
+  if (!user.email) return { reference: decoyReference, message: genericResetResponse };
   const now = new Date(), reference = randomUUID(), code = generateSixDigitCode();
   await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`password-reset-user:${user.id}`}))`;
@@ -392,7 +396,7 @@ export async function completePasswordReset(reference: string | undefined, compl
     });
     const actualTokenHash = hashSecurityValue("password-reset-completion", reference, completionToken);
     if (!challenge || challenge.consumedAt || challenge.revokedAt || !challenge.verifiedAt || !challenge.completionTokenHash || !challenge.completionExpiresAt || challenge.completionExpiresAt <= now || !securelyMatchesHash(challenge.completionTokenHash, actualTokenHash)) return { ok: false as const, message: "This password reset is unavailable. Request a new code." };
-    await tx.user.update({ where: { id: challenge.userId }, data: { password: hashedPassword } });
+    await tx.user.update({ where: { id: challenge.userId }, data: { password: hashedPassword, passwordChangedAt: now } });
     await tx.passwordResetChallenge.update({ where: { id: challenge.id }, data: { consumedAt: now, completionTokenHash: null, completionExpiresAt: null } });
     await tx.passwordResetChallenge.updateMany({ where: { userId: challenge.userId, id: { not: challenge.id }, consumedAt: null, revokedAt: null }, data: { revokedAt: now } });
     await writeSecurityAuditEvent(tx, {
@@ -409,7 +413,7 @@ export async function resendPasswordResetCode(reference: string | undefined) {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`password-reset:${reference}`}))`;
     const now = new Date();
     const challenge = await tx.passwordResetChallenge.findUnique({ where: { reference }, include: { user: { select: { email: true, publisher: { select: { name: true } } } } } });
-    if (!challenge) return null;
+    if (!challenge || !challenge.user.email) return null;
     const decision = resendDecision({ ...challenge, now });
     if (decision !== "ALLOW") return null;
     const code = generateSixDigitCode();

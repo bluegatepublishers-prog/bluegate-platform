@@ -28,7 +28,7 @@ export async function requireTeacher() {
     },
   });
 
-  if (!teacher || !teacher.schoolId || !teacher.schoolMemberships.some((membership) => membership.schoolId === teacher.schoolId)) notFound();
+  if (!teacher || !teacher.user.email || !teacher.schoolId || !teacher.schoolMemberships.some((membership) => membership.schoolId === teacher.schoolId)) notFound();
   const subscription = await prisma.schoolAccessSubscription.findUnique({ where: { schoolId: teacher.schoolId } });
   const decision = subscription && subscription.publisherId === teacher.school?.publisherId
     ? decideSchoolAccess({ subscription, capability: "TEACHER_DASHBOARD", role: "TEACHER" })

@@ -2,16 +2,12 @@ import Image from "next/image";
 import { Star } from "lucide-react";
 
 import { prisma } from "@/lib/prisma";
-import { BLUEGATE_PUBLISHER_ID } from "@/lib/publisher-context";
 import { bookCoverPath } from "@/lib/storage/book-asset-path";
+import { getPublicCatalogueBookWhere } from "@/lib/public-catalogue";
 
 export default async function FeaturedBooks() {
   const books = await prisma.book.findMany({
-    where: {
-      publisherId: BLUEGATE_PUBLISHER_ID,
-      published: true,
-      featured: true,
-    },
+    where: getPublicCatalogueBookWhere({ featured: true }),
     select: {
       id: true,
       slug: true,

@@ -5,16 +5,31 @@ import { normalizeAndValidateObjectKey } from "@/lib/storage/object-key";
 import { isPublisherUploadUrl, uploadPrefixForScope } from "@/lib/storage/upload-policy";
 import { getLivePublisherAdminAccess } from "@/lib/publisher-admin-authorization";
 import { proxyLegacyBlob } from "@/lib/storage/legacy-proxy";
+import { getApiUser } from "@/lib/authz";
+import { getBookEntitlementForAuthenticatedUser } from "@/lib/entitlements";
+import { getPublicCatalogueBookWhere } from "@/lib/public-catalogue";
+
+const PLATFORM_ASSET_ROLES = ["ADMIN", "TEACHER", "SCHOOL", "STUDENT"];
 
 export async function GET(_request: Request, { params }: { params: Promise<{ bookId: string; kind: string }> }) {
   const { bookId, kind } = await params;
   if (kind !== "cover" && kind !== "preview") return NextResponse.json({ message: "File not found." }, { status: 404 });
-  const book = await prisma.book.findUnique({ where: { id: bookId }, select: { publisherId: true, published: true, coverImage: true, publicPreviewPdf: true, samplePdf: true, title: true } });
-  if (!book?.publisherId) return NextResponse.json({ message: "File not found." }, { status: 404 });
-  if (!book.published) {
+  const select = { publisherId: true, coverImage: true, publicPreviewPdf: true, samplePdf: true, title: true } as const;
+  let book = await prisma.book.findFirst({ where: getPublicCatalogueBookWhere({ id: bookId }), select });
+  if (!book) {
     const access = await getLivePublisherAdminAccess();
-    if (access.status !== "AUTHORIZED" || access.actor.publisherId !== book.publisherId) return NextResponse.json({ message: "File not found." }, { status: 404 });
+    if (access.status === "AUTHORIZED") {
+      book = await prisma.book.findFirst({ where: { id: bookId, publisherId: access.actor.publisherId }, select });
+    }
   }
+  if (!book) {
+    const user = await getApiUser(PLATFORM_ASSET_ROLES);
+    if (user) {
+      const decision = await getBookEntitlementForAuthenticatedUser(user, { bookId });
+      if (decision.allowed) book = await prisma.book.findUnique({ where: { id: bookId }, select });
+    }
+  }
+  if (!book?.publisherId) return NextResponse.json({ message: "File not found." }, { status: 404 });
   const value = kind === "cover" ? book.coverImage : book.publicPreviewPdf || book.samplePdf;
   const scope = kind === "cover" ? "book-cover" as const : book.publicPreviewPdf ? "book-public-preview" as const : "book-sample" as const;
   if (!value) return NextResponse.json({ message: "File not found." }, { status: 404 });

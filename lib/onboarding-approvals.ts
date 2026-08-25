@@ -32,6 +32,7 @@ export async function reviewSchoolRequest(input: { schoolId: string; status: str
     });
     return school;
   });
+  if (!result.user.email) throw new OnboardingError("This school account has no email address for notification.");
   await sendOnboardingNoticeBestEffort({ to: result.user.email, subject: `School account ${status.toLowerCase()}`, text: status === SchoolOnboardingStatus.APPROVED ? "Your school account has been approved. You may now sign in." : `Your school account status is now ${status.toLowerCase()}.` });
 }
 
@@ -88,6 +89,7 @@ export async function reviewTeacherRequest(input: { requestId: string; status: s
     });
     return current;
   });
+  if (!request.teacher.user.email) throw new OnboardingError("This teacher account has no email address for notification.");
   await sendOnboardingNoticeBestEffort({ to: request.teacher.user.email, subject: `Teacher account ${status.toLowerCase()}`, text: status === TeacherOnboardingStatus.APPROVED ? "Your teacher association has been approved. You may now sign in." : `Your teacher account status is now ${status.toLowerCase()}.` });
 }
 

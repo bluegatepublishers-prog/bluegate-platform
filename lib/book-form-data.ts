@@ -36,6 +36,7 @@ export function createEmptyBookFormData(): BookFormData {
     featured: false,
     featuredOrder: 0,
     published: true,
+    publicCatalogueVisible: false,
   };
 }
 
@@ -110,6 +111,10 @@ export function parseBookFormData(value: unknown): BookFormData {
     featuredOrder: featuredOrderNumber(input.featuredOrder),
     published:
       typeof input.published === "boolean" ? input.published : true,
+    publicCatalogueVisible:
+      typeof input.publicCatalogueVisible === "boolean"
+        ? input.publicCatalogueVisible
+        : false,
   };
 }
 
@@ -149,6 +154,7 @@ export function toBookPersistenceData(data: BookFormData) {
     featured: data.featured,
     featuredOrder: data.featuredOrder === "" ? 0 : data.featuredOrder,
     published: data.published,
+    publicCatalogueVisible: data.publicCatalogueVisible,
   };
 }
 

@@ -2,6 +2,7 @@
 
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
+import { requireUser } from "@/lib/authz";
 
 import {
   completePasswordReset,
@@ -11,6 +12,7 @@ import {
   verifyEmailCode,
   verifyPasswordResetCode,
 } from "@/lib/account-security";
+import { changeAuthenticatedPassword } from "@/lib/account-password";
 import type { AccountSecurityState } from "@/lib/account-security-state";
 
 const EMAIL_CHALLENGE_COOKIE = "bluegate_email_challenge";
@@ -96,4 +98,18 @@ export async function completePasswordResetAction(
   store.delete(RESET_CHALLENGE_COOKIE);
   store.delete(RESET_COMPLETION_COOKIE);
   return { ...result, stage: "DONE" };
+}
+
+export async function changePasswordAction(
+  _: AccountSecurityState,
+  form: FormData,
+): Promise<AccountSecurityState> {
+  const user = await requireUser(["STUDENT", "TEACHER"]);
+  if (!user.id) return { ok: false, message: "This account is not available for password changes." };
+  return changeAuthenticatedPassword({
+    userId: user.id,
+    currentPassword: form.get("currentPassword"),
+    newPassword: form.get("newPassword"),
+    confirmation: form.get("confirmPassword"),
+  });
 }

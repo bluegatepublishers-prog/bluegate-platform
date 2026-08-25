@@ -12,6 +12,28 @@ export function cleanText(value: unknown, max: number) {
 
 export function normalizeEmail(value: unknown) { return cleanText(value, 254).toLowerCase(); }
 export function validEmail(value: string) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value); }
+
+export type AccountEmailContext =
+  | "SCHOOL"
+  | "TEACHER"
+  | "PUBLISHER_ADMIN"
+  | "SUPER_ADMIN"
+  | "MENTOR"
+  | "PARENT"
+  | "EMAIL_ACTIVATED_STUDENT"
+  | "SCHOOL_MANAGED_STUDENT";
+
+export function accountEmailIsRequired(context: AccountEmailContext) {
+  return context !== "SCHOOL_MANAGED_STUDENT";
+}
+
+export function normalizeAccountEmail(value: unknown, context: AccountEmailContext) {
+  const email = normalizeEmail(value);
+  if (!email) {
+    return accountEmailIsRequired(context) ? { ok: false as const, email: null } : { ok: true as const, email: null };
+  }
+  return validEmail(email) ? { ok: true as const, email } : { ok: false as const, email: null };
+}
 export function normalizeActivationCode(value: unknown) { return cleanText(value, 32).toUpperCase().replace(/[^A-Z0-9]/g, ""); }
 export function normalizeAdmissionNumber(value: unknown) { return cleanText(value, 80).toUpperCase(); }
 

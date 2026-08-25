@@ -304,7 +304,7 @@ export async function getSchoolDashboard() {
 
 export async function getSchoolTeachers(query?: string) {
   const school = await requireSchool();
-  return prisma.teacher.findMany({
+  const teachers = await prisma.teacher.findMany({
     where: {
       schoolId: school.id,
       OR: query ? [
@@ -315,6 +315,7 @@ export async function getSchoolTeachers(query?: string) {
       ] : undefined,
     }, include: { user: true, assignments:{where:{active:true},include:{schoolClass:true,section:true,subject:true},orderBy:{createdAt:"asc"}} }, orderBy: { user: { name: "asc" } },
   });
+  return teachers.map((teacher) => ({ ...teacher, user: { ...teacher.user, email: teacher.user.email ?? "" } }));
 }
 
 export async function getSchoolResources(filters: { query?: string; classLevel?: string; subject?: string; type?: ResourceType }) {

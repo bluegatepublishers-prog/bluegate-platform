@@ -278,7 +278,7 @@ export default async function AdminSchoolDetailPage({
               label="Principal"
               value={school.principalName ?? "Not provided"}
             />
-            <Info label="Email" value={school.user.email} />
+            <Info label="Email" value={school.user.email ?? "Not provided"} />
             <Info
               label="Phone"
               value={school.user.phone ?? "Not provided"}
