@@ -1,6 +1,42 @@
+"use client";
+
 import Link from "next/link";
-import { FlaskConical, Grid2X2, UsersRound } from "lucide-react";
+import { FlaskConical, Grid2X2, List, UsersRound } from "lucide-react";
+import { useEffect, useState } from "react";
 
-type Classroom = { sectionId: string; academicYearName: string; current: boolean; className: string; sectionName: string; studentCount: number; classTeacher: boolean; subjects: Array<{ id: string; subjectId: string; name: string }> };
+type Classroom = {
+  sectionId: string;
+  academicYearName: string;
+  current: boolean;
+  className: string;
+  sectionName: string;
+  studentCount: number;
+  classTeacher: boolean;
+  subjects: Array<{ id: string; subjectId: string; name: string }>;
+};
 
-export default function ClassesView({ classes }: { classes: Classroom[]; userId: string }) { const combinations = classes.flatMap((item) => item.subjects.map((subject) => ({ ...item, subject }))); return <section><div className="flex items-center justify-between"><h2 className="text-lg font-bold">Select a Class / Subject</h2><span className="text-sm text-slate-500">{combinations.length} assigned</span></div>{combinations.length ? <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{combinations.slice(0, 8).map((item, index) => <Link key={`${item.sectionId}-${item.subject.id}`} href={`/teacher-dashboard/classes/${item.sectionId}?subject=${item.subject.id}`} className={`group rounded-2xl border bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-blue-400 ${index === 0 ? "border-blue-500 ring-1 ring-blue-500" : "border-slate-200"}`}><div className="flex gap-3"><span className={`grid h-12 w-12 shrink-0 place-items-center rounded-full ${index % 3 === 0 ? "bg-emerald-50 text-emerald-600" : index % 3 === 1 ? "bg-violet-50 text-violet-600" : "bg-blue-50 text-blue-600"}`}><FlaskConical className="h-6 w-6" /></span><div className="min-w-0"><h3 className="font-bold">{item.className}-{item.sectionName}</h3><p className="mt-1 text-sm">{item.subject.name}</p><p className="mt-3 flex items-center gap-1 text-xs text-slate-500"><UsersRound className="h-3.5 w-3.5" />{item.studentCount} Students</p></div></div></Link>)}</div> : <div className="mt-4 rounded-2xl border bg-white p-10 text-center"><Grid2X2 className="mx-auto h-9 w-9 text-slate-300" /><p className="mt-3 text-slate-500">No active Class/Subject assignments.</p></div>}</section>; }
+export default function ClassesView({ classes }: { classes: Classroom[]; userId: string }) {
+  const [view, setView] = useState<"grid" | "list">("grid");
+  useEffect(() => {
+    const saved = localStorage.getItem("teacher-class-view");
+    if (saved === "grid" || saved === "list") setView(saved);
+  }, []);
+  const changeView = (next: "grid" | "list") => {
+    setView(next);
+    localStorage.setItem("teacher-class-view", next);
+  };
+  const combinations = classes.flatMap((item) => item.subjects.map((subject) => ({ ...item, subject })));
+
+  return (
+    <section>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div><h2 className="text-lg font-bold">Select a Class / Subject</h2><span className="text-sm text-slate-500">{combinations.length} assigned</span></div>
+        <div className="flex rounded-lg border p-1" aria-label="Class view">
+          <button type="button" aria-label="Grid view" onClick={() => changeView("grid")} className={"rounded-md px-2 py-1.5 " + (view === "grid" ? "bg-blue-600 text-white" : "text-slate-600")}><Grid2X2 className="h-4 w-4" /></button>
+          <button type="button" aria-label="List view" onClick={() => changeView("list")} className={"rounded-md px-2 py-1.5 " + (view === "list" ? "bg-blue-600 text-white" : "text-slate-600")}><List className="h-4 w-4" /></button>
+        </div>
+      </div>
+      {combinations.length ? <div className={view === "list" ? "mt-3 space-y-2" : "mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4"}>{combinations.slice(0, 8).map((item, index) => <Link key={item.sectionId + "-" + item.subject.id} href={"/teacher-dashboard/classes/" + item.sectionId + "?subject=" + item.subject.id} className={"group rounded-2xl border bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-blue-400 " + (index === 0 ? "border-blue-500 ring-1 ring-blue-500" : "border-slate-200")}><div className="flex gap-3"><span className={"grid h-12 w-12 shrink-0 place-items-center rounded-full " + (index % 3 === 0 ? "bg-emerald-50 text-emerald-600" : index % 3 === 1 ? "bg-violet-50 text-violet-600" : "bg-blue-50 text-blue-600")}><FlaskConical className="h-6 w-6" /></span><div className="min-w-0"><h3 className="font-bold">{item.className}-{item.sectionName}</h3><p className="mt-1 text-sm">{item.subject.name}</p><p className="mt-3 flex items-center gap-1 text-xs text-slate-500"><UsersRound className="h-3.5 w-3.5" />{item.studentCount} Students</p></div></div></Link>)}</div> : <div className="mt-4 rounded-2xl border bg-white p-10 text-center"><Grid2X2 className="mx-auto h-9 w-9 text-slate-300" /><p className="mt-3 text-slate-500">No active Class/Subject assignments.</p></div>}
+    </section>
+  );
+}

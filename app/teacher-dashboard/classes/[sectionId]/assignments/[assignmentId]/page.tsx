@@ -24,7 +24,7 @@ export default async function Page({ params }: { params: Promise<{ sectionId: st
     </header>
     <AssignmentItemsEditor
       sectionId={sectionId}
-      assignment={{ id: assignment.id, status: assignment.status, bookId: assignment.bookId, sectionSubjectId: assignment.sectionSubjectId }}
+      assignment={{ id: assignment.id, status: assignment.status, bookId: assignment.bookId, chapterId: assignment.chapterId, sectionSubjectId: assignment.sectionSubjectId }}
       initialItems={items}
       period={period ? {
         sequence: period.sequence,
@@ -32,7 +32,7 @@ export default async function Page({ params }: { params: Promise<{ sectionId: st
         pages: period.pageRefs.length ? "Pages " + period.pageRefs.map((page) => page.displayPageNumber ?? page.sequence).join(", ") : "",
         pageKeys: period.pageRefs.map((page) => (page.moduleId ?? "") + ":" + page.pageId),
       } : null}
-    />    <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">{metric("Eligible", summary.eligible)}{metric("Submitted", summary.submitted)}{metric("Pending", summary.pending)}{metric("Late", summary.late)}{metric("Graded", summary.graded)}{metric("Returned", summary.returned)}{metric("Completion", `${summary.completionPercentage}%`)}{metric("Average marks", summary.averageMarks ?? "Not available")}</section>
+    />    <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">{metric("Eligible", summary.eligible)}{metric("Submitted", summary.submitted)}{metric("Needs review", summary.needsReview)}{metric("Pending", summary.pending)}{metric("Late", summary.late)}{metric("Graded", summary.graded)}{metric("Returned", summary.returned)}{metric("Completion", `${summary.completionPercentage}%`)}{metric("Average marks", summary.averageMarks ?? "Not available")}</section>
     <section className="rounded-2xl border bg-white p-5 shadow-sm"><h2 className="text-xl font-bold">Attachments</h2>{assignment.attachments.length ? <ul className="mt-4 space-y-2">{assignment.attachments.map((item) => { const label = item.label ?? item.originalFileName ?? item.resource?.title ?? item.classMaterial?.title ?? item.bookChapter?.title ?? "Attachment"; return <li key={item.id} className="flex min-w-0 flex-wrap items-center justify-between gap-3 rounded-xl bg-slate-50 p-3"><a href={`/api/assignments/attachments/${item.id}/open`} target="_blank" rel="noreferrer" className="min-w-0 break-words font-semibold text-blue-700">{label}</a><RemoveAssignmentAttachmentButton sectionId={sectionId} assignmentId={assignment.id} attachmentId={item.id} label={label} /></li>; })}</ul> : <p className="mt-2 text-slate-500">No attachments.</p>}</section>
     <SubmissionReviewList sectionId={sectionId} assignmentId={assignment.id} students={students} totalMarks={assignment.totalMarks} allowResubmission={assignment.allowResubmission} maximumAttempts={assignment.maximumAttempts} assignmentItems={items} />
   </div>;

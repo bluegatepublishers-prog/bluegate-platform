@@ -36,13 +36,17 @@ function schoolAccessIsActive(school: { status: string; accessSubscription: { pl
 export async function getBookEntitlementForAuthenticatedUser(
   user: AuthenticatedEntitlementUser,
   request: BookEntitlementRequest,
+  options?: { trace?: (stage: string) => void },
 ): Promise<EntitlementDecision> {
+  const trace = options?.trace;
   const base = deniedFacts(user);
   if (!user.id || !user.role) return decideBookEntitlement(base);
+  trace?.("book entitlement book lookup started");
   const book = await prisma.book.findUnique({
     where: { id: request.bookId },
     select: { id: true, publisherId: true, published: true, archived: true },
   });
+  trace?.("book entitlement book lookup completed");
   base.recordFound = Boolean(book);
   base.published = Boolean(book?.published && !book.archived);
   if (!book?.publisherId) return decideBookEntitlement(base);
@@ -92,6 +96,7 @@ export async function getBookEntitlementForAuthenticatedUser(
   }
 
   if (user.role === "TEACHER") {
+    trace?.("teacher authorization record lookup started");
     const teacher = await prisma.teacher.findUnique({
       where: { userId: user.id },
       include: {
@@ -102,6 +107,7 @@ export async function getBookEntitlementForAuthenticatedUser(
         },
       },
     });
+    trace?.("teacher authorization record lookup completed");
     base.publisherActive = Boolean(teacher?.school?.publisher?.active);
     base.samePublisher = teacher?.school?.publisherId === book.publisherId;
     base.schoolActive = schoolAccessIsActive(teacher?.school);
@@ -111,17 +117,19 @@ export async function getBookEntitlementForAuthenticatedUser(
     if (!teacher.schoolMemberships.some((membership) => membership.schoolId === teacher.schoolId)) {
       return decideBookEntitlement(base);
     }
-    base.schoolEntitled = Boolean(
-      await prisma.schoolBookEntitlement.findFirst({
-        where: {
-          schoolId: teacher.schoolId,
-          bookId: book.id,
-          publisherId: book.publisherId,
-          status: "ACTIVE",
-        },
-        select: { id: true },
-      }),
-    );
+    trace?.("teacher school entitlement query started");
+    const schoolEntitlement = await prisma.schoolBookEntitlement.findFirst({
+      where: {
+        schoolId: teacher.schoolId,
+        bookId: book.id,
+        publisherId: book.publisherId,
+        status: "ACTIVE",
+      },
+      select: { id: true },
+    });
+    trace?.("teacher school entitlement query completed");
+    base.schoolEntitled = Boolean(schoolEntitlement);
+    trace?.("teacher assignment query started");
     const assignments = await prisma.teacherAssignment.findMany({
       where: {
         teacherId: teacher.id,
@@ -143,8 +151,10 @@ export async function getBookEntitlementForAuthenticatedUser(
         type: true,
       },
     });
+    trace?.("teacher assignment query completed");
     base.academicContext = assignments.length > 0;
     base.assignment = assignments.length > 0;
+    trace?.("teacher section-subject query started");
     const assignedSectionSubjects = assignments.length
       ? await prisma.sectionSubject.findMany({
           where: {
@@ -171,6 +181,7 @@ export async function getBookEntitlementForAuthenticatedUser(
           },
         })
       : [];
+    trace?.("teacher section-subject query completed");
     base.scopeAssigned = assignedSectionSubjects.some((sectionSubject) =>
       assignments.some((assignment) =>
         assignment.sectionId === sectionSubject.sectionId &&

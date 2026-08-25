@@ -2,109 +2,110 @@ import "server-only";
 
 import { prisma } from "@/lib/prisma";
 import { requireTeacher } from "@/lib/teacher-dashboard";
-import {
-  getBookEntitlementForAuthenticatedUser,
-  getTeacherEntitledBookIds,
-} from "@/lib/entitlements/book";
+import { getBookEntitlementForAuthenticatedUser } from "@/lib/entitlements/book";
 import { getPublisherTeacherResourceForDelivery } from "@/lib/publisher-teacher-resources";
 import { bookCoverPath } from "@/lib/storage/book-asset-path";
+import { resolveTeacherBookEligibility } from "@/lib/teacher-book-eligibility";
 
 export async function getTeacherBooks() {
   const teacher = await requireTeacher();
-  const bookIds = await getTeacherEntitledBookIds(teacher.userId);
-  if (!bookIds.length || !teacher.schoolId || !teacher.school?.publisherId) return [];
+  if (!teacher.schoolId || !teacher.school?.publisherId) return [];
 
-  const [assignments, sectionSubjects, books] = await Promise.all([
-    prisma.teacherAssignment.findMany({
-      where: {
-        teacherId: teacher.id,
-        schoolId: teacher.schoolId,
-        active: true,
-        academicYear: { current: true, active: true },
-        schoolClass: { active: true },
-        section: { active: true },
-      },
-      select: { sectionId: true, subjectId: true, academicYearId: true, type: true },
+  const assignments = await prisma.teacherAssignment.findMany({
+    where: {
+      teacherId: teacher.id,
+      schoolId: teacher.schoolId,
+      active: true,
+      type: "SUBJECT_TEACHER",
+      academicYear: { current: true, active: true },
+      schoolClass: { active: true },
+      section: { active: true },
+    },
+    select: {
+      academicYearId: true,
+      sectionId: true,
+      subjectId: true,
+      section: { select: { name: true, schoolClass: { select: { name: true } } } },
+      subject: { select: { name: true } },
+    },
+  });
+  const sectionSubjects = await prisma.sectionSubject.findMany({
+    where: {
+      active: true,
+      sectionId: { in: [...new Set(assignments.map((assignment) => assignment.sectionId))] },
+      subjectId: { in: [...new Set(assignments.map((assignment) => assignment.subjectId).filter((id): id is string => Boolean(id)))] },
+    },
+    select: { id: true, sectionId: true, subjectId: true },
+  });
+  const scoped = assignments.flatMap((assignment) => {
+    const subject = sectionSubjects.find((item) => item.sectionId === assignment.sectionId && item.subjectId === assignment.subjectId);
+    return subject ? [{ assignment, sectionSubjectId: subject.id }] : [];
+  });
+  const eligible = await Promise.all(scoped.map(async ({ assignment, sectionSubjectId }) => ({
+    assignment,
+    eligibility: await resolveTeacherBookEligibility(teacher, {
+      sectionId: assignment.sectionId,
+      sectionSubjectId,
+      academicYearId: assignment.academicYearId,
     }),
-    prisma.sectionSubject.findMany({
-      where: {
-        bookId: { in: bookIds },
-        active: true,
-        section: {
-          active: true,
-          schoolClass: {
-            schoolId: teacher.schoolId,
-            active: true,
-            academicYear: { current: true, active: true },
-          },
-        },
-      },
-      select: {
-        bookId: true,
-        sectionId: true,
-        subjectId: true,
-        section: { select: { name: true, schoolClass: { select: { name: true, academicYearId: true } } } },
-        subject: { select: { name: true } },
-      },
-    }),
-    prisma.book.findMany({
-      where: {
-        id: { in: bookIds },
-        published: true,
-        archived: false,
-        publisherId: teacher.school.publisherId,
-      },
-      select: {
-        id: true,
-        title: true,
-        coverImage: true,
-        class: { select: { name: true } },
-        subject: { select: { name: true } },
-        series: { select: { name: true } },
-      },
-    }),
-  ]);
-
-  const cards = new Map<string, {
-    id: string;
-    title: string;
-    coverImage: string | null;
-    className: string;
-    subjectName: string;
-    series: string | null;
-    contexts: Array<{ className: string; sectionName: string; subjectName: string }>;
-  }>();
-  for (const book of books) {
-    const contexts = sectionSubjects
-      .filter((item) => item.bookId === book.id && assignments.some((assignment) =>
-        assignment.sectionId === item.sectionId &&
-        assignment.academicYearId === item.section.schoolClass.academicYearId &&
-        (assignment.type === "CLASS_TEACHER" || assignment.subjectId === item.subjectId),
-      ))
-      .map((item) => ({ className: item.section.schoolClass.name, sectionName: item.section.name, subjectName: item.subject.name }));
-    if (contexts.length) {
-      cards.set(book.id, {
-        id: book.id,
-        title: book.title,
-        coverImage: bookCoverPath(book.id, book.coverImage),
-        className: book.class.name,
-        subjectName: book.subject.name,
-        series: book.series?.name ?? null,
-        contexts,
+  })));
+  const bookIds = [...new Set(eligible.flatMap((item) => item.eligibility?.books.map((book) => book.id) ?? []))];
+  if (!bookIds.length) return [];
+  const books = await prisma.book.findMany({
+    where: { id: { in: bookIds }, publisherId: teacher.school.publisherId, published: true, archived: false },
+    select: {
+      id: true,
+      title: true,
+      coverImage: true,
+      class: { select: { name: true } },
+      subject: { select: { name: true } },
+      series: { select: { name: true } },
+    },
+  });
+  const contextsByBook = new Map<string, Array<{ className: string; sectionName: string; subjectName: string }>>();
+  for (const item of eligible) {
+    if (!item.eligibility) continue;
+    for (const book of item.eligibility.books) {
+      const contexts = contextsByBook.get(book.id) ?? [];
+      contexts.push({
+        className: item.assignment.section.schoolClass.name,
+        sectionName: item.assignment.section.name,
+        subjectName: item.assignment.subject?.name ?? "",
       });
+      contextsByBook.set(book.id, contexts);
     }
   }
-  return [...cards.values()].sort((left, right) => left.title.localeCompare(right.title));
+  return books.map((book) => ({
+    id: book.id,
+    title: book.title,
+    coverImage: bookCoverPath(book.id, book.coverImage),
+    className: book.class.name,
+    subjectName: book.subject.name,
+    series: book.series?.name ?? null,
+    contexts: [...new Map((contextsByBook.get(book.id) ?? []).map((context) => [
+      `${context.className}:${context.sectionName}:${context.subjectName}`,
+      context,
+    ])).values()],
+  })).filter((book) => book.contexts.length).sort((left, right) => left.title.localeCompare(right.title));
 }
-
-export async function getTeacherBook(bookId: string) {
+export async function getTeacherBook(
+  bookId: string,
+  options?: { trace?: (stage: string) => void },
+) {
+  const trace = options?.trace;
+  trace?.("auth started");
   const teacher = await requireTeacher();
+  trace?.("auth completed");
+  trace?.("teacher auth started");
   const decision = await getBookEntitlementForAuthenticatedUser(
     { id: teacher.userId, role: "TEACHER" },
     { bookId },
+    { trace },
   );
+  trace?.("teacher auth completed");
   if (!decision.allowed || !teacher.schoolId || !teacher.school?.publisherId) return null;
 
+  trace?.("authorized book lookup started");
   const book = await prisma.book.findFirst({
     where: {
       id: bookId,
@@ -115,8 +116,10 @@ export async function getTeacherBook(bookId: string) {
     },
     select: { id: true, title: true, coverImage: true, fullBookPdf: true },
   });
+  trace?.("authorized book lookup completed");
   if (!book) return null;
 
+  trace?.("teacher resource queries started");
   const [folders, resources] = await Promise.all([
     prisma.publisherTeacherResourceFolder.findMany({
       where: { publisherId: teacher.school.publisherId, bookId, archivedAt: null },
@@ -129,6 +132,7 @@ export async function getTeacherBook(bookId: string) {
       orderBy: [{ sortOrder: "asc" }, { title: "asc" }],
     }),
   ]);
+  trace?.("teacher resource queries completed");
   const folderById = new Map(folders.map((folder) => [folder.id, folder]));
   const folderLabel = (folderId: string) => {
     const names: string[] = [];

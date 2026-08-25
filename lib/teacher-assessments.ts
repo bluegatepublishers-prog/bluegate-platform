@@ -35,6 +35,9 @@ import {
   mapTeacherQuestionAssessmentType,
   mapTeacherQuestionToAssessmentSnapshot,
 } from "@/lib/teacher-assessment-question-bridge";
+import { BOOK_QUESTIONS_EXERCISE_CODE } from "@/lib/book-questions";
+import { normalizeQuestionType } from "@/lib/normalized-question";
+import { discoverQuestionBank } from "@/lib/question-bank-discovery";
 import { processPublishedAssessmentAnalytics } from "@/lib/assessment-analytics";
 import { refreshLearningSupportBestEffort } from "@/lib/learning-support";
 import { completeMatchingRemedialSteps } from "@/lib/remedials/completion";
@@ -61,6 +64,36 @@ export class TeacherAssessmentError extends Error {
     super(message);
     this.name = "TeacherAssessmentError";
   }
+}
+
+export type TeacherAssessmentQuestionBankSource = "ALL" | "BOOK" | "PUBLISHER" | "MY";
+
+export type TeacherAssessmentQuestionBankFilters = {
+  chapterId?: string;
+  moduleId?: string;
+  exerciseId?: string;
+  questionType?: string;
+  difficulty?: string;
+};
+
+function normalizeQuestionBankSource(value: unknown): TeacherAssessmentQuestionBankSource {
+  const normalized = String(value ?? "ALL").trim().toUpperCase();
+  return normalized === "BOOK" || normalized === "PUBLISHER" || normalized === "MY" ? normalized : "ALL";
+}
+
+function normalizeQuestionBankFilters(input: TeacherAssessmentQuestionBankFilters = {}) {
+  const questionType = input.questionType?.trim() ? normalizeQuestionType(input.questionType) : "";
+  return {
+    chapterId: input.chapterId?.trim() ?? "",
+    moduleId: input.moduleId?.trim() ?? "",
+    exerciseId: input.exerciseId?.trim() ?? "",
+    questionType: questionType === "UNSUPPORTED" ? "" : questionType,
+    difficulty: input.difficulty?.trim().toUpperCase() ?? "",
+  };
+}
+
+function questionBankKey(questionType: string, questionText: string) {
+  return `${normalizeQuestionType(questionType)}\\u0000${questionText.trim()}`;
 }
 
 function teacherActor(input: { teacherUserId: string; publisherId: string }) {
@@ -121,7 +154,7 @@ function normalizeAssessmentType(value: FormDataEntryValue | null) {
   return "CUSTOM" as const;
 }
 
-function normalizeQuestionType(value: FormDataEntryValue | null) {
+function normalizeManualQuestionType(value: FormDataEntryValue | null) {
   const raw = String(value ?? "").trim().toUpperCase().replace(/[\s/-]+/g, "_");
   if ([
     "MCQ",
@@ -143,7 +176,6 @@ function normalizeQuestionType(value: FormDataEntryValue | null) {
   }
   return null;
 }
-
 
 function normalizeRelease(value: FormDataEntryValue | null) {
   const raw = String(value ?? "").trim();
@@ -293,6 +325,8 @@ async function loadOwnedAssessment(sectionId: string, assessmentId: string) {
     include: {
       settings: true,
       sectionSubject: { include: { subject: true } },
+      section: { select: { name: true, schoolClass: { select: { name: true } } } },
+      teachingPeriod: { select: { id: true, title: true, plannedDate: true, sequence: true, timetableEntry: { select: { weekday: true, periodSlot: { select: { label: true, sequence: true } } } } } },
       chapter: { select: { id: true, chapterNumber: true, title: true } },
       questions: {
         orderBy: { sequence: "asc" },
@@ -338,15 +372,28 @@ async function nextSequence(assessmentId: string, tx: Prisma.TransactionClient) 
 async function appendBookQuestions(input: {
   tx: Prisma.TransactionClient;
   assessmentId: string;
+  assessmentBookId: string;
+  assessmentChapterId?: string | null;
   bookQuestionIds: string[];
   allowedBookIds: string[];
+  publisherId: string;
+  filters?: TeacherAssessmentQuestionBankFilters;
 }) {
   if (!input.bookQuestionIds.length) return 0;
+  const filters = normalizeQuestionBankFilters(input.filters);
+  const chapterId = input.assessmentChapterId || filters.chapterId || undefined;
   const questions = await input.tx.bookQuestion.findMany({
     where: {
       id: { in: input.bookQuestionIds },
       approved: true,
-      bookId: { in: input.allowedBookIds },
+      archived: false,
+      bookId: input.assessmentBookId,
+      book: { publisherId: input.publisherId, published: true, archived: false },
+      ...(input.allowedBookIds.includes(input.assessmentBookId) ? {} : { bookId: { in: [] } }),
+      ...(chapterId ? { chapterId } : {}),
+      ...(filters.moduleId ? { moduleId: filters.moduleId } : {}),
+      ...(filters.exerciseId ? { exerciseId: filters.exerciseId } : {}),
+      chapter: { approved: true, published: true, archived: false },
     },
     orderBy: { id: "asc" },
   });
@@ -357,7 +404,11 @@ async function appendBookQuestions(input: {
     select: { questionId: true },
   });
   const existingQuestionIds = new Set(existing.map((item) => item.questionId));
-  const unique = questions.filter((question) => !existingQuestionIds.has(question.id));
+  const eligible = questions.filter((question) =>
+    (!filters.questionType || normalizeQuestionType(question.questionType) === filters.questionType) &&
+    (!filters.difficulty || question.difficulty.trim().toUpperCase() === filters.difficulty),
+  );
+  const unique = eligible.filter((question) => !existingQuestionIds.has(question.id));
   if (!unique.length) return 0;
 
   let sequence = await nextSequence(input.assessmentId, input.tx);
@@ -457,6 +508,15 @@ export async function getTeacherAssessmentList(sectionId: string, sectionSubject
     include: {
       chapter: { select: { chapterNumber: true, title: true } },
       questions: { select: { marks: true } },
+      attempts: {
+        select: {
+          status: true,
+          responses: {
+            where: { reviewStatus: AssessmentReviewStatus.PENDING },
+            select: { id: true },
+          },
+        },
+      },
       _count: { select: { attempts: true } },
     },
     orderBy: [{ status: "asc" }, { updatedAt: "desc" }],
@@ -479,6 +539,9 @@ export async function getTeacherAssessmentList(sectionId: string, sectionSubject
       totalQuestions: row.questions.length,
       totalMarks: row.questions.reduce((sum, question) => sum + question.marks, 0),
       attempts: row._count.attempts,
+      needsGrading: (row.status === AssessmentStatus.PUBLISHED || row.status === AssessmentStatus.CLOSED)
+        ? row.attempts.reduce((sum, attempt) => sum + ((attempt.status === AssessmentAttemptStatus.SUBMITTED || attempt.status === AssessmentAttemptStatus.PENDING_REVIEW) ? attempt.responses.length : 0), 0)
+        : 0,
       status: row.status,
       lifecycle,
       opensAt: row.opensAt,
@@ -555,6 +618,7 @@ export async function createTeacherAssessment(sectionId: string, formData: FormD
     ? selectedBook.chapters.find((chapter) => chapter.id === chapterIdRaw)?.id ?? null
     : null;
   if (chapterIdRaw && !chapterId) throw new TeacherAssessmentError("Select a valid chapter.", "VALIDATION_FAILED");
+  if (type === "CHAPTER" && !chapterId) throw new TeacherAssessmentError("Chapter Tests require a selected chapter.", "VALIDATION_FAILED");
 
   const resultRelease = normalizeRelease(formData.get("resultRelease"));
   const showScore = formData.get("showScore") === "on";
@@ -615,90 +679,45 @@ export async function getTeacherAssessmentEditor(input: {
   assessmentId: string;
   search?: string;
   chapterId?: string;
+  source?: TeacherAssessmentQuestionBankSource;
+  moduleId?: string;
+  exerciseId?: string;
+  questionType?: string;
+  difficulty?: string;
 }) {
   const { scope, assessment } = await loadOwnedAssessment(input.sectionId, input.assessmentId);
   const search = (input.search ?? "").trim();
-  const chapterId = (input.chapterId ?? "").trim();
+  const source = normalizeQuestionBankSource(input.source);
+  const filters = normalizeQuestionBankFilters({
+    chapterId: assessment.chapterId ?? input.chapterId,
+    moduleId: input.moduleId,
+    exerciseId: input.exerciseId,
+    questionType: input.questionType,
+    difficulty: input.difficulty,
+  });
   const subject = scope.sectionSubjects.find((item) => item.id === assessment.sectionSubjectId) ?? scope.sectionSubjects[0];
   if (!subject) throw new TeacherAssessmentError("This subject is not assigned to you.");
+  if (assessment.type === "CHAPTER" && !assessment.chapterId) {
+    throw new TeacherAssessmentError("Chapter Tests require a selected chapter.", "VALIDATION_FAILED");
+  }
 
   const adoptedBooks = subject.bookAdoptions.map((item) => item.book);
-  const adoptedBookIds = adoptedBooks.map((book) => book.id);
-  const selectedBook = adoptedBooks.find((book) => book.id === assessment.bookId) ?? adoptedBooks[0] ?? null;
-  const selectedChapterId = chapterId || assessment.chapterId || "";
-
-  const questionWhere: Prisma.BookQuestionWhereInput = {
-    approved: true,
-    bookId: { in: adoptedBookIds },
-    ...(selectedChapterId ? { chapterId: selectedChapterId } : {}),
-    ...(search
-      ? {
-          OR: [
-            { questionText: { contains: search, mode: "insensitive" } },
-            { competency: { contains: search, mode: "insensitive" } },
-            { bloomLevel: { contains: search, mode: "insensitive" } },
-          ],
-        }
-      : {}),
-  };
-
-  const teacherQuestionWhere: Prisma.TeacherQuestionWhereInput = {
-    publisherId: scope.publisherId,
-    schoolId: scope.schoolId,
-    teacherId: scope.teacher.id,
-    status: TeacherQuestionStatus.ACTIVE,
-    questionType: { in: TEACHER_QUESTION_ASSESSMENT_TYPES },
-    AND: [
-      { OR: [{ sectionSubjectId: assessment.sectionSubjectId }, { sectionSubjectId: null }] },
-      { OR: [{ bookId: assessment.bookId }, { bookId: null }] },
-      ...(selectedChapterId
-        ? [{ OR: [{ chapterId: selectedChapterId }, { chapterId: null }] }]
-        : []),
-      ...(search
-        ? [{
-            OR: [
-              { questionText: { contains: search, mode: "insensitive" as const } },
-              { competency: { contains: search, mode: "insensitive" as const } },
-              { bloomLevel: { contains: search, mode: "insensitive" as const } },
-              { tags: { has: search } },
-            ],
-          }]
-        : []),
-    ],
-  };
-
-  const [myQuestions, publisherQuestions, previousSnapshots] = await Promise.all([
-    prisma.teacherQuestion.findMany({
-      where: teacherQuestionWhere,
-      orderBy: [{ updatedAt: "desc" }, { id: "asc" }],
-      take: 120,
-      select: {
-        id: true,
-        sectionSubjectId: true,
-        bookId: true,
-        chapterId: true,
-        moduleId: true,
-        questionType: true,
-        questionText: true,
-        marks: true,
-        difficulty: true,
-        bloomLevel: true,
-        competency: true,
-        tags: true,
+  const selectedBook = adoptedBooks.find((book) => book.id === assessment.bookId) ?? null;
+  if (!selectedBook) throw new TeacherAssessmentError("This assessment book is no longer available to this subject.", "NOT_FOUND");
+  const selectedChapterId = filters.chapterId;
+  const [questionBank, previousSnapshots] = await Promise.all([
+    discoverQuestionBank({
+      context: {
+        publisherId: scope.publisherId,
+        schoolId: scope.schoolId,
+        teacherId: scope.teacher.id,
+        sectionSubjectId: assessment.sectionSubjectId,
+        bookId: assessment.bookId,
+        chapterId: selectedChapterId,
       },
-    }),
-    prisma.bookQuestion.findMany({
-      where: questionWhere,
-      orderBy: [{ updatedAt: "desc" }, { id: "asc" }],
-      take: 120,
-      select: {
-        id: true,
-        chapterId: true,
-        questionType: true,
-        questionText: true,
-        marks: true,
-        competency: true,
-      },
+      source,
+      filters,
+      search,
     }),
     prisma.assessmentQuestion.findMany({
       where: {
@@ -719,6 +738,26 @@ export async function getTeacherAssessmentEditor(input: {
 
   const selectedQuestionIds = new Set(assessment.questions.map((row) => row.questionId));
   const selectedSnapshotIds = new Set(assessment.questions.map((row) => row.id));
+  const selectedSnapshotKeys = new Set(
+    assessment.questions.map((row) => questionBankKey(row.questionType, row.questionText)),
+  );
+
+  const bookQuestions = questionBank.bookQuestions.map((row) => ({
+    ...row,
+    alreadyAdded: selectedQuestionIds.has(row.id),
+  }));
+  const publisherQuestions = questionBank.publisherQuestions.map((row) => ({
+    ...row,
+    alreadyAdded: selectedQuestionIds.has(row.id),
+  }));
+  const myQuestions = questionBank.myQuestions
+    .map((row) => ({
+      ...row,
+      questionType: mapTeacherQuestionAssessmentType(row.questionType),
+      source: "MY" as const,
+      alreadyAdded: selectedSnapshotKeys.has(questionBankKey(row.questionType, row.questionText)),
+    }))
+    .filter((row) => row.questionType);
 
   return {
     scope,
@@ -727,28 +766,20 @@ export async function getTeacherAssessmentEditor(input: {
     selectedBook,
     selectedChapterId,
     search,
+    source,
+    filters,
+    modules: questionBank.modules,
+    exercises: questionBank.exercises,
+    myQuestions,
+    bookQuestions,
+    publisherQuestions,
+    publisherQuestionFilterNote: "Publisher Questions are the approved BookQuestion master bank; publisher extras have no separate Prisma model.",
+    myQuestionFilterNote: source === "MY" || source === "ALL"
+      ? "Module/Exercise filtering is not available for some My Questions. My Questions have no exerciseId metadata."
+      : "",
     canEditQuestions:
       assessment.status === AssessmentStatus.DRAFT ||
       (assessment.status === AssessmentStatus.PUBLISHED && assessment._count.attempts === 0),
-    publisherQuestions: publisherQuestions.map((row) => ({
-      ...row,
-      alreadyAdded: selectedQuestionIds.has(row.id),
-    })),
-    myQuestions: myQuestions.map((row) => ({
-      id: row.id,
-      sectionSubjectId: row.sectionSubjectId,
-      bookId: row.bookId,
-      chapterId: row.chapterId,
-      moduleId: row.moduleId,
-      questionType: mapTeacherQuestionAssessmentType(row.questionType),
-      questionText: row.questionText,
-      marks: row.marks,
-      difficulty: row.difficulty,
-      bloomLevel: row.bloomLevel,
-      competency: row.competency,
-      tags: row.tags,
-      alreadyAdded: false,
-    })),
     previousSnapshots: previousSnapshots.map((row) => ({
       id: row.id,
       assessmentId: row.assessmentId,
@@ -803,6 +834,8 @@ export async function updateTeacherAssessmentSettings(sectionId: string, assessm
   const chapterId = chapterIdRaw
     ? selectedBook.chapters.find((chapter) => chapter.id === chapterIdRaw)?.id ?? null
     : null;
+  const nextType = normalizeAssessmentType(formData.get("type"));
+  if (nextType === "CHAPTER" && !chapterId) throw new TeacherAssessmentError("Chapter Tests require a selected chapter.", "VALIDATION_FAILED");
 
   const attemptsCount = assessment._count.attempts;
   const contentLocked = assessment.status === AssessmentStatus.PUBLISHED && attemptsCount > 0;
@@ -819,7 +852,7 @@ export async function updateTeacherAssessmentSettings(sectionId: string, assessm
         ...(contentLocked
           ? {}
           : {
-              type: normalizeAssessmentType(formData.get("type")),
+              type: nextType,
               sectionSubjectId: subject.id,
               bookId: selectedBook.id,
               chapterId,
@@ -849,7 +882,7 @@ export async function updateTeacherAssessmentSettings(sectionId: string, assessm
   });
 }
 
-export async function addPublisherQuestionsToAssessment(sectionId: string, assessmentId: string, questionIds: string[]) {
+export async function addPublisherQuestionsToAssessment(sectionId: string, assessmentId: string, questionIds: string[], filters?: TeacherAssessmentQuestionBankFilters) {
   const { scope, assessment } = await loadOwnedAssessment(sectionId, assessmentId);
   ensureQuestionEditAllowed({ status: assessment.status, attempts: assessment._count.attempts });
 
@@ -864,8 +897,12 @@ export async function addPublisherQuestionsToAssessment(sectionId: string, asses
     const count = await appendBookQuestions({
       tx,
       assessmentId: assessment.id,
+      assessmentBookId: assessment.bookId,
+      assessmentChapterId: assessment.chapterId,
       bookQuestionIds: uniqueIds,
       allowedBookIds,
+      publisherId: scope.publisherId,
+      filters,
     });
     if (count > 0) {
       await writeSecurityAuditEvent(tx, {
@@ -883,12 +920,19 @@ export async function addPublisherQuestionsToAssessment(sectionId: string, asses
   return { added };
 }
 
-export async function addTeacherQuestionsToAssessment(sectionId: string, assessmentId: string, teacherQuestionIds: string[]) {
+export async function addTeacherQuestionsToAssessment(
+  sectionId: string,
+  assessmentId: string,
+  teacherQuestionIds: string[],
+  filters?: TeacherAssessmentQuestionBankFilters,
+) {
   const { scope, assessment } = await loadOwnedAssessment(sectionId, assessmentId);
   ensureQuestionEditAllowed({ status: assessment.status, attempts: assessment._count.attempts });
 
   const uniqueIds = [...new Set(teacherQuestionIds.map((id) => id.trim()).filter(Boolean))];
   if (!uniqueIds.length) return { added: 0 };
+  const bankFilters = normalizeQuestionBankFilters(filters);
+  const effectiveChapterId = assessment.chapterId ?? bankFilters.chapterId;
 
   const added = await prisma.$transaction(async (tx) => {
     const sourceRows = await tx.teacherQuestion.findMany({
@@ -898,6 +942,12 @@ export async function addTeacherQuestionsToAssessment(sectionId: string, assessm
         schoolId: scope.schoolId,
         teacherId: scope.teacher.id,
         status: TeacherQuestionStatus.ACTIVE,
+        AND: [
+          { OR: [{ sectionSubjectId: assessment.sectionSubjectId }, { sectionSubjectId: null }] },
+          { OR: [{ bookId: assessment.bookId }, { bookId: null }] },
+          ...(effectiveChapterId ? [{ OR: [{ chapterId: effectiveChapterId }, { chapterId: null }] }] : []),
+          ...(bankFilters.moduleId ? [{ OR: [{ moduleId: bankFilters.moduleId }, { moduleId: null }] }] : []),
+        ],
       },
       select: {
         id: true,
@@ -914,6 +964,7 @@ export async function addTeacherQuestionsToAssessment(sectionId: string, assessm
         correctAnswer: true,
         explanation: true,
         marks: true,
+        difficulty: true,
         competency: true,
       },
     });
@@ -925,10 +976,12 @@ export async function addTeacherQuestionsToAssessment(sectionId: string, assessm
     const sourceById = new Map(sourceRows.map((row) => [row.id, row]));
     const existing = await tx.assessmentQuestion.findMany({
       where: { assessmentId: assessment.id },
-      select: { questionId: true },
+      select: { questionId: true, questionType: true, questionText: true },
     });
     const usedAnchorIds = new Set(existing.map((row) => row.questionId));
+    const usedSnapshotKeys = new Set(existing.map((row) => questionBankKey(row.questionType, row.questionText)));
     let sequence = await nextSequence(assessment.id, tx);
+    let addedCount = 0;
 
     for (const teacherQuestionId of uniqueIds) {
       const source = sourceById.get(teacherQuestionId);
@@ -941,20 +994,26 @@ export async function addTeacherQuestionsToAssessment(sectionId: string, assessm
         assessment: {
           sectionSubjectId: assessment.sectionSubjectId,
           bookId: assessment.bookId,
-          chapterId: assessment.chapterId,
+          chapterId: effectiveChapterId,
         },
       })) {
         throw new TeacherAssessmentError("A selected My Question is outside this assessment context.", "QUESTION_NOT_AVAILABLE");
       }
+      if (bankFilters.questionType && normalizeQuestionType(source.questionType) !== bankFilters.questionType) {
+        throw new TeacherAssessmentError("A selected My Question is outside the active type filter.", "QUESTION_NOT_AVAILABLE");
+      }
+      if (bankFilters.difficulty && source.difficulty.trim().toUpperCase() !== bankFilters.difficulty) {
+        throw new TeacherAssessmentError("A selected My Question is outside the active difficulty filter.", "QUESTION_NOT_AVAILABLE");
+      }
 
       const bookId = source.bookId ?? assessment.bookId;
-      const chapterId = source.chapterId ?? assessment.chapterId;
+      const chapterId = source.chapterId ?? effectiveChapterId;
       if (!chapterId || bookId !== assessment.bookId) {
         throw new TeacherAssessmentError("A selected My Question has no compatible book/chapter context.", "QUESTION_NOT_AVAILABLE");
       }
 
       const chapter = await tx.bookChapter.findFirst({
-        where: { id: chapterId, bookId },
+        where: { id: chapterId, bookId, approved: true, published: true, archived: false },
         select: { id: true },
       });
       if (!chapter) {
@@ -963,7 +1022,7 @@ export async function addTeacherQuestionsToAssessment(sectionId: string, assessm
 
       if (source.moduleId) {
         const moduleRecord = await tx.bookModule.findFirst({
-          where: { id: source.moduleId, bookId, chapterId },
+          where: { id: source.moduleId, bookId, chapterId, published: true, archived: false },
           select: { id: true },
         });
         if (!moduleRecord) {
@@ -975,6 +1034,8 @@ export async function addTeacherQuestionsToAssessment(sectionId: string, assessm
       if (!snapshot) {
         throw new TeacherAssessmentError("A selected My Question uses an unsupported or invalid question type.", "QUESTION_NOT_AVAILABLE");
       }
+      const snapshotKey = questionBankKey(snapshot.questionType, snapshot.questionText);
+      if (usedSnapshotKeys.has(snapshotKey)) continue;
 
       const anchor = await tx.bookQuestion.findFirst({
         where: {
@@ -983,6 +1044,8 @@ export async function addTeacherQuestionsToAssessment(sectionId: string, assessm
           chapterId,
           approved: true,
           archived: false,
+          book: { publisherId: scope.publisherId, published: true, archived: false },
+          chapter: { approved: true, published: true, archived: false },
         },
         orderBy: { id: "asc" },
         select: { id: true },
@@ -1009,19 +1072,23 @@ export async function addTeacherQuestionsToAssessment(sectionId: string, assessm
         },
       });
       usedAnchorIds.add(anchor.id);
+      usedSnapshotKeys.add(snapshotKey);
       sequence += 1;
+      addedCount += 1;
     }
 
-    await writeSecurityAuditEvent(tx, {
-      actor: teacherActor({ teacherUserId: scope.teacher.userId, publisherId: scope.publisherId }),
-      action: "classroom.assessment.update",
-      targetType: "Assessment",
-      targetId: assessment.id,
-      outcome: SecurityAuditOutcome.SUCCESS,
-      metadata: { scope: "classroom", fileOperation: "teacher_question_snapshot", fileCount: uniqueIds.length },
-    });
+    if (addedCount > 0) {
+      await writeSecurityAuditEvent(tx, {
+        actor: teacherActor({ teacherUserId: scope.teacher.userId, publisherId: scope.publisherId }),
+        action: "classroom.assessment.update",
+        targetType: "Assessment",
+        targetId: assessment.id,
+        outcome: SecurityAuditOutcome.SUCCESS,
+        metadata: { scope: "classroom", fileOperation: "teacher_question_snapshot", fileCount: addedCount },
+      });
+    }
 
-    return uniqueIds.length;
+    return addedCount;
   });
 
   return { added };
@@ -1109,7 +1176,7 @@ export async function addManualQuestionToAssessment(sectionId: string, assessmen
   ensureQuestionEditAllowed({ status: assessment.status, attempts: assessment._count.attempts });
 
   const anchorQuestionId = String(formData.get("anchorQuestionId") ?? "").trim();
-  const questionType = normalizeQuestionType(formData.get("questionType"));
+  const questionType = normalizeManualQuestionType(formData.get("questionType"));
   const questionText = String(formData.get("questionText") ?? "").trim();
   const marks = normalizeInt(formData.get("marks"));
   if (!anchorQuestionId || !questionType || questionText.length < 3 || !marks || marks < 1 || marks > 100) {
@@ -2377,4 +2444,270 @@ export async function auditTeacherAssessmentDenial(input: {
   } catch {
     // Ignore best-effort audit failures.
   }
+}
+
+export type TeacherPeriodAssessmentDraft = {
+  id?: string | null;
+  title: string;
+  type: string;
+  instructions?: string | null;
+  durationMinutes?: string | number | null;
+  maximumMarks?: string | number | null;
+  passingMarks?: string | number | null;
+  opensAt?: string | null;
+  dueAt?: string | null;
+  maxAttempts?: string | number | null;
+  resultRelease?: string | null;
+  bookId?: string | null;
+  chapterId?: string | null;
+  moduleId?: string | null;
+  exerciseId?: string | null;
+  intent?: "DRAFT" | "PUBLISHED";
+};
+
+function composerDraftText(value: unknown) {
+  return String(value ?? "").trim();
+}
+
+function composerDraftDate(value: unknown) {
+  const raw = composerDraftText(value);
+  if (!raw) return null;
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) throw new TeacherAssessmentError("Assessment dates must be valid.", "VALIDATION_FAILED");
+  return parsed;
+}
+
+function composerDraftInteger(value: unknown) {
+  const raw = composerDraftText(value);
+  if (!raw) return null;
+  const parsed = Number(raw);
+  return Number.isInteger(parsed) ? parsed : null;
+}
+
+async function authorizeTeacherPeriodForAssessment(input: { sectionId: string; sectionSubjectId: string; periodId: string }) {
+  const { scope, subject } = await requireTeacherSubject(input.sectionId, input.sectionSubjectId);
+  if (!await isPublisherFeatureEnabled(scope.publisherId, PlatformFeatureKey.ASSESSMENTS)) {
+    throw new TeacherAssessmentError("Assessments are not enabled for this publisher.", "FEATURE_DISABLED");
+  }
+  const period = await prisma.teachingPeriod.findFirst({
+    where: {
+      id: input.periodId,
+      plan: {
+        schoolId: scope.schoolId,
+        academicYearId: scope.academicYear.id,
+        teacherId: scope.teacher.id,
+        sectionSubjectId: subject.id,
+      },
+    },
+    select: {
+      id: true,
+      plan: { select: { schoolId: true, academicYearId: true, sectionSubjectId: true, teacherId: true, bookId: true } },
+      timetableEntry: {
+        select: {
+          schoolId: true,
+          academicYearId: true,
+          sectionId: true,
+          sectionSubjectId: true,
+          teacherAssignment: { select: { teacherId: true, schoolId: true, academicYearId: true, sectionId: true, active: true } },
+        },
+      },
+    },
+  });
+  if (!period || !period.timetableEntry) {
+    throw new TeacherAssessmentError("This teaching period is outside your authorized timetable scope.", "FORBIDDEN");
+  }
+  const entry = period.timetableEntry;
+  if (
+    entry.schoolId !== scope.schoolId ||
+    entry.academicYearId !== scope.academicYear.id ||
+    entry.sectionId !== input.sectionId ||
+    entry.sectionSubjectId !== subject.id ||
+    entry.teacherAssignment.teacherId !== scope.teacher.id ||
+    entry.teacherAssignment.schoolId !== scope.schoolId ||
+    entry.teacherAssignment.academicYearId !== scope.academicYear.id ||
+    entry.teacherAssignment.sectionId !== input.sectionId ||
+    !entry.teacherAssignment.active
+  ) {
+    throw new TeacherAssessmentError("This teaching period is outside your authorized timetable scope.", "FORBIDDEN");
+  }
+  return { scope, subject, period };
+}
+
+async function validateTeacherPeriodAssessmentDraft(
+  input: TeacherPeriodAssessmentDraft,
+  subject: Awaited<ReturnType<typeof requireTeacherSubject>>["scope"]["sectionSubjects"][number],
+  periodBookId: string,
+) {
+  const title = composerDraftText(input.title);
+  if (title.length < 3 || title.length > 160) throw new TeacherAssessmentError("Assessment name must be 3-160 characters.", "VALIDATION_FAILED");
+  const type = normalizeAssessmentType(input.type);
+  const instructions = composerDraftText(input.instructions) || null;
+  const durationMinutes = composerDraftInteger(input.durationMinutes);
+  if (!validateAssessmentDuration(durationMinutes)) throw new TeacherAssessmentError("Duration must be between 1 and 300 minutes.", "VALIDATION_FAILED");
+  const maxAttempts = composerDraftInteger(input.maxAttempts);
+  if (!maxAttempts || maxAttempts < 1 || maxAttempts > 20) throw new TeacherAssessmentError("Attempts allowed must be between 1 and 20.", "VALIDATION_FAILED");
+  const opensAt = composerDraftDate(input.opensAt);
+  const dueAt = composerDraftDate(input.dueAt);
+  ensureSchedulable(opensAt, dueAt);
+  const bookId = composerDraftText(input.bookId) || periodBookId;
+  const selectedBook = subject.bookAdoptions.map((item) => item.book).find((book) => book.id === bookId);
+  if (!selectedBook) throw new TeacherAssessmentError("Select an eligible book for this subject.", "VALIDATION_FAILED");
+  const chapterIdRaw = composerDraftText(input.chapterId);
+  const chapterId = chapterIdRaw ? selectedBook.chapters.find((chapter) => chapter.id === chapterIdRaw)?.id ?? null : null;
+  if (chapterIdRaw && !chapterId) throw new TeacherAssessmentError("Select a valid published chapter.", "VALIDATION_FAILED");
+  if (type === "CHAPTER" && !chapterId) throw new TeacherAssessmentError("Chapter Test requires a chapter.", "VALIDATION_FAILED");
+  const moduleId = composerDraftText(input.moduleId);
+  const exerciseId = composerDraftText(input.exerciseId);
+  if (moduleId) {
+    const module = await prisma.bookModule.findFirst({ where: { id: moduleId, bookId: selectedBook.id, chapterId: chapterId ?? undefined, published: true, archived: false }, select: { id: true } });
+    if (!module) throw new TeacherAssessmentError("Select a valid published module for this chapter.", "VALIDATION_FAILED");
+  }
+  if (exerciseId) {
+    const exercise = await prisma.bookExercise.findFirst({ where: { id: exerciseId, bookId: selectedBook.id, chapterId: chapterId ?? undefined, moduleId: moduleId || undefined, published: true, archived: false }, select: { id: true } });
+    if (!exercise) throw new TeacherAssessmentError("Select a valid published exercise for this chapter.", "VALIDATION_FAILED");
+  }
+  const maximumMarks = composerDraftInteger(input.maximumMarks);
+  if (input.maximumMarks != null && composerDraftText(input.maximumMarks) && (!maximumMarks || maximumMarks < 1 || maximumMarks > 10000)) {
+    throw new TeacherAssessmentError("Maximum marks must be a positive whole number.", "VALIDATION_FAILED");
+  }
+  if (input.intent === "PUBLISHED") {
+    throw new TeacherAssessmentError("Add questions in Question Builder before publishing this assessment.", "VALIDATION_FAILED");
+  }
+  return { title, type, instructions, durationMinutes, maxAttempts, opensAt, dueAt, bookId, chapterId };
+}
+
+export async function saveTeacherPeriodAssessments(input: {
+  sectionId: string;
+  sectionSubjectId: string;
+  periodId: string;
+  drafts: unknown;
+}) {
+  if (!Array.isArray(input.drafts)) throw new TeacherAssessmentError("Assessments must be a list.", "VALIDATION_FAILED");
+  const { scope, subject, period } = await authorizeTeacherPeriodForAssessment(input);
+  const drafts = input.drafts as TeacherPeriodAssessmentDraft[];
+  const ids = drafts.map((draft) => composerDraftText(draft?.id)).filter(Boolean);
+  if (new Set(ids).size !== ids.length) throw new TeacherAssessmentError("An assessment cannot be listed more than once.", "VALIDATION_FAILED");
+  const existing = await prisma.assessment.findMany({
+    where: { teachingPeriodId: period.id },
+    select: { id: true, publisherId: true, schoolId: true, academicYearId: true, sectionId: true, sectionSubjectId: true, createdById: true, teachingPeriodId: true },
+  });
+  const existingIds = new Set(existing.map((assessment) => assessment.id));
+  for (const id of ids) {
+    if (!existingIds.has(id)) throw new TeacherAssessmentError("This assessment is not linked to the selected teaching period.", "FORBIDDEN");
+  }
+  const normalized: Array<{ draft: TeacherPeriodAssessmentDraft; current: Awaited<ReturnType<typeof loadOwnedAssessment>>["assessment"] | null; values: Awaited<ReturnType<typeof validateTeacherPeriodAssessmentDraft> > }> = [];
+  for (const draft of drafts) {
+    const current = draft.id ? await loadOwnedAssessment(input.sectionId, composerDraftText(draft.id)) : null;
+    if (current && current.assessment.teachingPeriodId !== period.id) {
+      throw new TeacherAssessmentError("An assessment from another period cannot be attached here.", "FORBIDDEN");
+    }
+    const values = await validateTeacherPeriodAssessmentDraft(draft, subject, period.plan.bookId);
+    if (current && current.assessment.status === AssessmentStatus.ARCHIVED) {
+      throw new TeacherAssessmentError("Archived assessments are read-only.", "INVALID_STATE");
+    }
+    normalized.push({ draft, current: current?.assessment ?? null, values });
+  }
+  const keepIds = new Set(normalized.map((item) => item.current?.id).filter((id): id is string => Boolean(id)));
+  await prisma.$transaction(async (tx) => {
+    for (const item of normalized) {
+      if (item.current) {
+        const contentLocked = item.current.status === AssessmentStatus.PUBLISHED && item.current._count.attempts > 0;
+        const nextResultRelease = normalizeRelease(item.draft.resultRelease ?? null);
+        const sameDate = (left: Date | null, right: Date | null) => left?.getTime() === right?.getTime();
+        const unchanged =
+          item.current.title === item.values.title &&
+          item.current.instructions === item.values.instructions &&
+          sameDate(item.current.opensAt, item.values.opensAt) &&
+          sameDate(item.current.dueAt, item.values.dueAt) &&
+          item.current.durationMinutes === item.values.durationMinutes &&
+          (contentLocked || (item.current.type === item.values.type && item.current.bookId === item.values.bookId && item.current.chapterId === item.values.chapterId)) &&
+          item.current.settings?.maxAttempts === item.values.maxAttempts &&
+          item.current.settings?.resultRelease === nextResultRelease;
+        if (!unchanged) {
+        await tx.assessment.update({
+          where: { id: item.current.id },
+          data: {
+            title: item.values.title,
+            instructions: item.values.instructions,
+            opensAt: item.values.opensAt,
+            dueAt: item.values.dueAt,
+            durationMinutes: item.values.durationMinutes,
+            ...(contentLocked ? {} : { type: item.values.type, bookId: item.values.bookId, chapterId: item.values.chapterId }),
+          },
+        });
+        await tx.assessmentSettings.update({
+          where: { assessmentId: item.current.id },
+          data: { maxAttempts: item.values.maxAttempts, resultRelease: nextResultRelease },
+        });
+        await writeSecurityAuditEvent(tx, {
+          actor: teacherActor({ teacherUserId: scope.teacher.userId, publisherId: scope.publisherId }),
+          action: "classroom.assessment.update",
+          targetType: "Assessment",
+          targetId: item.current.id,
+          outcome: SecurityAuditOutcome.SUCCESS,
+          metadata: { scope: "teaching-period", teachingPeriodId: period.id },
+        });
+        }
+      } else {
+        const created = await tx.assessment.create({
+          data: {
+            publisherId: scope.publisherId,
+            schoolId: scope.schoolId,
+            academicYearId: scope.academicYear.id,
+            sectionId: input.sectionId,
+            sectionSubjectId: subject.id,
+            schoolClassId: scope.schoolClass.id,
+            bookId: item.values.bookId,
+            chapterId: item.values.chapterId,
+            teachingPeriodId: period.id,
+            createdById: scope.teacher.userId,
+            type: item.values.type,
+            title: item.values.title,
+            instructions: item.values.instructions,
+            opensAt: item.values.opensAt,
+            dueAt: item.values.dueAt,
+            durationMinutes: item.values.durationMinutes,
+            status: AssessmentStatus.DRAFT,
+          },
+          select: { id: true },
+        });
+        await tx.assessmentSettings.create({
+          data: { assessmentId: created.id, maxAttempts: item.values.maxAttempts, resultRelease: normalizeRelease(item.draft.resultRelease ?? null) },
+        });
+        await writeSecurityAuditEvent(tx, {
+          actor: teacherActor({ teacherUserId: scope.teacher.userId, publisherId: scope.publisherId }),
+          action: "classroom.assessment.create",
+          targetType: "Assessment",
+          targetId: created.id,
+          outcome: SecurityAuditOutcome.SUCCESS,
+          metadata: { scope: "teaching-period", teachingPeriodId: period.id },
+        });
+      }
+    }
+    const removed = existing.filter((assessment) => !keepIds.has(assessment.id));
+    for (const assessment of removed) {
+      await tx.assessment.updateMany({
+        where: {
+          id: assessment.id,
+          teachingPeriodId: period.id,
+          publisherId: scope.publisherId,
+          schoolId: scope.schoolId,
+          academicYearId: scope.academicYear.id,
+          sectionId: input.sectionId,
+          sectionSubjectId: subject.id,
+          createdById: scope.teacher.userId,
+        },
+        data: { teachingPeriodId: null },
+      });
+      await writeSecurityAuditEvent(tx, {
+        actor: teacherActor({ teacherUserId: scope.teacher.userId, publisherId: scope.publisherId }),
+        action: "classroom.assessment.update",
+        targetType: "Assessment",
+        targetId: assessment.id,
+        outcome: SecurityAuditOutcome.SUCCESS,
+        metadata: { scope: "teaching-period", teachingPeriodId: period.id, operation: "detach-preserve-assessment" },
+      });
+    }
+  });
+  return { created: normalized.filter((item) => !item.current).length, updated: normalized.filter((item) => Boolean(item.current)).length, detached: existing.length - keepIds.size };
 }

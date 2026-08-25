@@ -49,6 +49,13 @@ export type TeacherQuestionPayload = {
   prompt: string;
   responseType: TeacherQuestionResponseType;
   options?: TeacherQuestionOption[];
+  sourceQuestionId?: string;
+  sourceKind?: "BOOK" | "PUBLISHER" | "MY";
+  questionType?: string;
+  marks?: number;
+  difficulty?: string;
+  correctAnswer?: string | null;
+  explanation?: string | null;
 };
 export type InstructionPayload = { text: string };
 
@@ -66,7 +73,7 @@ export type PublisherQuestionItemInput = {
   questionId: string;
 };
 export type InstructionItemInput = { type: "INSTRUCTION"; payload: InstructionPayload };
-export type TeacherQuestionItemInput = { type: "TEACHER_QUESTION"; payload: TeacherQuestionPayload };
+export type TeacherQuestionItemInput = { type: "TEACHER_QUESTION"; sourceQuestionId?: string; payload: TeacherQuestionPayload };
 export type AssignmentItemInput = PublisherPageItemInput | PublisherQuestionItemInput | InstructionItemInput | TeacherQuestionItemInput;
 
 export type AssignmentItemTarget = {
@@ -123,7 +130,15 @@ export function normalizeTeacherQuestionPayload(value: unknown, previous?: unkno
   if (responseType !== "SHORT_TEXT" && responseType !== "LONG_TEXT" && responseType !== "MCQ" && responseType !== "TRUE_FALSE") {
     throw new AssignmentItemPolicyError("INVALID_ITEM", "Choose a supported response type.");
   }
-  if (responseType !== "MCQ") return { prompt, responseType };
+  const sourceQuestionId = optionalIdentifier(value.sourceQuestionId, "source question");
+  const sourceKind = ["BOOK", "PUBLISHER", "MY"].includes(String(value.sourceKind ?? "")) ? String(value.sourceKind) as "BOOK" | "PUBLISHER" | "MY" : undefined;
+  const questionType = typeof value.questionType === "string" ? value.questionType.trim().slice(0, 64) || undefined : undefined;
+  const marks = Number.isInteger(value.marks) && Number(value.marks) >= 1 && Number(value.marks) <= 100 ? Number(value.marks) : undefined;
+  const difficulty = typeof value.difficulty === "string" ? value.difficulty.trim().slice(0, 32) || undefined : undefined;
+  const correctAnswer = typeof value.correctAnswer === "string" ? value.correctAnswer.slice(0, 2_000) : null;
+  const explanation = typeof value.explanation === "string" ? value.explanation.slice(0, 5_000) : null;
+  const source = { ...(sourceQuestionId ? { sourceQuestionId } : {}), ...(sourceKind ? { sourceKind } : {}), ...(questionType ? { questionType } : {}), ...(marks ? { marks } : {}), ...(difficulty ? { difficulty } : {}), ...(correctAnswer !== null ? { correctAnswer } : {}), ...(explanation !== null ? { explanation } : {}) };
+  if (responseType !== "MCQ") return { prompt, responseType, ...source };
   if (!Array.isArray(value.options) || value.options.length < 2 || value.options.length > ASSIGNMENT_ITEM_LIMITS.options) {
     throw new AssignmentItemPolicyError("INVALID_ITEM", "Provide between two and twelve options.");
   }
@@ -141,7 +156,7 @@ export function normalizeTeacherQuestionPayload(value: unknown, previous?: unkno
     preservedIds.add(id);
     return { id, label };
   });
-  return { prompt, responseType, options };
+  return { prompt, responseType, options, ...source };
 }
 
 export function assignmentItemRequiresBook(type: AssignmentItemInput["type"] | ClassroomAssignmentItemType) {
@@ -163,7 +178,10 @@ export function parseAssignmentItemInput(value: unknown, previousPayload?: unkno
     };
   }
   if (value.type === "INSTRUCTION") return { type: value.type, payload: normalizeInstructionPayload(value.payload) };
-  if (value.type === "TEACHER_QUESTION") return { type: value.type, payload: normalizeTeacherQuestionPayload(value.payload, previousPayload) };
+  if (value.type === "TEACHER_QUESTION") {
+    const payload = normalizeTeacherQuestionPayload(value.payload, previousPayload);
+    return { type: value.type, ...(payload.sourceQuestionId ? { sourceQuestionId: payload.sourceQuestionId } : {}), payload };
+  }
   throw new AssignmentItemPolicyError("INVALID_ITEM", "Choose a valid assignment item type.");
 }
 

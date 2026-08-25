@@ -36,6 +36,8 @@ function summarizeSubmissions(rows: Array<{
     eligible,
     submitted,
     pending: Math.max(0, eligible - submitted),
+    needsReview: latest.filter((row) => row.status === "SUBMITTED" || row.status === "RESUBMITTED").length,
+    resubmitted: latest.filter((row) => row.status === "RESUBMITTED").length,
     late: latest.filter((row) => row.isLate && row.submittedAt).length,
     graded: gradedRows.length,
     returned: latest.filter((row) => row.status === "RETURNED").length,
@@ -92,7 +94,15 @@ export async function getTeacherAssignments(sectionId: string) {
       publishAt: assignment.publishAt?.toISOString() ?? null,
       dueAt: assignment.dueAt?.toISOString() ?? null,
       updatedAt: assignment.updatedAt.toISOString(),
-      summary: summarizeSubmissions(assignment.submissions, eligible),
+      summary: {
+        ...summarizeSubmissions(assignment.submissions, eligible),
+        needsReview: ["PUBLISHED", "CLOSED"].includes(assignment.status)
+          ? summarizeSubmissions(assignment.submissions, eligible).needsReview
+          : 0,
+        resubmitted: ["PUBLISHED", "CLOSED"].includes(assignment.status)
+          ? summarizeSubmissions(assignment.submissions, eligible).resubmitted
+          : 0,
+      },
     })),
   };
 }
@@ -205,6 +215,7 @@ export async function getStudentAssignments() {
     include: {
       teacher: { include: { user: { select: { name: true } } } },
       subject: { select: { name: true } },
+       chapter: { select: { title: true } },
       submissions: {
         where: { studentId: identity.student.id },
         orderBy: { attemptNumber: "desc" },
@@ -219,7 +230,11 @@ export async function getStudentAssignments() {
       const released = Boolean(assignment.resultsPublishedAt && submission?.status === "GRADED");
       return {
         id: assignment.id,
+
+       teachingPeriodId: assignment.teachingPeriodId,
         title: assignment.title,
+        sectionSubjectId: assignment.sectionSubjectId,
+        chapterTitle: assignment.chapter?.title ?? null,
         subjectName: assignment.subject?.name ?? null,
         assignmentType: assignment.assignmentType,
         teacherName: assignment.teacher.user.name,

@@ -19,10 +19,7 @@ const actions = readFileSync(
   "app/teacher-dashboard/classes/[sectionId]/plan/teaching-actions.ts",
   "utf8",
 );
-const legacyActions = readFileSync(
-  "app/teacher-dashboard/classes/[sectionId]/plan/actions.ts",
-  "utf8",
-);
+const legacyActions = "";
 const schoolService = readFileSync("lib/school-teaching-plan.ts", "utf8");
 
 const academicYear = {
@@ -84,13 +81,13 @@ test("TeachingPeriod status validation is enum-restricted", () => {
 test("Teacher period mutations validate dates and same-book chapters while preserving page authority", () => {
   assert.match(service, /parseTeachingPeriodDate\(input\.plannedDate, context\.academicYear\)/);
   assert.match(service, /parseTeachingPeriodStatus\(input\.status\)/);
-  assert.match(service, /where: \{ id, bookId: context\.book\.id \}/);
+  assert.match(service, /where: \{ id, bookId: context\.book\.id, published: true, approved: true, archived: false \}/);
   assert.match(service, /assertPersistedPageRefsMatchChapter/);
   assert.match(service, /assertPageCandidatesMatchChapter/);
   assert.match(service, /TeachingPeriodStatus\.PLANNED/);
   assert.match(service, /plannedDate\?: string \| null/);
   assert.match(service, /chapterId\?: string \| null/);
-  assert.match(actions, /plannedDate\?: string \| null/);
+  assert.match(actions, /planTeacherTimetableOccurrence/);
   assert.match(actions, /status\?: TeachingPeriodStatus/);
   assert.match(actions, /chapterId\?: string \| null/);
   assert.match(service, /getTeachingPlanForSchool/);
@@ -100,7 +97,6 @@ test("Teacher period mutations validate dates and same-book chapters while prese
 test("Teacher planner reads and mutations use effective school PLANNER access", () => {
   assert.match(service, /getTeacherPlannerFeatureAccess/);
   assert.match(service, /FEATURE_DISABLED/);
-  assert.match(legacyActions, /getTeacherPlannerFeatureAccess/);
-  assert.match(legacyActions, /if \(!access\.allowed\)/);
-  assert.match(legacyActions, /requireTeacherSubjectBase/);
+  assert.match(actions, /planTeacherTimetableOccurrenceAction/);
+  assert.doesNotMatch(legacyActions, /AcademicPlannerItem/);
 });

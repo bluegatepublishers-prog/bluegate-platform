@@ -45,7 +45,8 @@ test("teacher assessment service enforces publish, duplicate, archive, restore, 
 
 test("teacher editor route includes required question sources and preview flow", () => {
   const page = read("app/teacher-dashboard/classes/[sectionId]/assessments/[assessmentId]/page.tsx");
-  assert.match(page, /Publisher Book Questions/);
+  assert.match(page, /Book Questions/);
+  assert.match(page, /Publisher Questions/);
   assert.match(page, /My Questions/);
   assert.match(page, /Previous Assessment Questions/);
   assert.match(page, /AI Question Generator/);

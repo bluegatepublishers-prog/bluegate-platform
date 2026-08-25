@@ -9,7 +9,11 @@ function value(form: FormData, name: string) {
 }
 
 export async function planTeacherTimetableOccurrenceAction(form: FormData) {
-  await planTeacherTimetableOccurrence({ timetableEntryId: value(form, "timetableEntryId"), date: value(form, "date") });
+  await planTeacherTimetableOccurrence({
+    timetableEntryId: value(form, "timetableEntryId"),
+    date: value(form, "date"),
+    bookId: value(form, "bookId") || undefined,
+  });
   revalidatePath("/teacher-dashboard/planner");
 }
 

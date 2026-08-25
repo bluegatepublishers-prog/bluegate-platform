@@ -7,5 +7,5 @@ export default async function Page({ params, searchParams }: { params: Promise<{
   const selected = (await searchParams).subject;
   if (selected) await requireTeacherSubject(sectionId, selected);
   const { assignments } = await getTeacherAssignments(sectionId);
-  return <AssignmentList sectionId={sectionId} assignments={selected ? assignments.filter((item) => item.sectionSubjectId === selected) : assignments} />;
+  return <AssignmentList sectionId={sectionId} subjectId={selected} assignments={selected ? assignments.filter((item) => item.sectionSubjectId === selected) : assignments} />;
 }

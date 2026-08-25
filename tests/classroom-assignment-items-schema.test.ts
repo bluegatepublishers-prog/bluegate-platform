@@ -51,8 +51,8 @@ test("Teaching Period linkage preserves assignment history", () => {
   for (const field of ["teachingPeriodId     String?", "teachingPeriod       TeachingPeriod?", "onDelete: SetNull", "items                ClassroomAssignmentItem[]", "@@index([teachingPeriodId])"]) {
     assert.equal(assignment.includes(field), true, `missing ${field}`);
   }
-  assert.equal(period.includes("assignments ClassroomAssignment[]"), true);
-  assert.equal(migration.includes('FOREIGN KEY ("teachingPeriodId") REFERENCES "TeachingPeriod"("id") ON DELETE SET NULL'), true);
+  assert.match(period, /assignments\s+ClassroomAssignment\[\]/);
+  assert.equal(migration.includes('FOREIGN KEY ("teachingPeriodId") REFERENCES "TeachingPeriod"("id") ON DELETE SET NULL ON UPDATE CASCADE'), true);
 });
 
 test("Student Work remains optional, contextual, and protected from item deletion", () => {

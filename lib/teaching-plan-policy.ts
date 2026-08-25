@@ -9,7 +9,7 @@ export type TeachingPlanErrorCode =
   | "BOOK_NOT_ENTITLED" | "PLAN_NOT_FOUND" | "PERIOD_NOT_FOUND" | "PAGE_REF_NOT_FOUND"
   | "INVALID_PAGE" | "V1_UNSUPPORTED" | "INVALID_MODULE" | "DUPLICATE_PAGE"
   | "DATE_INVALID" | "DATE_CLOSED" | "STATUS_INVALID" | "CHAPTER_INVALID" | "FEATURE_DISABLED"
-  | "CONFLICT" | "SAVE_FAILED";
+  | "CONFLICT" | "SAVE_FAILED" | "ACTIVITY_NOT_FOUND";
 
 export class TeachingPlanError extends Error {
   readonly code: TeachingPlanErrorCode;
@@ -30,6 +30,7 @@ export type TeachingPageMetadata = {
   pageId: string;
   currentPageOrder: number;
   displayPageNumber: number;
+  pdfPageNumber?: number;
   title: string;
   visualMode?: LayoutV2VisualMode;
   deepLink: TeachingPageDeepLink;
@@ -50,6 +51,30 @@ export type TeachingPageCandidate = {
   displayPageNumber: number;
   pageSourceHash: string;
 };
+export function restrictPublishedBookDocumentToModuleRange(
+  document: ContentDocument | null,
+  range: {
+    moduleStartPage: number | null;
+    moduleEndPage: number | null;
+    chapterStartPage?: number | null;
+    chapterEndPage?: number | null;
+  },
+) {
+  if (!document || !isLayoutV2Document(document) || !document.pageLayout) return document;
+  if (!Number.isInteger(range.moduleStartPage) || !Number.isInteger(range.moduleEndPage)) {
+    return { ...document, pageLayout: { ...document.pageLayout, pages: [] } };
+  }
+  const startPage = Math.max(range.moduleStartPage as number, Number.isInteger(range.chapterStartPage) ? range.chapterStartPage as number : range.moduleStartPage as number);
+  const endPage = Math.min(range.moduleEndPage as number, Number.isInteger(range.chapterEndPage) ? range.chapterEndPage as number : range.moduleEndPage as number);
+  const pages = startPage <= endPage
+    ? document.pageLayout.pages.filter((page) => {
+        const background = page.pdfBackground;
+        return background?.source === "BOOK_FULL_PDF" && Number.isInteger(background.pageNumber)
+          && background.pageNumber >= startPage && background.pageNumber <= endPage;
+      })
+    : [];
+  return { ...document, pageLayout: { ...document.pageLayout, pages } };
+}
 export type TeachingPlanScopeValues = {
   schoolId: string;
   academicYearId: string;
@@ -241,6 +266,13 @@ function stableHash(value: string) {
   return (left >>> 0).toString(16).padStart(8, "0") + (right >>> 0).toString(16).padStart(8, "0");
 }
 
+function teachingDisplayPageNumber(page: LayoutV2Page, index: number) {
+  const background = page.pdfBackground;
+  return background?.source === "BOOK_FULL_PDF" && Number.isInteger(background.pageNumber)
+    ? background.pageNumber
+    : index + 1;
+}
+
 function v2Pages(module: TeachingModuleDocument): TeachingPageCandidate[] {
   const document = module.document;
   if (!document || !isLayoutV2Document(document) || !document.pageLayout) return [];
@@ -250,7 +282,7 @@ function v2Pages(module: TeachingModuleDocument): TeachingPageCandidate[] {
     document,
     page,
     currentPageOrder: index,
-    displayPageNumber: index + 1,
+    displayPageNumber: teachingDisplayPageNumber(page, index),
     pageSourceHash: getTeachingPageSourceHash(page),
   }));
 }

@@ -12,6 +12,7 @@ import { loadPublishedContentDocument } from "@/lib/content-release";
 import { requireBookEntitlement } from "@/lib/entitlements/book";
 import { SafeEntitlementError } from "@/lib/entitlements/errors";
 import { prisma } from "@/lib/prisma";
+import { discoverQuestionBank, type QuestionBankSource } from "@/lib/question-bank-discovery";
 import { getStudentBook } from "@/lib/student-books";
 import { listStudentVisibleV2Questions, resolveV2StudentWorkTarget } from "@/lib/student-work-policy";
 import { assignmentWindow, isAssignmentVisible } from "./timing";
@@ -147,10 +148,13 @@ async function resolveItemTarget(context: TeacherAssignmentContext, input: Assig
   if (input.type === "INSTRUCTION") return { payload: input.payload };
   if (input.type === "TEACHER_QUESTION") {
     const bookId = await requireAssignmentBook(context);
+    const sourceQuestionId = input.sourceQuestionId ?? input.payload.sourceQuestionId;
+    const sourceLabel = input.payload.sourceKind ? input.payload.sourceKind + " Question - " : "";
     return {
       payload: input.payload,
+      questionId: sourceQuestionId ?? null,
       targetSourceHash: teacherQuestionSourceHash(input.payload),
-      targetLabelSnapshot: input.payload.prompt.slice(0, ASSIGNMENT_ITEM_LIMITS.label),
+      targetLabelSnapshot: (sourceLabel + input.payload.prompt).slice(0, ASSIGNMENT_ITEM_LIMITS.label),
       bookId,
     };
   }
@@ -239,6 +243,70 @@ export async function listAssignmentItems(input: { sectionId: string; assignment
   return stateForItems(context.assignment, items, context.scope.publisherId);
 }
 
+export async function listAssignmentQuestionBank(input: {
+  sectionId: string;
+  assignmentId: string;
+  source?: QuestionBankSource;
+  chapterId?: string | null;
+  moduleId?: string | null;
+  exerciseId?: string | null;
+  questionType?: string | null;
+  difficulty?: string | null;
+  search?: string | null;
+}) {
+  const context = await authorizeTeacherItem(input.sectionId, input.assignmentId);
+  const bookId = await requireAssignmentBook(context);
+  const requestedChapterId = input.chapterId?.trim() || null;
+  if (context.assignment.chapterId && requestedChapterId && context.assignment.chapterId !== requestedChapterId) {
+    domainError("INVALID_TARGET", "Select the chapter saved on this assignment before adding questions.");
+  }
+  const chapterId = context.assignment.chapterId ?? requestedChapterId;
+  const questionBank = await discoverQuestionBank({
+    context: {
+      publisherId: context.scope.publisherId,
+      schoolId: context.scope.schoolId,
+      teacherId: context.scope.teacher.id,
+      sectionSubjectId: context.assignment.sectionSubjectId,
+      bookId,
+      chapterId,
+    },
+    source: input.source,
+    filters: {
+      chapterId: chapterId ?? undefined,
+      moduleId: input.moduleId ?? undefined,
+      exerciseId: input.exerciseId ?? undefined,
+      questionType: input.questionType ?? undefined,
+      difficulty: input.difficulty ?? undefined,
+    },
+    search: input.search ?? "",
+  });
+  const existing = await prisma.classroomAssignmentItem.findMany({
+    where: { assignmentId: context.assignment.id, type: "TEACHER_QUESTION" },
+    select: { questionId: true, payload: true },
+  });
+  const existingIds = new Set(existing.map((item) => item.questionId).filter((id): id is string => Boolean(id)));
+  const existingSourceIds = new Set(existing.flatMap((item) => {
+    try {
+      const id = normalizeTeacherQuestionPayload(item.payload).sourceQuestionId;
+      return id ? [id] : [];
+    } catch {
+      return [];
+    }
+  }));
+  const mark = <T extends { sourceQuestionId: string }>(row: T) => ({
+    ...row,
+    alreadyAdded: existingIds.has(row.sourceQuestionId) || existingSourceIds.has(row.sourceQuestionId),
+  });
+  return {
+    ...questionBank,
+    assignmentId: context.assignment.id,
+    bookId,
+    chapterId,
+    bookQuestions: questionBank.bookQuestions.map(mark),
+    publisherQuestions: questionBank.publisherQuestions.map(mark),
+    myQuestions: questionBank.myQuestions.map(mark),
+  };
+}
 export async function createAssignmentItem(input: { sectionId: string; assignmentId: string; item: unknown }) {
   const context = await authorizeTeacherItem(input.sectionId, input.assignmentId);
   assignmentIsEditable(context.assignment);
@@ -253,6 +321,16 @@ export async function createAssignmentItem(input: { sectionId: string; assignmen
     return await serializableTransaction(async (tx) => {
       const count = await tx.classroomAssignmentItem.count({ where: { assignmentId: context.assignment.id } });
       if (count >= ASSIGNMENT_ITEM_LIMITS.items) domainError("CONFLICT", "This assignment already has the maximum number of items.");
+      if (descriptor.type === "TEACHER_QUESTION" && target.questionId) {
+        const existingQuestions = await tx.classroomAssignmentItem.findMany({
+          where: { assignmentId: context.assignment.id, type: "TEACHER_QUESTION" },
+          select: { questionId: true, payload: true },
+        });
+        const duplicate = existingQuestions.some((item) => item.questionId === target.questionId || (() => {
+          try { return normalizeTeacherQuestionPayload(item.payload).sourceQuestionId === target.questionId; } catch { return false; }
+        })());
+        if (duplicate) domainError("CONFLICT", "This source question is already added to the assignment.");
+      }
       const last = await tx.classroomAssignmentItem.findFirst({
         where: { assignmentId: context.assignment.id },
         orderBy: [{ sequence: "desc" }, { id: "desc" }],
@@ -294,7 +372,16 @@ export async function updateAssignmentItem(input: { sectionId: string; assignmen
     }
   }
   const target = await resolveItemTarget(context, descriptor);
-  try {
+  if (descriptor.type === "TEACHER_QUESTION" && target.questionId) {
+    const candidates = await prisma.classroomAssignmentItem.findMany({
+      where: { assignmentId: context.assignment.id, type: "TEACHER_QUESTION" },
+      select: { id: true, questionId: true, payload: true },
+    });
+    const duplicate = candidates.some((item) => item.id !== existing.id && (item.questionId === target.questionId || (() => {
+      try { return normalizeTeacherQuestionPayload(item.payload).sourceQuestionId === target.questionId; } catch { return false; }
+    })()));
+    if (duplicate) domainError("CONFLICT", "This source question is already added to the assignment.");
+  }  try {
     return await prisma.classroomAssignmentItem.update({
       where: { id: existing.id },
       data: persistableTarget(descriptor, target),
@@ -354,6 +441,18 @@ export async function reorderAssignmentItems(input: { sectionId: string; assignm
   return listAssignmentItems({ sectionId: input.sectionId, assignmentId: context.assignment.id });
 }
 
+function safeTeacherAssignmentPayload(payload: unknown) {
+  try {
+    const normalized = normalizeTeacherQuestionPayload(payload);
+    return {
+      prompt: normalized.prompt,
+      responseType: normalized.responseType,
+      ...(normalized.options ? { options: normalized.options.map((option) => ({ id: option.id, label: option.label })) } : {}),
+    };
+  } catch {
+    return undefined;
+  }
+}
 export async function getStudentAssignmentItems(assignmentId: string) {
   let access: Awaited<ReturnType<typeof requireStudentAssignment>>;
   try {
@@ -382,7 +481,7 @@ export async function getStudentAssignmentItems(assignmentId: string) {
       state: item.state,
       label: item.targetLabelSnapshot,
       target: { moduleId: item.moduleId, pageId: item.pageId, frameId: item.frameId, childFrameId: item.childFrameId, questionId: item.questionId },
-      payload: item.type === "INSTRUCTION" || item.type === "TEACHER_QUESTION" ? item.payload : undefined,
+      payload: item.type === "INSTRUCTION" ? item.payload : item.type === "TEACHER_QUESTION" ? safeTeacherAssignmentPayload(item.payload) : undefined,
     })),
   };
 }

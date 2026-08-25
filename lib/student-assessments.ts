@@ -193,6 +193,8 @@ function toAssessmentCard(assessment: Awaited<ReturnType<typeof prisma.assessmen
 
   return {
     id: row.id,
+
+    teachingPeriodId: (row as { teachingPeriodId?: string | null }).teachingPeriodId ?? null,
     title: row.title,
     type: row.type,
     subjectName: row.sectionSubject.subject.name,

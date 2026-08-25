@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useV2OverlayPortalTarget } from "@/components/content/v2/V2OverlayPortalContext";
 
 import { InteractiveQuestionRenderer } from "@/components/questions/InteractiveQuestionRenderer";
 import {
@@ -58,6 +59,7 @@ export default function V2WorksheetLauncherOverlay({
   mode: V2WorksheetLauncherOverlayMode;
   onClose: () => void;
 }) {
+  const portalTarget = useV2OverlayPortalTarget();
   const titleId = useId();
   const closeRef = useRef<HTMLButtonElement>(null);
   const [worksheet, setWorksheet] = useState<Worksheet | null>(null);
@@ -209,13 +211,13 @@ export default function V2WorksheetLauncherOverlay({
     }
   }
 
-  if (typeof globalThis.document === "undefined") return null;
+  if (typeof globalThis.document === "undefined" || !portalTarget) return null;
 
   return createPortal(
     <div
       data-v2-worksheet-launcher-overlay
       role="presentation"
-      className="fixed inset-0 z-[115] flex items-center justify-center bg-slate-950/70 p-4"
+      className="pointer-events-auto fixed inset-0 z-[130] flex items-center justify-center bg-slate-950/70 p-4"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
@@ -258,7 +260,7 @@ export default function V2WorksheetLauncherOverlay({
         </div>
       </section>
     </div>,
-    globalThis.document.body,
+    portalTarget,
   );
 }
 

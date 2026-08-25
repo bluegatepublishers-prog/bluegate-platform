@@ -7,8 +7,10 @@ import { listAssignmentItems } from "@/lib/assignments/assignment-items";
 import { getTeachingPeriod } from "@/lib/teaching-plan";
 import { subjectOptions } from "../../new/page";
 
-export default async function Page({ params }: { params: Promise<{ sectionId: string; assignmentId: string }> }) {
-  const { sectionId, assignmentId } = await params;
+export default async function Page({ params, searchParams }: { params: Promise<{ sectionId: string; assignmentId: string }>; searchParams?: Promise<{ returnTo?: string }> }) {
+  const { sectionId, assignmentId } = await params
+  const requestedReturnTo = (await searchParams)?.returnTo
+  const returnTo = requestedReturnTo?.startsWith(`/teacher-dashboard/classes/${sectionId}/teach`) ? requestedReturnTo : null;
   const { scope, assignment } = await requireOwnedTeacherAssignment(sectionId, assignmentId);
   const [items, period] = await Promise.all([
     listAssignmentItems({ sectionId, assignmentId }),
@@ -16,7 +18,10 @@ export default async function Page({ params }: { params: Promise<{ sectionId: st
   ]);
   return <div className="space-y-5">
     <header>
-      <Link href={`/teacher-dashboard/classes/${sectionId}/assignments/${assignmentId}`} className="font-bold text-blue-700">← Assignment</Link>
+      <div className="flex flex-wrap items-center gap-3">
+        <Link href={`/teacher-dashboard/classes/${sectionId}/assignments/${assignmentId}`} className="font-bold text-blue-700">← Assignment</Link>
+        {returnTo ? <Link href={returnTo} className="font-bold text-blue-700">← Back to Teach</Link> : null}
+      </div>
       <h2 className="mt-3 text-3xl font-bold">Edit assignment</h2>
     </header>
     <AssignmentBuilder sectionId={sectionId} subjects={subjectOptions(scope.sectionSubjects)} materials={[]} hasAssignmentItems={items.some((item) => item.type !== "INSTRUCTION")} initial={{
@@ -44,7 +49,7 @@ export default async function Page({ params }: { params: Promise<{ sectionId: st
     }} />
     <AssignmentItemsEditor
       sectionId={sectionId}
-      assignment={{ id: assignment.id, status: assignment.status, bookId: assignment.bookId, sectionSubjectId: assignment.sectionSubjectId }}
+      assignment={{ id: assignment.id, status: assignment.status, bookId: assignment.bookId, chapterId: assignment.chapterId, sectionSubjectId: assignment.sectionSubjectId }}
       initialItems={items}
       period={period ? {
         sequence: period.sequence,

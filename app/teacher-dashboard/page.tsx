@@ -1,28 +1,8 @@
 import Link from "next/link";
-import {
-  BarChart3,
-  BookOpen,
-  BookOpenCheck,
-  CalendarDays,
-  CheckSquare,
-  ClipboardCheck,
-  FileQuestion,
-  Library,
-  MessageSquare,
-  School,
-  TimerReset,
-  UsersRound,
-} from "lucide-react";
+import { ArrowRight, CalendarDays, CheckCircle2, ClipboardCheck, MessageSquare } from "lucide-react";
 
-import {
-  TeacherEmptyState,
-  TeacherFeatureTile,
-  TeacherMetricTile,
-  TeacherSection,
-  TeacherStatusBadge,
-  teacherTypography,
-} from "@/components/teacher/TeacherUI";
 import { getTeacherHomeData } from "@/lib/teacher-experience";
+import { getTeacherPlannerData } from "@/lib/teacher-planner";
 
 export const dynamic = "force-dynamic";
 
@@ -30,90 +10,112 @@ function firstName(name: string) {
   return name.trim().split(/\s+/)[0] || "Teacher";
 }
 
+function clock(minutes: number) {
+  return String(Math.floor(minutes / 60)).padStart(2, "0") + ":" + String(minutes % 60).padStart(2, "0");
+}
+
+function dateLabel(value: string) {
+  return new Date(value + "T12:00:00.000Z").toLocaleDateString("en-IN", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    timeZone: "Asia/Kolkata",
+  });
+}
+
 export default async function TeacherDashboardPage() {
-  const data = await getTeacherHomeData();
-  const firstAssignment = data.assignments[0];
+  const [data, today, week] = await Promise.all([
+    getTeacherHomeData(),
+    getTeacherPlannerData("today"),
+    getTeacherPlannerData("week"),
+  ]);
   const feature = (key: keyof typeof data.featureAccess) => Boolean(data.featureAccess[key]);
-  const assignedWorkspace = firstAssignment
-    ? `/teacher-dashboard/classes/${firstAssignment.sectionId}?subject=${encodeURIComponent(firstAssignment.subjectId)}`
-    : undefined;
-  const plannerHref = firstAssignment
-    ? `/teacher-dashboard/classes/${firstAssignment.sectionId}/plan?subject=${encodeURIComponent(firstAssignment.subjectId)}`
-    : undefined;
-  const attendanceHref = firstAssignment
-    ? `/teacher-dashboard/attendance?view=mark&sectionId=${encodeURIComponent(firstAssignment.sectionId)}&subject=${encodeURIComponent(firstAssignment.subjectId)}`
-    : undefined;
-  const assessmentHref = firstAssignment
-    ? `/teacher-dashboard/classes/${firstAssignment.sectionId}/assessments/new?subject=${encodeURIComponent(firstAssignment.subjectId)}`
-    : undefined;
-  const assignmentHref = firstAssignment
-    ? `/teacher-dashboard/classes/${firstAssignment.sectionId}/assignments/new?subject=${encodeURIComponent(firstAssignment.subjectId)}`
-    : undefined;
-  const homeworkHref = firstAssignment
-    ? `/teacher-dashboard/classes/${firstAssignment.sectionId}/assignments?subject=${encodeURIComponent(firstAssignment.subjectId)}`
-    : undefined;
+  const firstOccurrence = today.occurrences[0];
+  const plannedCount = week.occurrences.filter((occurrence) => Boolean(occurrence.period?.meaningfullyPlanned)).length;
+  const unplannedCount = week.occurrences.filter((occurrence) => !occurrence.period?.meaningfullyPlanned).length;
+  const plannerHref = firstOccurrence
+    ? "/teacher-dashboard/classes/" + firstOccurrence.entry.sectionId + "/plan?subject=" + encodeURIComponent(firstOccurrence.entry.sectionSubjectId)
+    : "/teacher-dashboard/planner";
+  const firstReviewClass = data.classes[0];
+  const firstReviewSubject = firstReviewClass?.subjects[0];
+  const reviewHref = firstReviewClass
+    ? "/teacher-dashboard/classes/" + firstReviewClass.sectionId + (data.reviewCounts.assignmentSubmissions > 0 ? "/assignments" : "/assessments") + (firstReviewSubject ? "?subject=" + encodeURIComponent(firstReviewSubject.id) : "")
+    : "/teacher-dashboard/classes";
 
-  return <main className="space-y-7 bg-[#f8fafc] p-4 sm:p-6 lg:p-8">
-    <section className="overflow-hidden rounded-3xl bg-gradient-to-br from-slate-950 via-slate-900 to-teal-950 p-6 text-white shadow-lg sm:p-8">
-      <div className="flex flex-wrap items-start justify-between gap-6">
-        <div className="max-w-2xl">
-          <p className="text-xs font-bold uppercase tracking-[0.2em] text-teal-300">Daily teaching workspace</p>
-          <h1 className="mt-3 text-3xl font-bold tracking-[-0.03em] sm:text-4xl">Good morning, {firstName(data.teacher.user.name)}</h1>
-          <p className="mt-3 max-w-xl text-sm leading-6 text-slate-300">Your assigned classes, teaching plans, and classroom follow-up in one place.</p>
+  return (
+    <main className="space-y-5 bg-[#f8fafc] p-4 sm:p-6 lg:p-8">
+      <header className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-teal-700">Teacher Home</p>
+          <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-950 sm:text-3xl">Good morning, {firstName(data.teacher.user.name)}</h1>
+          <p className="mt-1 text-sm text-slate-500">{data.teacher.school?.schoolName ?? data.teacher.schoolName}</p>
         </div>
-        <div className="rounded-2xl border border-white/15 bg-white/10 px-4 py-3 text-sm text-slate-200">
-          <p className="text-xs font-bold uppercase tracking-[0.16em] text-teal-300">School workspace</p>
-          <p className="mt-1 font-semibold">{data.teacher.school?.schoolName ?? data.teacher.schoolName}</p>
+        <Link href="/teacher-dashboard/classes" className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-700 hover:border-teal-300 hover:text-teal-700">My Classes <ArrowRight className="h-4 w-4" /></Link>
+      </header>
+
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Teacher attention summary">
+        <SummaryTile icon={CalendarDays} label="Today" value={today.occurrences.length} detail="timetable classes" />
+        <SummaryTile icon={CheckCircle2} label="Planned this week" value={plannedCount} detail={unplannedCount ? unplannedCount + " still to plan" : "all scheduled"} />
+        <SummaryTile icon={ClipboardCheck} label="Work to review" value={feature("HOMEWORK") ? data.assignmentReview : 0} detail={feature("HOMEWORK") ? "homework submissions" : "not enabled"} />
+        <SummaryTile icon={MessageSquare} label="Messages" value={data.messages.length} detail="recent class messages" />
+      </section>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm" aria-label="Review attention">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.16em] text-teal-700">Needs review</p>
+            {data.reviewCounts.total ? (
+              <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-sm font-semibold text-slate-700">
+                {data.reviewCounts.assignmentSubmissions ? <span>{data.reviewCounts.assignmentSubmissions} assignment submission{data.reviewCounts.assignmentSubmissions === 1 ? "" : "s"}</span> : null}
+                {data.reviewCounts.assessmentResponses ? <span>{data.reviewCounts.assessmentResponses} assessment response{data.reviewCounts.assessmentResponses === 1 ? "" : "s"}</span> : null}
+              </div>
+            ) : <p className="mt-1 text-sm text-slate-500">All caught up.</p>}
+          </div>
+          {data.reviewCounts.total ? <Link href={reviewHref} className="min-h-11 rounded-xl bg-teal-700 px-4 py-2 text-sm font-bold text-white hover:bg-teal-800">Review</Link> : null}
         </div>
-      </div>
-      <div className="mt-7 flex flex-wrap gap-3">
-        {assignedWorkspace ? <Link href={assignedWorkspace} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-teal-400 px-4 py-2 text-sm font-bold text-slate-950 transition hover:bg-teal-300"><School className="h-4 w-4" />Open my first class</Link> : <span className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-white/20 px-4 py-2 text-sm font-bold text-slate-200">No active class assignment</span>}
-        <Link href="/teacher-dashboard/profile" className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-white/20 px-4 py-2 text-sm font-bold text-white transition hover:bg-white/10">View profile</Link>
-      </div>
-    </section>
+      </section>
 
-    <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-      <TeacherMetricTile icon={UsersRound} value={data.assignments.length} label="Assigned subjects" detail="School assignments" tone="blue" href="/teacher-dashboard/classes" />
-      <TeacherMetricTile icon={BookOpenCheck} value={data.teachingPlanCount} label="Teaching plans" detail="Current academic year" tone="teal" href={feature("PLANNER") ? "/teacher-dashboard/planner" : undefined} />
-      <TeacherMetricTile icon={CheckSquare} value={feature("HOMEWORK") ? data.assignmentReview : "—"} label="Work to review" detail={feature("HOMEWORK") ? "Submitted classroom work" : "Homework unavailable"} tone="amber" href={feature("HOMEWORK") ? "/teacher-dashboard/classes" : undefined} />
-      <TeacherMetricTile icon={ClipboardCheck} value={feature("ASSESSMENTS") ? data.assessmentGrade : "—"} label="Assessments to grade" detail={feature("ASSESSMENTS") ? "Pending responses" : "Assessments unavailable"} tone="violet" href={feature("ASSESSMENTS") ? "/teacher-dashboard/classes" : undefined} />
-    </section>
+      <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
+          <div><p className="text-xs font-bold uppercase tracking-[0.16em] text-teal-700">Today</p><h2 className="mt-1 text-lg font-bold text-slate-950">Your timetable</h2></div>
+          <Link href="/teacher-dashboard/planner" className="text-sm font-bold text-teal-700 hover:text-teal-800">Open Planner</Link>
+        </div>
+        {today.occurrences.length ? (
+          <div className="divide-y divide-slate-100">
+            {today.occurrences.map((occurrence) => {
+              const book = occurrence.book ?? occurrence.eligibleBooks[0];
+              const base = "/teacher-dashboard/classes/" + occurrence.entry.sectionId;
+              const query = "?subject=" + encodeURIComponent(occurrence.entry.sectionSubjectId);
+              const planHref = base + "/plan" + query + (book ? "&bookId=" + encodeURIComponent(book.id) : "");
+              const teachHref = base + "/teach" + query + (book ? "&bookId=" + encodeURIComponent(book.id) : "") + (occurrence.period ? "&periodId=" + encodeURIComponent(occurrence.period.id) : "");
+              return (
+                <div key={occurrence.date + "-" + occurrence.entry.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
+                  <div className="w-24 shrink-0 text-sm font-bold text-slate-700">{clock(occurrence.entry.periodSlot.startMinute)}–{clock(occurrence.entry.periodSlot.endMinute)}</div>
+                  <div className="min-w-[180px] flex-1"><p className="font-bold text-slate-950">{occurrence.entry.section.schoolClass.name}-{occurrence.entry.section.name}</p><p className="text-sm text-slate-500">{occurrence.entry.sectionSubject.subject.name} · {occurrence.entry.periodSlot.label}</p></div>
+                  <span className={"rounded-full px-2.5 py-1 text-xs font-bold " + (occurrence.period?.meaningfullyPlanned ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700")}>{occurrence.period?.meaningfullyPlanned ? "Planned" : "Not planned"}</span>
+                  {occurrence.period ? <Link href={teachHref} className="rounded-lg bg-teal-700 px-3 py-2 text-xs font-bold text-white hover:bg-teal-800">Teach</Link> : book ? <Link href={planHref} className="rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-xs font-bold text-teal-800 hover:bg-teal-100">Plan</Link> : <span className="text-xs font-semibold text-slate-400">No eligible book</span>}
+                </div>
+              );
+            })}
+          </div>
+        ) : <div className="px-4 py-8 text-center text-sm text-slate-500">No teaching periods are scheduled for today.</div>}
+      </section>
 
-    <TeacherSection title="Today's workspace" eyebrow="TIMETABLE" description="Timetable is not operational yet, so no class schedule is fabricated here.">
-      <div className="grid gap-4 lg:grid-cols-[1.1fr_1fr]">
-        <div className="flex items-center gap-4 rounded-2xl border border-amber-200 bg-amber-50 p-5"><span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-amber-100 text-amber-700"><TimerReset className="h-5 w-5" /></span><div><h3 className={teacherTypography.cardTitle}>Timetable setup pending</h3><p className={`mt-1 ${teacherTypography.helper}`}>Use your assigned subjects below until the school timetable is available.</p></div></div>
-        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5"><div className="flex items-center gap-3"><CalendarDays className="h-5 w-5 text-teal-700" /><h3 className={teacherTypography.cardTitle}>Next seven days</h3></div><p className={`mt-2 ${teacherTypography.body}`}>{data.plans.length ? `${data.plans.length} persisted teaching item${data.plans.length === 1 ? "" : "s"} are scheduled.` : "No teaching items are scheduled for the next seven days."}</p>{plannerHref ? <Link href={plannerHref} className="mt-3 inline-flex text-xs font-bold text-teal-700">Open subject planner <span className="ml-1" aria-hidden="true">→</span></Link> : null}</div>
-      </div>
-    </TeacherSection>
+      <section className="grid gap-5 lg:grid-cols-[minmax(0,1.3fr)_minmax(300px,.7fr)]">
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="flex items-center justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-[0.16em] text-teal-700">Next 7 days</p><h2 className="mt-1 text-lg font-bold text-slate-950">Planning status</h2></div><Link href="/teacher-dashboard/planner" className="text-sm font-bold text-teal-700">Open Planner</Link></div>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2"><div className="rounded-xl bg-emerald-50 p-4"><p className="text-2xl font-bold text-emerald-800">{plannedCount}</p><p className="mt-1 text-sm font-semibold text-emerald-700">Planned classes</p></div><div className="rounded-xl bg-amber-50 p-4"><p className="text-2xl font-bold text-amber-800">{unplannedCount}</p><p className="mt-1 text-sm font-semibold text-amber-700">Not planned yet</p></div></div>
+          <Link href={plannerHref} className="mt-4 inline-flex items-center gap-2 text-sm font-bold text-teal-700">Review timetable planning <ArrowRight className="h-4 w-4" /></Link>
+        </div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="flex items-center justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-[0.16em] text-teal-700">Messages</p><h2 className="mt-1 text-lg font-bold text-slate-950">Recent class messages</h2></div><Link href="/teacher-dashboard/messages" className="text-sm font-bold text-teal-700">View all</Link></div>
+          {data.messages.length ? <div className="mt-4 space-y-3">{data.messages.slice(0, 3).map((message) => <div key={message.id} className="rounded-xl bg-slate-50 p-3"><div className="flex justify-between gap-3"><strong className="text-sm text-slate-800">{message.sender.name}</strong><span className="text-xs text-slate-400">{dateLabel(message.createdAt.toISOString().slice(0, 10))}</span></div><p className="mt-1 line-clamp-2 text-sm text-slate-600">{message.text}</p></div>)}</div> : <p className="mt-4 text-sm text-slate-500">No recent messages.</p>}
+        </div>
+      </section>
+    </main>
+  );
+}
 
-    <TeacherSection title="Quick actions" eyebrow="FEATURES" description="Each action opens an existing teacher workflow and follows the school's effective feature access.">
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <TeacherFeatureTile icon={ClipboardCheck} label="Mark attendance" description="Open the existing attendance workflow." href={attendanceHref} enabled={feature("ATTENDANCE") && Boolean(attendanceHref)} tone="teal" status={feature("ATTENDANCE") ? undefined : "Unavailable for this school"} />
-        <TeacherFeatureTile icon={BookOpen} label="Subject planner" description="Plan content for an assigned subject." href={plannerHref} enabled={feature("PLANNER") && Boolean(plannerHref)} tone="blue" status={feature("PLANNER") ? undefined : "Unavailable for this school"} />
-        <TeacherFeatureTile icon={CalendarDays} label="Timetable" description="School timetable setup is not available yet." enabled={false} tone="slate" status="Setup pending" />
-        <TeacherFeatureTile icon={FileQuestion} label="Create assessment" description="Build an assessment for an assigned subject." href={assessmentHref} enabled={feature("ASSESSMENTS") && Boolean(assessmentHref)} tone="violet" status={feature("ASSESSMENTS") ? undefined : "Unavailable for this school"} />
-        <TeacherFeatureTile icon={ClipboardCheck} label="Create assignment" description="Create classroom work for your assigned class." href={assignmentHref} enabled={feature("HOMEWORK") && Boolean(assignmentHref)} tone="amber" status={feature("HOMEWORK") ? undefined : "Unavailable for this school"} />
-        <TeacherFeatureTile icon={MessageSquare} label="Publish homework" description="Open the existing assignment publishing workspace." href={homeworkHref} enabled={feature("HOMEWORK") && Boolean(homeworkHref)} tone="rose" status={feature("HOMEWORK") ? undefined : "Unavailable for this school"} />
-        <TeacherFeatureTile icon={Library} label="Resources" description="Browse publisher resources available to teachers." href="/teacher-dashboard/resources" enabled={feature("TEACHER_RESOURCES")} tone="teal" status={feature("TEACHER_RESOURCES") ? undefined : "Unavailable for this school"} />
-        <TeacherFeatureTile icon={FileQuestion} label="Question bank" description="Create and reuse your private teacher questions." href="/teacher-dashboard/question-bank" tone="blue" />
-      </div>
-    </TeacherSection>
-
-    <div className="grid gap-6 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,.65fr)]">
-      <TeacherSection title="My teaching" eyebrow="ASSIGNMENTS" description="These are the School-owned assignments currently available to you.">
-        {data.assignments.length ? <div className="grid gap-3 sm:grid-cols-2">{data.assignments.map((item) => <Link key={`${item.sectionId}-${item.subjectId}`} href={`/teacher-dashboard/classes/${item.sectionId}?subject=${encodeURIComponent(item.subjectId)}`} className="group rounded-2xl border border-slate-200 bg-slate-50/70 p-4 transition hover:-translate-y-0.5 hover:border-teal-300 hover:bg-white hover:shadow-sm"><div className="flex items-start justify-between gap-3"><div><h3 className={teacherTypography.cardTitle}>{item.className}-{item.sectionName}</h3><p className="mt-1 text-sm font-semibold text-teal-700">{item.subjectName}</p></div><School className="h-5 w-5 text-slate-300 transition group-hover:text-teal-600" /></div><div className="mt-4 flex items-center gap-2 text-xs text-slate-500"><BookOpen className="h-3.5 w-3.5" />{item.book ? `Book: ${item.book.title}` : "No book assigned by School"}</div></Link>)}</div> : <TeacherEmptyState icon={School} title="No active assignments yet" description="Ask your School administrator to assign a class or subject before starting teacher work." />}
-      </TeacherSection>
-
-      <div className="space-y-6">
-        <TeacherSection title="Planned teaching" action={feature("PLANNER") ? { label: "View planner", href: "/teacher-dashboard/planner" } : undefined}>
-          {data.plans.length ? <div className="space-y-3">{data.plans.slice(0, 5).map((item) => <div key={item.id} className="rounded-2xl bg-slate-50 p-4"><div className="flex items-start justify-between gap-3"><div><h3 className={teacherTypography.cardTitle}>{item.title}</h3><p className={`mt-1 ${teacherTypography.helper}`}>{item.section?.schoolClass.name}-{item.section?.name} · {item.sectionSubject?.subject.name}</p></div><TeacherStatusBadge tone={item.status === "COMPLETED" ? "teal" : item.status === "RESCHEDULED" ? "amber" : "slate"}>{item.status.replaceAll("_", " ")}</TeacherStatusBadge></div><p className={`mt-3 ${teacherTypography.helper}`}>{item.currentDate.toLocaleDateString("en-IN", { day: "numeric", month: "short" })}</p></div>)}</div> : <TeacherEmptyState icon={CalendarDays} title="No planned teaching items" description="Open an assigned subject to create or manage the existing teaching plan." action={plannerHref ? { label: "Open subject planner", href: plannerHref } : undefined} />}
-        </TeacherSection>
-        <TeacherSection title="Recent class messages" action={{ label: "Open messages", href: "/teacher-dashboard/messages" }}>
-          {data.messages.length ? <div className="space-y-3">{data.messages.slice(0, 3).map((message) => <div key={message.id} className="rounded-2xl border border-slate-100 bg-teal-50/60 p-3"><div className="flex items-start justify-between gap-3"><strong className="text-sm text-slate-800">{message.sender.name}</strong><span className="text-[0.68rem] text-slate-400">{message.createdAt.toLocaleDateString("en-IN", { day: "numeric", month: "short" })}</span></div><p className="mt-1 line-clamp-2 text-sm text-slate-600">{message.text}</p></div>)}</div> : <TeacherEmptyState icon={MessageSquare} title="No recent messages" description="Messages from your assigned class rooms will appear here." />}
-        </TeacherSection>
-      </div>
-    </div>
-
-    {feature("REPORTS") ? <TeacherSection title="Results and reports" eyebrow="INSIGHTS" description="Review persisted learning analytics for your assigned learners." action={{ label: "Open reports", href: "/teacher-dashboard/reports" }}><div className="flex items-center gap-4 rounded-2xl border border-violet-100 bg-violet-50 p-4"><BarChart3 className="h-5 w-5 text-violet-700" /><p className={teacherTypography.body}>Reports are available for the classes and subjects assigned by your School.</p></div></TeacherSection> : null}
-  </main>;
+function SummaryTile({ icon: Icon, label, value, detail }: { icon: typeof CalendarDays; label: string; value: number; detail: string }) {
+  return <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div className="flex items-center gap-2 text-teal-700"><Icon className="h-4 w-4" /><span className="text-xs font-bold uppercase tracking-wide">{label}</span></div><p className="mt-2 text-2xl font-bold text-slate-950">{value}</p><p className="text-xs text-slate-500">{detail}</p></div>;
 }

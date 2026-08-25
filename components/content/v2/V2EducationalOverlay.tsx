@@ -3,6 +3,7 @@
 import { useEffect, useId, useRef } from "react";
 import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { useV2OverlayPortalTarget } from "@/components/content/v2/V2OverlayPortalContext";
 import { BookOpen } from "lucide-react";
 
 export default function V2EducationalOverlay({
@@ -14,6 +15,7 @@ export default function V2EducationalOverlay({
   children?: ReactNode;
   onClose: () => void;
 }) {
+  const portalTarget = useV2OverlayPortalTarget();
   const titleId = useId();
   const closeRef = useRef<HTMLButtonElement>(null);
 
@@ -34,13 +36,13 @@ export default function V2EducationalOverlay({
     };
   }, [onClose]);
 
-  if (typeof globalThis.document === "undefined") return null;
+  if (typeof globalThis.document === "undefined" || !portalTarget) return null;
 
   return createPortal(
     <div
       data-v2-educational-overlay
       role="presentation"
-      className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/70 p-4"
+      className="pointer-events-auto fixed inset-0 z-[130] flex items-center justify-center bg-slate-950/70 p-4"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
@@ -93,6 +95,6 @@ export default function V2EducationalOverlay({
         </div>
       </section>
     </div>,
-    globalThis.document.body,
+    portalTarget,
   );
 }

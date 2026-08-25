@@ -8,6 +8,7 @@ import {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
+import { useV2OverlayPortalTarget } from "@/components/content/v2/V2OverlayPortalContext";
 
 import type { V2PracticeQuestionType } from "@/lib/v2-assessment-launcher";
 import { normalizeV2PracticeQuestionType, v2PracticeQuestionLabel } from "@/lib/v2-assessment-launcher";
@@ -108,10 +109,12 @@ export default function V2AssessmentLauncherOverlay({
   onClose,
   onRetry,
 }: Props) {
+  const portalTarget = useV2OverlayPortalTarget();
   const titleId = useId();
 
   const closeRef =
     useRef<HTMLButtonElement>(null);
+
 
   const [questions, setQuestions] =
     useState<RuntimeQuestion[]>([]);
@@ -136,6 +139,9 @@ export default function V2AssessmentLauncherOverlay({
   const [message, setMessage] =
     useState("");
 
+  const [loadFailed, setLoadFailed] =
+    useState(false);
+
   /*
    * Publisher Preview and Teacher Preview are
    * read-only server-data modes.
@@ -145,6 +151,8 @@ export default function V2AssessmentLauncherOverlay({
   const previewMode =
     mode === "PREVIEW" ||
     mode === "TEACHER";
+
+  const selectedIdsKey = questionIds.join("\u0000");
 
   const selectedIds = useMemo(
     () => [
@@ -156,13 +164,14 @@ export default function V2AssessmentLauncherOverlay({
           .filter(Boolean),
       ),
     ],
-    [questionIds],
+    [selectedIdsKey],
   );
 
   const label =
     v2PracticeQuestionLabel(
       questionType,
     );
+
 
   useEffect(() => {
     const previousOverflow =
@@ -205,16 +214,17 @@ export default function V2AssessmentLauncherOverlay({
   useEffect(() => {
     let cancelled = false;
 
-    setLoading(true);
-    setMessage("");
-    setSubmitted(false);
-    setAnswers({});
-    setAttemptId("");
-
     const previewEndpoint =
       mode === "TEACHER"
         ? "/api/teacher/book-questions/preview"
         : "/api/admin/book-questions/preview";
+
+    setLoading(true);
+    setMessage("");
+    setLoadFailed(false);
+    setSubmitted(false);
+    setAnswers({});
+    setAttemptId("");
 
     const request =
       previewMode
@@ -265,6 +275,7 @@ export default function V2AssessmentLauncherOverlay({
             !response.ok ||
             !body.ok
           ) {
+
             throw new Error(
               body.message ??
                 "This practice collection is unavailable.",
@@ -308,12 +319,21 @@ export default function V2AssessmentLauncherOverlay({
           if (
             !source.length
           ) {
-            throw new Error(
-              "This practice activity is not available.",
+            if (cancelled) {
+              return;
+            }
+
+            setQuestions([]);
+            setLoadFailed(false);
+            setMessage(
+              "No questions are available for this activity.",
             );
+            return;
           }
 
-          if (cancelled) {
+          if (
+            cancelled
+          ) {
             return;
           }
 
@@ -342,21 +362,17 @@ export default function V2AssessmentLauncherOverlay({
         },
       )
       .catch(
-        (
-          error: unknown,
-        ) => {
+        () => {
+
           if (cancelled) {
             return;
           }
 
           setQuestions([]);
+          setLoadFailed(true);
 
           setMessage(
-            error instanceof
-                Error &&
-              error.message
-              ? error.message
-              : "This practice activity is not available.",
+            "Questions could not be loaded.",
           );
         },
       )
@@ -721,10 +737,7 @@ export default function V2AssessmentLauncherOverlay({
     }
   }
 
-  if (
-    typeof globalThis.document ===
-    "undefined"
-  ) {
+  if (!portalTarget || typeof globalThis.document === "undefined") {
     return null;
   }
 
@@ -732,7 +745,7 @@ export default function V2AssessmentLauncherOverlay({
     <div
       data-v2-assessment-launcher-overlay
       role="presentation"
-      className="fixed inset-0 z-[115] flex items-center justify-center bg-slate-950/70 p-4"
+      className="pointer-events-auto fixed inset-0 h-full w-full overflow-auto z-[130] flex items-center justify-center bg-slate-950/70 p-4"
       onMouseDown={(
         event,
       ) => {
@@ -750,7 +763,7 @@ export default function V2AssessmentLauncherOverlay({
         aria-labelledby={
           titleId
         }
-        className="w-full max-w-2xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl"
+        className="flex max-h-[min(88vh,900px)] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl"
         onMouseDown={(
           event,
         ) =>
@@ -796,19 +809,51 @@ export default function V2AssessmentLauncherOverlay({
           </button>
         </header>
 
-        <div className="max-h-[75vh] space-y-5 overflow-y-auto p-5">
+        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-5">
           {loading ? (
             <p className="rounded-xl bg-slate-50 p-5 text-sm text-slate-500">
               Loading
               questions…
             </p>
           ) : message ? (
-            <p
-              role="alert"
-              className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm font-semibold text-rose-800"
-            >
-              {message}
-            </p>
+            loadFailed ? (
+              <div
+                role="alert"
+                className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm font-semibold text-rose-800"
+              >
+                <p>Questions could not be loaded.</p>
+                <button
+                  type="button"
+                  onClick={onRetry}
+                  className="mt-3 rounded-lg bg-rose-700 px-3 py-2 text-xs font-bold text-white hover:bg-rose-800"
+                >
+                  Retry
+                </button>
+              </div>
+            ) : message === "No questions are available for this activity." ? (
+              <div
+                role="status"
+                className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-900"
+              >
+                <p>{message}</p>
+                {onRetry ? (
+                  <button
+                    type="button"
+                    onClick={onRetry}
+                    className="mt-3 rounded-lg bg-amber-700 px-3 py-2 text-xs font-bold text-white hover:bg-amber-800"
+                  >
+                    Retry
+                  </button>
+                ) : null}
+              </div>
+            ) : (
+              <p
+                role="alert"
+                className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm font-semibold text-rose-800"
+              >
+                {message}
+              </p>
+            )
           ) : (
             <>
               {questions.map(
@@ -945,8 +990,7 @@ export default function V2AssessmentLauncherOverlay({
         </div>
       </section>
     </div>,
-    globalThis.document
-      .body,
+    portalTarget,
   );
 }
 

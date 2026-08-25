@@ -51,7 +51,9 @@ async function assertChapterOwnership(
   publisherId: string,
   bookId: string,
   chapterId: string,
+  trace?: (stage: string) => void,
 ) {
+  trace?.("chapter ownership query started");
   const chapter =
     await prisma.bookChapter.findFirst({
       where: {
@@ -68,6 +70,7 @@ async function assertChapterOwnership(
         chapterNumber: true,
       },
     });
+  trace?.("chapter ownership query completed");
 
   if (!chapter) {
     throw new BookQuestionsError(
@@ -85,6 +88,7 @@ export async function ensureBookQuestionsGroup(
     bookId: string;
     chapterId: string;
     exerciseId?: string | null;
+    trace?: (stage: string) => void;
   },
 ) {
   const chapter =
@@ -92,6 +96,7 @@ export async function ensureBookQuestionsGroup(
       input.publisherId,
       input.bookId,
       input.chapterId,
+      input.trace,
     );
 
   return prisma.$transaction(
@@ -237,6 +242,7 @@ export async function loadBookQuestionsAuthoring(
     bookId: string;
     chapterId: string;
     exerciseId?: string | null;
+    trace?: (stage: string) => void;
   },
 ) {
   const chapter =
@@ -244,8 +250,10 @@ export async function loadBookQuestionsAuthoring(
       input.publisherId,
       input.bookId,
       input.chapterId,
+      input.trace,
     );
 
+  input.trace?.("preview exercise query started");
   const exercise =
     await prisma.bookExercise.findFirst({
       where: input.exerciseId
@@ -276,6 +284,7 @@ export async function loadBookQuestionsAuthoring(
         published: true,
       },
     });
+  input.trace?.("preview exercise query completed");
 
   if (
     input.exerciseId &&
@@ -287,6 +296,7 @@ export async function loadBookQuestionsAuthoring(
     );
   }
 
+  input.trace?.("preview group query started");
   const group = exercise
     ? await prisma.bookExerciseQuestionGroup.findFirst(
         {
@@ -314,7 +324,9 @@ export async function loadBookQuestionsAuthoring(
         },
       )
     : null;
+  input.trace?.("preview group query completed");
 
+  input.trace?.("preview question query started");
   const questions = group
     ? await prisma.bookQuestion.findMany({
         where: {
@@ -342,6 +354,7 @@ export async function loadBookQuestionsAuthoring(
         ],
       })
     : [];
+  input.trace?.("preview question query completed");
 
   return {
     chapter,

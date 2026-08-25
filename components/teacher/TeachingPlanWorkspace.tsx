@@ -2,20 +2,24 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import type { TeachingPeriodStatus } from "@prisma/client";
 
 import V2ContentDocumentRenderer from "@/components/content/V2ContentDocumentRenderer";
+import TeachingPeriodComposer, { type TeachingPeriodComposerSaveInput } from "@/components/teacher/TeachingPeriodComposer";
 import {
   addTeachingPeriodPagesAction,
-  createTeachingPeriodAction,
   createTeachingPlanAction,
   deleteTeachingPeriodAction,
+  getTeachingPeriodComposerDataAction,
   getTeachingPlanPageAvailabilityAction,
   getTeachingPlanPagePreviewAction,
   moveTeachingPeriodAction,
   removeTeachingPeriodPageAction,
   reorderTeachingPeriodPagesAction,
+  getTeachingPlanAction,
+  getTeachingPlanTimetableOccurrencesAction,
+  saveTeachingPeriodComposerAction,
   updateTeachingPeriodAction,
 } from "@/app/teacher-dashboard/classes/[sectionId]/plan/teaching-actions";
 
@@ -26,6 +30,7 @@ type PageAvailability = Awaited<ReturnType<typeof getTeachingPlanPageAvailabilit
 type AvailablePage = PageAvailability["pages"][number];
 type PagePreview = Awaited<ReturnType<typeof getTeachingPlanPagePreviewAction>>;
 type Chapter = { id: string; chapterNumber: number; title: string };
+type TimetableOccurrence = Awaited<ReturnType<typeof getTeachingPlanTimetableOccurrencesAction>>[number];
 
 type WorkspaceProps = {
   sectionId: string;
@@ -39,6 +44,8 @@ type WorkspaceProps = {
   chapters: Chapter[];
   initialPlan: Plan | null;
   pageAvailability: PageAvailability;
+  occurrences: TimetableOccurrence[];
+  initialOccurrence?: { date: string; timetableEntryId: string } | null;
 };
 
 const STATUS_LABELS: Record<TeachingPeriodStatus, string> = {
@@ -60,16 +67,14 @@ export default function TeachingPlanWorkspace({
   chapters,
   initialPlan,
   pageAvailability,
+  occurrences,
+  initialOccurrence,
 }: WorkspaceProps) {
   const router = useRouter();
   const [plan, setPlan] = useState<Plan | null>(initialPlan);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
-  const [addingPeriod, setAddingPeriod] = useState(false);
-  const [newPeriodTitle, setNewPeriodTitle] = useState("");
-  const [newPeriodDate, setNewPeriodDate] = useState("");
-  const [newPeriodChapterId, setNewPeriodChapterId] = useState("");
   const [editingPeriodId, setEditingPeriodId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
   const [editingDate, setEditingDate] = useState("");
@@ -85,6 +90,10 @@ export default function TeachingPlanWorkspace({
   const [selectedPageKeys, setSelectedPageKeys] = useState<string[]>([]);
   const [preview, setPreview] = useState<PagePreview | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [composerOccurrence, setComposerOccurrence] = useState<TimetableOccurrence | null>(null);
+  const [composerData, setComposerData] = useState<Awaited<ReturnType<typeof getTeachingPeriodComposerDataAction>> | null>(null);
+  const [composerLoading, setComposerLoading] = useState(false);
+  const initialComposerOpened = useRef(false);
 
   const canMapPages = availabilityState === "V2_AVAILABLE" && availablePages.length > 0;
   const modules = useMemo(() => {
@@ -126,36 +135,55 @@ export default function TeachingPlanWorkspace({
     } : current);
   }
 
-  function createPlan() {
-    if (!selectedBook) return;
-    runMutation("create-plan", () => createTeachingPlanAction({ sectionSubjectId, bookId: selectedBook.id }), setPlan);
+  function openComposer(occurrence: TimetableOccurrence) {
+    const book = selectedBook ?? occurrence.book;
+    if (!book || occurrence.closed) return;
+    setError(null);
+    setComposerOccurrence(occurrence);
+    setComposerData(null);
+    setComposerLoading(true);
+    void getTeachingPeriodComposerDataAction({ sectionSubjectId, bookId: book.id })
+      .then(setComposerData)
+      .catch((caught) => setError(toTeacherMessage(caught)))
+      .finally(() => setComposerLoading(false));
   }
 
-  function resetAddForm() {
-    setNewPeriodTitle("");
-    setNewPeriodDate("");
-    setNewPeriodChapterId("");
-    setAddingPeriod(false);
+  useEffect(() => {
+    if (!initialOccurrence || initialComposerOpened.current) return;
+    const occurrence = occurrences.find((item) => item.date === initialOccurrence.date && item.entry.id === initialOccurrence.timetableEntryId);
+    if (!occurrence) return;
+    initialComposerOpened.current = true;
+    openComposer(occurrence);
+  }, [initialOccurrence, occurrences]);
+
+  function closeComposer() {
+    setComposerOccurrence(null);
+    setComposerData(null);
+    setComposerLoading(false);
   }
 
-  function createPeriod() {
-    if (!plan || !newPeriodTitle.trim()) return;
-    runMutation("create-period", () => createTeachingPeriodAction({
-      planId: plan.id,
-      title: newPeriodTitle,
-      plannedDate: newPeriodDate || null,
-      chapterId: newPeriodChapterId || null,
-    }), (period) => {
-      setPlan((current) => current ? {
-        ...current,
-        periods: [...current.periods, period].sort((left, right) => left.sequence - right.sequence),
-      } : current);
-      resetAddForm();
-      if (canMapPages) openPagePicker(period.id);
+  function saveComposer(input: TeachingPeriodComposerSaveInput) {
+    runMutation("save-composer", () => saveTeachingPeriodComposerAction(input), (period) => {
+      if (plan) {
+        setPlan((current) => current ? {
+          ...current,
+          periods: current.periods.some((entry) => entry.id === period.id)
+            ? current.periods.map((entry) => entry.id === period.id ? period : entry)
+            : [...current.periods, period].sort((left, right) => left.sequence - right.sequence),
+        } : current);
+      } else {
+        void getTeachingPlanAction({ planId: period.planId }).then(setPlan).catch((caught) => setError(toTeacherMessage(caught)));
+      }
+      closeComposer();
     });
   }
 
   function startEdit(period: Period) {
+    const occurrence = occurrences.find((item) => item.period?.id === period.id);
+    if (occurrence) {
+      openComposer(occurrence);
+      return;
+    }
     setEditingPeriodId(period.id);
     setEditingTitle(period.title);
     setEditingDate(dateInputValue(period.plannedDate));
@@ -169,6 +197,10 @@ export default function TeachingPlanWorkspace({
     setEditingDate("");
     setEditingChapterId("");
     setEditingStatus("PLANNED");
+  }
+
+  function completePeriod(period: Period) {
+    runMutation("complete-period", () => updateTeachingPeriodAction({ periodId: period.id, title: period.title, plannedDate: dateInputValue(period.plannedDate) || null, status: "COMPLETED", chapterId: period.chapterId }), replacePeriod);
   }
 
   function savePeriod() {
@@ -285,7 +317,7 @@ export default function TeachingPlanWorkspace({
           <label className="w-full text-[0.7rem] font-bold text-slate-500 sm:w-auto">
             Assigned book
             <select aria-label="Select assigned book" value={selectedBook?.id ?? ""} onChange={(event) => selectBook(event.target.value)} disabled={!books.length || Boolean(busy)} className="mt-1 h-8 w-full min-w-[220px] rounded-md border border-slate-300 bg-white px-2 text-xs font-semibold text-slate-800 sm:w-auto">
-              {!books.length ? <option value="">No book assigned by School</option> : null}
+              {!books.length ? <option value="">No eligible book assigned</option> : null}
               {books.map((book) => <option key={book.id} value={book.id}>{book.title}</option>)}
             </select>
           </label>
@@ -294,34 +326,30 @@ export default function TeachingPlanWorkspace({
 
       {error ? <p role="alert" className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">{error}</p> : null}
       {!selectedBook ? <EmptyBookState /> : null}
-      {selectedBook && !plan ? (
-        <section className="rounded-lg border border-dashed border-slate-300 bg-white px-3 py-3 text-xs text-slate-600">
-          <p className="font-semibold text-slate-900">No teaching plan yet.</p>
-          <p className="mt-1">Create a plan for {selectedBook.title}. It remains scoped to this assigned book.</p>
-          <button type="button" onClick={createPlan} disabled={isPending || busy === "create-plan"} className="mt-2 h-8 rounded-md bg-teal-700 px-3 text-xs font-bold text-white disabled:opacity-60">{busy === "create-plan" ? "Creating..." : "Create Teaching Plan"}</button>
-        </section>
-      ) : null}
-
+      <section className="rounded-lg border border-slate-200 bg-white px-3 py-3 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-2"><div><h2 className="text-sm font-bold text-slate-900">Upcoming timetable classes</h2><p className="text-[0.7rem] text-slate-500">Plan only the real classes assigned in the School timetable.</p></div><span className="text-[0.7rem] font-semibold text-slate-500">{occurrences.length} occurrence{occurrences.length === 1 ? "" : "s"}</span></div>
+        <div className="mt-3 space-y-2">
+          {occurrences.length ? occurrences.map((occurrence) => <article key={occurrence.date + ":" + occurrence.entry.id} className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-slate-100 bg-slate-50 px-3 py-2"><div className="min-w-0"><p className="text-[0.68rem] font-bold uppercase tracking-wide text-teal-700">{formatOccurrenceDate(occurrence.date)} - {occurrence.entry.periodSlot.label}</p><p className="truncate text-xs font-bold text-slate-900">{occurrence.entry.section.schoolClass.name}-{occurrence.entry.section.name} - {occurrence.entry.sectionSubject.subject.name}</p><p className="text-[0.68rem] text-slate-500">{clockLabel(occurrence.entry.periodSlot.startMinute)}-{clockLabel(occurrence.entry.periodSlot.endMinute)}{occurrence.period ? " - " + occurrence.period.title : ""}</p></div>{occurrence.closed ? <span className="rounded-lg bg-amber-100 px-2 py-1 text-[0.68rem] font-bold text-amber-800">School closed</span> : occurrence.period && (occurrence.period?.meaningfullyPlanned || occurrence.period?.status !== "PLANNED") ? <div className="flex flex-wrap items-center gap-2"><span className="rounded-lg bg-slate-100 px-2 py-1 text-[0.68rem] font-bold text-slate-700">{occurrenceStateLabel(occurrence.period)}</span>{occurrence.period.meaningfullyPlanned && selectedBook ? <Link href={teacherTeachHref(sectionId, sectionSubjectId, selectedBook.id, occurrence.period.id)} className="h-8 rounded-md bg-slate-900 px-3 py-2 text-[0.7rem] font-bold text-white">Teach</Link> : null}<button type="button" onClick={() => openComposer(occurrence)} disabled={Boolean(busy)} className="h-8 rounded-md border border-teal-200 bg-white px-3 py-2 text-[0.7rem] font-bold text-teal-800">Edit plan</button>{occurrence.period.status === "PLANNED" ? <button type="button" onClick={() => completePeriod(occurrence.period!)} disabled={Boolean(busy)} className="h-8 rounded-md border border-emerald-200 px-3 py-2 text-[0.7rem] font-bold text-emerald-700">Mark complete</button> : null}</div> : !occurrence.eligibleBooks.length ? <span className="rounded-md bg-amber-50 px-2 py-2 text-[0.68rem] font-semibold text-amber-800">No eligible book for this class and subject.</span> : <button type="button" onClick={() => openComposer(occurrence)} disabled={!selectedBook || Boolean(busy)} className="h-8 rounded-md bg-teal-700 px-3 py-2 text-[0.7rem] font-bold text-white disabled:opacity-50">{busy === "save-composer" ? "Saving..." : "Plan period"}</button>}</article>) : <p className="rounded-md border border-dashed border-slate-200 px-3 py-4 text-center text-xs text-slate-500">No upcoming timetable classes are scheduled for this subject.</p>}
+        </div>
+      </section>
       {plan ? (
         <>
           <SummaryStrip periods={plan.periods} />
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div><h2 className="text-sm font-bold text-slate-900">Teaching periods</h2><p className="text-[0.7rem] text-slate-500">{selectedBook?.title}</p></div>
-            <button type="button" onClick={() => setAddingPeriod(true)} disabled={Boolean(busy)} className="h-8 rounded-md bg-teal-700 px-3 text-xs font-bold text-white disabled:opacity-50">+ Add Teaching Period</button>
           </div>
           {contentNotice(pageAvailability.state)}
           {!plan.periods.length ? (
             <section className="rounded-lg border border-dashed border-slate-300 bg-white px-3 py-5 text-center">
-              <p className="text-xs font-semibold text-slate-800">No teaching periods planned yet.</p>
-              <button type="button" onClick={() => setAddingPeriod(true)} className="mt-2 h-8 rounded-md border border-teal-200 bg-teal-50 px-3 text-xs font-bold text-teal-800">+ Add Teaching Period</button>
+              <p className="text-xs font-semibold text-slate-800">No teaching periods planned yet.</p><p className="mt-1 text-[0.7rem] text-slate-500">Plan an upcoming timetable class above to create the first period.</p>
             </section>
           ) : (
-            <PeriodList periods={plan.periods} busy={busy} canMapPages={canMapPages} onEdit={startEdit} onDelete={deletePeriod} onMove={movePeriod} onManagePages={setPageManagerPeriodId} onAddPages={openPagePicker} />
+            <PeriodList periods={plan.periods} busy={busy} sectionId={sectionId} sectionSubjectId={sectionSubjectId} bookId={selectedBook?.id ?? ""} canMapPages={canMapPages} onEdit={startEdit} onDelete={deletePeriod} onMove={movePeriod} onManagePages={setPageManagerPeriodId} onAddPages={openPagePicker} />
           )}
         </>
       ) : null}
 
-      {addingPeriod ? <PeriodDialog title="Add Teaching Period" periodTitle={newPeriodTitle} date={newPeriodDate} chapterId={newPeriodChapterId} status="PLANNED" chapters={chapters} saving={busy === "create-period"} onTitleChange={setNewPeriodTitle} onDateChange={setNewPeriodDate} onChapterChange={setNewPeriodChapterId} onStatusChange={() => undefined} onClose={resetAddForm} onSave={createPeriod} saveLabel="Add Period" statusReadOnly /> : null}
+      {composerOccurrence ? <TeachingPeriodComposer sectionSubjectId={sectionSubjectId} occurrence={composerOccurrence} period={composerOccurrence.period} book={selectedBook ?? composerOccurrence.book!} classLabel={className + "-" + sectionName} subjectName={subjectName} data={composerData} loading={composerLoading} saving={busy === "save-composer"} onClose={closeComposer} onSave={saveComposer} /> : null}
       {editingPeriod ? <PeriodDialog title="Edit Teaching Period" periodTitle={editingTitle} date={editingDate} chapterId={editingChapterId} status={editingStatus} chapters={chapters} saving={busy === "edit-period"} onTitleChange={setEditingTitle} onDateChange={setEditingDate} onChapterChange={setEditingChapterId} onStatusChange={setEditingStatus} onClose={closeEdit} onSave={savePeriod} saveLabel="Save Changes" /> : null}
       {pageManagerPeriod ? <PageReferenceManager period={pageManagerPeriod} sectionId={sectionId} sectionSubjectId={sectionSubjectId} busy={busy} onClose={() => setPageManagerPeriodId(null)} onAddPages={() => openPagePicker(pageManagerPeriod.id)} onRemovePage={(refId) => removePage(pageManagerPeriod.id, refId)} onMovePage={(ref, direction) => movePage(pageManagerPeriod, ref, direction)} /> : null}
       {pickerPeriodId && selectedBook ? <PagePicker pages={visiblePages} modules={modules} moduleFilter={moduleFilter} pageSearch={pageSearch} selectedPageKeys={selectedPageKeys} selectedCount={selectedPages.length} loading={pagesLoading} preview={preview} previewLoading={previewLoading} contentState={availabilityState} busy={busy === "add-pages"} onClose={() => { setPickerPeriodId(null); setPreview(null); }} onModuleChange={setModuleFilter} onSearchChange={setPageSearch} onToggle={togglePage} onPreview={previewPage} onAdd={addSelectedPages} /> : null}
@@ -329,8 +357,21 @@ export default function TeachingPlanWorkspace({
   );
 }
 
+function occurrenceStateLabel(period: Period | null) {
+  if (!period) return "Not planned";
+  if (period.status === "PLANNED") return period.meaningfullyPlanned ? "Planned" : "Not planned";
+  return period.status[0] + period.status.slice(1).toLowerCase();
+}
+
+function formatOccurrenceDate(value: string) {
+  return new Date(value + "T12:00:00.000Z").toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short", timeZone: "Asia/Kolkata" });
+}
+
+function clockLabel(minutes: number) {
+  return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+}
 function SummaryStrip({ periods }: { periods: Period[] }) {
-  const planned = periods.filter((period) => period.status === "PLANNED").length;
+  const planned = periods.filter((period) => period.status === "PLANNED" && period.meaningfullyPlanned).length;
   const completed = periods.filter((period) => period.status === "COMPLETED").length;
   const unscheduled = periods.filter((period) => !period.plannedDate).length;
   return <div className="grid grid-cols-2 divide-x divide-slate-200 rounded-lg border border-slate-200 bg-white sm:grid-cols-4"><SummaryItem label="Periods" value={periods.length} /><SummaryItem label="Planned" value={planned} /><SummaryItem label="Completed" value={completed} /><SummaryItem label="Unscheduled" value={unscheduled} /></div>;
@@ -340,9 +381,12 @@ function SummaryItem({ label, value }: { label: string; value: number }) {
   return <div className="px-3 py-2"><p className="text-[0.68rem] text-slate-500">{label}</p><p className="text-base font-bold leading-tight text-slate-900">{value}</p></div>;
 }
 
-function PeriodList({ periods, busy, canMapPages, onEdit, onDelete, onMove, onManagePages, onAddPages }: {
+function PeriodList({ periods, busy, sectionId, sectionSubjectId, bookId, canMapPages, onEdit, onDelete, onMove, onManagePages, onAddPages }: {
   periods: Period[];
   busy: string | null;
+  sectionId: string;
+  sectionSubjectId: string;
+  bookId: string;
   canMapPages: boolean;
   onEdit: (period: Period) => void;
   onDelete: (period: Period) => void;
@@ -354,18 +398,21 @@ function PeriodList({ periods, busy, canMapPages, onEdit, onDelete, onMove, onMa
     <div className="hidden overflow-hidden rounded-lg border border-slate-200 bg-white md:block">
       <table className="w-full border-collapse text-left text-xs">
         <thead className="bg-slate-50 text-[0.68rem] font-bold uppercase tracking-wide text-slate-500"><tr><th className="w-14 px-3 py-2">Period</th><th className="w-24 px-2 py-2">Date</th><th className="px-2 py-2">Content</th><th className="w-28 px-2 py-2">Pages</th><th className="w-28 px-2 py-2">Status</th><th className="w-52 px-2 py-2">Action</th></tr></thead>
-        <tbody className="divide-y divide-slate-100">{periods.map((period, index) => <PeriodTableRow key={period.id} period={period} index={index} total={periods.length} busy={busy} canMapPages={canMapPages} onEdit={onEdit} onDelete={onDelete} onMove={onMove} onManagePages={onManagePages} onAddPages={onAddPages} />)}</tbody>
+        <tbody className="divide-y divide-slate-100">{periods.map((period, index) => <PeriodTableRow key={period.id} period={period} index={index} total={periods.length} busy={busy} sectionId={sectionId} sectionSubjectId={sectionSubjectId} canMapPages={canMapPages} bookId={bookId} onEdit={onEdit} onDelete={onDelete} onMove={onMove} onManagePages={onManagePages} onAddPages={onAddPages} />)}</tbody>
       </table>
     </div>
-    <div className="space-y-2 md:hidden">{periods.map((period, index) => <article key={period.id} className="rounded-lg border border-slate-200 bg-white px-3 py-2.5"><div className="flex items-start justify-between gap-2"><div className="min-w-0"><p className="text-[0.68rem] font-bold uppercase tracking-wide text-teal-700">Period {period.sequence}</p><p className="truncate text-sm font-bold text-slate-900">{periodContent(period)}</p></div><StatusBadge status={period.status} /></div><p className="mt-1 text-[0.7rem] text-slate-500">{formatPeriodDate(period.plannedDate)} · {pageSummary(period)}</p><div className="mt-2 flex flex-wrap gap-1.5"><PeriodActions period={period} index={index} total={periods.length} busy={busy} canMapPages={canMapPages} onEdit={onEdit} onDelete={onDelete} onMove={onMove} onManagePages={onManagePages} onAddPages={onAddPages} /></div></article>)}</div>
+    <div className="space-y-2 md:hidden">{periods.map((period, index) => <article key={period.id} className="rounded-lg border border-slate-200 bg-white px-3 py-2.5"><div className="flex items-start justify-between gap-2"><div className="min-w-0"><p className="text-[0.68rem] font-bold uppercase tracking-wide text-teal-700">Period {period.sequence}</p><p className="truncate text-sm font-bold text-slate-900">{periodContent(period)}</p></div><StatusBadge status={period.status} meaningfullyPlanned={period.meaningfullyPlanned} /></div><p className="mt-1 text-[0.7rem] text-slate-500">{formatPeriodDate(period.plannedDate)} · {pageSummary(period)}</p><div className="mt-2 flex flex-wrap gap-1.5"><PeriodActions period={period} index={index} total={periods.length} busy={busy} sectionId={sectionId} sectionSubjectId={sectionSubjectId} canMapPages={canMapPages} bookId={bookId} onEdit={onEdit} onDelete={onDelete} onMove={onMove} onManagePages={onManagePages} onAddPages={onAddPages} /></div></article>)}</div>
   </>;
 }
 
-function PeriodTableRow({ period, index, total, busy, canMapPages, onEdit, onDelete, onMove, onManagePages, onAddPages }: {
+function PeriodTableRow({ period, index, total, busy, sectionId, sectionSubjectId, bookId, canMapPages, onEdit, onDelete, onMove, onManagePages, onAddPages }: {
   period: Period;
   index: number;
   total: number;
   busy: string | null;
+  sectionId: string;
+  sectionSubjectId: string;
+  bookId: string;
   canMapPages: boolean;
   onEdit: (period: Period) => void;
   onDelete: (period: Period) => void;
@@ -373,14 +420,17 @@ function PeriodTableRow({ period, index, total, busy, canMapPages, onEdit, onDel
   onManagePages: (periodId: string) => void;
   onAddPages: (periodId: string) => void;
 }) {
-  return <tr className="h-12 align-middle"><td className="px-3 font-bold text-slate-800">{period.sequence}</td><td className="px-2 text-slate-600">{formatPeriodDate(period.plannedDate)}</td><td className="max-w-[18rem] px-2"><p className="truncate font-semibold text-slate-900">{periodContent(period)}</p>{periodContentModule(period) ? <p className="truncate text-[0.68rem] text-slate-500">{periodContentModule(period)}</p> : null}</td><td className="px-2 text-slate-600">{pageSummary(period)}</td><td className="px-2"><StatusBadge status={period.status} /></td><td className="px-2"><PeriodActions period={period} index={index} total={total} busy={busy} canMapPages={canMapPages} onEdit={onEdit} onDelete={onDelete} onMove={onMove} onManagePages={onManagePages} onAddPages={onAddPages} /></td></tr>;
+  return <tr className="h-12 align-middle"><td className="px-3 font-bold text-slate-800">{period.sequence}</td><td className="px-2 text-slate-600">{formatPeriodDate(period.plannedDate)}</td><td className="max-w-[18rem] px-2"><p className="truncate font-semibold text-slate-900">{periodContent(period)}</p>{periodContentModule(period) ? <p className="truncate text-[0.68rem] text-slate-500">{periodContentModule(period)}</p> : null}</td><td className="px-2 text-slate-600">{pageSummary(period)}</td><td className="px-2"><StatusBadge status={period.status} meaningfullyPlanned={period.meaningfullyPlanned} /></td><td className="px-2"><PeriodActions period={period} index={index} total={total} busy={busy} sectionId={sectionId} sectionSubjectId={sectionSubjectId} canMapPages={canMapPages} bookId={bookId} onEdit={onEdit} onDelete={onDelete} onMove={onMove} onManagePages={onManagePages} onAddPages={onAddPages} /></td></tr>;
 }
 
-function PeriodActions({ period, index, total, busy, canMapPages, onEdit, onDelete, onMove, onManagePages, onAddPages }: {
+function PeriodActions({ period, index, total, busy, sectionId, sectionSubjectId, bookId, canMapPages, onEdit, onDelete, onMove, onManagePages, onAddPages }: {
   period: Period;
   index: number;
   total: number;
   busy: string | null;
+  sectionId: string;
+  sectionSubjectId: string;
+  bookId: string;
   canMapPages: boolean;
   onEdit: (period: Period) => void;
   onDelete: (period: Period) => void;
@@ -389,12 +439,13 @@ function PeriodActions({ period, index, total, busy, canMapPages, onEdit, onDele
   onAddPages: (periodId: string) => void;
 }) {
   const disabled = Boolean(busy);
-  return <><button type="button" onClick={() => onEdit(period)} disabled={disabled} className="h-7 rounded border border-slate-300 px-2 text-[0.7rem] font-bold text-slate-700">Edit</button><button type="button" onClick={() => onManagePages(period.id)} disabled={disabled} className="h-7 rounded border border-slate-300 px-2 text-[0.7rem] font-bold text-slate-700">Pages</button><button type="button" onClick={() => onAddPages(period.id)} disabled={!canMapPages || disabled} className="h-7 rounded border border-teal-200 bg-teal-50 px-2 text-[0.7rem] font-bold text-teal-800 disabled:cursor-not-allowed disabled:opacity-40">+ Pages</button><button type="button" onClick={() => onMove(period, "EARLIER")} disabled={index === 0 || disabled} aria-label={"Move Period " + period.sequence + " earlier"} className="h-7 rounded border border-slate-200 px-1.5 text-[0.7rem] font-bold text-slate-600 disabled:opacity-35">↑</button><button type="button" onClick={() => onMove(period, "LATER")} disabled={index === total - 1 || disabled} aria-label={"Move Period " + period.sequence + " later"} className="h-7 rounded border border-slate-200 px-1.5 text-[0.7rem] font-bold text-slate-600 disabled:opacity-35">↓</button><button type="button" onClick={() => onDelete(period)} disabled={disabled} className="h-7 rounded border border-rose-200 px-2 text-[0.7rem] font-bold text-rose-700 disabled:opacity-40">Delete</button></>;
+  return <>{period.meaningfullyPlanned && bookId ? <Link href={teacherTeachHref(sectionId, sectionSubjectId, bookId, period.id)} className="inline-flex h-7 items-center rounded bg-slate-900 px-2 text-[0.7rem] font-bold text-white">Teach</Link> : null}<button type="button" onClick={() => onEdit(period)} disabled={disabled} className="h-7 rounded border border-slate-300 px-2 text-[0.7rem] font-bold text-slate-700">Edit</button><button type="button" onClick={() => onManagePages(period.id)} disabled={disabled} className="h-7 rounded border border-slate-300 px-2 text-[0.7rem] font-bold text-slate-700">Pages</button><button type="button" onClick={() => onAddPages(period.id)} disabled={!canMapPages || disabled} className="h-7 rounded border border-teal-200 bg-teal-50 px-2 text-[0.7rem] font-bold text-teal-800 disabled:cursor-not-allowed disabled:opacity-40">+ Pages</button><button type="button" onClick={() => onMove(period, "EARLIER")} disabled={index === 0 || disabled} aria-label={"Move Period " + period.sequence + " earlier"} className="h-7 rounded border border-slate-200 px-1.5 text-[0.7rem] font-bold text-slate-600 disabled:opacity-35">↑</button><button type="button" onClick={() => onMove(period, "LATER")} disabled={index === total - 1 || disabled} aria-label={"Move Period " + period.sequence + " later"} className="h-7 rounded border border-slate-200 px-1.5 text-[0.7rem] font-bold text-slate-600 disabled:opacity-35">↓</button><button type="button" onClick={() => onDelete(period)} disabled={disabled} className="h-7 rounded border border-rose-200 px-2 text-[0.7rem] font-bold text-rose-700 disabled:opacity-40">Delete</button></>;
 }
 
-function StatusBadge({ status }: { status: TeachingPeriodStatus }) {
+function StatusBadge({ status, meaningfullyPlanned }: { status: TeachingPeriodStatus; meaningfullyPlanned: boolean }) {
   const styles: Record<TeachingPeriodStatus, string> = { PLANNED: "bg-blue-50 text-blue-700", COMPLETED: "bg-emerald-50 text-emerald-700", SKIPPED: "bg-slate-100 text-slate-600", RESCHEDULED: "bg-amber-50 text-amber-700" };
-  return <span className={"inline-flex rounded-full px-2 py-0.5 text-[0.65rem] font-bold uppercase tracking-wide " + styles[status]}>{STATUS_LABELS[status]}</span>;
+  const isEmptyPlannedPeriod = status === "PLANNED" && !meaningfullyPlanned;
+  return <span className={"inline-flex rounded-full px-2 py-0.5 text-[0.65rem] font-bold uppercase tracking-wide " + (isEmptyPlannedPeriod ? "bg-slate-100 text-slate-600" : styles[status])}>{isEmptyPlannedPeriod ? "Not planned" : STATUS_LABELS[status]}</span>;
 }
 
 function PeriodDialog({ title, periodTitle, date, chapterId, status, chapters, saving, onTitleChange, onDateChange, onChapterChange, onStatusChange, onClose, onSave, saveLabel, statusReadOnly = false }: {
@@ -490,7 +541,7 @@ function PagePicker({ pages, modules, moduleFilter, pageSearch, selectedPageKeys
 }
 
 function EmptyBookState() {
-  return <section className="rounded-lg border border-dashed border-slate-300 bg-white px-3 py-4 text-xs text-slate-600"><p className="font-semibold text-slate-900">No book assigned by School</p><p className="mt-1">Period and page authoring becomes available after a school-approved book is assigned.</p></section>;
+  return <section className="rounded-lg border border-dashed border-slate-300 bg-white px-3 py-4 text-xs text-slate-600"><p className="font-semibold text-slate-900">No eligible book assigned</p><p className="mt-1">Period and page authoring becomes available after a school-approved book is assigned.</p></section>;
 }
 
 function contentNotice(state: PageAvailability["state"]) {
@@ -510,6 +561,10 @@ function periodContentModule(period: Period) {
 
 function uniqueModuleTitles(period: Period) {
   return [...new Set(period.pageRefs.map((ref) => ref.moduleTitle).filter((title): title is string => Boolean(title)))];
+}
+
+function teacherTeachHref(sectionId: string, sectionSubjectId: string, bookId: string, periodId: string) {
+  return "/teacher-dashboard/classes/" + encodeURIComponent(sectionId) + "/teach?subject=" + encodeURIComponent(sectionSubjectId) + "&bookId=" + encodeURIComponent(bookId) + "&periodId=" + encodeURIComponent(periodId);
 }
 
 function pageSummary(period: Period) {

@@ -18,6 +18,7 @@ import {
   createAssignmentItem,
   deleteAssignmentItem,
   listAssignmentItems,
+  listAssignmentQuestionBank,
   listPublisherAssignmentQuestions,
   reorderAssignmentItems,
   updateAssignmentItem,
@@ -187,6 +188,17 @@ export async function getAssignmentItemsAction(sectionId: string, assignmentId: 
   return listAssignmentItems({ sectionId, assignmentId });
 }
 
+export async function listAssignmentQuestionBankAction(sectionId: string, assignmentId: string, input: {
+  source?: "ALL" | "BOOK" | "PUBLISHER" | "MY";
+  chapterId?: string | null;
+  moduleId?: string | null;
+  exerciseId?: string | null;
+  questionType?: string | null;
+  difficulty?: string | null;
+  search?: string | null;
+}) {
+  return listAssignmentQuestionBank({ sectionId, assignmentId, ...input });
+}
 export async function listPublisherAssignmentQuestionsAction(sectionId: string, assignmentId: string, input: {
   moduleId: string;
   pageId?: string;

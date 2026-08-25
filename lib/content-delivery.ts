@@ -71,6 +71,7 @@ export async function loadSmartBookStructuredContent(input: {
   publisherId: string;
   bookId: string;
   mode: ContentRenderMode;
+  requirePublishedRelease?: boolean;
 }) {
   const book = await prisma.book.findFirst({
     where: { id: input.bookId, publisherId: input.publisherId, published: true, archived: false },
@@ -84,6 +85,7 @@ export async function loadSmartBookStructuredContent(input: {
     targetType: "BOOK",
     targetId: input.bookId,
   });
+  if (!publishedDocument && input.requirePublishedRelease) return null;
   const rawDocument = publishedDocument ?? normalizeContentDocument(book.content ?? { version: 2, blocks: [] });
   const [scope, sections] = await Promise.all([
     getContentNodeScope(input.publisherId, input.bookId, "BOOK", input.bookId),

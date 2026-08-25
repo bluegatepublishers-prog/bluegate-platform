@@ -8,7 +8,7 @@ const read = (path: string) => readFileSync(path, "utf8");
 
 test("T-05C teacher library is assignment/entitlement derived and deduplicated", () => {
   const source = read("lib/teacher-books.ts");
-  assert.match(source, /getTeacherEntitledBookIds/);
+  assert.match(source, /resolveTeacherBookEligibility/);
   assert.match(source, /getBookEntitlementForAuthenticatedUser/);
   assert.match(source, /new Map<string/);
   assert.match(source, /published: true/);

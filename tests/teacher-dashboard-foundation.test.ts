@@ -15,20 +15,20 @@ test("teacher home uses the canonical school feature map", () => {
   assert.match(layout, /getSchoolFeatureAccessMap\(teacher\.school/);
   assert.doesNotMatch(layout, /resolveFeaturesForAuthenticatedUser/);
   assert.match(home, /data\.featureAccess/);
-  assert.match(home, /TeacherFeatureTile/);
+  assert.match(home, /getTeacherPlannerData/);
 });
 
-test("teacher home never fabricates a timetable", () => {
-  assert.match(home, /Timetable setup pending/);
-  assert.doesNotMatch(home, /Today's Classes/);
-  assert.match(home, /enabled=\{false\}/);
+test("teacher home renders canonical timetable rows", () => {
+  assert.match(home, /today\.occurrences/);
+  assert.match(home, /No teaching periods are scheduled for today/);
+  assert.doesNotMatch(home, /Timetable setup pending|Daily teaching workspace|Quick actions|Results and reports/);
 });
 
 test("teacher home derives teaching cards from assigned books", () => {
   assert.match(experience, /getTeacherClasses\(\)/);
-  assert.match(experience, /schoolBookAdoption\.findMany/);
-  assert.match(experience, /sectionSubjectId: \{ in: subjectIds \}/);
-  assert.match(home, /No book assigned by School/);
+  assert.match(read("lib/teacher-book-eligibility.ts"), /schoolBookAdoption\.findMany/);
+  assert.match(read("lib/teacher-book-eligibility.ts"), /sectionSubjectId/);
+  assert.match(home, /My Classes/);
 });
 
 test("teacher home counts persisted teaching plans and review work", () => {
@@ -51,10 +51,10 @@ test("teacher UI primitives support disabled actions and consistent typography",
   assert.match(primitives, /TeacherStatusBadge/);
 });
 
-test("teacher shell preserves five-item navigation and feature-aware visibility", () => {
-  assert.deepEqual([...sidebar.matchAll(/name: "([^"]+)"/g)].map((match) => match[1]), ["Home", "My Classes", "Planner", "Messages", "Resources"]);
+test("teacher shell preserves four-item navigation and feature-aware visibility", () => {
+  assert.deepEqual([...sidebar.matchAll(/name: "([^"]+)"/g)].map((match) => match[1]), ["Home", "My Classes", "Planner", "Messages"]);
   assert.match(sidebar, /features\.PLANNER/);
-  assert.match(sidebar, /features\.TEACHER_RESOURCES/);
-  assert.match(mobile, /teacherNavigation\.map/);
-  assert.match(mobile, /grid-cols-5/);
+  assert.doesNotMatch(sidebar, /TEACHER_RESOURCES/);
+  assert.match(mobile, /teacherNavigation/);
+  assert.match(mobile, /grid-cols-4/);
 });

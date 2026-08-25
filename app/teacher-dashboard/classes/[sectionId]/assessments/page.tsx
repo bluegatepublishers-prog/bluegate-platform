@@ -108,16 +108,17 @@ function AssessmentCard({
 					<p className="mt-1 text-sm text-slate-500">
 						{item.totalQuestions} question(s) · {item.totalMarks} marks · {item.attempts} attempt(s)
 					</p>
+					{item.needsGrading ? <p className="mt-2 text-sm font-bold text-amber-700">{item.needsGrading} response{item.needsGrading === 1 ? "" : "s"} need grading</p> : null}
 				</div>
 				<span className="rounded-full bg-violet-50 px-3 py-1 text-xs font-semibold text-violet-700">{item.lifecycle}</span>
 			</div>
 
 			<div className="mt-4 flex flex-wrap gap-2 text-sm">
 				<Link
-					href={`/teacher-dashboard/classes/${sectionId}/assessments/${item.id}?subject=${subjectId}`}
+					href={item.needsGrading ? `/teacher-dashboard/classes/${sectionId}/assessments/${item.id}/grading` : `/teacher-dashboard/classes/${sectionId}/assessments/${item.id}?subject=${subjectId}`}
 					className="rounded-lg bg-slate-900 px-3 py-2 font-semibold text-white"
 				>
-					Open
+					{item.needsGrading ? "Review" : "Open"}
 				</Link>
 				<form action={duplicateAssessmentAction.bind(null, sectionId, item.id)}>
 					<button type="submit" className="rounded-lg border border-slate-300 px-3 py-2 font-semibold text-slate-700">Duplicate</button>

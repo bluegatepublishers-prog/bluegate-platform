@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useV2OverlayPortalTarget } from "@/components/content/v2/V2OverlayPortalContext";
 
 import { InteractiveQuestionRenderer } from "@/components/questions/InteractiveQuestionRenderer";
 import type { InteractiveQuestion } from "@/lib/normalized-question";
@@ -29,6 +30,7 @@ export default function V2PublisherAssessmentLauncherOverlay({
   mode: "PREVIEW" | "STUDENT";
   onClose: () => void;
 }) {
+  const portalTarget = useV2OverlayPortalTarget();
   const titleId = useId();
   const closeRef = useRef<HTMLButtonElement>(null);
   const [assessment, setAssessment] = useState<PreviewAssessment | null>(null);
@@ -63,9 +65,9 @@ export default function V2PublisherAssessmentLauncherOverlay({
     return () => { cancelled = true; };
   }, [assessmentId, mode]);
 
-  if (typeof globalThis.document === "undefined") return null;
+  if (typeof globalThis.document === "undefined" || !portalTarget) return null;
   return createPortal(
-    <div data-v2-publisher-assessment-overlay role="presentation" className="fixed inset-0 z-[115] flex items-center justify-center bg-slate-950/70 p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+    <div data-v2-publisher-assessment-overlay role="presentation" className="pointer-events-auto fixed inset-0 z-[130] flex items-center justify-center bg-slate-950/70 p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
       <section role="dialog" aria-modal="true" aria-labelledby={titleId} className="w-full max-w-3xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
         <header className="flex items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-5 py-4">
           <div><p className="text-xs font-bold uppercase tracking-wide text-violet-700">{mode === "PREVIEW" ? "Publisher Preview" : "Assessment"}</p><h2 id={titleId} className="text-lg font-bold text-slate-950">{assessment?.heading ?? "ASSESSMENT"}</h2></div>
@@ -83,6 +85,6 @@ export default function V2PublisherAssessmentLauncherOverlay({
         </div>
       </section>
     </div>,
-    globalThis.document.body,
+    portalTarget,
   );
 }

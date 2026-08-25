@@ -22,7 +22,7 @@ import {
   requireOwnedTeacherAssignment,
   requireTeacherAssignmentFeature,
 } from "./access";
-import type { AssignmentInput } from "./validation";
+import { assignmentInputSchema, type AssignmentInput } from "./validation";
 
 export class AssignmentMutationError extends Error {
   constructor(message: string, readonly code = "INVALID_STATE") {
@@ -375,4 +375,153 @@ export async function auditAssignmentDenial(
   } catch (error) {
     if (!(error instanceof AssignmentAccessError)) throw error;
   }
+}
+export type TeachingPeriodAssignmentDraft = {
+  id?: string | null;
+} & AssignmentInput;
+
+type ParsedTeachingPeriodAssignmentDraft = {
+  id: string | null;
+  input: AssignmentInput;
+};
+
+export function validateTeachingPeriodAssignmentDrafts(value: unknown) {
+  const rawDrafts = Array.isArray(value) ? value : [];
+  if (rawDrafts.length > 20) throw new AssignmentMutationError("A teaching period cannot contain more than 20 assignments.");
+  const drafts = rawDrafts.map(parseTeachingPeriodAssignmentDraft);
+  const ids = drafts.map((draft) => draft.id).filter((id): id is string => Boolean(id));
+  if (new Set(ids).size !== ids.length) throw new AssignmentMutationError("An assignment cannot be listed more than once.");
+  return drafts;
+}
+
+function parseTeachingPeriodAssignmentDraft(value: unknown): ParsedTeachingPeriodAssignmentDraft {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new AssignmentMutationError("Invalid assignment details.");
+  }
+  const record = value as Record<string, unknown>;
+  const id = record.id == null || record.id === "" ? null : String(record.id).trim();
+  if (id && (id.length > 100 || id.startsWith("new-"))) {
+    throw new AssignmentMutationError("Invalid assignment identity.");
+  }
+  const parsed = assignmentInputSchema.safeParse(record);
+  if (!parsed.success) {
+    throw new AssignmentMutationError(parsed.error.issues[0]?.message ?? "Check the assignment details.");
+  }
+  return { id: id || null, input: parsed.data };
+}
+
+async function requireTeachingPeriodForAssignment(
+  sectionId: string,
+  sectionSubjectId: string,
+  periodId: string,
+  scope: Awaited<ReturnType<typeof requireTeacherAssignmentFeature>>,
+) {
+  const period = await prisma.teachingPeriod.findFirst({
+    where: {
+      id: periodId,
+      plan: {
+        schoolId: scope.schoolId,
+        academicYearId: scope.academicYear.id,
+        teacherId: scope.teacher.id,
+        sectionSubjectId,
+      },
+    },
+    select: { id: true, plan: { select: { sectionSubjectId: true } } },
+  });
+  if (!period || period.plan.sectionSubjectId !== sectionSubjectId) {
+    throw new AssignmentMutationError("That teaching period is outside your authorized class and subject scope.", "AUTHORIZATION_DENIED");
+  }
+  if (!sectionId.trim()) throw new AssignmentMutationError("Invalid class section.", "AUTHORIZATION_DENIED");
+  return period;
+}
+
+export async function saveTeachingPeriodAssignments(input: {
+  sectionId: string;
+  sectionSubjectId: string;
+  periodId: string;
+  drafts: unknown;
+}) {
+  const scope = await requireTeacherAssignmentFeature(input.sectionId);
+  const period = await requireTeachingPeriodForAssignment(input.sectionId, input.sectionSubjectId, input.periodId, scope);
+  const drafts = validateTeachingPeriodAssignmentDrafts(input.drafts);
+  const ids = drafts.map((draft) => draft.id).filter((id): id is string => Boolean(id));
+  const destinations = await Promise.all(drafts.map((draft) => resolveAcademicContext(scope, draft.input)));
+  const current = await prisma.classroomAssignment.findMany({
+    where: { teachingPeriodId: period.id },
+    select: { id: true, status: true, bookId: true },
+  });
+  const currentById = new Map(current.map((assignment) => [assignment.id, assignment]));
+  for (const id of ids) {
+    if (!currentById.has(id)) throw new AssignmentMutationError("That assignment is not linked to this teaching period.", "AUTHORIZATION_DENIED");
+  }
+
+  await prisma.$transaction(async (tx) => {
+    const now = new Date();
+    for (const [index, draft] of drafts.entries()) {
+      const destination = destinations[index];
+      if (draft.id) {
+        const existing = currentById.get(draft.id);
+        if (!existing) throw new AssignmentMutationError("That assignment is not linked to this teaching period.", "AUTHORIZATION_DENIED");
+        if (!["DRAFT", "SCHEDULED"].includes(existing.status)) continue;
+
+        if (existing.bookId !== (destination.book?.id ?? null)) {
+          const itemCount = await tx.classroomAssignmentItem.count({ where: { assignmentId: existing.id } });
+          if (itemCount) {
+            throw new AssignmentMutationError("Remove book content before changing the assignment book.");
+          }
+        }
+
+        const updated = await tx.classroomAssignment.update({
+          where: { id: existing.id },
+          data: assignmentData(draft.input, destination, now),
+        });
+        await writeSecurityAuditEvent(tx, {
+          actor: teacherActor(scope),
+          action: "classroom.assignment.update",
+          targetType: "ClassroomAssignment",
+          targetId: updated.id,
+          outcome: SecurityAuditOutcome.SUCCESS,
+          metadata: { scope: "teaching-period", teachingPeriodId: period.id, operation: "update" },
+        });
+      } else {
+        const created = await tx.classroomAssignment.create({
+          data: {
+            publisherId: scope.publisherId,
+            schoolId: scope.schoolId,
+            academicYearId: scope.academicYear.id,
+            schoolClassId: scope.schoolClass.id,
+            sectionId: input.sectionId,
+            teacherId: scope.teacher.id,
+            teachingPeriodId: period.id,
+            ...assignmentData(draft.input, destination, now),
+          },
+        });
+        await writeSecurityAuditEvent(tx, {
+          actor: teacherActor(scope),
+          action: "classroom.assignment.create",
+          targetType: "ClassroomAssignment",
+          targetId: created.id,
+          outcome: SecurityAuditOutcome.SUCCESS,
+          metadata: { scope: "teaching-period", teachingPeriodId: period.id, operation: "create" },
+        });
+      }
+    }
+
+    const retainedIds = new Set(ids);
+    for (const existing of current) {
+      if (retainedIds.has(existing.id)) continue;
+      await tx.classroomAssignment.update({
+        where: { id: existing.id },
+        data: { teachingPeriodId: null },
+      });
+      await writeSecurityAuditEvent(tx, {
+        actor: teacherActor(scope),
+        action: "classroom.assignment.update",
+        targetType: "ClassroomAssignment",
+        targetId: existing.id,
+        outcome: SecurityAuditOutcome.SUCCESS,
+        metadata: { scope: "teaching-period", teachingPeriodId: period.id, operation: "detach-preserve-assignment" },
+      });
+    }
+  });
 }

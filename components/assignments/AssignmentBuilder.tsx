@@ -43,19 +43,23 @@ type Initial = {
   closeAt: string | null;
 };
 
-export default function AssignmentBuilder({ sectionId, subjects, materials, initial, hasAssignmentItems = false }: {
+export default function AssignmentBuilder({ sectionId, subjects, materials, initial, hasAssignmentItems = false, contextSubjectId, contextSubjectName, initialBookId, initialChapterId }: {
   sectionId: string;
   subjects: SubjectOption[];
   materials: MaterialOption[];
   initial?: Initial;
   hasAssignmentItems?: boolean;
+  contextSubjectId?: string;
+  contextSubjectName?: string;
+  initialBookId?: string;
+  initialChapterId?: string;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [message, setMessage] = useState("");
   const [progress, setProgress] = useState(0);
-  const [subjectId, setSubjectId] = useState(initial?.sectionSubjectId ?? "");
-  const [bookId, setBookId] = useState(initial?.bookId ?? "");
+  const [subjectId, setSubjectId] = useState(initial?.sectionSubjectId ?? contextSubjectId ?? "");
+  const [bookId, setBookId] = useState(initial?.bookId ?? initialBookId ?? "");
   const subject = subjects.find((item) => item.id === subjectId);
   const books = subject?.books ?? [];
   const book = books.find((item) => item.id === bookId);
@@ -115,23 +119,23 @@ export default function AssignmentBuilder({ sectionId, subjects, materials, init
     });
   }
   const allowedResources = subject?.resources ?? [];
-  const field = "min-h-12 w-full min-w-0 rounded-xl border border-slate-300 bg-white px-4 py-3";
-  return <form onSubmit={submit} className="space-y-5">
-    <section className="rounded-2xl border bg-white p-5 shadow-sm sm:p-6">
-      <h2 className="text-xl font-bold">Assignment details</h2>
+  const field = "min-h-10 w-full min-w-0 rounded-xl border border-slate-300 bg-white px-3 py-2";
+  return <form onSubmit={submit} className="space-y-4">
+    <section className="rounded-2xl border bg-white p-4 shadow-sm sm:p-5">
+      <h2 className="text-lg font-bold">Assignment details</h2>
       <div className="mt-5 grid gap-4 sm:grid-cols-2">
         <label className="sm:col-span-2"><span className="font-semibold">Title</span><input required maxLength={160} name="title" defaultValue={initial?.title} className={`mt-2 ${field}`} /></label>
         <label><span className="font-semibold">Type</span><select name="assignmentType" defaultValue={initial?.assignmentType ?? "HOMEWORK"} className={`mt-2 ${field}`}>{["HOMEWORK","CLASSWORK","PROJECT","WORKSHEET","READING","PRACTICAL","OTHER"].map((item) => <option key={item} value={item}>{label(item)}</option>)}</select></label>
-        <label><span className="font-semibold">Assigned subject</span><select name="sectionSubjectId" required value={subjectId} onChange={(event) => { setSubjectId(event.target.value); setBookId(""); }} className={`mt-2 ${field}`}><option value="">Choose assigned subject</option>{subjects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+<label><span className="font-semibold">Assigned subject</span>{contextSubjectId ? <><input type="hidden" name="sectionSubjectId" value={contextSubjectId} /><p className="mt-2 min-h-10 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 font-semibold text-slate-700">{contextSubjectName ?? subject?.name}</p></> : <select name="sectionSubjectId" required value={subjectId} onChange={(event) => { setSubjectId(event.target.value); setBookId(""); }} className={"mt-2 " + field}><option value="">Choose assigned subject</option>{subjects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>}</label>
         <label><span className="font-semibold">Book</span><select name="bookId" value={bookId} onChange={(event) => setBookId(event.target.value)} disabled={!subjectId || hasAssignmentItems} className={`mt-2 ${field}`}><option value="">No book</option>{books.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label>
         <>{hasAssignmentItems ? <p className="sm:col-span-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm font-medium text-amber-900">Remove book-bound Assignment Items before changing the Assignment Book.</p> : null}</>
-        <label><span className="font-semibold">Chapter</span><select name="chapterId" defaultValue={initial?.chapterId ?? ""} disabled={!bookId} className={`mt-2 ${field}`}><option value="">No chapter</option>{book?.chapters.map((item) => <option key={item.id} value={item.id}>Chapter {item.chapterNumber}: {item.title}</option>)}</select></label>
+        <label><span className="font-semibold">Chapter</span><select name="chapterId" defaultValue={initial?.chapterId ?? initialChapterId ?? ""} disabled={!bookId} className={`mt-2 ${field}`}><option value="">No chapter</option>{book?.chapters.map((item) => <option key={item.id} value={item.id}>Chapter {item.chapterNumber}: {item.title}</option>)}</select></label>
         <label className="sm:col-span-2"><span className="font-semibold">Instructions</span><textarea name="instructions" defaultValue={initial?.instructions ?? ""} maxLength={10000} rows={7} className={`mt-2 ${field}`} /></label>
         <label><span className="font-semibold">Total marks</span><input name="totalMarks" type="number" min={1} max={10000} defaultValue={initial?.totalMarks ?? ""} className={`mt-2 ${field}`} /></label>
       </div>
     </section>
-    <section className="rounded-2xl border bg-white p-5 shadow-sm sm:p-6">
-      <h2 className="text-xl font-bold">How students respond</h2>
+    <section className="rounded-2xl border bg-white p-4 shadow-sm sm:p-5">
+      <h2 className="text-lg font-bold">How students respond</h2>
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
         <Check name="allowTextSubmission" label="Allow written response" defaultChecked={initial?.allowTextSubmission ?? true} />
         <Check name="allowFileSubmission" label="Allow file upload" defaultChecked={initial?.allowFileSubmission ?? false} />
@@ -148,9 +152,9 @@ export default function AssignmentBuilder({ sectionId, subjects, materials, init
         ["application/pdf","PDF"],["image/jpeg","JPG"],["image/png","PNG"],["image/webp","WebP"],["application/msword","DOC"],["application/vnd.openxmlformats-officedocument.wordprocessingml.document","DOCX"],["application/vnd.ms-powerpoint","PPT"],["application/vnd.openxmlformats-officedocument.presentationml.presentation","PPTX"],
       ].map(([value, text]) => <label key={value} className="flex min-h-11 items-center gap-2 rounded-xl border px-3"><input type="checkbox" name="acceptedFileTypes" value={value} defaultChecked={initial?.acceptedFileTypes.includes(value) ?? ["application/pdf","image/jpeg","image/png"].includes(value)} />{text}</label>)}</div></fieldset>
     </section>
-    {!initial ? <section className="rounded-2xl border bg-white p-5 shadow-sm sm:p-6"><h2 className="text-xl font-bold">Attachments</h2><p className="mt-1 text-sm text-slate-600">Optional. Files remain private and are opened through protected links.</p><div className="mt-4 grid gap-4 sm:grid-cols-2"><label><span className="font-semibold">Upload a file</span><input name="attachment" type="file" accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx,.ppt,.pptx" className={`mt-2 ${field}`} /></label><label><span className="font-semibold">Class material</span><select name="materialAttachmentId" className={`mt-2 ${field}`}><option value="">None</option>{materials.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label><label><span className="font-semibold">Protected resource</span><select name="resourceAttachmentId" className={`mt-2 ${field}`}><option value="">None</option>{allowedResources.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label></div>{progress ? <p className="mt-3 text-sm font-semibold text-blue-700">Uploading {progress}%</p> : null}</section> : null}
-    <section className="rounded-2xl border bg-white p-5 shadow-sm sm:p-6">
-      <h2 className="text-xl font-bold">Publishing and dates</h2>
+    {!initial ? <section className="rounded-2xl border bg-white p-4 shadow-sm sm:p-5"><h2 className="text-lg font-bold">Attachments</h2><p className="mt-1 text-sm text-slate-600">Optional. Files remain private and are opened through protected links.</p><div className="mt-4 grid gap-4 sm:grid-cols-2"><label><span className="font-semibold">Upload a file</span><input name="attachment" type="file" accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx,.ppt,.pptx" className={`mt-2 ${field}`} /></label><label><span className="font-semibold">Class material</span><select name="materialAttachmentId" className={`mt-2 ${field}`}><option value="">None</option>{materials.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label><label><span className="font-semibold">Protected resource</span><select name="resourceAttachmentId" className={`mt-2 ${field}`}><option value="">None</option>{allowedResources.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label></div>{progress ? <p className="mt-3 text-sm font-semibold text-blue-700">Uploading {progress}%</p> : null}</section> : null}
+    <section className="rounded-2xl border bg-white p-4 shadow-sm sm:p-5">
+      <h2 className="text-lg font-bold">Publishing and dates</h2>
       <div className="mt-4 grid gap-4 sm:grid-cols-2">
         <label><span className="font-semibold">Save as</span><select name="intent" defaultValue={initial?.status === "SCHEDULED" ? "SCHEDULED" : initial?.status === "PUBLISHED" ? "PUBLISHED" : "DRAFT"} className={`mt-2 ${field}`}><option value="DRAFT">Draft</option><option value="PUBLISHED">Publish now</option><option value="SCHEDULED">Schedule</option></select></label>
         <label><span className="font-semibold">Publish date</span><input name="publishAt" type="datetime-local" defaultValue={datetime(initial?.publishAt)} className={`mt-2 ${field}`} /></label>

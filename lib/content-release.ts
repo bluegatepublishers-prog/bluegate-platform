@@ -19,6 +19,14 @@ import { validateKnowledgeDocument } from "@/lib/content-knowledge";
 import { validateMediaDocument } from "@/lib/content-media";
 import { getV2AssessmentLauncherPayload } from "@/lib/v2-assessment-launcher";
 import { prisma } from "@/lib/prisma";
+import {
+  collectSnapshotHierarchyDependencyIds,
+  collectSnapshotPdfPageNumbers,
+  type SnapshotHierarchyDependencyIds,
+  type SnapshotHierarchyChapterCandidate,
+  type SnapshotHierarchyExerciseCandidate,
+  type SnapshotHierarchyModuleCandidate,
+} from "@/lib/content-release-dependencies";
 
 export type ReleaseActor = {
   userId: string;
@@ -80,6 +88,21 @@ export type SnapshotDependencyIds = {
   exerciseIds: string[];
   questionLaunchers: SnapshotQuestionLauncher[];
 };
+type SnapshotPublishPlan = {
+  snapshotDependencies: SnapshotDependencyIds;
+  hierarchyDependencies: SnapshotHierarchyDependencyIds;
+  validGroupIds: string[];
+  validQuestionIds: string[];
+  questionImageResourceIds: string[];
+};
+
+type SmartBookPublishTiming = (stage: string) => void;
+
+type ReleaseDependencyReadClient = Pick<
+  Prisma.TransactionClient,
+  "bookChapter" | "bookModule" | "bookExercise" | "bookExerciseQuestionGroup" | "bookQuestion"
+>;
+
 
 export type ReleaseVersionPreview = {
   versionId: string;
@@ -204,8 +227,20 @@ export async function transitionRelease(input: {
       input.targetId,
     );
   }
-  return prisma.$transaction(async (tx) => {
+  const publishPlan = input.action === "PUBLISH"
+    ? await prepareSnapshotPublishPlan(input.actor.publisherId, input.bookId, snapshot)
+    : null;
+
+  const publishTiming = createSmartBookPublishTiming(input.action === "PUBLISH");
+  publishTiming?.("dependency plan ready");
+  const publishTransactionOptions = input.action === "PUBLISH"
+    ? { maxWait: 10_000, timeout: 15_000 }
+    : undefined;
+
+  publishTiming?.("transaction start");
+  const transactionResult = await prisma.$transaction(async (tx) => {
     const release = await upsertRelease(tx, input.actor.publisherId, input.bookId, input.targetType, input.targetId);
+    publishTiming?.("release upserted");
     if (input.action === "UNPUBLISH") {
       await updateLegacyPublishedFlag(tx, input.actor.publisherId, input.bookId, input.targetType, input.targetId, false);
       return tx.contentRelease.update({
@@ -248,6 +283,7 @@ export async function transitionRelease(input: {
     const currentVersion = release.currentVersionId
       ? await tx.contentReleaseVersion.findUnique({ where: { id: release.currentVersionId }, select: { id: true } })
       : null;
+    publishTiming?.("current version resolved");
     const versionNumber = release.latestVersionNumber + 1;
     const version = await tx.contentReleaseVersion.create({
       data: {
@@ -259,7 +295,7 @@ export async function transitionRelease(input: {
         versionNumber,
         lifecycle: "PUBLISHED",
         snapshot: snapshot as unknown as Prisma.InputJsonValue,
-        dependencies: collectDependencies(snapshot) as Prisma.InputJsonValue,
+        dependencies: collectDependencies(snapshot, publishPlan!.snapshotDependencies, publishPlan!.hierarchyDependencies) as Prisma.InputJsonValue,
         releaseNotes: input.releaseNotes?.trim() || null,
         checksum,
         previousVersionId: currentVersion?.id ?? null,
@@ -270,8 +306,9 @@ export async function transitionRelease(input: {
         publishedAt: now,
       },
     });
+    publishTiming?.("release version created");
     await updateLegacyPublishedFlag(tx, input.actor.publisherId, input.bookId, input.targetType, input.targetId, true);
-    await publishSnapshotDependencies(tx, input.actor.publisherId, input.bookId, snapshot);
+    await publishSnapshotDependencies(tx, input.actor.publisherId, input.bookId, snapshot, publishPlan!, publishTiming);
     return tx.contentRelease.update({
       where: { id: release.id },
       data: {
@@ -284,7 +321,9 @@ export async function transitionRelease(input: {
         unpublishedAt: null,
       },
     });
-  });
+  }, publishTransactionOptions);
+  publishTiming?.("transaction committed");
+  return transactionResult;
 }
 
 export async function rollbackRelease(input: {
@@ -698,14 +737,22 @@ export async function publishSnapshotDependencies(
   publisherId: string,
   bookId: string,
   snapshot: ReleaseSnapshot,
+  plan: SnapshotPublishPlan,
+  timing?: SmartBookPublishTiming | null,
 ) {
-  const dependencies = collectSnapshotDependencyIds(snapshot);
-  const resourceIds = new Set(dependencies.resourceIds);
-  const exerciseIds = new Set(dependencies.exerciseIds);
+  const resourceIds = new Set([
+    ...plan.snapshotDependencies.resourceIds,
+    ...plan.questionImageResourceIds,
+  ]);
+  const exerciseIds = new Set(plan.snapshotDependencies.exerciseIds);
 
-  for (const launcher of dependencies.questionLaunchers) exerciseIds.add(launcher.exerciseId);
-
-  await publishResources(tx, publisherId, bookId, resourceIds);
+  await promoteSnapshotHierarchyDependencies(
+    tx,
+    publisherId,
+    bookId,
+    plan.hierarchyDependencies,
+  );
+  timing?.("hierarchy promotion");
 
   if (exerciseIds.size) {
     await tx.bookExercise.updateMany({
@@ -719,66 +766,173 @@ export async function publishSnapshotDependencies(
     });
   }
 
-  for (const launcher of dependencies.questionLaunchers) {
-    const group = await tx.bookExerciseQuestionGroup.findFirst({
+  if (plan.validGroupIds.length) {
+    const result = await tx.bookExerciseQuestionGroup.updateMany({
       where: {
-        id: launcher.groupId,
-        exerciseId: launcher.exerciseId,
-        exercise: {
-          bookId,
-          book: { publisherId },
-          archived: false,
-        },
-      },
-      select: { id: true },
-    });
-    if (!group) continue;
-
-    await tx.bookExerciseQuestionGroup.updateMany({
-      where: {
-        id: group.id,
-        exerciseId: launcher.exerciseId,
-        exercise: {
-          bookId,
-          book: { publisherId },
-          archived: false,
-        },
+        id: { in: plan.validGroupIds },
+        exercise: { bookId, book: { publisherId }, archived: false },
       },
       data: { active: true },
     });
+    if (result.count !== plan.validGroupIds.length) {
+      throw new Error("A referenced exercise question group changed before publication.");
+    }
+  }
 
-    const questionWhere: Prisma.BookQuestionWhereInput = {
-      ...(launcher.questionIds.length ? { id: { in: launcher.questionIds } } : {}),
+  if (plan.validQuestionIds.length) {
+    const result = await tx.bookQuestion.updateMany({
+      where: {
+        id: { in: plan.validQuestionIds },
+        bookId,
+        archived: false,
+        exercise: { bookId, book: { publisherId }, archived: false },
+        exerciseGroup: { active: true },
+      },
+      data: { approved: true },
+    });
+    if (result.count !== plan.validQuestionIds.length) {
+      throw new Error("A referenced book question changed before publication.");
+    }
+  }
+
+  await publishResources(tx, publisherId, bookId, resourceIds);
+  timing?.("resource promotion");
+}
+
+function createSmartBookPublishTiming(enabled: boolean): SmartBookPublishTiming | null {
+  if (!enabled || process.env.NODE_ENV === "production") return null;
+  const startedAt = Date.now();
+  let previousAt = startedAt;
+  return (stage) => {
+    const now = Date.now();
+    console.info("[SmartBookPublishTiming]", stage, {
+      stageMs: now - previousAt,
+      totalMs: now - startedAt,
+    });
+    previousAt = now;
+  };
+}
+
+async function prepareSnapshotPublishPlan(
+  publisherId: string,
+  bookId: string,
+  snapshot: ReleaseSnapshot,
+): Promise<SnapshotPublishPlan> {
+  const snapshotDependencies = collectSnapshotDependencyIds(snapshot);
+  const groupIds = [...new Set(snapshotDependencies.questionLaunchers.map((launcher) => launcher.groupId).filter(Boolean))];
+  const [hierarchyDependencies, groups] = await Promise.all([
+    loadSnapshotHierarchyDependencies(
+      prisma,
+      publisherId,
       bookId,
-      exerciseId: launcher.exerciseId,
-      exerciseGroupId: group.id,
-      questionType: launcher.questionType,
-      archived: false,
-      exercise: {
+      snapshot,
+      snapshotDependencies.exerciseIds,
+    ),
+    groupIds.length
+      ? prisma.bookExerciseQuestionGroup.findMany({
+          where: {
+            id: { in: groupIds },
+            exercise: { bookId, book: { publisherId }, archived: false },
+          },
+          select: { id: true, exerciseId: true },
+        })
+      : Promise.resolve([]),
+  ]);
+  const validGroupKeys = new Set(groups.map((group) => `${group.id}:${group.exerciseId}`));
+  const validLaunchers = snapshotDependencies.questionLaunchers.filter((launcher) =>
+    validGroupKeys.has(`${launcher.groupId}:${launcher.exerciseId}`),
+  );
+  const questionWhere = validLaunchers.map((launcher): Prisma.BookQuestionWhereInput => ({
+    ...(launcher.questionIds.length ? { id: { in: launcher.questionIds } } : {}),
+    exerciseId: launcher.exerciseId,
+    exerciseGroupId: launcher.groupId,
+    questionType: launcher.questionType,
+    exercise: { bookId, book: { publisherId }, archived: false },
+    exerciseGroup: { id: launcher.groupId, exerciseId: launcher.exerciseId },
+  }));
+  const questions = questionWhere.length
+    ? await prisma.bookQuestion.findMany({
+        where: { bookId, archived: false, OR: questionWhere },
+        select: { id: true, imageResourceId: true },
+      })
+    : [];
+  return {
+    snapshotDependencies,
+    hierarchyDependencies,
+    validGroupIds: [...new Set(validLaunchers.map((launcher) => launcher.groupId))],
+    validQuestionIds: [...new Set(questions.map((question) => question.id))],
+    questionImageResourceIds: [...new Set(questions.flatMap((question) => question.imageResourceId ? [question.imageResourceId] : []))],
+  };
+}
+
+async function loadSnapshotHierarchyDependencies(
+  db: ReleaseDependencyReadClient,
+  publisherId: string,
+  bookId: string,
+  snapshot: ReleaseSnapshot,
+  referencedExerciseIds: string[],
+) {
+  const [chapters, modules, exercises] = await Promise.all([
+    db.bookChapter.findMany({
+      where: { bookId, book: { publisherId }, archived: false },
+      select: { id: true, bookId: true, startPage: true, endPage: true, archived: true },
+    }),
+    db.bookModule.findMany({
+      where: { bookId, book: { publisherId }, archived: false },
+      select: { id: true, bookId: true, chapterId: true, startPage: true, endPage: true, archived: true },
+    }),
+    referencedExerciseIds.length
+      ? db.bookExercise.findMany({
+          where: { id: { in: referencedExerciseIds }, bookId, book: { publisherId }, archived: false },
+          select: { id: true, bookId: true, chapterId: true, moduleId: true, archived: true },
+        })
+      : Promise.resolve([]),
+  ]);
+
+  return collectSnapshotHierarchyDependencyIds({
+    bookId,
+    pageNumbers: collectSnapshotPdfPageNumbers({ pages: snapshot.contentDocument?.pageLayout?.pages ?? [] }),
+    referencedExerciseIds,
+    chapters: chapters as SnapshotHierarchyChapterCandidate[],
+    modules: modules as SnapshotHierarchyModuleCandidate[],
+    exercises: exercises as SnapshotHierarchyExerciseCandidate[],
+  });
+}
+
+async function promoteSnapshotHierarchyDependencies(
+  tx: Prisma.TransactionClient,
+  publisherId: string,
+  bookId: string,
+  dependencies: SnapshotHierarchyDependencyIds,
+) {
+  if (dependencies.chapterIds.length) {
+    const result = await tx.bookChapter.updateMany({
+      where: {
+        id: { in: dependencies.chapterIds },
         bookId,
         book: { publisherId },
         archived: false,
       },
-      exerciseGroup: {
-        id: group.id,
-        exerciseId: launcher.exerciseId,
-        active: true,
-      },
-    };
-    const questions = await tx.bookQuestion.findMany({
-      where: questionWhere,
-      select: { imageResourceId: true },
+      data: { published: true, approved: true, publishedAt: new Date() },
     });
-    if (!questions.length) continue;
-
-    await tx.bookQuestion.updateMany({
-      where: questionWhere,
-      data: { approved: true },
-    });
-    for (const question of questions) addResourceId(resourceIds, question.imageResourceId);
+    if (result.count !== dependencies.chapterIds.length) {
+      throw new Error("A referenced chapter changed before publication.");
+    }
   }
-
-  await publishResources(tx, publisherId, bookId, resourceIds);
+  if (dependencies.moduleIds.length) {
+    const result = await tx.bookModule.updateMany({
+      where: {
+        id: { in: dependencies.moduleIds },
+        bookId,
+        book: { publisherId },
+        archived: false,
+      },
+      data: { published: true },
+    });
+    if (result.count !== dependencies.moduleIds.length) {
+      throw new Error("A referenced module changed before publication.");
+    }
+  }
 }
 
 function collectBlockResourceIds(block: ContentDocument["blocks"][number], resourceIds: Set<string>) {
@@ -851,7 +1005,11 @@ async function publishResources(
   });
 }
 
-function collectDependencies(snapshot: ReleaseSnapshot) {
+function collectDependencies(
+  snapshot: ReleaseSnapshot,
+  snapshotDependencies: SnapshotDependencyIds,
+  hierarchyDependencies: SnapshotHierarchyDependencyIds,
+) {
   const dependencies: Record<string, string[]> = {};
   for (const block of snapshot.contentDocument?.blocks ?? []) {
     if (isLinkedAssetBlock(block)) {
@@ -881,7 +1039,6 @@ function collectDependencies(snapshot: ReleaseSnapshot) {
     }
   }
 
-  const snapshotDependencies = collectSnapshotDependencyIds(snapshot);
   if (snapshotDependencies.resourceIds.length) {
     dependencies.RESOURCE = [...(dependencies.RESOURCE ?? []), ...snapshotDependencies.resourceIds];
   }
@@ -893,6 +1050,13 @@ function collectDependencies(snapshot: ReleaseSnapshot) {
     if (launcher.questionIds.length) {
       dependencies.BOOK_QUESTION = [...(dependencies.BOOK_QUESTION ?? []), ...launcher.questionIds];
     }
+  }
+
+  if (hierarchyDependencies.chapterIds.length) {
+    dependencies.BOOK_CHAPTER = [...(dependencies.BOOK_CHAPTER ?? []), ...hierarchyDependencies.chapterIds];
+  }
+  if (hierarchyDependencies.moduleIds.length) {
+    dependencies.BOOK_MODULE = [...(dependencies.BOOK_MODULE ?? []), ...hierarchyDependencies.moduleIds];
   }
 
   return {

@@ -12,3 +12,13 @@
 .shell :global(.text-3xl),
 .shell :global(.text-2xl) { font-size: 1.25rem; line-height: 1.75rem; }
 .shell :global(.min-h-24) { min-height: 4rem; }
+.shell :global(.space-y-5),
+.shell :global(.gap-6),
+.shell :global(.gap-5) { gap: 1rem; }
+.shell :global(.p-5),
+.shell :global(.sm:p-5),
+.shell :global(.lg:p-6) { padding: 1rem; }
+.shell :global(.py-6),
+.shell :global(.px-6) { padding-top: 1rem; padding-bottom: 1rem; }
+.shell :global(.text-4xl) { font-size: 1.5rem; line-height: 2rem; }
+.shell :global(.min-h-16) { min-height: 4rem; }

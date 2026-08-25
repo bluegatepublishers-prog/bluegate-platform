@@ -48,7 +48,7 @@ export default async function TeacherAssessmentNewPage({
               <option value="CHAPTER">Chapter</option>
               <option value="UNIT">Unit</option>
               <option value="TERM">Term</option>
-              <option value="CUSTOM">Custom</option>
+              <option value="CUSTOM">Practice</option><option value="CUSTOM">Custom</option>
             </select>
           </label>
 

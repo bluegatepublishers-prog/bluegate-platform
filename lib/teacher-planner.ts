@@ -13,6 +13,7 @@ import {
 import { parseTeachingPeriodDate, TeachingPlanError } from "@/lib/teaching-plan-policy";
 import { requireTeacher } from "@/lib/teacher-dashboard";
 import { getTeacherTimetable } from "@/lib/teacher-timetable";
+import { resolveTeacherBookEligibility } from "@/lib/teacher-book-eligibility";
 
 const WEEKDAYS = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"] as const;
 
@@ -119,36 +120,85 @@ export async function getTeacherPlannerData(view: PlannerView = "today") {
   if (!plannerAccess.allowed || !timetableAccess.allowed || !teacher.schoolId) return { teacher, plannerEnabled: plannerAccess.allowed, timetableEnabled: timetableAccess.allowed, view, dates: [], occurrences: [], completed: [], overlays: [] };
   const timetable = await getTeacherTimetable();
   const range = plannerRange(view);
-  const academicYearId = timetable.academicYear?.id;
-  if (!academicYearId) return { teacher, plannerEnabled: true, timetableEnabled: true, view, dates: range.dates, occurrences: [], completed: [], overlays: [] };
+  const academicYear = timetable.academicYear;
+  const academicYearId = academicYear?.id;
+  if (!academicYear) return { teacher, plannerEnabled: true, timetableEnabled: true, view, dates: range.dates, occurrences: [], completed: [], overlays: [] };
+  const activeAcademicYearId = academicYear.id;
   const dateTimetables = view === "completed" ? [] : await Promise.all(range.dates.map((date) => getTeacherTimetable(dateAtNoon(date))));
-  const entryByDate = new Map(dateTimetables.map((item, index) => [range.dates[index], item.entries]));
+  const entryByDate = new Map(dateTimetables.map((item, index) => [range.dates[index]!, item.entries]));
   const allEntries = [...new Map(dateTimetables.flatMap((item) => item.entries).map((entry) => [entry.id, entry])).values()];
   const entryById = new Map(timetable.entries.map((entry) => [entry.id, entry]));
   const sectionIds = [...new Set(allEntries.map((entry) => entry.sectionId))];
   const sectionSubjectIds = [...new Set(allEntries.map((entry) => entry.sectionSubjectId))];
-  const overlaysByDate = view === "completed" ? new Map<string, PlannerCalendarOverlay>() : await calendarOverlays({ schoolId: teacher.schoolId, academicYearId, start: range.start, end: range.end, sectionIds, sectionSubjectIds });
+  const overlaysByDate = view === "completed" ? new Map<string, PlannerCalendarOverlay>() : await calendarOverlays({ schoolId: teacher.schoolId, academicYearId: activeAcademicYearId, start: range.start, end: range.end, sectionIds, sectionSubjectIds });
   const entryIds = allEntries.map((entry) => entry.id);
-  const periodRows = view === "completed" || !entryIds.length ? [] : await prisma.teachingPeriod.findMany({ where: { plan: { schoolId: teacher.schoolId, teacherId: teacher.id, academicYearId }, timetableEntryId: { in: entryIds }, plannedDate: { gte: dateAtStart(range.start), lt: dateAtStart(range.end) } }, select: { id: true, timetableEntryId: true, plannedDate: true } });
+  const periodRows = view === "completed" || !entryIds.length ? [] : await prisma.teachingPeriod.findMany({ where: { plan: { schoolId: teacher.schoolId, teacherId: teacher.id, academicYearId: activeAcademicYearId }, timetableEntryId: { in: entryIds }, plannedDate: { gte: dateAtStart(range.start), lt: dateAtStart(range.end) } }, select: { id: true, timetableEntryId: true, plannedDate: true } });
   const periodMap = await readPeriods(periodRows);
-  const occurrences = range.dates.flatMap((date) => {
+  const eligibilityRows = await Promise.all(allEntries.map(async (entry) => ({
+    entryId: entry.id,
+    eligibility: await resolveTeacherBookEligibility(teacher, {
+      sectionId: entry.sectionId,
+      sectionSubjectId: entry.sectionSubjectId,
+      academicYearId,
+    }),
+  })));
+  const eligibilityByEntry = new Map(eligibilityRows.map((item) => [item.entryId, item.eligibility]));
+  const selectedBookForEntry = (entry: TimetableEntry) => {
+    const eligibility = eligibilityByEntry.get(entry.id);
+    if (!eligibility) return null;
+    if (eligibility.books.length === 1) return eligibility.books[0];
+    return eligibility.directBookId ? eligibility.books.find((book) => book.id === eligibility.directBookId) ?? null : null;
+  };
+  const seenCells = new Set<string>();
+  const occurrences = range.dates.flatMap((date, index) => {
+    const timetableForDate = dateTimetables[index];
     const weekday = getWeekdayForTimeZone(dateAtNoon(date));
+    const withinAcademicYear = date >= dateKey(academicYear.startDate) && date <= dateKey(academicYear.endDate);
+    const isWorkingDay = timetableForDate.config?.workingDays.includes(weekday as never) ?? false;
     const overlay = overlaysByDate.get(date);
     const closed = overlay?.type === "HOLIDAY" || overlay?.type === "EMERGENCY_HOLIDAY";
-    return (entryByDate.get(date) ?? []).filter((entry) => entry.weekday === weekday).map((entry) => ({ date, weekday, entry, period: periodMap.get(periodKey(entry.id, dateAtStart(date))) ?? null, book: entry.sectionSubject.book })).filter((item) => !closed || item.period);
+    if (!withinAcademicYear || !isWorkingDay || !timetableForDate.config || closed) return [];
+    return (entryByDate.get(date) ?? []).filter((entry) => entry.weekday === weekday).flatMap((entry) => {
+      const cellKey = date + ":" + entry.sectionId + ":" + entry.sectionSubjectId + ":" + weekday + ":" + entry.periodSlotId;
+      if (seenCells.has(cellKey)) return [];
+      seenCells.add(cellKey);
+      return [{
+        date,
+        weekday,
+        entry,
+        period: periodMap.get(periodKey(entry.id, dateAtStart(date))) ?? null,
+        book: selectedBookForEntry(entry),
+        eligibleBooks: eligibilityByEntry.get(entry.id)?.books ?? [],
+        closed: false,
+      }];
+    });
   });
-  const completedRows = view === "completed" ? await prisma.teachingPeriod.findMany({ where: { plan: { schoolId: teacher.schoolId, teacherId: teacher.id, academicYearId }, timetableEntryId: { not: null }, status: TeachingPeriodStatus.COMPLETED }, select: { id: true, timetableEntryId: true, plannedDate: true }, orderBy: [{ plannedDate: "desc" }, { updatedAt: "desc" }], take: 100 }) : [];
+  const completedRows = view === "completed" ? await prisma.teachingPeriod.findMany({ where: { plan: { schoolId: teacher.schoolId, teacherId: teacher.id, academicYearId }, status: TeachingPeriodStatus.COMPLETED }, select: { id: true, timetableEntryId: true, plannedDate: true, plan: { select: { book: { select: { id: true, title: true } }, sectionSubject: { select: { sectionId: true, subjectId: true, section: { select: { name: true, schoolClass: { select: { name: true } } } }, subject: { select: { name: true } } } } } } }, orderBy: [{ plannedDate: "desc" }, { updatedAt: "desc" }], take: 100 }) : [];
   const completedEntryIds = completedRows.flatMap((row) => row.timetableEntryId ? [row.timetableEntryId] : []);
   if (completedEntryIds.length) {
     const historicalEntries = await prisma.classTimetableEntry.findMany({ where: { id: { in: completedEntryIds }, schoolId: teacher.schoolId, academicYearId, teacherAssignment: { teacherId: teacher.id } }, include: { periodSlot: true, section: { include: { schoolClass: true } }, sectionSubject: { include: { subject: true, book: { select: { id: true, title: true } } } } } });
     for (const entry of historicalEntries) entryById.set(entry.id, entry);
   }
   const completedReads = await Promise.all(completedRows.map(async (row) => ({ row, period: await getTeachingPeriod({ periodId: row.id }) })));
-  const completed = completedReads.flatMap(({ row, period }) => { const entry = row.timetableEntryId ? entryById.get(row.timetableEntryId) : undefined; return entry ? [{ date: row.plannedDate ? dateKey(row.plannedDate) : "", weekday: entry.weekday, entry, period, book: entry.sectionSubject.book }] : []; });
-  return { teacher, plannerEnabled: true, timetableEnabled: true, view, dates: range.dates, occurrences, completed, overlays: [...overlaysByDate.values()].sort((left, right) => left.date.localeCompare(right.date)) };
+  const completed = completedReads.map(({ row, period }) => {
+    const entry = row.timetableEntryId ? entryById.get(row.timetableEntryId) : undefined;
+    const eligibility = entry ? eligibilityByEntry.get(entry.id) : null;
+    const books = eligibility?.books ?? [];
+    const book = books.length === 1 ? books[0] : eligibility?.directBookId ? books.find((item) => item.id === eligibility.directBookId) ?? null : row.plan.book;
+    return {
+      date: row.plannedDate ? dateKey(row.plannedDate) : "",
+      weekday: entry?.weekday ?? null,
+      entry: entry ?? null,
+      period,
+      book,
+      eligibleBooks: books,
+      closed: false,
+      fallbackScope: row.plan.sectionSubject,
+    };
+  });  return { teacher, plannerEnabled: true, timetableEnabled: true, view, dates: range.dates, occurrences, completed, overlays: [...overlaysByDate.values()].sort((left, right) => left.date.localeCompare(right.date)) };
 }
 
-export async function planTeacherTimetableOccurrence(input: { timetableEntryId: string; date: string }) {
+export async function planTeacherTimetableOccurrence(input: { timetableEntryId: string; date: string; bookId?: string }) {
   const teacher = await requireTeacher();
   if (!teacher.schoolId || !teacher.school) throw new TeachingPlanError("UNAUTHORIZED", "Teacher school access is unavailable.");
   const plannerAccess = await getSchoolFeatureAccessForSchool(teacher.school, "PLANNER");
@@ -164,8 +214,20 @@ export async function planTeacherTimetableOccurrence(input: { timetableEntryId: 
   if (!entry) throw new TeachingPlanError("UNAUTHORIZED", "This timetable entry is not assigned to you for this date.");
   const plannedDate = parseTeachingPeriodDate(input.date, academicYear);
   if (!plannedDate || getWeekdayForTimeZone(dateAtNoon(input.date)) !== entry.weekday) throw new TeachingPlanError("DATE_INVALID", "The selected date does not match this timetable entry.");
-  const bookId = entry.sectionSubject.book?.id;
-  if (!bookId) throw new TeachingPlanError("BOOK_NOT_ENTITLED", "Assign the section book before planning this class.");
+  const eligibility = await resolveTeacherBookEligibility(teacher, {
+    sectionId: entry.sectionId,
+    sectionSubjectId: entry.sectionSubjectId,
+    academicYearId: academicYear.id,
+  });
+  if (!eligibility?.books.length) throw new TeachingPlanError("BOOK_NOT_ENTITLED", "No eligible book is assigned to this class and subject.");
+  const bookId = input.bookId && eligibility.books.some((book) => book.id === input.bookId)
+    ? input.bookId
+    : eligibility.books.length === 1
+      ? eligibility.books[0].id
+      : eligibility.directBookId && eligibility.books.some((book) => book.id === eligibility.directBookId)
+        ? eligibility.directBookId
+        : null;
+  if (!bookId) throw new TeachingPlanError("BOOK_NOT_ENTITLED", "Choose an eligible book before planning this class.");
   const plan = await getOrCreateTeachingPlan({ sectionSubjectId: entry.sectionSubjectId, bookId, academicYearId: academicYear.id });
   try {
     const result = await prisma.$transaction(async (tx) => {

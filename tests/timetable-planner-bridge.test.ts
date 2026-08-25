@@ -31,7 +31,7 @@ test("complete School timetable save is transactional and keeps break cells assi
   assert.match(schoolService, /slot\.type !== TimetableSlotType\.TEACHING/);
   assert.match(schoolService, /deleteMany\(\{ where: \{ schoolId: school\.id, id: \{ in: staleIds \} \} \}\)/);
   assert.match(schoolActions, /saveCompleteClassTimetableAction/);
-  assert.match(schoolActions, /key\.startsWith\("cell:"\)/);
+  assert.match(schoolActions, /parseCompleteTimetableForm/);
   assert.match(schoolPage, /Save complete timetable/);
   assert.doesNotMatch(schoolPage, /form action=\{saveClassTimetableEntryAction\}/);
 });

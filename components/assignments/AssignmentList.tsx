@@ -17,6 +17,8 @@ type AssignmentRow = {
     eligible: number;
     submitted: number;
     pending: number;
+    needsReview: number;
+    resubmitted: number;
     late: number;
     graded: number;
   };
@@ -24,7 +26,7 @@ type AssignmentRow = {
 
 const filters = ["ACTIVE", "DRAFT", "SCHEDULED", "CLOSED", "ARCHIVED"] as const;
 
-export default function AssignmentList({ sectionId, assignments }: { sectionId: string; assignments: AssignmentRow[] }) {
+export default function AssignmentList({ sectionId, assignments, subjectId }: { sectionId: string; assignments: AssignmentRow[]; subjectId?: string }) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<(typeof filters)[number]>("ACTIVE");
   const [subject, setSubject] = useState("");
@@ -55,7 +57,7 @@ export default function AssignmentList({ sectionId, assignments }: { sectionId: 
           <h2 className="text-2xl font-bold">Assignments</h2>
           <p className="mt-1 text-slate-600">Create, publish, review, and return classroom work.</p>
         </div>
-        <Link href={`/teacher-dashboard/classes/${sectionId}/assignments/new`} className="inline-flex min-h-12 items-center rounded-xl bg-blue-600 px-5 py-3 font-bold text-white">Create Assignment</Link>
+        <Link href={"/teacher-dashboard/classes/" + sectionId + "/assignments/new" + (subjectId ? "?subject=" + encodeURIComponent(subjectId) : "")} className="inline-flex min-h-10 items-center rounded-xl bg-blue-600 px-4 py-2 font-bold text-white">Create Assignment</Link>
       </div>
       <section className="space-y-4 rounded-2xl border bg-white p-4 shadow-sm">
         <div className="flex flex-wrap gap-2" aria-label="Assignment status filters">
@@ -86,10 +88,10 @@ function AssignmentItem({ sectionId, item, compact }: { sectionId: string; item:
     </div>
     <div className={`mt-4 grid grid-cols-3 gap-2 text-center ${compact ? "sm:mt-0 sm:min-w-72" : ""}`}>
       <Metric label="Submitted" value={item.summary.submitted} />
-      <Metric label="Pending" value={item.summary.pending} />
+      <Metric label="Needs review" value={item.summary.needsReview} />
       <Metric label="Graded" value={item.summary.graded} />
     </div>
-    <Link href={`/teacher-dashboard/classes/${sectionId}/assignments/${item.id}`} className={`mt-4 inline-flex min-h-11 items-center justify-center rounded-xl border px-4 py-2 font-bold text-blue-700 ${compact ? "sm:mt-0" : "w-full"}`}>Open</Link>
+    <Link href={`/teacher-dashboard/classes/${sectionId}/assignments/${item.id}`} className={`mt-4 inline-flex min-h-11 items-center justify-center rounded-xl border px-4 py-2 font-bold text-blue-700 ${compact ? "sm:mt-0" : "w-full"}`}>{item.summary.needsReview ? "Review submissions" : "Open"}</Link>
   </article>;
 }
 

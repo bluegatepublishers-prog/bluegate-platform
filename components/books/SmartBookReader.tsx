@@ -19,6 +19,7 @@ import SmartBookContentsPanel from "@/components/books/SmartBookContentsPanel";
 import SmartBookViewer from "@/components/books/SmartBookViewer";
 import V2ContentDocumentRenderer from "@/components/content/V2ContentDocumentRenderer";
 import V2ReadAloudPlayer from "@/components/content/V2ReadAloudPlayer";
+import { useTeachModeClassroom } from "@/components/teacher/TeachModeShell";
 
 import type { ContentDocument } from "@/lib/content-document";
 import { getContentLayoutVersion } from "@/lib/content-layout-v2";
@@ -53,6 +54,12 @@ type Props = {
   title: string;
 
   subjectPath?: string;
+
+  backHref?: string;
+
+  backLabel?: string;
+
+  showBackLink?: boolean;
 
   initialPage?: number;
 
@@ -132,6 +139,9 @@ export default function SmartBookReader({
   role,
   bookId,
   title,
+  backHref,
+  backLabel,
+  showBackLink = true,
   initialPage = 1,
   initialTotalPages = null,
   contents,
@@ -168,6 +178,12 @@ export default function SmartBookReader({
         initialMaximum,
       ),
     );
+
+  const classroom = useTeachModeClassroom();
+
+  useEffect(() => {
+    if (classroom) classroom.setCurrentPage(page);
+  }, [classroom, page]);
 
   const [totalPages, setTotalPages] =
     useState<number | null>(
@@ -392,10 +408,8 @@ export default function SmartBookReader({
       ],
     );
 
-  const backPath =
-    role === "TEACHER"
-      ? "/teacher-dashboard/books"
-      : "/student-dashboard/books";
+  const backPath = backHref ?? (role === "TEACHER" ? "/teacher-dashboard/books" : "/student-dashboard/books");
+  const resolvedBackLabel = backLabel ?? "My Books";
 
   const setSafePage =
     useCallback(
@@ -418,17 +432,19 @@ export default function SmartBookReader({
     <div className="fixed inset-0 z-[100] flex h-[100dvh] w-screen flex-col overflow-hidden bg-slate-950">
       {/* Main Smart Book toolbar */}
       <header className="relative z-20 flex min-h-14 shrink-0 flex-wrap items-center gap-2 border-b border-white/10 bg-slate-950 px-2 py-2 text-white sm:px-4">
-        <Link
-          href={backPath}
-          aria-label="Close book and return to My Books"
-          className="inline-flex h-10 shrink-0 items-center gap-2 rounded-xl border border-white/15 bg-white/5 px-3 text-sm font-semibold text-white transition hover:bg-white/10"
-        >
-          <ArrowLeft className="h-4 w-4" />
+        {showBackLink ? (
+          <Link
+            href={backPath}
+            aria-label={"Close book and return to " + resolvedBackLabel}
+            className="inline-flex h-10 shrink-0 items-center gap-2 rounded-xl border border-white/15 bg-white/5 px-3 text-sm font-semibold text-white transition hover:bg-white/10"
+          >
+            <ArrowLeft className="h-4 w-4" />
 
-          <span className="hidden sm:inline">
-            My Books
-          </span>
-        </Link>
+            <span className="hidden sm:inline">
+              {resolvedBackLabel}
+            </span>
+          </Link>
+        ) : null}
 
         <div className="min-w-[120px] flex-1 px-1 sm:px-3">
           <h1 className="truncate text-sm font-bold text-white sm:text-base">

@@ -59,12 +59,13 @@ test("Teaching Plan runtime is server-only and reuses canonical authorization/en
   assert.match(service, /import ["']server-only["']/);
   assert.match(service, /requireTeacher\(\)/);
   assert.match(service, /requireTeacherSubject\(/);
-  assert.match(service, /requireBookEntitlement\(/);
+  assert.match(service, /resolveTeacherBookEligibility\(/);
   assert.match(service, /schoolId/);
   assert.match(service, /academicYearId/);
   assert.match(service, /teacherId/);
   assert.doesNotMatch(service, /prisma\.studentWork(Item|Attempt)/);
-  assert.doesNotMatch(service, /prisma\.academicPlanner(Item|Reschedule)/);
+  assert.match(service, /academicPlannerItem/);
+  assert.match(service, /HOLIDAY/);
   assert.match(actions, /["']use server["']/);
   assert.doesNotMatch(actions, /from ["']@\/lib\/prisma["']/);
 });

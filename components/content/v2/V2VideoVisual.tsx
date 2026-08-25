@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
+import { useV2OverlayPortalTarget } from "@/components/content/v2/V2OverlayPortalContext";
 
 import type { LayoutV2Frame, LayoutV2VideoDisplayMode } from "@/lib/content-layout-v2";
 
@@ -74,8 +75,10 @@ function VideoPlayer({ src, title, restricted }: { src: string; title: string; r
 }
 
 export function V2VideoModal({ src, title, restricted, onClose }: { src: string; title: string; restricted: boolean; onClose: () => void }) {
+  const portalTarget = useV2OverlayPortalTarget();
+  if (!portalTarget) return null;
   return createPortal(
-    <div data-v2-video-modal role="dialog" aria-modal="true" aria-label={title + " video player"} className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/75 p-4" onMouseDown={onClose}>
+    <div data-v2-video-modal role="dialog" aria-modal="true" aria-label={title + " video player"} className="pointer-events-auto fixed inset-0 z-[130] flex items-center justify-center bg-slate-950/75 p-4" onMouseDown={onClose}>
       <div className="w-full max-w-5xl rounded-xl bg-slate-950 p-3 shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
         <div className="mb-2 flex items-center justify-between gap-3 text-white">
           <p className="truncate text-sm font-semibold">{title}</p>
@@ -86,6 +89,6 @@ export function V2VideoModal({ src, title, restricted, onClose }: { src: string;
         </div>
       </div>
     </div>,
-    globalThis.document.body,
+    portalTarget,
   );
 }

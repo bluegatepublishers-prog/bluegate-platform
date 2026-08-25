@@ -56,6 +56,7 @@ import {
   type LayoutV2NarrationSegment,
   type LayoutV2Page,
 } from "@/lib/content-layout-v2";
+import { getEditorSaveButtonState } from "@/lib/editor-save-state";
 
 export type ResourceOption = {
   id: string;
@@ -291,6 +292,7 @@ export default function V2DocumentWorkspace({
   const deletePageTarget = deletePageTargetId ? layout.pages.find((page) => page.id === deletePageTargetId) ?? null : null;
   const deletePageTargetIndex = deletePageTarget ? layout.pages.findIndex((page) => page.id === deletePageTarget.id) : -1;
   const deletePageObjectCount = deletePageTarget ? deletePageTarget.frames.reduce((count, frame) => count + 1 + (frame.children?.length ?? 0), 0) : 0;
+  const saveButtonState = getEditorSaveButtonState(saveState, dirty);
   const saveLabel = saveState === "saving" ? "Saving..." : saveState === "error" ? "Save failed" : dirty ? "Unsaved changes" : "Saved";
   const selectedRecord = selectedFrameId ? findV2FrameRecord(layout, selectedFrameId) : undefined;
   const selectedFrame = selectedRecord?.frame;
@@ -1064,7 +1066,7 @@ export default function V2DocumentWorkspace({
           <span data-testid="v2-save-state" className="hidden text-[11px] text-slate-500 md:inline">{saveLabel} · {wordCount.toLocaleString("en-IN")} words</span>
           <button type="button" onClick={onUndo} className="rounded-md border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50">Undo</button>
           <button type="button" onClick={onRedo} className="rounded-md border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50">Redo</button>
-          <button type="button" onClick={onSave} className="rounded-md bg-slate-950 px-3 py-1 text-xs font-semibold text-white hover:bg-slate-800">Save</button>
+          <button type="button" data-testid="v2-save-button" disabled={saveButtonState.disabled} onClick={onSave} className={saveButtonState.active ? "rounded-md bg-slate-950 px-3 py-1 text-xs font-semibold text-white hover:bg-slate-800" : "rounded-md border border-slate-200 bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-500 disabled:cursor-not-allowed"}>{saveButtonState.label}</button>
           <div ref={previewMenuRef} data-v2-preview-menu className="relative">
             <button type="button" aria-expanded={previewMenuOpen} aria-haspopup="menu" onClick={() => setPreviewMenuOpen((current) => !current)} className="rounded-md border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-700">Preview {"\u25be"}</button>
             {previewMenuOpen ? <div role="menu" className="absolute right-0 top-8 z-[90] grid w-48 gap-1 rounded-lg border border-slate-200 bg-white p-2 text-xs shadow-2xl">

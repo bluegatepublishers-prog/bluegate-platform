@@ -10,9 +10,7 @@ import {
 import type { LayoutV2Frame } from "@/lib/content-layout-v2";
 import { getV2AssessmentLauncherPayload } from "@/lib/v2-assessment-launcher";
 import V2PublisherAssessmentLauncherOverlay from "@/components/content/v2/V2PublisherAssessmentLauncherOverlay";
-import V2AssessmentLauncherOverlay, {
-  type V2AssessmentLauncherOverlayMode,
-} from "@/components/content/v2/V2AssessmentLauncherOverlay";
+import V2AssessmentLauncherOverlay, { type V2AssessmentLauncherOverlayMode } from "@/components/content/v2/V2AssessmentLauncherOverlay";
 
 export default function V2AssessmentLauncherVisual({
   frame,
@@ -40,6 +38,7 @@ export default function V2AssessmentLauncherVisual({
     useRef<HTMLButtonElement>(null);
 
   const wasOpen = useRef(false);
+
 
   const close = useCallback(() => {
     setOpen(false);
@@ -95,6 +94,9 @@ export default function V2AssessmentLauncherVisual({
                 ? `Preview ${label} questions`
                 : `Open ${label} practice`
             }
+            onPointerDown={(event) => {
+              event.stopPropagation();
+            }}
             onClick={(event) => {
               event.stopPropagation();
               setOpen(true);
@@ -171,6 +173,7 @@ export default function V2AssessmentLauncherVisual({
           onRetry={() => setOverlayKey((current) => current + 1)}
         />
       ) : null}
+
     </>
   );
 }

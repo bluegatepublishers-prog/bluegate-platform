@@ -6,7 +6,7 @@ export default async function TeachingPlanPage({
   searchParams,
 }: {
   params: Promise<{ sectionId: string }>;
-  searchParams: Promise<{ subject?: string; bookId?: string }>;
+  searchParams: Promise<{ subject?: string; bookId?: string; date?: string; timetableEntryId?: string }>;
 }) {
   const { sectionId } = await params;
   const query = await searchParams;
@@ -29,6 +29,8 @@ export default async function TeachingPlanPage({
       chapters={data.chapters}
       initialPlan={data.plan}
       pageAvailability={data.pageAvailability}
+      occurrences={data.occurrences}
+      initialOccurrence={query.date && query.timetableEntryId ? { date: query.date, timetableEntryId: query.timetableEntryId } : null}
     />
   );
 }

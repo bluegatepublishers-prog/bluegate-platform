@@ -100,13 +100,36 @@ export async function updateAssessmentSettingsAction(sectionId: string, assessme
   if (result.ok) refresh(sectionId, assessmentId);
 }
 
+function questionBankFilters(formData: FormData) {
+  return {
+    chapterId: String(formData.get("questionBankChapterId") ?? "").trim() || undefined,
+    moduleId: String(formData.get("questionBankModuleId") ?? "").trim() || undefined,
+    exerciseId: String(formData.get("questionBankExerciseId") ?? "").trim() || undefined,
+    questionType: String(formData.get("questionBankType") ?? "").trim() || undefined,
+    difficulty: String(formData.get("questionBankDifficulty") ?? "").trim() || undefined,
+  };
+}
+
+export async function addSelectedQuestionsAction(sectionId: string, assessmentId: string, formData: FormData) {
+  const filters = questionBankFilters(formData);
+  const questionIds = formData.getAll("questionId").map((value) => String(value).trim()).filter(Boolean);
+  const teacherQuestionIds = formData.getAll("teacherQuestionId").map((value) => String(value).trim()).filter(Boolean);
+  const publisherResult = questionIds.length
+    ? await safely(sectionId, "classroom.assessment.update", () => addPublisherQuestionsToAssessment(sectionId, assessmentId, questionIds, filters))
+    : { ok: true as const, data: { added: 0 } };
+  if (!publisherResult.ok) return;
+  const teacherResult = teacherQuestionIds.length
+    ? await safely(sectionId, "classroom.assessment.update", () => addTeacherQuestionsToAssessment(sectionId, assessmentId, teacherQuestionIds, filters))
+    : { ok: true as const, data: { added: 0 } };
+  if (teacherResult.ok) refresh(sectionId, assessmentId);
+}
 export async function addPublisherQuestionsAction(sectionId: string, assessmentId: string, formData: FormData) {
   const questionIds = formData
     .getAll("questionId")
     .map((value) => String(value).trim())
     .filter(Boolean);
   const result = await safely(sectionId, "classroom.assessment.update", () =>
-    addPublisherQuestionsToAssessment(sectionId, assessmentId, questionIds),
+    addPublisherQuestionsToAssessment(sectionId, assessmentId, questionIds, questionBankFilters(formData)),
   );
   if (result.ok) refresh(sectionId, assessmentId);
 }
@@ -117,7 +140,7 @@ export async function addMyQuestionsAction(sectionId: string, assessmentId: stri
     .map((value) => String(value).trim())
     .filter(Boolean);
   const result = await safely(sectionId, "classroom.assessment.update", () =>
-    addTeacherQuestionsToAssessment(sectionId, assessmentId, teacherQuestionIds),
+    addTeacherQuestionsToAssessment(sectionId, assessmentId, teacherQuestionIds, questionBankFilters(formData)),
   );
   if (result.ok) refresh(sectionId, assessmentId);
 }

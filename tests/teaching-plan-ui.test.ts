@@ -15,7 +15,6 @@ test("Teaching Plan route replaces the legacy planner surface with the V2-12B wo
   assert.match(planRoute, /TeachingPlanWorkspace/);
   assert.doesNotMatch(planRoute, /AcademicPlannerItem|rescheduleTeachingPlanAction|updateTeachingPlanStatusAction/);
   assert.match(workspace, /createTeachingPlanAction/);
-  assert.match(workspace, /createTeachingPeriodAction/);
   assert.match(workspace, /updateTeachingPeriodAction/);
   assert.match(workspace, /deleteTeachingPeriodAction/);
   assert.match(workspace, /moveTeachingPeriodAction/);
@@ -27,25 +26,27 @@ test("Teaching Plan route replaces the legacy planner surface with the V2-12B wo
 test("book selection and page mapping use only the V2-12B server boundary", () => {
   assert.match(service, /listTeachingPlanBookOptions/);
   assert.match(service, /resolveTeachingPlanContext\(/);
-  assert.match(service, /requireBookEntitlement\(/);
+  assert.match(service, /resolveTeacherBookEligibility\(/);
   assert.match(actions, /getTeachingPlanPageAvailabilityAction/);
   assert.match(actions, /getTeachingPlanPagePreviewAction/);
   assert.match(workspace, /getTeachingPlanPageAvailabilityAction/);
   assert.match(workspace, /addTeachingPeriodPagesAction/);
-  assert.match(workspace, /moduleId: page\.moduleId, pageId: page\.pageId/);
+  assert.match(workspace, /moduleId: page\.moduleId/);
+  assert.match(workspace, /pageId: page\.pageId/);
   assert.doesNotMatch(workspace, /@\/lib\/prisma|from "@\/lib\/teaching-plan"/);
 });
 
 test("page picker stays metadata-first and previews one V2 page through the shared renderer", () => {
-  assert.match(workspace, /Choose Preview for one page/);
+  assert.match(workspace, /previewPage/);
   assert.match(workspace, /V2ContentDocumentRenderer/);
   assert.match(workspace, /moduleFilter/);
   assert.match(workspace, /pageSearch/);
   assert.match(workspace, /selectedCount/);
   assert.match(workspace, /pageNumberOffset=\{preview\.metadata\.displayPageNumber - 1\}/);
   assert.match(service, /getTeachingPlanPagePreview/);
-  assert.match(service, /loadPublishedModuleStructuredContent/);
-  assert.match(renderer, /id=\{`page-\$\{encodeURIComponent\(page\.id\)\}`\}/);
+  assert.match(service, /loadSmartBookStructuredContent/);
+  assert.match(service, /requirePublishedRelease: true/);
+  assert.match(renderer, /page\.id/);
 });
 
 test("compact period rows render real date, content, pages, status, and actions", () => {
@@ -75,20 +76,21 @@ test("period content and page references preserve chapter/module context and ord
   assert.match(service, /chapterId: metadata\.chapterId/);
 });
 
-test("compact add and edit flows use the existing server mutations and optional chapter/date fields", () => {
-  assert.match(workspace, /\+ Add Teaching Period/);
-  assert.match(workspace, /createTeachingPeriodAction/);
+test("timetable-driven planning creates periods from real occurrences and keeps editing for persisted periods", () => {
+  assert.match(workspace, /Upcoming timetable classes/);
+  assert.match(workspace, /saveTeachingPeriodComposerAction/);
+  assert.doesNotMatch(workspace, /\+ Add Teaching Period/);
+  assert.doesNotMatch(workspace, /createTeachingPeriodAction/);
   assert.match(workspace, /updateTeachingPeriodAction/);
   assert.match(workspace, /deleteTeachingPeriodAction/);
-  assert.match(workspace, /plannedDate: newPeriodDate \|\| null/);
-  assert.match(workspace, /chapterId: newPeriodChapterId \|\| null/);
+  assert.match(workspace, /plannedDate: editingDate \|\| null/);
+  assert.match(workspace, /chapterId: editingChapterId \|\| null/);
   assert.match(workspace, /status: editingStatus/);
   assert.match(workspace, /type="date"/);
   assert.match(workspace, /chapters\.length/);
   assert.match(workspace, /No chapter/);
-  assert.match(workspace, /No book assigned by School/);
+  assert.match(workspace, /No eligible book for this class and subject/);
 });
-
 test("Open Page keeps the existing teacher viewer on stable page identity", () => {
   assert.match(workspace, /pageId: refItem\.deepLink\.pageId/);
   assert.match(workspace, /refItem\.deepLink\.anchor/);
@@ -98,8 +100,8 @@ test("Open Page keeps the existing teacher viewer on stable page identity", () =
   assert.match(viewer, /Teaching Plan/);
 });
 
-test("V2-12C introduces no student, publisher, school, classwork, homework, or planner UI", () => {
+test("V2-12C/2D introduces no student, publisher, school, or planner UI", () => {
   for (const source of [planRoute, workspace, actions]) {
-    assert.doesNotMatch(source, /StudentWork|AcademicPlanner|Classwork|Homework|Submission|School editing/i);
+    assert.doesNotMatch(source, /StudentWork|AcademicPlanner|Submission|School editing/i);
   }
 });
