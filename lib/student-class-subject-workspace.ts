@@ -6,6 +6,7 @@ import { getStudentSubjectWorkspace } from "@/lib/student-workspaces";
 import { loadSmartBookStructuredContent } from "@/lib/content-delivery";
 import { APPLICATION_TIME_ZONE } from "@/lib/application-timezone";
 import { prisma } from "@/lib/prisma";
+import { isTeachingPeriodMeaningfullyPlanned } from "@/lib/teaching-period-plan-policy";
 import { studentAssessmentState, studentAssignmentState } from "@/lib/student-class-subject-workspace-policy";
 
 type AssignmentRow = Awaited<ReturnType<typeof getStudentAssignments>>["assignments"][number];
@@ -64,11 +65,21 @@ async function loadTodayLearning(input: {
       status: true,
       chapter: { select: { id: true, chapterNumber: true, title: true } },
       objective: true,
+      activities: { select: { id: true } },
+      _count: { select: { assignments: true, assessments: true } },
       timetableEntry: { select: { periodSlot: { select: { label: true, startMinute: true, endMinute: true } } } },
       pageRefs: { orderBy: [{ sequence: "asc" }, { id: "asc" }], select: { pageId: true, moduleId: true, sequence: true } },
     },
   });
   if (!period) return null;
+  if (!isTeachingPeriodMeaningfullyPlanned({
+    chapterId: period.chapter?.id ?? null,
+    pageRefs: period.pageRefs,
+    objective: period.objective,
+    activities: period.activities,
+    assignmentCount: period._count.assignments,
+    assessmentCount: period._count.assessments,
+  })) return null;
 
   let page: { pageId: string; moduleId: string | null; pageNumber: number; href: string } | null = null;
   try {

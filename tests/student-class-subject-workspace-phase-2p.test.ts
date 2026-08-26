@@ -6,6 +6,7 @@ import {
   studentAssessmentState,
   studentAssignmentState,
 } from "../lib/student-class-subject-workspace-policy";
+import { isTeachingPeriodMeaningfullyPlanned } from "../lib/teaching-period-plan-policy";
 
 const workspace = readFileSync("app/student-dashboard/subjects/[sectionSubjectId]/page.tsx", "utf8");
 const service = readFileSync("lib/student-class-subject-workspace.ts", "utf8");
@@ -26,6 +27,15 @@ test("B. today's learning resolves a canonical TeachingPeriod", () => {
   assert.match(service, /plannedDate: \{ gte: start, lt: end \}/);
   assert.match(service, /timetableEntry:/);
   assert.match(service, /plan: \{/);
+});
+
+test("B1. empty TeachingPeriods are omitted from Today's Learning", () => {
+  assert.equal(isTeachingPeriodMeaningfullyPlanned({}), false);
+  assert.equal(isTeachingPeriodMeaningfullyPlanned({ pageRefs: [{ pageId: "page-1" }] }), true);
+  assert.match(service, /isTeachingPeriodMeaningfullyPlanned\(\{/);
+  assert.match(service, /activities: \{ select: \{ id: true \} \}/);
+  assert.match(service, /_count: \{ select: \{ assignments: true, assessments: true \} \}/);
+  assert.match(service, /if \(!isTeachingPeriodMeaningfullyPlanned\(/);
 });
 
 test("C. teacher private notes are not selected or rendered", () => {
