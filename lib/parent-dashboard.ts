@@ -12,7 +12,13 @@ import {
 import { prisma } from "@/lib/prisma";
 import { isPublisherFeatureEnabled } from "@/lib/publisher-features";
 import { effectiveSchoolAccessStatus } from "@/lib/school-access-policy";
-import { canParentViewChild, friendlyPlan, friendlyPlanSource, parentGapMessage } from "./parent-policy";
+import {
+  canParentViewChild,
+  friendlyPlan,
+  friendlyPlanSource,
+  parentAssignmentResultProjection,
+  parentGapMessage,
+} from "./parent-policy";
 
 export class ParentAccessError extends Error {}
 
@@ -206,12 +212,13 @@ export async function getParentChildPortalData(studentId: string) {
       },
       select: {
         id: true,
+        status: true,
         teacherFeedback: true,
         marksAwarded: true,
         isLate: true,
         returnedAt: true,
         submittedAt: true,
-        assignment: { select: { title: true, subject: { select: { name: true } } } },
+        assignment: { select: { title: true, resultsPublishedAt: true, subject: { select: { name: true } } } },
       },
       orderBy: [{ returnedAt: "desc" }, { updatedAt: "desc" }],
     }),
@@ -234,8 +241,10 @@ export async function getParentChildPortalData(studentId: string) {
       submittedAt: assignment.submissions[0]?.submittedAt ?? null,
       returnedAt: assignment.submissions[0]?.returnedAt ?? null,
       isLate: assignment.submissions[0]?.isLate ?? false,
-      marksAwarded: assignment.submissions[0]?.marksAwarded ?? null,
-      teacherFeedback: assignment.submissions[0]?.teacherFeedback ?? null,
+      ...parentAssignmentResultProjection({
+        resultsPublishedAt: assignment.resultsPublishedAt,
+        submission: assignment.submissions[0] ?? null,
+      }),
     })),
     upcomingAssessments: assessments.map((assessment) => {
       const attempt = assessment.attempts[0];
@@ -284,7 +293,10 @@ export async function getParentChildPortalData(studentId: string) {
           title: latestFeedback.assignment.title,
           subject: latestFeedback.assignment.subject?.name ?? null,
           feedback: latestFeedback.teacherFeedback,
-          marksAwarded: latestFeedback.marksAwarded,
+          marksAwarded: parentAssignmentResultProjection({
+            resultsPublishedAt: latestFeedback.assignment.resultsPublishedAt,
+            submission: latestFeedback,
+          }).marksAwarded,
           isLate: latestFeedback.isLate,
           returnedAt: latestFeedback.returnedAt,
           submittedAt: latestFeedback.submittedAt,

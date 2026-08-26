@@ -29,3 +29,19 @@ export function friendlyPlan(plan: string) {
 export function friendlyPlanSource(source: string) {
   return source === "INDIVIDUAL" ? "Individual access" : source === "DEFAULT_SCHOOL_BASIC" || source === "SCHOOL" ? "Provided by school" : "Provided by publisher";
 }
+
+export function parentAssignmentResultProjection(input: {
+  resultsPublishedAt: Date | null;
+  submission: {
+    status: string;
+    marksAwarded: number | null;
+    teacherFeedback: string | null;
+  } | null;
+}) {
+  const released = Boolean(input.resultsPublishedAt && input.submission?.status === "GRADED");
+  const feedbackVisible = input.submission?.status === "RETURNED" || released;
+  return {
+    marksAwarded: released ? input.submission?.marksAwarded ?? null : null,
+    teacherFeedback: feedbackVisible ? input.submission?.teacherFeedback ?? null : null,
+  };
+}
