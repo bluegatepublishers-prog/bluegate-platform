@@ -13,7 +13,13 @@ import { prisma } from "@/lib/prisma";
 import { isPublisherFeatureEnabled, requirePublisherFeature } from "@/lib/publisher-features";
 import { effectiveSchoolAccessStatus } from "@/lib/school-access-policy";
 import { isSchoolFeatureEnabled } from "@/lib/school-feature-entitlements";
-import { canAccessMentorAssignment, learningTrend, validMentorNote } from "./mentor-policy";
+import {
+  canAccessMentorAssignment,
+  learningTrend,
+  mentorAssignmentResultProjection,
+  mentorAssessmentResultProjection,
+  validMentorNote,
+} from "./mentor-policy";
 
 export class MentorAccessError extends Error {}
 
@@ -116,11 +122,72 @@ export async function getMentorStudentProfile(studentId: string) {
     prisma.remedialPlan.findMany({ where: { ...where, status: { in: ["ACTIVE", "COMPLETED"] } }, include: { gap: { include: { subject: { select: { name: true } }, chapter: { select: { title: true } } } }, steps: { select: { status: true } } }, orderBy: { createdAt: "desc" } }),
     prisma.mentorNote.findMany({ where: { assignmentId: scope.assignment.id }, orderBy: { createdAt: "desc" }, take: 100 }),
     prisma.mentorSession.findMany({ where: { assignmentId: scope.assignment.id }, orderBy: { scheduledAt: "desc" }, take: 30 }),
-    prisma.classroomAssignment.findMany({ where: { sectionId: scope.enrollment.sectionId, academicYearId: scope.assignment.academicYearId, status: { in: ["PUBLISHED", "CLOSED"] } }, include: { subject: { select: { name: true } }, submissions: { where: { studentId }, orderBy: { createdAt: "desc" }, take: 1 } }, orderBy: { dueAt: "desc" }, take: 50 }),
-    prisma.assessment.findMany({ where: { sectionId: scope.enrollment.sectionId, academicYearId: scope.assignment.academicYearId, status: { in: ["PUBLISHED", "CLOSED"] } }, include: { sectionSubject: { include: { subject: { select: { name: true } } } }, settings: true, attempts: { where: { studentId }, include: { result: true }, orderBy: { submittedAt: "desc" }, take: 2 } }, orderBy: { dueAt: "desc" }, take: 40 }),
+    prisma.classroomAssignment.findMany({
+      where: { schoolId: scope.assignment.schoolId, sectionId: scope.enrollment.sectionId, academicYearId: scope.assignment.academicYearId, status: { in: ["PUBLISHED", "CLOSED"] } },
+      select: {
+        id: true,
+        title: true,
+        dueAt: true,
+        resultsPublishedAt: true,
+        subject: { select: { name: true } },
+        submissions: {
+          where: { studentId },
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          select: { id: true, status: true, isLate: true, marksAwarded: true, teacherFeedback: true, gradedAt: true, returnedAt: true, submittedAt: true },
+        },
+      },
+      orderBy: { dueAt: "desc" },
+      take: 50,
+    }),
+    prisma.assessment.findMany({
+      where: { schoolId: scope.assignment.schoolId, sectionId: scope.enrollment.sectionId, academicYearId: scope.assignment.academicYearId, status: { in: ["PUBLISHED", "CLOSED"] } },
+      select: {
+        id: true,
+        title: true,
+        status: true,
+        dueAt: true,
+        opensAt: true,
+        sectionSubject: { select: { subjectId: true, subject: { select: { name: true } } } },
+        settings: { select: { resultRelease: true, showScore: true } },
+        attempts: {
+          where: { studentId },
+          select: { id: true, status: true, submittedAt: true, result: { select: { publishedAt: true, percentage: true } } },
+          orderBy: { submittedAt: "desc" },
+          take: 2,
+        },
+      },
+      orderBy: { dueAt: "desc" },
+      take: 40,
+    }),
     prisma.reportCardSnapshot.findFirst({ where: { studentId, schoolId: scope.assignment.schoolId, academicYearId: scope.assignment.academicYearId }, orderBy: { issuedAt: "desc" } }),
   ]);
-  return { ...scope, analytics, subjects, chapters, timeline, gaps, remedials, notes, sessions, assignments, assessments, latestReportCard };
+  const projectedAssignments = assignments.map((assignment) => ({
+    ...assignment,
+    submissions: assignment.submissions.map((submission) => ({
+      ...submission,
+      ...mentorAssignmentResultProjection({ resultsPublishedAt: assignment.resultsPublishedAt, submission }),
+    })),
+  }));
+  const projectedAssessments = assessments.map((assessment) => ({
+    ...assessment,
+    attempts: assessment.attempts.map((attempt) => {
+      const result = attempt.result
+        ? mentorAssessmentResultProjection({
+            publishedAt: attempt.result.publishedAt,
+            release: assessment.settings?.resultRelease ?? "NEVER",
+            dueAt: assessment.dueAt,
+            showScore: assessment.settings?.showScore ?? false,
+            percentage: attempt.result.percentage,
+          })
+        : null;
+      return {
+        ...attempt,
+        result: attempt.result ? { ...attempt.result, publishedAt: result?.released ? attempt.result.publishedAt : null, percentage: result?.score ?? null } : null,
+      };
+    }),
+  }));
+  return { ...scope, analytics, subjects, chapters, timeline, gaps, remedials, notes, sessions, assignments: projectedAssignments, assessments: projectedAssessments, latestReportCard };
 }
 
 export async function createMentorNote(input: { studentId: string; type: string; body: unknown }) {

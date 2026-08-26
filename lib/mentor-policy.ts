@@ -1,3 +1,5 @@
+import { canReleaseAssessmentResult } from "./assessment-policy";
+
 export type MentorAssignmentFact = {
   status: "ACTIVE" | "ENDED" | "REVOKED";
   startsAt: Date;
@@ -43,4 +45,38 @@ export function learningTrend(current: number | null, practice: number | null, a
   if (!values.length) return "Not enough evidence";
   const average = values.reduce((sum, value) => sum + value, 0) / values.length;
   return average >= 75 ? "Steady progress" : average >= 50 ? "Developing" : "Needs support";
+}
+
+export function mentorAssignmentResultProjection(input: {
+  resultsPublishedAt: Date | null;
+  submission: {
+    status: string;
+    marksAwarded: number | null;
+    teacherFeedback: string | null;
+  } | null;
+}) {
+  const released = Boolean(input.resultsPublishedAt && input.submission?.status === "GRADED");
+  const feedbackVisible = input.submission?.status === "RETURNED" || released;
+  return {
+    marksAwarded: released ? input.submission?.marksAwarded ?? null : null,
+    teacherFeedback: feedbackVisible ? input.submission?.teacherFeedback ?? null : null,
+  };
+}
+
+export function mentorAssessmentResultProjection(input: {
+  publishedAt: Date | null;
+  release: "IMMEDIATE" | "AFTER_DUE_DATE" | "NEVER";
+  dueAt: Date | null;
+  showScore: boolean;
+  percentage: number | null;
+  now?: Date;
+}) {
+  const released = Boolean(
+    input.publishedAt &&
+    canReleaseAssessmentResult({ release: input.release, dueAt: input.dueAt, now: input.now }),
+  );
+  return {
+    released,
+    score: released && input.showScore ? input.percentage : null,
+  };
 }
