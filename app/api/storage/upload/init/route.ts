@@ -32,6 +32,7 @@ type UploadInitSuccessResponse = {
   requiredHeaders: Record<string, string>;
   expiresAt: string;
   expiresInSeconds: number;
+  uploadToken: string;
 };
 
 type UploadInitErrorResponse = {
@@ -123,6 +124,7 @@ export async function POST(request: Request): Promise<NextResponse<UploadInitSuc
         requiredHeaders: result.requiredHeaders,
         expiresAt: result.expiresAt,
         expiresInSeconds: result.expiresInSeconds,
+        uploadToken: result.uploadToken,
       },
       {
         status: 200,

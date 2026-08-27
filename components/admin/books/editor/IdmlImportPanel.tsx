@@ -85,7 +85,7 @@ export default function IdmlImportPanel({ bookId, nodeId, nodeType, currentDocum
       return;
     }
     const warning = mode === "REPLACE" && existingV2
-      ? "This will replace the current V2 pages after a fresh safety check. Continue?"
+      ? "This will replace the current pages after a fresh safety check. Continue?"
       : "Apply the analyzed Editable/Exact Replica pages to this Content Studio item?";
     if (!globalThis.confirm(warning)) return;
     setBusy(true);
@@ -103,7 +103,7 @@ export default function IdmlImportPanel({ bookId, nodeId, nodeType, currentDocum
       const response = await fetch("/api/admin/content/import/idml", { method: "POST", body: form });
       const body = await response.json() as { ok?: boolean; message?: string };
       if (!response.ok || !body.ok) throw new Error(body.message || "Unable to apply the imported document.");
-      setMessage("Import confirmed. Reloading the saved V2 document…");
+      setMessage("Import confirmed. Reloading the saved document…");
       globalThis.location.reload();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Unable to apply the imported document.");
@@ -147,7 +147,7 @@ function AnalysisView({ analysis, pageIndex, pageCount, pageModes, previewDocume
       <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4 lg:grid-cols-8">
         {[ ["Pages", summary.pagesDetected], ["Editable", summary.editableRecommended], ["Review", summary.reviewRecommended], ["Replica", summary.exactRecommended], ["Missing links", summary.missingLinks], ["Fonts", summary.fontSubstitutions], ["Effects", summary.advancedEffects], ["Errors", summary.errors] ].map(([label, value]) => <div key={String(label)} className="rounded-lg bg-white px-2 py-2"><span className="block text-slate-500">{label}</span><strong>{value}</strong></div>)}
       </div>
-      {existingV2 ? <div className="flex flex-wrap items-center gap-3 rounded-lg bg-amber-100 px-3 py-2 text-xs font-semibold text-amber-900"><span>Current V2 pages exist.</span><label><select value={mode} onChange={(event) => onModeChange(event.target.value as "REPLACE" | "APPEND")} className="ml-2 rounded border border-amber-300 bg-white px-2 py-1"><option value="REPLACE">Replace current pages</option><option value="APPEND">Append imported pages</option></select></label></div> : null}
+      {existingV2 ? <div className="flex flex-wrap items-center gap-3 rounded-lg bg-amber-100 px-3 py-2 text-xs font-semibold text-amber-900"><span>Current pages exist.</span><label><select value={mode} onChange={(event) => onModeChange(event.target.value as "REPLACE" | "APPEND")} className="ml-2 rounded border border-amber-300 bg-white px-2 py-1"><option value="REPLACE">Replace current pages</option><option value="APPEND">Append imported pages</option></select></label></div> : null}
       <div className="grid gap-3 lg:grid-cols-[minmax(14rem,20rem)_minmax(0,1fr)]">
         <div className="max-h-[22rem] overflow-auto rounded-xl bg-white p-2 text-xs">
           <p className="px-2 pb-2 font-bold text-slate-700">Page recommendations</p>
@@ -157,7 +157,7 @@ function AnalysisView({ analysis, pageIndex, pageCount, pageModes, previewDocume
       </div>
       {analysis.diagnostics.length ? <DiagnosticList diagnostics={analysis.diagnostics} /> : null}
       {exactUnavailable ? <p className="rounded-lg bg-amber-100 px-3 py-2 text-xs font-semibold text-amber-900">Exact Replica is unavailable for a selected page until a matching reference visual is provided.</p> : null}
-      <button type="button" disabled={busy || summary.errors > 0 || exactUnavailable} onClick={onConfirm} className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">{busy ? "Applying…" : "Confirm and import V2 — Editable / Hybrid"}</button>
+      <button type="button" disabled={busy || summary.errors > 0 || exactUnavailable} onClick={onConfirm} className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">{busy ? "Applying…" : "Confirm and import — Editable / Hybrid"}</button>
     </div>
   );
 }

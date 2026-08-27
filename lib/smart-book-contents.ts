@@ -1,3 +1,5 @@
+import type { SmartBookReleaseManifestV2 } from "@/lib/smart-book-release-manifest";
+
 export type SmartBookContentsKind =
   | "FRONT_MATTER"
   | "PART"
@@ -346,4 +348,48 @@ export function buildSmartBookContents(
   );
 
   return result;
+}
+export function buildSmartBookContentsFromManifest(
+  manifest: SmartBookReleaseManifestV2,
+): SmartBookContentsNode[] {
+  const nodes = new Map<string, SmartBookContentsNode>();
+  const hierarchy = new Map(manifest.hierarchy.map((item) => [item.sourceId, item]));
+
+  for (const item of manifest.hierarchy) {
+    nodes.set(item.sourceId, {
+      id: item.sourceId,
+      kind: item.kind,
+      title: item.title,
+      startPage: item.startPage,
+      children: [],
+    });
+  }
+
+  const roots: SmartBookContentsNode[] = [];
+  for (const item of manifest.hierarchy) {
+    const current = nodes.get(item.sourceId);
+    if (!current) continue;
+    const parent = item.parentSourceId ? nodes.get(item.parentSourceId) : null;
+    if (parent) parent.children.push(current);
+    else roots.push(current);
+  }
+
+  const sort = (items: SmartBookContentsNode[]) => {
+    items.sort((left, right) => {
+      const leftSource = hierarchy.get(left.id);
+      const rightSource = hierarchy.get(right.id);
+      return (leftSource?.displayOrder ?? 0) - (rightSource?.displayOrder ?? 0)
+        || left.title.localeCompare(right.title)
+        || left.id.localeCompare(right.id);
+    });
+    for (const item of items) sort(item.children);
+  };
+  sort(roots);
+
+  const frontMatter = roots.filter((item) => item.kind === "FRONT_MATTER");
+  const structuralRoots = roots.filter((item) => item.kind !== "FRONT_MATTER");
+  if (frontMatter.length) {
+    return [{ id: "front-matter", kind: "FRONT_MATTER", title: "Front Matter", startPage: frontMatter[0]?.startPage ?? null, children: frontMatter }, ...structuralRoots];
+  }
+  return structuralRoots;
 }

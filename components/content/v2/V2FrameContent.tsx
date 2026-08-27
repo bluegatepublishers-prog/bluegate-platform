@@ -47,6 +47,7 @@ export default function V2FrameContent({
   onPayloadChange,
   videoPresentation =
     "AUTHORING",
+  immutableRelease = false,
   deliveryMode,
 }: {
   frame:
@@ -98,6 +99,8 @@ export default function V2FrameContent({
    * Teacher My Books and Student My Books are
    * delivery surfaces.
    */
+  immutableRelease?: boolean;
+
   deliveryMode?:
     | "TEACHER"
     | "STUDENT";
@@ -113,6 +116,7 @@ export default function V2FrameContent({
     return (
       <V2AssessmentLauncherVisual
         frame={frame}
+        immutableRelease={immutableRelease}
         openable={
           videoPresentation !==
           "AUTHORING"
@@ -145,6 +149,7 @@ export default function V2FrameContent({
     return (
       <V2WorksheetLauncherVisual
         frame={frame}
+        immutableRelease={immutableRelease}
         openable={
           videoPresentation !==
           "AUTHORING"

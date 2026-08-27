@@ -16,6 +16,7 @@ import type { UploadScope } from "./types";
 import { auth } from "@/auth";
 import { getLivePublisherAdminAccess } from "../publisher-admin-authorization";
 import { prisma } from "../prisma";
+import { createUploadIntent, verifyUploadIntent } from "./upload-intent";
 
 // ============================================================================
 // Types
@@ -36,6 +37,7 @@ export type UploadInitResult = {
   requiredHeaders: Record<string, string>;
   expiresAt: string; // ISO string
   expiresInSeconds: number;
+  uploadToken: string;
 };
 
 export type UploadCompleteInput = {
@@ -378,10 +380,15 @@ export async function initUpload(
 
   // Generate object key with server-derived tenant ID
   const prefix = uploadPrefixForScope(scope);
-  const objectKey = generateObjectKey(prefix, tenantId, fileName);
+  const provider = getStorageProvider();
+  let objectKey = "";
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const candidate = generateObjectKey(prefix, tenantId, fileName);
+    if (!(await provider.headObject({ key: candidate }))) { objectKey = candidate; break; }
+  }
+  if (!objectKey) throw new AppError({ code: "STORAGE_PROVIDER_ERROR", message: "A fresh storage upload key could not be reserved." });
 
   // Create signed upload URL
-  const provider = getStorageProvider();
   const result = await provider.createSignedUploadUrl({
     key: objectKey,
     contentType,
@@ -402,7 +409,22 @@ export async function initUpload(
     requiredHeaders: result.headers,
     expiresAt: result.expires.toISOString(),
     expiresInSeconds: Math.floor((result.expires.getTime() - Date.now()) / 1000),
+    uploadToken: createUploadIntent({ objectKey: result.key, tenantId, scope, targetId: authorization.targetId, userId: authorization.userId ?? "" }),
   };
+}
+
+export function isUploadIntentValid(input: {
+  token: unknown;
+  objectKey: string;
+  authorization: { tenantId: string; scope: UploadScope; targetId?: string; userId: string };
+}) {
+  return verifyUploadIntent(input.token, {
+    objectKey: input.objectKey,
+    tenantId: input.authorization.tenantId,
+    scope: input.authorization.scope,
+    targetId: input.authorization.targetId,
+    userId: input.authorization.userId,
+  });
 }
 
 // ============================================================================

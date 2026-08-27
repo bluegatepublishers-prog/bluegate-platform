@@ -37,9 +37,10 @@ type StudentWorkBookProps = {
   knowledgeDefinitions: Record<string, KnowledgeDefinitionSummary | null>;
   resourceUrls: Record<string, string>;
   focusPageId?: string;
+  immutableRelease?: boolean;
 };
 
-export default function StudentWorkBook({ chapterId, moduleId, document, mode, linkedAssets, activities, worksheets, media, sectionDefinitions, knowledgeDefinitions, resourceUrls, focusPageId }: StudentWorkBookProps) {
+export default function StudentWorkBook({ chapterId, moduleId, document, mode, linkedAssets, activities, worksheets, media, sectionDefinitions, knowledgeDefinitions, resourceUrls, focusPageId, immutableRelease = false }: StudentWorkBookProps) {
   const { items, getWork, save } = useStudentWork();
   const narration = useV2NarrationContext();
   const rootRef = useRef<HTMLDivElement>(null);
@@ -122,7 +123,7 @@ export default function StudentWorkBook({ chapterId, moduleId, document, mode, l
         {moduleProgress.staleRequired ? <span className="font-semibold text-amber-700">{moduleProgress.staleRequired} needs review</span> : null}
       </div>
       {resume ? <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-xs text-emerald-900"><span>{resume.fallback ? "Saved page changed; " : ""}Resume from Page {resume.pageNumber}</span><button type="button" onClick={() => scrollToPage(resume.pageId)} className="rounded-lg bg-emerald-600 px-2 py-1 font-bold text-white">Resume Learning</button>{resume.segmentId && narration?.requestSegment ? <button type="button" onClick={() => { scrollToPage(resume.pageId); narration.requestSegment(resume.segmentId as string); }} className="rounded-lg border border-emerald-600 px-2 py-1 font-bold text-emerald-800">Resume Read Aloud</button> : null}</div> : null}
-      <V2ContentDocumentRenderer document={document} mode={mode} linkedAssets={linkedAssets} activities={activities} worksheets={worksheets} media={media} sectionDefinitions={sectionDefinitions} knowledgeDefinitions={knowledgeDefinitions} resourceUrls={resourceUrls} studentWorkOverlay={renderFrameOverlay} studentWorkPageActions={renderPageActions} studentWorkHighlights={highlights} />
+      <V2ContentDocumentRenderer document={document} mode={mode} linkedAssets={linkedAssets} activities={activities} worksheets={worksheets} media={media} sectionDefinitions={sectionDefinitions} knowledgeDefinitions={knowledgeDefinitions} resourceUrls={resourceUrls} studentWorkOverlay={renderFrameOverlay} studentWorkPageActions={renderPageActions} studentWorkHighlights={highlights} immutableRelease={immutableRelease} />
       {semanticQuestions.length ? <section className="mt-4 rounded-2xl border border-blue-100 bg-blue-50/60 p-4"><h4 className="text-sm font-bold text-blue-900">Questions in this region</h4><p className="mt-1 text-xs text-slate-600">This page uses semantic-only content, so responses stay here instead of guessing a visual position.</p><div className="mt-3 space-y-3">{semanticQuestions.map((entry) => <div key={entry.question.id}><p className="mb-1 text-sm font-semibold text-slate-800">{entry.question.prompt}</p><StudentQuestionResponse question={entry.question} target={entry.target} /></div>)}</div></section> : null}
       <SemanticHighlightRegions document={document} moduleId={moduleId} manifest={moduleManifest} />
     </div>

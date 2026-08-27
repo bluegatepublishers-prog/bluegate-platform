@@ -90,6 +90,7 @@ export default async function ChapterWorkspacePage({
                     knowledgeDefinitions={item.knowledgeDefinitions}
                     resourceUrls={item.v2ResourceUrls}
                     focusPageId={query.moduleId === item.id ? query.pageId : undefined}
+                    immutableRelease={item.immutableRelease}
                   />
                 </article>
               ))}

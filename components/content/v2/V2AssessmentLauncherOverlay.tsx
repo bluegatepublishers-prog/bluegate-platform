@@ -58,6 +58,8 @@ type RuntimeQuestion = {
 };
 
 type Props = {
+  bookId?: string;
+  releaseVersionId?: string;
   exerciseId: string;
   groupId: string;
   questionType: V2PracticeQuestionType;
@@ -101,6 +103,8 @@ type LauncherResponse = {
 };
 
 export default function V2AssessmentLauncherOverlay({
+  bookId,
+  releaseVersionId,
   exerciseId,
   groupId,
   questionType,
@@ -253,6 +257,8 @@ export default function V2AssessmentLauncherOverlay({
               body:
                 JSON.stringify(
                   {
+                    bookId,
+                    releaseVersionId,
                     exerciseId,
                     groupId,
                     questionType,

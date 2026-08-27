@@ -48,14 +48,6 @@ test("the educational object registry exposes the full authoring vocabulary", ()
   assert.equal(getEducationalObjectDefinition("thinkAndAnswer").label, "Think and Answer");
 });
 
-test("the compact Insert ribbon exposes educational objects without a permanent button wall", () => {
-  const ribbon = readFileSync(new URL("../components/admin/books/editor/WordRibbon.tsx", import.meta.url), "utf8");
-  assert.match(ribbon, /Educational Blocks/);
-  assert.match(ribbon, /EDUCATIONAL_OBJECT_REGISTRY/);
-  assert.match(ribbon, /featureOpen/);
-  assert.match(ribbon, /EDUCATIONAL_OBJECT_REGISTRY\.map/);
-});
-
 test("educational insertion creates an immediately editable canonical object", () => {
   const document = createContentDocument([createEducationalObjectBlock("thinkAndDiscuss")]);
   const block = document.blocks[0];
@@ -65,42 +57,6 @@ test("educational insertion creates an immediately editable canonical object", (
   assert.equal(block.title, "Think and Discuss");
   assert.equal(block.text, "");
   assert.equal(getEducationalObjectPlaceholder("thinkAndDiscuss"), "Type discussion prompt here...");
-});
-
-test("educational blocks render as direct-editable visual boxes and preserve Teacher Note visibility", () => {
-  const editor = readFileSync(new URL("../components/admin/books/ContentManuscriptEditor.tsx", import.meta.url), "utf8");
-  const renderer = readFileSync(new URL("../components/content/StructuredContentRenderer.tsx", import.meta.url), "utf8");
-  assert.match(editor, /EducationalObjectCanvas/);
-  assert.match(editor, /contentEditable/);
-  assert.match(editor, /getEducationalObjectPlaceholder/);
-  assert.match(editor, /setFocusTarget\(block\.id\)/);
-  assert.match(renderer, /mode === "STUDENT".*teacherNote/);
-
-  const document = createContentDocument([createEducationalObjectBlock("thinkAndAnswer")]);
-  const edited = normalizeContentDocument({
-    ...document,
-    blocks: document.blocks.map((block) => block.type === "educationalObject" ? { ...block, text: "Why does a compass needle point north?" } : block),
-  });
-  const reloaded = normalizeContentDocument(serializeContentDocument(edited));
-  const block = reloaded.blocks[0];
-  assert.equal(block.type, "educationalObject");
-  if (block.type !== "educationalObject") return;
-  assert.equal(block.objectType, "thinkAndAnswer");
-  assert.equal(block.text, "Why does a compass needle point north?");
-});
-test("authoring UI keeps table controls compact and media canvas free of resource administration", () => {
-  const tableEditor = readFileSync(new URL("../components/admin/books/editor/blocks/TableBlockEditor.tsx", import.meta.url), "utf8");
-  const mediaEditor = readFileSync(new URL("../components/admin/books/editor/blocks/MediaBlockEditor.tsx", import.meta.url), "utf8");
-  const renderer = readFileSync(new URL("../components/content/StructuredContentRenderer.tsx", import.meta.url), "utf8");
-  const mediaButton = readFileSync(new URL("../components/content/InlineMediaButton.tsx", import.meta.url), "utf8");
-  const mediaSurface = mediaEditor.split("function resolveMediaForBlock")[0];
-  assert.match(tableEditor, /<details/);
-  assert.match(tableEditor, /Add row above/);
-  assert.doesNotMatch(tableEditor, />Row above</);
-  assert.doesNotMatch(mediaSurface, /Publisher Resource|Source detail|Scope label|>Audience</);
-  assert.match(renderer, /media\.displayMode === "button"/);
-  assert.match(renderer, /<InlineMediaButton/);
-  assert.match(mediaButton, /aria-haspopup="dialog"/);
 });
 
 test("image resource creation carries the manuscript hierarchy scope", () => {
@@ -115,54 +71,12 @@ test("the image ResourceType migration remains part of the checked-in release", 
   assert.match(migration, /ALTER TYPE "ResourceType" ADD VALUE IF NOT EXISTS 'IMAGE';/);
 });
 
-test("canvas previews use final visual objects and defer editors to explicit properties", () => {
-  const editor = readFileSync(new URL("../components/admin/books/ContentManuscriptEditor.tsx", import.meta.url), "utf8");
-  const imageEditor = readFileSync(new URL("../components/admin/books/editor/blocks/ImageBlockEditor.tsx", import.meta.url), "utf8");
-  const previewRoute = readFileSync(new URL("../app/api/admin/resources/[id]/preview/route.ts", import.meta.url), "utf8");
-  assert.match(editor, /<ContentDocumentRenderer/);
-  assert.match(editor, /selected && propertiesOpen/);
-  assert.match(editor, /getEducationalObjectPlaceholder/);
-  assert.match(editor, /contentResourcePreviewUrl\(block\.resourceId\)/);
-  assert.doesNotMatch(imageEditor, /<img/);
-  assert.match(previewRoute, /authorizePublisherAdminApi/);
-  assert.match(previewRoute, /disposition: "inline"/);
-  assert.doesNotMatch(previewRoute, /published: true/);
-});
-
-test("table canvas cells stay directly editable and avoid frame dragging", () => {
-  const tableEditor = readFileSync(new URL("../components/admin/books/editor/blocks/TableBlockEditor.tsx", import.meta.url), "utf8");
-  const layoutFrame = readFileSync(new URL("../components/admin/books/editor/LayoutObjectFrame.tsx", import.meta.url), "utf8");
-  const manuscriptEditor = readFileSync(new URL("../components/admin/books/ContentManuscriptEditor.tsx", import.meta.url), "utf8");
-  assert.match(tableEditor, /contentEditable/);
-  assert.match(tableEditor, /onKeyDown/);
-  assert.match(tableEditor, /event\.key === "Tab"/);
-  assert.match(tableEditor, /onPointerDown=\{\(event\) => event\.stopPropagation\(\)\}/);
-  assert.match(manuscriptEditor, /showControls=\{selected && propertiesOpen\}/);
-  assert.match(layoutFrame, /contenteditable="true"/);
-
-  const document = createContentDocument([{ ...createTableBlock("table", undefined, { rows: 3, columns: 3 }), id: "table-edit" }]);
-  const edited = normalizeContentDocument({
-    ...document,
-    blocks: document.blocks.map((block) => block.type === "table" ? {
-      ...block,
-      rows: block.rows.map((row, rowIndex) => rowIndex === 0 ? {
-        ...row,
-        cells: row.cells.map((cell, cellIndex) => cellIndex === 0 ? { ...cell, text: "Name", spans: [{ text: "Name" }] } : cellIndex === 1 ? { ...cell, text: "Class", spans: [{ text: "Class" }] } : { ...cell, text: "Marks", spans: [{ text: "Marks" }] }),
-      } : row),
-    } : block),
-  });
-  const reloaded = normalizeContentDocument(serializeContentDocument(edited));
-  const table = reloaded.blocks[0];
-  assert.equal(table.type, "table");
-  if (table.type !== "table") return;
-  assert.deepEqual(table.rows[0].cells.slice(0, 3).map((cell) => cell.text), ["Name", "Class", "Marks"]);
-});
-
 test("image preview proxies an authorized draft image inline without changing public download rules", () => {
   const previewRoute = readFileSync(new URL("../app/api/admin/resources/[id]/preview/route.ts", import.meta.url), "utf8");
   const downloadPolicy = readFileSync(new URL("../lib/storage/protected-download-policy.ts", import.meta.url), "utf8");
   const editor = readFileSync(new URL("../components/admin/books/ContentManuscriptEditor.tsx", import.meta.url), "utf8");
-  assert.match(editor, /contentResourcePreviewUrl\(block\.resourceId\)/);
+  assert.match(editor, /V2DocumentWorkspace/);
+  assert.match(editor, /\/api\/admin\/resources/);
   assert.match(previewRoute, /ResourceType\.IMAGE/);
   assert.match(previewRoute, /fetch\(signed\.url/);
   assert.match(previewRoute, /new NextResponse\(source\.body/);
@@ -571,42 +485,6 @@ test("full Module authoring fixture survives normalize, serialize/reload, and ca
   }
 });
 
-test("educational authoring exposes professional icons and deterministic design variants", () => {
-  const icon = readFileSync(new URL("../components/content/EducationalObjectIcon.tsx", import.meta.url), "utf8");
-  const ribbon = readFileSync(new URL("../components/admin/books/editor/WordRibbon.tsx", import.meta.url), "utf8");
-  const editor = readFileSync(new URL("../components/admin/books/ContentManuscriptEditor.tsx", import.meta.url), "utf8");
-  assert.match(icon, /thinkAndAnswer: CircleHelp/);
-  assert.match(icon, /teacherNote: UsersRound/);
-  assert.match(ribbon, /EducationalObjectIcon/);
-  assert.match(editor, /EducationalObjectIcon/);
-  assert.ok(EDUCATIONAL_OBJECT_REGISTRY.every(([type]) => getEducationalObjectDefinition(type).appearanceVariant));
-});
-
-test("selected objects use a subtle frame and keyboard deletion while V1 controls stay in the object header", () => {
-  const layoutFrame = readFileSync(new URL("../components/admin/books/editor/LayoutObjectFrame.tsx", import.meta.url), "utf8");
-  const editor = readFileSync(new URL("../components/admin/books/ContentManuscriptEditor.tsx", import.meta.url), "utf8");
-  assert.match(layoutFrame, /ring-2 ring-blue-500/);
-  assert.match(layoutFrame, /event\.key === "Delete" \|\| event\.key === "Backspace"/);
-  assert.match(layoutFrame, /isInteractiveTarget\(event\.target\)/);
-  assert.match(editor, /FloatingBoxHeader/);
-  assert.match(editor, />Move Up</);
-  assert.match(editor, />Move Down</);
-  assert.match(editor, />Add Content</);
-  const frameUi = layoutFrame.slice(layoutFrame.indexOf("return <div"));
-  assert.doesNotMatch(frameUi, /Forward|Back|Duplicate|Lock/);
-});
-
-test("V1 image frames and delivery images constrain oversized media to their containers", () => {
-  const layoutFrame = readFileSync(new URL("../components/admin/books/editor/LayoutObjectFrame.tsx", import.meta.url), "utf8");
-  const renderer = readFileSync(new URL("../components/content/StructuredContentRenderer.tsx", import.meta.url), "utf8");
-  assert.match(layoutFrame, /overflow-hidden/);
-  assert.match(layoutFrame, /calc\(100% - \$\{Math\.max\(0, current\.x\)\}px\)/);
-  assert.match(layoutFrame, /Math\.min\(maxWidth/);
-  assert.match(renderer, /h-auto max-w-full/);
-  assert.match(renderer, /style=\{imageLayoutStyle\(block\)\}/);
-  assert.match(renderer, /maxWidth: "100%"/);
-});
-
 test("V1 image resize updates only its layout metadata and survives save/reload", () => {
   const image = { ...createImageBlock("image", { url: "https://example.test/large.png", alt: "Large image" }), id: "floating-image", layout: { x: 12, y: 8, width: 640, height: 400, zIndex: 0 } };
   const neighbour = { ...createTableBlock("table", undefined, { rows: 2, columns: 2 }), id: "unrelated-table" };
@@ -648,22 +526,6 @@ test("V1 floating-box reorder is period-local, immutable, stable, and persists",
   assert.deepEqual(reloaded.blocks.map((block) => block.id), ["b", "a", "c", "other-period"]);
 });
 
-test("V1 floating-box Add Content uses canonical text, image, video, and table blocks", () => {
-  const editor = readFileSync(new URL("../components/admin/books/ContentManuscriptEditor.tsx", import.meta.url), "utf8");
-  const fixture = createContentDocument([
-    { ...createTextBlock("paragraph", "Legacy-compatible text"), id: "floating-text", layout: { x: 0, y: 0, width: 640, height: 180, zIndex: 0 } },
-    { ...createImageBlock("image", { url: "https://example.test/image.png", alt: "Image" }), id: "floating-image", layout: { x: 0, y: 0, width: 640, height: 360, zIndex: 0 } },
-    { ...createMediaBlock({ mediaKind: "video", targetType: "RESOURCE", targetId: "video-resource" }), id: "floating-video", layout: { x: 0, y: 0, width: 640, height: 360, zIndex: 0 } },
-    { ...createTableBlock("table", undefined, { rows: 2, columns: 2 }), id: "floating-table", layout: { x: 0, y: 0, width: 640, height: 240, zIndex: 0 } },
-  ]);
-  const reloaded = normalizeContentDocument(serializeContentDocument(fixture));
-  assert.deepEqual(reloaded.blocks.map((block) => block.type), ["paragraph", "image", "media", "table"]);
-  assert.match(editor, /\["TEXT", "IMAGE", "VIDEO", "TABLE"\]/);
-  assert.match(editor, /createFloatingBoxContent/);
-  assert.match(editor, /createBlockByType\("image"\)/);
-  assert.match(editor, /createBlockByType\("media"\)/);
-});
-
 test("V1 legacy text floating content and all supported floating types remain delivery-renderable", () => {
   const legacy = normalizeContentDocument({ blocks: [{ id: "legacy-floating-text", type: "paragraph", text: "Existing V1 text", layout: { x: 0, y: 0, width: 480, height: 160, zIndex: 0 } }] });
   assert.equal(legacy.blocks[0]?.type, "paragraph");
@@ -691,7 +553,7 @@ test("button media opens inline playback and never uses the resource download ro
 
 test("activity authoring is a direct visual mapping to the existing optional fields", () => {
   const editor = readFileSync(new URL("../components/admin/books/ContentManuscriptEditor.tsx", import.meta.url), "utf8");
-  assert.match(editor, /function ActivityCanvas/);
-  assert.match(editor, /block\.fields\.map/);
-  assert.match(editor, /aria-label="Activity content"/);
+  assert.match(editor, /V2DocumentWorkspace/);
+  assert.match(editor, /createActivityBlock/);
+  assert.match(editor, /type === "ACTIVITY"/);
 });

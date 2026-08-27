@@ -94,6 +94,7 @@ import { publisherAdminAuditActor, writeSecurityAuditEvent } from "@/lib/securit
 import { createOwnedBookPdfV2Pages } from "@/lib/book-pdf-v2-import";
 import { prepareOwnedBookReadAloud } from "@/lib/book-read-aloud";
 import { assertBookPdfReplacementMappingsFit, inspectPublisherBookPdf } from "@/lib/book-pdf";
+import { ensureBookPdfVersion } from "@/lib/book-pdf-version";
 import { normalizeAndValidateObjectKey } from "@/lib/storage/object-key";
 
 const text = (form: FormData, key: string, max = 4000) =>
@@ -139,45 +140,14 @@ export type BookPdfVersionSummary = {
   createdAt: string;
 };
 
-function pdfFileNameFromObjectKey(objectKey: string) {
-  const raw = objectKey.split("/").at(-1) ?? "book.pdf";
-  try {
-    return decodeURIComponent(raw);
-  } catch {
-    return raw;
-  }
-}
 
 export async function listOwnedBookPdfVersionsAction(bookId: string): Promise<BookPdfVersionSummary[]> {
   const actor = await requireLivePublisherAdmin();
   const book = await prisma.book.findFirst({
     where: { id: bookId, publisherId: actor.publisherId },
-    select: { id: true, fullBookPdf: true, pages: true },
+    select: { id: true },
   });
   if (!book) throw new Error("The selected book is unavailable.");
-
-  if (book.fullBookPdf && book.pages) {
-    const existing = await prisma.bookPdfVersion.findFirst({
-      where: { bookId, objectKey: book.fullBookPdf },
-      select: { id: true },
-    });
-    if (!existing) {
-      await prisma.bookPdfVersion.updateMany({ where: { bookId, active: true }, data: { active: false } });
-      await prisma.bookPdfVersion.create({
-        data: {
-          bookId,
-          objectKey: book.fullBookPdf,
-          originalFileName: pdfFileNameFromObjectKey(book.fullBookPdf),
-          pageCount: book.pages,
-          active: true,
-          activatedAt: new Date(),
-        },
-      });
-    } else {
-      await prisma.bookPdfVersion.updateMany({ where: { bookId, active: true, id: { not: existing.id } }, data: { active: false } });
-      await prisma.bookPdfVersion.update({ where: { id: existing.id }, data: { active: true, pageCount: book.pages } });
-    }
-  }
 
   const rows = await prisma.bookPdfVersion.findMany({
     where: { bookId },
@@ -223,8 +193,7 @@ export async function restoreOwnedBookPdfVersionAction(
       await tx.bookModule.updateMany({ where: { bookId }, data: { startPage: null, endPage: null } });
       await tx.bookExercise.updateMany({ where: { bookId }, data: { startPage: null, endPage: null } });
     }
-    await tx.bookPdfVersion.updateMany({ where: { bookId, active: true }, data: { active: false } });
-    await tx.bookPdfVersion.update({ where: { id: version.id }, data: { active: true, activatedAt: new Date(), pageCount: inspection.pageCount } });
+    await ensureBookPdfVersion(tx, { bookId, objectKey: version.objectKey, pageCount: inspection.pageCount, activate: true });
     await tx.book.update({ where: { id: bookId }, data: { fullBookPdf: version.objectKey, pages: inspection.pageCount } });
     await writeSecurityAuditEvent(tx, {
       actor: publisherAdminAuditActor(actor), action: "publisher.book.update", targetType: "Book", targetId: bookId,
@@ -275,7 +244,7 @@ export async function attachOwnedBookFullPdfAction(
         id: bookId,
         publisherId: actor.publisherId,
       },
-      select: { id: true, fullBookPdf: true, pages: true },
+      select: { id: true },
     });
 
     if (!book) {
@@ -314,21 +283,7 @@ export async function attachOwnedBookFullPdfAction(
       });
     }
 
-    if (book.fullBookPdf && book.pages && book.fullBookPdf !== key) {
-      const previous = await tx.bookPdfVersion.findFirst({ where: { bookId, objectKey: book.fullBookPdf }, select: { id: true } });
-      if (previous) {
-        await tx.bookPdfVersion.update({ where: { id: previous.id }, data: { active: false } });
-      } else {
-        await tx.bookPdfVersion.create({ data: { bookId, objectKey: book.fullBookPdf, originalFileName: pdfFileNameFromObjectKey(book.fullBookPdf), pageCount: book.pages, active: false } });
-      }
-    }
-    await tx.bookPdfVersion.updateMany({ where: { bookId, active: true }, data: { active: false } });
-    const currentVersion = await tx.bookPdfVersion.findFirst({ where: { bookId, objectKey: key }, select: { id: true } });
-    if (currentVersion) {
-      await tx.bookPdfVersion.update({ where: { id: currentVersion.id }, data: { active: true, activatedAt: new Date(), pageCount: inspection.pageCount, originalFileName: pdfFileNameFromObjectKey(key) } });
-    } else {
-      await tx.bookPdfVersion.create({ data: { bookId, objectKey: key, originalFileName: pdfFileNameFromObjectKey(key), pageCount: inspection.pageCount, active: true, activatedAt: new Date() } });
-    }
+    await ensureBookPdfVersion(tx, { bookId, objectKey: key, pageCount: inspection.pageCount, activate: true });
 
     await tx.book.update({
       where: { id: bookId },

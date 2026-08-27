@@ -27,6 +27,11 @@ import {
   type SnapshotHierarchyExerciseCandidate,
   type SnapshotHierarchyModuleCandidate,
 } from "@/lib/content-release-dependencies";
+import {
+  parseSmartBookReleaseManifest,
+  type SmartBookReleaseManifestV2,
+} from "@/lib/smart-book-release-manifest";
+import { prepareSmartBookReleaseManifest } from "@/lib/smart-book-release-readiness";
 
 export type ReleaseActor = {
   userId: string;
@@ -73,6 +78,10 @@ export type ReleaseSnapshot = {
   bookId: string | null;
   title: string;
   record: Record<string, unknown>;
+  contentDocument?: ContentDocument;
+};
+
+type ReleaseSnapshotDependencySource = {
   contentDocument?: ContentDocument;
 };
 
@@ -142,8 +151,6 @@ export async function loadReleaseSummary(input: {
   targetType: ContentReleaseTargetType;
   targetId: string;
 }): Promise<ReleaseSummary> {
-  const snapshot = await buildTargetSnapshot(input.actor.publisherId, input.bookId, input.targetType, input.targetId);
-  const checksum = checksumJson(snapshot);
   const [release, validation] = await Promise.all([
     prisma.contentRelease.findUnique({
       where: {
@@ -162,6 +169,7 @@ export async function loadReleaseSummary(input: {
             versionNumber: true,
             lifecycle: true,
             checksum: true,
+            snapshot: true,
             releaseNotes: true,
             publishedAt: true,
             createdAt: true,
@@ -175,9 +183,72 @@ export async function loadReleaseSummary(input: {
     ? release.versions.find((version) => version.id === release.currentVersionId) ??
       await prisma.contentReleaseVersion.findUnique({
         where: { id: release.currentVersionId },
-        select: { versionNumber: true, checksum: true },
+        select: { versionNumber: true, checksum: true, snapshot: true },
       })
     : null;
+
+  let snapshot: ReleaseSnapshot | SmartBookReleaseManifestV2;
+  let effectiveValidation = validation;
+  const storedSnapshot = current?.snapshot;
+  const currentSnapshotIsV2 = isRecord(storedSnapshot) && storedSnapshot.schemaVersion === 2;
+
+  if (currentSnapshotIsV2) {
+    try {
+      parseSmartBookReleaseManifest(storedSnapshot);
+      const preparedV2 = input.targetType === "BOOK"
+        ? await prepareSmartBookReleaseManifest({ publisherId: input.actor.publisherId, bookId: input.bookId })
+        : null;
+      if (preparedV2?.status === "READY") {
+        snapshot = parseSmartBookReleaseManifest(preparedV2.manifest);
+      } else {
+        snapshot = await buildTargetSnapshot(input.actor.publisherId, input.bookId, input.targetType, input.targetId);
+        if (preparedV2?.status === "BLOCKED") {
+          effectiveValidation = {
+            ...validation,
+            errors: [
+              ...validation.errors,
+              {
+                severity: "ERROR",
+                code: "SMART_BOOK_READINESS_BLOCKED",
+                message: preparedV2.issues[0]?.message ?? "Smart Book publication readiness failed.",
+              },
+            ],
+          };
+        }
+      }
+    } catch {
+      snapshot = await buildTargetSnapshot(input.actor.publisherId, input.bookId, input.targetType, input.targetId);
+      effectiveValidation = {
+        ...validation,
+        errors: [
+          ...validation.errors,
+          {
+            severity: "ERROR",
+            code: "STORED_SMART_BOOK_MANIFEST_INVALID",
+            message: "The stored Smart Book release is invalid. Publish a new valid release after correcting the source.",
+          },
+        ],
+      };
+    }
+  } else {
+    snapshot = await buildTargetSnapshot(input.actor.publisherId, input.bookId, input.targetType, input.targetId);
+  }
+
+  const currentSnapshotIsV1 = isRecord(storedSnapshot) && storedSnapshot.schemaVersion === 1;
+  if (input.targetType === "BOOK" && currentSnapshotIsV1) {
+    effectiveValidation = {
+      ...effectiveValidation,
+      errors: [
+        ...effectiveValidation.errors,
+        {
+          severity: "ERROR",
+          code: "SMART_BOOK_V1_UNSUPPORTED",
+          message: "Republish this Smart Book to use the current release format.",
+        },
+      ],
+    };
+  }
+  const checksum = checksumJson(snapshot);
   return {
     releaseId: release?.id ?? null,
     targetType: input.targetType,
@@ -187,7 +258,7 @@ export async function loadReleaseSummary(input: {
     latestVersionNumber: release?.latestVersionNumber ?? 0,
     lastPublishedAt: release?.lastPublishedAt?.toISOString() ?? null,
     draftChanged: checksum !== (current?.checksum ?? ""),
-    validation,
+    validation: effectiveValidation,
     history: release?.versions.map((version) => ({
       id: version.id,
       versionNumber: version.versionNumber,
@@ -212,12 +283,29 @@ export async function transitionRelease(input: {
   if (["PUBLISH", "UNPUBLISH", "ARCHIVE"].includes(input.action) && !input.confirm) {
     throw new Error("Explicit confirmation is required for this release action.");
   }
-  const snapshot = await buildTargetSnapshot(input.actor.publisherId, input.bookId, input.targetType, input.targetId);
+  if (input.action === "PUBLISH" && input.targetType === "BOOK" && input.bookId !== input.targetId) {
+    throw new Error("Smart Book release target is invalid.");
+  }
+  const preparedV2 = input.action === "PUBLISH" && input.targetType === "BOOK"
+    ? await prepareSmartBookReleaseManifest({ publisherId: input.actor.publisherId, bookId: input.bookId })
+    : null;
+  if (preparedV2?.status === "BLOCKED") {
+    throw new Error(preparedV2.issues[0]?.message ?? "Smart Book publication readiness failed.");
+  }
+  const snapshot = preparedV2?.status === "READY"
+    ? preparedV2.manifest
+    : await buildTargetSnapshot(input.actor.publisherId, input.bookId, input.targetType, input.targetId);
   const validation = await validateReleaseTarget(input.actor.publisherId, input.bookId, input.targetType, input.targetId);
+  if (input.action === "PUBLISH" && input.targetType === "BOOK" && preparedV2?.status !== "READY") {
+    throw new Error("Republish this Smart Book to use the current release format.");
+  }
   if (input.action === "PUBLISH" && validation.errors.length) {
     throw new Error(validation.errors[0]?.message ?? "Publishing validation failed.");
   }
   const checksum = checksumJson(snapshot);
+  const expectedBookUpdatedAt = snapshot.schemaVersion === 2
+    ? new Date(snapshot.identity.sourceUpdatedAt)
+    : undefined;
   const now = new Date();
   if (input.action === "UNPUBLISH" || input.action === "ARCHIVE") {
     await assertNoPublishedDependents(
@@ -307,7 +395,7 @@ export async function transitionRelease(input: {
       },
     });
     publishTiming?.("release version created");
-    await updateLegacyPublishedFlag(tx, input.actor.publisherId, input.bookId, input.targetType, input.targetId, true);
+    await updateLegacyPublishedFlag(tx, input.actor.publisherId, input.bookId, input.targetType, input.targetId, true, expectedBookUpdatedAt);
     await publishSnapshotDependencies(tx, input.actor.publisherId, input.bookId, snapshot, publishPlan!, publishTiming);
     return tx.contentRelease.update({
       where: { id: release.id },
@@ -347,6 +435,13 @@ export async function rollbackRelease(input: {
     },
   });
   if (!version) throw new Error("Release version not found.");
+  if (input.targetType === "BOOK") {
+    try {
+      parseSmartBookReleaseManifest(version.snapshot);
+    } catch {
+      throw new Error("Republish this Smart Book to use the current release format.");
+    }
+  }
   const now = new Date();
   return prisma.$transaction(async (tx) => {
     const release = await upsertRelease(tx, input.actor.publisherId, input.bookId, input.targetType, input.targetId);
@@ -697,7 +792,7 @@ async function upsertRelease(
   });
 }
 
-export function collectSnapshotDependencyIds(snapshot: ReleaseSnapshot): SnapshotDependencyIds {
+export function collectSnapshotDependencyIds(snapshot: ReleaseSnapshotDependencySource): SnapshotDependencyIds {
   const resourceIds = new Set<string>();
   const exerciseIds = new Set<string>();
   const questionLaunchers: SnapshotQuestionLauncher[] = [];
@@ -736,7 +831,7 @@ export async function publishSnapshotDependencies(
   tx: Prisma.TransactionClient,
   publisherId: string,
   bookId: string,
-  snapshot: ReleaseSnapshot,
+  snapshot: ReleaseSnapshotDependencySource,
   plan: SnapshotPublishPlan,
   timing?: SmartBookPublishTiming | null,
 ) {
@@ -755,7 +850,7 @@ export async function publishSnapshotDependencies(
   timing?.("hierarchy promotion");
 
   if (exerciseIds.size) {
-    await tx.bookExercise.updateMany({
+    const result = await tx.bookExercise.updateMany({
       where: {
         id: { in: [...exerciseIds] },
         bookId,
@@ -764,6 +859,9 @@ export async function publishSnapshotDependencies(
       },
       data: { published: true },
     });
+    if (result.count !== exerciseIds.size) {
+      throw new Error("A referenced exercise changed before publication.");
+    }
   }
 
   if (plan.validGroupIds.length) {
@@ -816,7 +914,7 @@ function createSmartBookPublishTiming(enabled: boolean): SmartBookPublishTiming 
 async function prepareSnapshotPublishPlan(
   publisherId: string,
   bookId: string,
-  snapshot: ReleaseSnapshot,
+  snapshot: ReleaseSnapshotDependencySource,
 ): Promise<SnapshotPublishPlan> {
   const snapshotDependencies = collectSnapshotDependencyIds(snapshot);
   const groupIds = [...new Set(snapshotDependencies.questionLaunchers.map((launcher) => launcher.groupId).filter(Boolean))];
@@ -869,7 +967,7 @@ async function loadSnapshotHierarchyDependencies(
   db: ReleaseDependencyReadClient,
   publisherId: string,
   bookId: string,
-  snapshot: ReleaseSnapshot,
+  snapshot: ReleaseSnapshotDependencySource,
   referencedExerciseIds: string[],
 ) {
   const [chapters, modules, exercises] = await Promise.all([
@@ -994,7 +1092,7 @@ async function publishResources(
   resourceIds: Set<string>,
 ) {
   if (!resourceIds.size) return;
-  await tx.resource.updateMany({
+  const result = await tx.resource.updateMany({
     where: {
       id: { in: [...resourceIds] },
       publisherId,
@@ -1003,10 +1101,13 @@ async function publishResources(
     },
     data: { published: true },
   });
+  if (result.count !== resourceIds.size) {
+    throw new Error("A referenced resource changed before publication.");
+  }
 }
 
 function collectDependencies(
-  snapshot: ReleaseSnapshot,
+  snapshot: ReleaseSnapshotDependencySource,
   snapshotDependencies: SnapshotDependencyIds,
   hierarchyDependencies: SnapshotHierarchyDependencyIds,
 ) {
@@ -1157,9 +1258,16 @@ async function updateLegacyPublishedFlag(
   targetType: ContentReleaseTargetType,
   targetId: string,
   published: boolean,
+  expectedBookUpdatedAt?: Date,
 ) {
   if (targetType === "BOOK") {
-    await tx.book.updateMany({ where: { id: targetId, publisherId }, data: { published } });
+    const result = await tx.book.updateMany({
+      where: { id: targetId, publisherId, ...(expectedBookUpdatedAt ? { updatedAt: expectedBookUpdatedAt } : {}) },
+      data: { published },
+    });
+    if (expectedBookUpdatedAt && result.count !== 1) {
+      throw new Error("The Smart Book changed while publication was being prepared.");
+    }
   } else if (targetType === "CHAPTER") {
     await tx.bookChapter.updateMany({ where: { id: targetId, bookId: bookId ?? undefined, book: { publisherId } }, data: { published } });
   } else if (targetType === "MODULE") {
@@ -1181,7 +1289,7 @@ async function updateLegacyPublishedFlag(
   }
 }
 
-function checksumJson(value: unknown) {
+export function checksumJson(value: unknown) {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 

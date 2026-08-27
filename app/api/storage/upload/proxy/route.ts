@@ -5,7 +5,7 @@ import { NextResponse } from "next/server";
 import { getStorageProvider } from "@/lib/storage/provider";
 import { normalizeAndValidateObjectKey } from "@/lib/storage/object-key";
 import { isUploadScope, uploadRules } from "@/lib/storage/upload-policy";
-import { authorizeUpload, keyBelongsToTenant } from "@/lib/storage/upload-service";
+import { authorizeUpload, isUploadIntentValid, keyBelongsToTenant } from "@/lib/storage/upload-service";
 
 const json = (status: number, code: string, message: string) => NextResponse.json(
   { ok: false, code, message },
@@ -27,6 +27,7 @@ export async function PUT(request: Request) {
   const objectKey = request.headers.get("x-upload-object-key");
   const fileName = readFileName(request.headers.get("x-upload-file-name"));
   const targetId = request.headers.get("x-upload-target-id") || undefined;
+  const uploadIntent = request.headers.get("x-upload-intent");
   const contentType = request.headers.get("content-type")?.trim().toLowerCase() ?? "";
   if (!scope || !isUploadScope(scope) || !objectKey || !fileName || !contentType) {
     return json(400, "INVALID_UPLOAD_PROXY_REQUEST", "A valid upload request is required.");
@@ -52,8 +53,14 @@ export async function PUT(request: Request) {
   if (!keyBelongsToTenant(key, authorization.tenantId, scope)) {
     return json(403, "UPLOAD_NOT_AUTHORIZED", "Access denied.");
   }
+  if (!isUploadIntentValid({ token: uploadIntent, objectKey: key, authorization })) {
+    return json(409, "UPLOAD_KEY_NOT_ISSUED", "The upload key is no longer valid. Start a new upload.");
+  }
 
   try {
+    if (await getStorageProvider().headObject({ key })) {
+      return json(409, "UPLOAD_KEY_ALREADY_EXISTS", "The upload key is already in use. Start a new upload.");
+    }
     await getStorageProvider().putObject({
       key,
       contentType,

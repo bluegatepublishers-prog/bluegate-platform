@@ -19,12 +19,14 @@ export default function V2WorksheetLauncherVisual({
   openable = false,
   mode = "STUDENT",
   adminControls = false,
+  immutableRelease = false,
   onEdit,
 }: {
   frame: LayoutV2Frame;
   openable?: boolean;
   mode?: V2WorksheetLauncherOverlayMode;
   adminControls?: boolean;
+  immutableRelease?: boolean;
   onEdit?: () => void;
 }) {
   const payload =
@@ -247,6 +249,8 @@ export default function V2WorksheetLauncherVisual({
           worksheetId={
             payload.worksheetId
           }
+          bookId={payload.bookId}
+          releaseVersionId={payload.releaseVersionId}
           mode={overlayMode}
           onClose={close}
         />

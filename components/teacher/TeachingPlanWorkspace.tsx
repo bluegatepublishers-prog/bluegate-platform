@@ -526,7 +526,6 @@ function PagePicker({ pages, modules, moduleFilter, pageSearch, selectedPageKeys
     <section className="mx-auto max-w-5xl rounded-lg bg-white p-3 shadow-xl">
       <div className="flex items-center justify-between gap-3"><div><h2 className="text-sm font-bold text-slate-950">Add book pages</h2><p className="text-[0.7rem] text-slate-500">Select ordered V2 pages, then add them to the period.</p></div><button type="button" onClick={onClose} disabled={busy} className="h-8 rounded-md border border-slate-300 px-3 text-xs font-bold">Close</button></div>
       {loading ? <p className="mt-3 rounded-md bg-slate-50 p-3 text-xs text-slate-600">Loading available pages...</p> : null}
-      {!loading && contentState === "V1_ONLY" ? <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">Page-level mapping is available for V2 content.</p> : null}
       {!loading && contentState === "NO_DIGITAL_CONTENT" ? <p className="mt-3 rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">No digital pages are available for this book.</p> : null}
       {!loading && contentState === "V2_AVAILABLE" ? <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,0.9fr)_minmax(300px,1.1fr)]">
         <div className="space-y-2">
@@ -545,7 +544,6 @@ function EmptyBookState() {
 }
 
 function contentNotice(state: PageAvailability["state"]) {
-  if (state === "V1_ONLY") return <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">Page mapping is available for V2 content.</p>;
   if (state === "NO_DIGITAL_CONTENT") return <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">No digital pages are available for this book.</p>;
   return null;
 }

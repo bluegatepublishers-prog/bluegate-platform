@@ -15,6 +15,9 @@ import {
   isAvailableStudentWorksheetQuestion,
   toSafeStudentWorksheetQuestion,
 } from "@/lib/student-worksheet-policy";
+import type { StudentWorksheetQuestionCandidate } from "@/lib/student-worksheet-policy";
+import { hasPublishedSmartBookRelease, resolvePublishedSmartBookContent, resolveSmartBookContentReleaseVersion } from "@/lib/smart-book-release-runtime";
+import { resolveManifestWorksheetExecution } from "@/lib/smart-book-release-projection";
 
 class StudentWorksheetError extends Error {
   constructor(message: string, public readonly status = 400) {
@@ -40,7 +43,62 @@ const questionSelect = {
   createdAt: true,
 } satisfies Prisma.BookQuestionSelect;
 
-async function resolveStudentWorksheetScope(worksheetId: string) {
+
+type StudentWorksheetScope = {
+  identity: Awaited<ReturnType<typeof requireStudent>>;
+  book: NonNullable<Awaited<ReturnType<typeof getStudentBook>>>;
+  worksheet: {
+    id: string;
+    publisherId: string;
+    bookId: string;
+    chapterId: string;
+    title: string;
+    instructions: string | null;
+    showAnswersAfterSubmit: boolean;
+    book: { id: string; title: string };
+    chapter: { id: string; title: string; chapterNumber: number | null };
+  };
+  questions: Array<{ position: number; question: StudentWorksheetQuestionCandidate }>;
+  releaseVersionId: string | null;
+};
+
+async function resolveBoundStudentWorksheetScope(
+  worksheetId: string,
+  identity: StudentWorksheetScope["identity"],
+): Promise<StudentWorksheetScope | null> {
+  if (!worksheetId.trim()) throw new StudentWorksheetError("This worksheet is not available for your account.", 404);
+  const source = await prisma.publisherWorksheet.findFirst({
+    where: { id: worksheetId, publisherId: identity.publisher.id },
+    select: { bookId: true },
+  });
+  if (!source) throw new StudentWorksheetError("This worksheet is not available for your account.", 404);
+  const book = await getStudentBook(source.bookId);
+  if (!book || !identity.student.userId) throw new StudentWorksheetError("This worksheet is not available for your account.", 404);
+
+  const release = await resolvePublishedSmartBookContent({ publisherId: identity.publisher.id, bookId: source.bookId });
+  if (!release) {
+    if (await hasPublishedSmartBookRelease({ publisherId: identity.publisher.id, bookId: source.bookId })) {
+      throw new StudentWorksheetError("This worksheet is not available for your account.", 404);
+    }
+    return null;
+  }
+  const execution = resolveManifestWorksheetExecution({ manifest: release.manifest, protectedPayload: release.protectedPayload, publisherId: identity.publisher.id, bookId: source.bookId, worksheetId });
+  if (!execution) throw new StudentWorksheetError("This worksheet is not available for your account.", 404);
+  return {
+    identity,
+    book,
+    worksheet: {
+      ...execution.worksheet,
+      publisherId: identity.publisher.id,
+      bookId: source.bookId,
+      chapterId: execution.worksheet.chapter.id,
+    },
+    questions: execution.questions,
+    releaseVersionId: release.releaseVersionId,
+  };
+}
+
+async function resolveStudentWorksheetScope(worksheetId: string): Promise<StudentWorksheetScope> {
   if (!worksheetId.trim()) {
     throw new StudentWorksheetError(
       "This worksheet is not available for your account.",
@@ -106,8 +164,9 @@ async function resolveStudentWorksheetScope(worksheetId: string) {
     );
   }
 
-  return { identity, book, worksheet, questions };
+  return { identity, book, worksheet, questions, releaseVersionId: null };
 }
+
 
 async function loadOwnedStudentWorksheetAttempt(attemptId: string) {
   const identity = await requireStudent();
@@ -127,6 +186,7 @@ async function loadOwnedStudentWorksheetAttempt(attemptId: string) {
       academicYearId: true,
       publisherId: true,
       bookId: true,
+      contentReleaseVersionId: true,
       status: true,
       startedAt: true,
       submittedAt: true,
@@ -145,34 +205,55 @@ async function loadOwnedStudentWorksheetAttempt(attemptId: string) {
       },
     },
   });
-  if (!attempt) {
-    throw new StudentWorksheetError(
-      "This worksheet is not available for your account.",
-      404,
-    );
+  if (!attempt) throw new StudentWorksheetError("This worksheet is not available for your account.", 404);
+
+  const book = await getStudentBook(attempt.bookId);
+  if (!book || !identity.student.userId) throw new StudentWorksheetError("This worksheet is not available for your account.", 404);
+
+  if (attempt.contentReleaseVersionId) {
+    const release = await resolveSmartBookContentReleaseVersion({
+      publisherId: identity.publisher.id,
+      bookId: attempt.bookId,
+      releaseVersionId: attempt.contentReleaseVersionId,
+    });
+    const execution = release
+      ? resolveManifestWorksheetExecution({ manifest: release.manifest, protectedPayload: release.protectedPayload, publisherId: identity.publisher.id, bookId: attempt.bookId, worksheetId: attempt.worksheetId })
+      : null;
+    if (!release || !execution) throw new StudentWorksheetError("This worksheet attempt is unavailable.", 404);
+    const scope: StudentWorksheetScope = {
+      identity,
+      book,
+      worksheet: {
+        ...execution.worksheet,
+        publisherId: identity.publisher.id,
+        bookId: attempt.bookId,
+        chapterId: execution.worksheet.chapter.id,
+      },
+      questions: execution.questions,
+      releaseVersionId: attempt.contentReleaseVersionId,
+    };
+    return { attempt, scope };
   }
 
+  if (await hasPublishedSmartBookRelease({ publisherId: identity.publisher.id, bookId: attempt.bookId })) {
+    throw new StudentWorksheetError("This worksheet attempt is unavailable.", 404);
+  }
   const scope = await resolveStudentWorksheetScope(attempt.worksheetId);
   if (
     attempt.bookId !== scope.worksheet.bookId ||
     attempt.schoolId !== scope.identity.school.id ||
     attempt.publisherId !== scope.identity.publisher.id ||
     attempt.academicYearId !== scope.identity.academicYear.id
-  ) {
-    throw new StudentWorksheetError(
-      "This worksheet is not available for your account.",
-      404,
-    );
-  }
-
+  ) throw new StudentWorksheetError("This worksheet is not available for your account.", 404);
   return { attempt, scope };
 }
 
-function worksheetMetadata(scope: Awaited<ReturnType<typeof resolveStudentWorksheetScope>>) {
+function worksheetMetadata(scope: Pick<StudentWorksheetScope, "worksheet">) {
   return {
     id: scope.worksheet.id,
     title: scope.worksheet.title,
     instructions: scope.worksheet.instructions,
+    showAnswersAfterSubmit: scope.worksheet.showAnswersAfterSubmit,
     book: {
       id: scope.worksheet.book.id,
       title: scope.worksheet.book.title,
@@ -185,8 +266,11 @@ function worksheetMetadata(scope: Awaited<ReturnType<typeof resolveStudentWorksh
   };
 }
 
+
 export async function startStudentWorksheetAttempt(worksheetId: string) {
-  const scope = await resolveStudentWorksheetScope(worksheetId);
+  const identity = await requireStudent();
+  const scope = await resolveBoundStudentWorksheetScope(worksheetId, identity)
+    ?? await resolveStudentWorksheetScope(worksheetId);
   const summary = calculateStudentWorksheetAttempt(
     scope.questions.map((item) => item.question),
     [],
@@ -199,6 +283,7 @@ export async function startStudentWorksheetAttempt(worksheetId: string) {
       academicYearId: scope.identity.academicYear.id,
       publisherId: scope.identity.publisher.id,
       bookId: scope.worksheet.bookId,
+      contentReleaseVersionId: scope.releaseVersionId,
       questionCount: summary.questionCount,
       totalMarks: summary.totalMarks,
     },

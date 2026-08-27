@@ -100,6 +100,10 @@ type Props = {
 
   resourceUrls?: Record<string, string>;
 
+  pdfUrl?: string;
+
+  immutableRelease?: boolean;
+
   teacherResources?: TeacherResource[];
 
   /*
@@ -153,6 +157,8 @@ export default function SmartBookReader({
   sections = [],
   knowledgeDefinitions = {},
   resourceUrls = {},
+  pdfUrl,
+  immutableRelease = false,
   teacherResources = [],
   minPage = 1,
   maxPage,
@@ -311,6 +317,7 @@ export default function SmartBookReader({
         return (
           <V2ContentDocumentRenderer
             document={document}
+            immutableRelease={immutableRelease}
             mode={role}
             linkedAssets={linkedAssets}
             activities={activities}
@@ -410,6 +417,7 @@ export default function SmartBookReader({
 
   const backPath = backHref ?? (role === "TEACHER" ? "/teacher-dashboard/books" : "/student-dashboard/books");
   const resolvedBackLabel = backLabel ?? "My Books";
+  const resolvedPdfUrl = pdfUrl ?? `/api/books/${encodeURIComponent(bookId)}/full-pdf`;
 
   const setSafePage =
     useCallback(
@@ -602,9 +610,7 @@ export default function SmartBookReader({
       {/* Book */}
       <main className="min-h-0 flex-1 overflow-hidden">
         <SmartBookViewer
-          pdfUrl={`/api/books/${encodeURIComponent(
-            bookId,
-          )}/full-pdf`}
+          pdfUrl={resolvedPdfUrl}
           initialPage={
             clampToRange(
               initialPage,

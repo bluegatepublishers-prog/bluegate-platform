@@ -52,10 +52,14 @@ type Attempt = {
 
 export default function V2WorksheetLauncherOverlay({
   worksheetId,
+  bookId,
+  releaseVersionId,
   mode,
   onClose,
 }: {
   worksheetId: string;
+  bookId?: string;
+  releaseVersionId?: string;
   mode: V2WorksheetLauncherOverlayMode;
   onClose: () => void;
 }) {
@@ -98,7 +102,7 @@ export default function V2WorksheetLauncherOverlay({
       : fetch("/api/student/worksheets/launcher", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ worksheetId }),
+          body: JSON.stringify({ worksheetId, bookId, releaseVersionId }),
         });
 
     void request

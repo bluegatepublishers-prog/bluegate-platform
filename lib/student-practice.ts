@@ -10,6 +10,10 @@ import { getStudentBook } from "@/lib/student-books";
 import { getPremiumFeatureEntitlementForAuthenticatedUser } from "@/lib/entitlements/features";
 import { canLaunchBookQuestionPractice, getBookQuestionPracticeMode } from "@/lib/normalized-question";
 import { normalizeV2PracticeQuestionType } from '@/lib/v2-assessment-launcher';
+import { resolvePublishedSmartBookContent } from "@/lib/smart-book-release-runtime";
+import { parseStoredSmartBookReleaseManifest } from "@/lib/smart-book-release-manifest";
+import type { SmartBookProtectedQuestion } from "@/lib/smart-book-release-protected";
+import { toBookQuestionSource } from "@/lib/smart-book-release-protected";
 import {
   calculatePracticeResult,
   gradePracticeAnswer,
@@ -165,7 +169,9 @@ export async function startStudentPracticeQuestion(questionId: string) {
 }
 
 export async function startStudentBookQuestionsPractice(input: {
-  exerciseId: string;
+    bookId?: string;
+  releaseVersionId?: string;
+exerciseId: string;
   groupId: string;
   questionType:
     | "MCQ"
@@ -195,6 +201,10 @@ export async function startStudentBookQuestionsPractice(input: {
         .filter(Boolean),
     ),
   ].slice(0, 50);
+
+  if (input.bookId?.trim() && input.releaseVersionId?.trim()) {
+    return startImmutableBookQuestionsPractice({ ...input, bookId: input.bookId.trim(), releaseVersionId: input.releaseVersionId.trim(), requestedIds, questionType });
+  }
 
   const collection =
     await prisma.bookExerciseQuestionGroup.findFirst({
@@ -652,4 +662,86 @@ export async function getStudentPracticeResult(attemptId: string) {
 export function practiceErrorResponse(error: unknown) {
   if (error instanceof PracticeError) return { status: error.status, message: error.message };
   return { status: 400, message: "This practice activity is not available for your account." };
+}
+async function startImmutableBookQuestionsPractice(input: {
+  bookId: string;
+  releaseVersionId: string;
+  exerciseId: string;
+  groupId: string;
+  requestedIds: string[];
+  questionType: ReturnType<typeof normalizeV2PracticeQuestionType>;
+}) {
+  const identity = await requireStudent();
+  const release = await resolvePublishedSmartBookContent({ publisherId: identity.publisher.id, bookId: input.bookId });
+  if (!release || release.releaseVersionId !== input.releaseVersionId) throw new PracticeError("This practice activity is not available.", 404);
+  const exercise = release.protectedPayload.exercises.find((item) => item.sourceId === input.exerciseId && item.bookId === input.bookId);
+  const group = exercise?.groups.find((item) => item.sourceId === input.groupId && item.exerciseId === input.exerciseId && item.active);
+  if (!exercise || !group) throw new PracticeError("This practice activity is not available.", 404);
+  const questions = group.questionIds.map((id) => release.protectedPayload.questions.find((question) => question.sourceId === id)).filter((question): question is SmartBookProtectedQuestion => Boolean(question && question.questionType === input.questionType && question.exerciseId === input.exerciseId && question.exerciseGroupId === input.groupId));
+  const selected = input.requestedIds.length ? questions.filter((question) => input.requestedIds.includes(question.sourceId)) : questions;
+  if (!selected.length || (input.requestedIds.length && selected.length !== input.requestedIds.length)) throw new PracticeError("This practice activity is not available.", 404);
+  const scope = await resolvePracticeScope(input.bookId, exercise.chapterId);
+  if (!scope.entitlement.allowed) throw new PracticeError("This practice activity is not available for your account.", 403);
+  const attempt = await prisma.studentPracticeAttempt.create({
+    data: { studentId: scope.identity.student.id, bookId: input.bookId, chapterId: exercise.chapterId, exerciseId: input.exerciseId, contentReleaseVersionId: release.releaseVersionId, academicYearId: scope.identity.academicYear.id, totalQuestions: selected.length, totalMarks: selected.reduce((sum, question) => sum + question.marks, 0), responses: { create: selected.map((question) => ({ questionId: question.sourceId })) } },
+    select: { id: true },
+  });
+  return { attemptId: attempt.id, resumed: false };
+}
+
+async function loadImmutablePracticeAttempt(attemptId: string) {
+  const identity = await requireStudent();
+  const attempt = await prisma.studentPracticeAttempt.findFirst({ where: { id: attemptId, studentId: identity.student.id, academicYearId: identity.academicYear.id }, select: { id: true, bookId: true, chapterId: true, exerciseId: true, contentReleaseVersionId: true, status: true, startedAt: true, submittedAt: true, totalQuestions: true, attemptedCount: true, correctCount: true, totalMarks: true, marksAwarded: true, scorePercent: true, responses: { select: { id: true, questionId: true, answer: true, correct: true, marksAwarded: true, answeredAt: true } } } });
+  if (!attempt?.contentReleaseVersionId) return null;
+  const scope = await resolvePracticeScope(attempt.bookId, attempt.chapterId);
+  const version = await prisma.contentReleaseVersion.findFirst({ where: { id: attempt.contentReleaseVersionId, publisherId: scope.identity.publisher.id, bookId: attempt.bookId, targetType: "BOOK", targetId: attempt.bookId, lifecycle: "PUBLISHED", release: { publisherId: scope.identity.publisher.id, targetType: "BOOK", targetId: attempt.bookId } }, select: { snapshot: true } });
+  if (!version) throw new PracticeError("This practice activity is not available.", 404);
+  let stored;
+  try { stored = parseStoredSmartBookReleaseManifest(version.snapshot); } catch { throw new PracticeError("This activity is unavailable in this Smart Book release.", 404); }
+  const questions = new Map(stored.protected.questions.map((question) => [question.sourceId, question]));
+  if (attempt.responses.some((response) => !questions.has(response.questionId))) throw new PracticeError("This activity is unavailable in this Smart Book release.", 404);
+  return { identity: scope.identity, attempt, questions, manifest: stored };
+}
+
+function protectedCandidate(question: SmartBookProtectedQuestion): PracticeQuestionCandidate {
+  return { ...toBookQuestionSource(question), approved: true, createdAt: new Date(question.sourceUpdatedAt) } as PracticeQuestionCandidate;
+}
+function getImmutablePracticeAttemptView(immutable: Awaited<ReturnType<typeof loadImmutablePracticeAttempt>>) {
+  if (!immutable) throw new PracticeError("This practice activity is not available.", 404);
+  const chapter = immutable.manifest.hierarchy.find((node) => node.kind === "CHAPTER" && node.sourceId === immutable.attempt.chapterId);
+  return {
+    id: immutable.attempt.id, status: immutable.attempt.status, bookTitle: immutable.manifest.book.title,
+    chapterTitle: chapter?.title ?? "Chapter", chapterNumber: chapter?.number ?? 0,
+    questions: immutable.attempt.responses.map((response, index) => {
+      const protectedQuestion = immutable.questions.get(response.questionId)!;
+      const candidate = protectedCandidate(protectedQuestion);
+      return { ...toSafePracticeQuestion(candidate, index + 1), questionType: normalizePracticeQuestionType(protectedQuestion.questionType), answered: response.answeredAt !== null, studentAnswer: response.answeredAt ? response.answer : null, feedback: response.answeredAt && immutable.attempt.status === PracticeAttemptStatus.SUBMITTED ? { correct: response.correct, correctAnswer: getBookQuestionPracticeMode(protectedQuestion.questionType) === "AUTO_GRADED" ? getPracticeFeedbackAnswer(candidate) : null, explanation: protectedQuestion.explanation } : null };
+    }),
+  };
+}
+
+async function answerImmutablePractice(immutable: NonNullable<Awaited<ReturnType<typeof loadImmutablePracticeAttempt>>>, questionId: string, answer: unknown) {
+  if (immutable.attempt.status !== PracticeAttemptStatus.IN_PROGRESS) throw new PracticeError("We could not save your answer. Please try again.");
+  const protectedQuestion = immutable.questions.get(questionId);
+  const response = immutable.attempt.responses.find((item) => item.questionId === questionId);
+  if (!protectedQuestion || !response || response.answeredAt) throw new PracticeError("We could not save your answer. Please try again.");
+  const grade = gradePracticeAnswer(protectedCandidate(protectedQuestion), answer);
+  if (!grade.ok) throw new PracticeError(grade.message);
+  await prisma.$transaction(async (tx) => {
+    const updated = await tx.studentPracticeResponse.updateMany({ where: { id: response.id, attemptId: immutable.attempt.id, answeredAt: null }, data: { answer: grade.answer as Prisma.InputJsonValue, autoGraded: grade.mode === "AUTO_GRADED", correct: grade.correct, marksAwarded: grade.marksAwarded, answeredAt: new Date() } });
+    if (updated.count !== 1) throw new PracticeError("We could not save your answer. Please try again.");
+    await tx.studentPracticeAttempt.update({ where: { id: immutable.attempt.id }, data: { attemptedCount: { increment: 1 }, correctCount: { increment: grade.correct === true ? 1 : 0 }, marksAwarded: { increment: grade.marksAwarded ?? 0 } } });
+  });
+  return { saved: true };
+}
+
+async function submitImmutablePractice(immutable: NonNullable<Awaited<ReturnType<typeof loadImmutablePracticeAttempt>>>) {
+  if (immutable.attempt.status !== PracticeAttemptStatus.IN_PROGRESS) throw new PracticeError("This practice activity is not available for your account.");
+  if (immutable.attempt.responses.some((response) => !response.answeredAt)) throw new PracticeError("Please answer all questions before submitting.");
+  const result = calculatePracticeResult(immutable.attempt.responses.map((response) => ({ ...response, question: { marks: immutable.questions.get(response.questionId)!.marks } })));
+  await prisma.$transaction(async (tx) => {
+    const updated = await tx.studentPracticeAttempt.updateMany({ where: { id: immutable.attempt.id, studentId: immutable.identity.student.id, status: PracticeAttemptStatus.IN_PROGRESS }, data: { ...result, status: PracticeAttemptStatus.SUBMITTED, submittedAt: new Date() } });
+    if (updated.count !== 1) throw new PracticeError("This practice activity is not available for your account.");
+  });
+  return { attemptId: immutable.attempt.id };
 }

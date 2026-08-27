@@ -14,7 +14,6 @@ import {
 import { normalizeContentDocument, type ContentDocument } from "@/lib/content-document";
 import { isLinkedAssetBlock } from "@/lib/content-document";
 import { isLayoutV2Document, type LayoutV2Frame } from "@/lib/content-layout-v2";
-import { loadPublishedContentDocument, releaseTargetForNode } from "@/lib/content-release";
 import { resolveActivitiesForLinkedAssetDocument } from "@/lib/activity-studio";
 import { resolveWorksheetsForLinkedAssetDocument } from "@/lib/worksheet-studio";
 import {
@@ -28,6 +27,9 @@ import { prisma } from "@/lib/prisma";
 import { getStudentChapterWorkspace } from "@/lib/student-workspaces";
 import { requireBookEntitlement } from "@/lib/entitlements/book";
 import { requireTeacherSubject } from "@/lib/teacher-experience";
+import { resolvePublishedSmartBookContent, type PublishedSmartBookContent } from "@/lib/smart-book-release-runtime";
+import { restrictPublishedBookDocumentToModuleRange } from "@/lib/teaching-plan-policy";
+import { resolveManifestActivities, resolveManifestLinkedAssets, resolveManifestMedia, resolveManifestQuestions, resolveManifestResourceUrls, resolveManifestWorksheets } from "@/lib/smart-book-release-projection";
 
 export type SafeStructuredContentModel = {
   id: string;
@@ -43,6 +45,7 @@ export type SafeStructuredContentModel = {
   sections: Awaited<ReturnType<typeof loadContentSectionDefinitions>>;
   v2ResourceUrls: Record<string, string>;
   hasContent: boolean;
+  immutableRelease: boolean;
 };
 
 export async function loadPublishedModuleStructuredContent(input: {
@@ -51,20 +54,11 @@ export async function loadPublishedModuleStructuredContent(input: {
   moduleId: string;
   mode: ContentRenderMode;
 }) {
-  const moduleNode = await prisma.bookModule.findFirst({
-    where: { id: input.moduleId, bookId: input.bookId, published: true, archived: false },
-    select: { id: true, title: true, content: true },
-  });
-  if (!moduleNode) return null;
-  return buildSafeStructuredContent({
-    publisherId: input.publisherId,
-    bookId: input.bookId,
-    nodeType: "MODULE",
-    nodeId: moduleNode.id,
-    title: moduleNode.title,
-    rawContent: moduleNode.content,
-    mode: input.mode,
-  });
+  const release = await resolvePublishedSmartBookContent({ publisherId: input.publisherId, bookId: input.bookId });
+  if (!release) return null;
+  const moduleNode = release.manifest.hierarchy.find((node) => node.kind === "MODULE" && node.sourceId === input.moduleId);
+  if (!moduleNode?.chapterSourceId) return null;
+  return buildImmutableChapterModuleContent({ release, chapterId: moduleNode.chapterSourceId, moduleId: moduleNode.sourceId, mode: input.mode })[0] ?? null;
 }
 
 export async function loadSmartBookStructuredContent(input: {
@@ -72,51 +66,40 @@ export async function loadSmartBookStructuredContent(input: {
   bookId: string;
   mode: ContentRenderMode;
   requirePublishedRelease?: boolean;
+  publishedContent?: PublishedSmartBookContent | null;
 }) {
   const book = await prisma.book.findFirst({
     where: { id: input.bookId, publisherId: input.publisherId, published: true, archived: false },
-    select: { id: true, title: true, content: true },
+    select: { id: true },
   });
   if (!book) return null;
 
-  const publishedDocument = await loadPublishedContentDocument({
-    publisherId: input.publisherId,
-    bookId: input.bookId,
-    targetType: "BOOK",
-    targetId: input.bookId,
-  });
-  if (!publishedDocument && input.requirePublishedRelease) return null;
-  const rawDocument = publishedDocument ?? normalizeContentDocument(book.content ?? { version: 2, blocks: [] });
-  const [scope, sections] = await Promise.all([
-    getContentNodeScope(input.publisherId, input.bookId, "BOOK", input.bookId),
-    loadContentSectionDefinitions(input.publisherId, input.bookId),
-  ]);
-  const document = filterDocumentForMode(rawDocument, input.mode, sections);
-  const v2ResourceUrls = isLayoutV2Document(document)
-    ? await resolveV2ResourceUrls(document, input.publisherId, input.bookId, input.mode)
-    : {};
-  const activityBlocks = document.blocks
-    .filter(isLinkedAssetBlock)
-    .map((block) => ({ id: block.id, targetType: block.targetType, targetId: block.targetId }));
-  const [linkedAssets, activities, worksheets, media, knowledgeDefinitions] = await Promise.all([
-    resolveLinkedAssetsForDocument(scope, document),
-    resolveActivitiesForLinkedAssetDocument({ publisherId: input.publisherId, bookId: input.bookId, mode: input.mode, blocks: activityBlocks }),
-    resolveWorksheetsForLinkedAssetDocument({ publisherId: input.publisherId, bookId: input.bookId, mode: input.mode, blocks: activityBlocks }),
-    resolveMediaForDocument(scope, document),
-    resolveKnowledgeDefinitionsForDocument(scope, document),
-  ]);
-  return {
-    document,
-    linkedAssets: filterResolvedAssetsForMode(document, linkedAssets, input.mode),
-    activities,
-    worksheets,
-    media: filterResolvedMediaForMode(document, media, input.mode),
-    sections,
-    knowledgeDefinitions: filterResolvedKnowledgeForMode(knowledgeDefinitions, input.mode),
-    v2ResourceUrls,
-  };
+  const release = input.publishedContent === undefined
+    ? await resolvePublishedSmartBookContent({ publisherId: input.publisherId, bookId: input.bookId })
+    : input.publishedContent;
+  if (!release) return null;
+  return buildImmutableSmartBookStructuredContent(release, input.mode);
 }
 
+function buildImmutableSmartBookStructuredContent(
+  release: PublishedSmartBookContent,
+  mode: ContentRenderMode,
+) {
+  const document = filterDocumentForMode(bindImmutableLauncherIdentity(release.document, release.releaseVersionId, release.manifest.identity.bookId), mode, []);
+  return {
+    releaseVersionId: release.releaseVersionId,
+    bookPdfVersionId: release.manifest.pdf.bookPdfVersionId,
+    document,
+    linkedAssets: resolveManifestLinkedAssets(release.manifest, document, mode, release.releaseVersionId),
+    questions: resolveManifestQuestions(release.manifest, mode, release.releaseVersionId),
+    activities: resolveManifestActivities(release.manifest, mode, release.releaseVersionId),
+    worksheets: resolveManifestWorksheets(release.manifest, mode, release.releaseVersionId),
+    media: resolveManifestMedia(release.manifest, document, mode, release.releaseVersionId),
+    sections: [],
+    knowledgeDefinitions: {},
+    v2ResourceUrls: resolveManifestResourceUrls(release.manifest, document, mode, release.releaseVersionId),
+  };
+}
 export async function loadStudentChapterStructuredContent(
   sectionSubjectId: string,
   chapterId: string,
@@ -124,44 +107,17 @@ export async function loadStudentChapterStructuredContent(
 ) {
   const workspace = await getStudentChapterWorkspace(sectionSubjectId, chapterId);
   if (!workspace?.subject.book) return null;
-  const modules = await prisma.bookModule.findMany({
-    where: {
-      bookId: workspace.subject.book.id,
-      chapterId,
-      published: true,
-      archived: false,
-      ...(moduleId?.trim() ? { id: moduleId.trim() } : {}),
-    },
-    select: { id: true, title: true, content: true },
-    orderBy: [{ displayOrder: "asc" }, { id: "asc" }],
-  });
-  const rendered = await Promise.all(
-    modules.map((moduleNode) =>
-      buildSafeStructuredContent({
-        publisherId: workspace.identity.publisher.id,
-        bookId: workspace.subject.book!.id,
-        nodeType: "MODULE",
-        nodeId: moduleNode.id,
-        title: moduleNode.title,
-        rawContent: moduleNode.content,
-        mode: "STUDENT",
-      }),
-    ),
-  );
+  const release = await resolvePublishedSmartBookContent({ publisherId: workspace.identity.publisher.id, bookId: workspace.subject.book.id });
+  if (!release) return null;
+  const rendered = buildImmutableChapterModuleContent({ release, chapterId, moduleId, mode: "STUDENT" });
   return {
     workspace,
-    items: rendered
-      .filter((item) => item.hasContent)
-      .map((item) => ({
-        ...item,
-        linkedAssets: remapStudentLinkedAssets(
-          item.linkedAssets,
-          sectionSubjectId,
-          chapterId,
-        ),
-        worksheets: remapStudentWorksheets(item.worksheets, sectionSubjectId, chapterId),
-        media: remapStudentMedia(item.media),
-      })),
+    items: rendered.map((item) => ({
+      ...item,
+      linkedAssets: remapStudentLinkedAssets(item.linkedAssets, sectionSubjectId, chapterId),
+      worksheets: remapStudentWorksheets(item.worksheets, sectionSubjectId, chapterId),
+      media: remapStudentMedia(item.media),
+    })),
   };
 }
 
@@ -180,111 +136,57 @@ export async function loadTeacherChapterStructuredContent(input: {
     { id: scope.teacher.userId, role: "TEACHER" },
     { bookId, academicYearId: scope.academicYear.id, sectionId: scope.section.id, sectionSubjectId: subject.id },
   );
-  const chapter = await prisma.bookChapter.findFirst({
-    where: {
-      id: input.chapterId,
-      bookId,
-      published: true,
-      archived: false,
-    },
-    select: { id: true, title: true, chapterNumber: true },
-  });
-  if (!chapter) return null;
-  const modules = await prisma.bookModule.findMany({
-    where: {
-      bookId,
-      chapterId: chapter.id,
-      published: true,
-      archived: false,
-      ...(input.moduleId?.trim() ? { id: input.moduleId.trim() } : {}),
-    },
-    select: { id: true, title: true, content: true },
-    orderBy: [{ displayOrder: "asc" }, { id: "asc" }],
-  });
-  const rendered = await Promise.all(
-    modules.map((moduleNode) =>
-      buildSafeStructuredContent({
-        publisherId: scope.publisherId,
-        bookId,
-        nodeType: "MODULE",
-        nodeId: moduleNode.id,
-        title: moduleNode.title,
-        rawContent: moduleNode.content,
-        mode: "TEACHER",
-      }),
-    ),
-  );
+  const release = await resolvePublishedSmartBookContent({ publisherId: scope.publisherId, bookId });
+  if (!release) return null;
+  const chapterNode = release.manifest.hierarchy.find((node) => node.kind === "CHAPTER" && node.sourceId === input.chapterId);
+  if (!chapterNode) return null;
+  const chapter = { id: chapterNode.sourceId, title: chapterNode.title, chapterNumber: chapterNode.number ?? 0 };
   return {
     scope,
     subject,
+    bookId,
     chapter,
-    items: rendered.filter((item) => item.hasContent),
+    items: buildImmutableChapterModuleContent({ release, chapterId: chapter.id, moduleId: input.moduleId, mode: "TEACHER" }),
   };
 }
-async function buildSafeStructuredContent(input: {
-  publisherId: string;
-  bookId: string;
-  nodeType: BookStructureNodeType;
-  nodeId: string;
-  title: string;
-  rawContent: unknown;
+function buildImmutableChapterModuleContent(input: {
+  release: PublishedSmartBookContent;
+  chapterId: string;
+  moduleId?: string | null;
   mode: ContentRenderMode;
-}): Promise<SafeStructuredContentModel> {
-  const releaseTarget = releaseTargetForNode(input.nodeType);
-  const publishedDocument = releaseTarget
-    ? await loadPublishedContentDocument({
-        publisherId: input.publisherId,
-        bookId: input.bookId,
-        targetType: releaseTarget,
-        targetId: input.nodeId,
-      })
-    : null;
-  const rawDocument = publishedDocument ?? normalizeContentDocument({ version: 2, blocks: [] });
-  const [scope, sections] = await Promise.all([
-    getContentNodeScope(input.publisherId, input.bookId, input.nodeType, input.nodeId),
-    loadContentSectionDefinitions(input.publisherId, input.bookId),
-  ]);
-  const document = filterDocumentForMode(rawDocument, input.mode, sections);
-  const v2ResourceUrls = isLayoutV2Document(document)
-    ? await resolveV2ResourceUrls(document, input.publisherId, input.bookId, input.mode)
-    : {};
-  const activityBlocks = document.blocks
-    .filter(isLinkedAssetBlock)
-    .map((block) => ({ id: block.id, targetType: block.targetType, targetId: block.targetId }));
-  const [linkedAssets, activities, worksheets, media, knowledgeDefinitions] = await Promise.all([
-    resolveLinkedAssetsForDocument(scope, document),
-    resolveActivitiesForLinkedAssetDocument({
-      publisherId: input.publisherId,
-      bookId: input.bookId,
+}): SafeStructuredContentModel[] {
+  const chapter = input.release.manifest.hierarchy.find((node) => node.kind === "CHAPTER" && node.sourceId === input.chapterId);
+  if (!chapter) return [];
+  const modules = input.release.manifest.hierarchy
+    .filter((node) => node.kind === "MODULE" && node.chapterSourceId === chapter.sourceId && (!input.moduleId?.trim() || node.sourceId === input.moduleId.trim()))
+    .sort((left, right) => left.displayOrder - right.displayOrder || left.sourceId.localeCompare(right.sourceId));
+  return modules.map((moduleNode) => {
+    const rangedDocument = restrictPublishedBookDocumentToModuleRange(input.release.document, {
+      moduleStartPage: moduleNode.startPage,
+      moduleEndPage: moduleNode.endPage,
+      chapterStartPage: chapter.startPage,
+      chapterEndPage: chapter.endPage,
+    });
+    const document = filterDocumentForMode(bindImmutableLauncherIdentity(rangedDocument ?? input.release.document, input.release.releaseVersionId, input.release.manifest.identity.bookId), input.mode, []);
+    return {
+      id: moduleNode.sourceId,
+      title: moduleNode.title,
+      type: "MODULE",
       mode: input.mode,
-      blocks: activityBlocks,
-    }),
-    resolveWorksheetsForLinkedAssetDocument({
-      publisherId: input.publisherId,
-      bookId: input.bookId,
-      mode: input.mode,
-      blocks: activityBlocks,
-    }),
-    resolveMediaForDocument(scope, document),
-    resolveKnowledgeDefinitionsForDocument(scope, document),
-  ]);
-  return {
-    id: input.nodeId,
-    title: input.title,
-    type: input.nodeType,
-    mode: input.mode,
-    document,
-    linkedAssets: filterResolvedAssetsForMode(document, linkedAssets, input.mode),
-    activities,
-    worksheets,
-    media: filterResolvedMediaForMode(document, media, input.mode),
-    knowledgeDefinitions: filterResolvedKnowledgeForMode(knowledgeDefinitions, input.mode),
-    sections,
-    v2ResourceUrls,
-    hasContent: isLayoutV2Document(document) ? hasRenderableV2Content(document) : documentHasRenderableContent(document),
-  };
+      document,
+      linkedAssets: resolveManifestLinkedAssets(input.release.manifest, document, input.mode, input.release.releaseVersionId),
+      questions: resolveManifestQuestions(input.release.manifest, input.mode, input.release.releaseVersionId),
+      activities: resolveManifestActivities(input.release.manifest, input.mode, input.release.releaseVersionId),
+      worksheets: resolveManifestWorksheets(input.release.manifest, input.mode, input.release.releaseVersionId),
+      media: resolveManifestMedia(input.release.manifest, document, input.mode, input.release.releaseVersionId),
+      knowledgeDefinitions: {},
+      sections: [],
+      v2ResourceUrls: resolveManifestResourceUrls(input.release.manifest, document, input.mode, input.release.releaseVersionId),
+      hasContent: isLayoutV2Document(document) ? hasRenderableV2Content(document) : documentHasRenderableContent(document),
+      immutableRelease: true,
+    };
+  });
 }
-
 function hasRenderableV2Content(document: ContentDocument) {
   if (document.pageLayout?.pages.some((page) => page.background?.resourceId || page.frames.some(hasRenderableV2Frame))) return true;
   return false;
@@ -384,18 +286,8 @@ function remapStudentMedia(
     }
     next[blockId] = {
       ...item,
-      route: item.route
-        ? {
-            href: `/api/student/resources/${encodeURIComponent(item.targetId)}/open`,
-            openMode: "route",
-          }
-        : null,
-      posterRoute: item.offline.posterResourceId
-        ? {
-            href: `/api/student/resources/${encodeURIComponent(item.offline.posterResourceId)}/open`,
-            openMode: "route",
-          }
-        : item.posterRoute,
+      route: item.route,
+      posterRoute: item.posterRoute,
     };
   }
   return next;
@@ -426,4 +318,10 @@ function remapStudentWorksheets(
     };
   }
   return next;
+}
+
+
+function bindImmutableLauncherIdentity(document: ContentDocument, releaseVersionId: string, bookId: string): ContentDocument {
+  const bindFrame = (frame: LayoutV2Frame): LayoutV2Frame => ({ ...frame, payload: (frame.type === "ASSESSMENT_LAUNCHER" || frame.type === "WORKSHEET") && frame.payload && typeof frame.payload === "object" && !Array.isArray(frame.payload) ? { ...(frame.payload as Record<string, unknown>), bookId, releaseVersionId } : frame.payload, children: frame.children?.map(bindFrame) });
+  return { ...document, pageLayout: document.pageLayout ? { ...document.pageLayout, pages: document.pageLayout.pages.map((page) => ({ ...page, frames: page.frames.map(bindFrame) })) } : document.pageLayout };
 }

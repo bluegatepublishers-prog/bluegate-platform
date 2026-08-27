@@ -1,6 +1,8 @@
 import type { LayoutV2Frame } from "@/lib/content-layout-v2";
 
 export type V2WorksheetLauncherPayload = {
+  bookId?: string;
+  releaseVersionId?: string;
   kind: "WORKSHEET_LAUNCHER";
   version: 1;
   worksheetId: string;
@@ -55,6 +57,8 @@ export function getV2WorksheetLauncherPayload(
     kind: "WORKSHEET_LAUNCHER",
     version: 1,
     worksheetId,
+    ...(typeof value.bookId === "string" && value.bookId.trim() ? { bookId: value.bookId.trim() } : {}),
+    ...(typeof value.releaseVersionId === "string" && value.releaseVersionId.trim() ? { releaseVersionId: value.releaseVersionId.trim() } : {}),
     display: {
       label:
         typeof display.label === "string" && display.label.trim()

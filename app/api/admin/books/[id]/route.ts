@@ -12,6 +12,7 @@ import {
 import { validatePublisherAdminBookRelations } from "@/lib/publisher-admin-data";
 import { isPublisherStorageValue } from "@/lib/storage/upload-policy";
 import { inspectPublisherBookPdf } from "@/lib/book-pdf";
+import { ensureBookPdfVersion } from "@/lib/book-pdf-version";
 import { publisherAdminAuditActor, recordTrustedDeniedAudit, recordTrustedFailureAudit, writeSecurityAuditEvent } from "@/lib/security-audit";
 
 function generateSlug(title: string) {
@@ -156,6 +157,9 @@ export async function PUT(
         },
         include: { class: true, subject: true, series: true, boardRecord: true },
       });
+      if (fullBookChanged && form.fullBookPdf && fullBookInspection) {
+        await ensureBookPdfVersion(tx, { bookId: id, objectKey: form.fullBookPdf, pageCount: fullBookInspection.pageCount, activate: true });
+      }
       const changedFiles = [
         previous.coverImage !== updated.coverImage,
         previous.samplePdf !== updated.samplePdf,
@@ -181,12 +185,15 @@ export async function PUT(
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
     if (!result) return publisherAdminNotFound();
+    const retainedPdfVersions = result.previous.fullBookPdf && result.previous.fullBookPdf !== result.updated.fullBookPdf
+      ? await prisma.bookPdfVersion.findMany({ where: { bookId: id, objectKey: result.previous.fullBookPdf }, select: { objectKey: true } })
+      : [];
     await removeManagedBookFiles([
       result.previous.coverImage !== result.updated.coverImage ? result.previous.coverImage : null,
       result.previous.samplePdf !== result.updated.samplePdf ? result.previous.samplePdf : null,
       result.previous.publicPreviewPdf !== result.updated.publicPreviewPdf ? result.previous.publicPreviewPdf : null,
       result.previous.fullBookPdf !== result.updated.fullBookPdf ? result.previous.fullBookPdf : null,
-    ]);
+    ], { publisherId: access.actor.publisherId, protectedObjectKeys: retainedPdfVersions.map((version) => version.objectKey) });
     revalidatePath("/admin/books");
     revalidatePath("/books");
     revalidatePath("/");

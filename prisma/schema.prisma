@@ -2327,6 +2327,7 @@ model StudentWorksheetAttempt {
   academicYearId String
   publisherId    String
   bookId         String
+  contentReleaseVersionId String?
   status         StudentWorksheetAttemptStatus @default(IN_PROGRESS)
   startedAt      DateTime                      @default(now())
   submittedAt    DateTime?
@@ -2342,12 +2343,14 @@ model StudentWorksheetAttempt {
   academicYear   AcademicYear                  @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
   publisher      Publisher                     @relation(fields: [publisherId], references: [id], onDelete: Restrict)
   book           Book                          @relation(fields: [bookId], references: [id], onDelete: Restrict)
+  contentReleaseVersion ContentReleaseVersion? @relation(fields: [contentReleaseVersionId], references: [id], onDelete: Restrict)
   responses      StudentWorksheetResponse[]
 
   @@index([studentId, academicYearId, status])
   @@index([worksheetId, status])
   @@index([academicYearId, submittedAt])
   @@index([studentId, submittedAt])
+  @@index([contentReleaseVersionId])
 }
 
 model StudentWorksheetResponse {
@@ -2474,6 +2477,8 @@ model Assessment {
   sectionId               String
   sectionSubjectId        String
   bookId                  String
+  contentReleaseVersionId String?
+  publisherAssessmentId   String?
   chapterId               String?
   teachingPeriodId        String?
   createdById             String?
@@ -2493,6 +2498,8 @@ model Assessment {
   section                 ClassSection             @relation(fields: [sectionId], references: [id], onDelete: Restrict)
   sectionSubject          SectionSubject           @relation(fields: [sectionSubjectId], references: [id], onDelete: Restrict)
   book                    Book                     @relation(fields: [bookId], references: [id], onDelete: Restrict)
+  contentReleaseVersion   ContentReleaseVersion?   @relation(fields: [contentReleaseVersionId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  publisherAssessment     PublisherAssessment?     @relation(fields: [publisherAssessmentId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   chapter                 BookChapter?             @relation(fields: [chapterId], references: [id], onDelete: Restrict)
   teachingPeriod          TeachingPeriod?          @relation(fields: [teachingPeriodId], references: [id], onDelete: SetNull)
   createdBy               User?                    @relation("AssessmentCreator", fields: [createdById], references: [id], onDelete: SetNull)
@@ -2509,6 +2516,8 @@ model Assessment {
   @@index([bookId, chapterId, status])
   @@index([teachingPeriodId])
   @@index([opensAt, dueAt])
+  @@index([contentReleaseVersionId, publisherAssessmentId, schoolId, academicYearId, sectionId, sectionSubjectId], map: "Assessment_release_assessment_scope_idx")
+  @@index([publisherAssessmentId])
 }
 
 model AssessmentSettings {
@@ -2859,6 +2868,7 @@ model PublisherAssessment {
   chapterScopes      PublisherAssessmentChapterScope[]
   sectionInstructions PublisherAssessmentSectionInstruction[]
   items              PublisherAssessmentItem[]
+  instantiatedAssessments Assessment[]
 
   @@index([publisherId, bookId, status, kind])
   @@index([bookId, chapterId, status])
@@ -2997,6 +3007,8 @@ model ContentReleaseVersion {
   book              Book?                    @relation(fields: [bookId], references: [id], onDelete: Restrict)
   release           ContentRelease           @relation(fields: [releaseId], references: [id], onDelete: Cascade)
   practiceAttempts  StudentPracticeAttempt[] @relation("StudentPracticeAttemptReleaseVersion")
+  worksheetAttempts StudentWorksheetAttempt[]
+  assessmentOrigins Assessment[]
 
   @@unique([releaseId, versionNumber])
   @@index([publisherId, bookId, targetType])

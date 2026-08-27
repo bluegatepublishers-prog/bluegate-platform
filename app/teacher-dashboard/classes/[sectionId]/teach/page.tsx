@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import SmartBookReader from "@/components/books/SmartBookReader";
+import { V2PublisherAssessmentInstantiationProvider } from "@/components/content/v2/V2PublisherAssessmentInstantiationContext";
 import TeachModeClassTools from "@/components/teacher/TeachModeClassTools";
 import TeachModeShell from "@/components/teacher/TeachModeShell";
 import { loadTeacherSmartBookRuntime } from "@/lib/teacher-smart-book-runtime";
@@ -36,28 +37,32 @@ export default async function TeacherTeachPage({
   const occurrence = period ? data.occurrences.find((item) => item.period?.id === period.id) : null
   const requestedPage = Number(query.page);
   const initialPage = period?.pageRefs[0]?.displayPageNumber ?? (Number.isInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1);
+  const teachReturnHref = "/teacher-dashboard/classes/" + sectionId + "/teach?subject=" + encodeURIComponent(data.sectionSubjectId) + "&bookId=" + encodeURIComponent(book.id) + (period ? "&periodId=" + encodeURIComponent(period.id) : "") + "&page=" + initialPage;
 
   return (
     <TeachModeShell backHref={backHref} subjectLabel={data.subjectName} initialPage={initialPage}>
       {period ? <TeachModeClassTools period={period} sectionId={sectionId} sectionSubjectId={data.sectionSubjectId} bookId={book.id} classLabel={data.className + "-" + data.sectionName} subjectName={data.subjectName} periodLabel={occurrence?.entry.periodSlot.label ?? "Teaching period"} timeLabel={occurrence ? formatPeriodTime(occurrence.entry.periodSlot.startMinute, occurrence.entry.periodSlot.endMinute) : "Time unavailable"} dateLabel={period.plannedDate ? new Date(period.plannedDate).toLocaleDateString("en-IN") : "Date unavailable"} bookTitle={book.title} chapterTitle={period.chapterTitle} persistedPage={initialPage} returnHref={"/teacher-dashboard/classes/" + sectionId + "/teach?subject=" + encodeURIComponent(data.sectionSubjectId) + "&bookId=" + encodeURIComponent(book.id) + "&periodId=" + encodeURIComponent(period.id) + "&page=" + initialPage} /> : null}
-      <SmartBookReader
-        role="TEACHER"
-        bookId={book.id}
-        title={book.title}
-        initialPage={initialPage}
-        contents={contents}
-        backHref={backHref}
-        showBackLink={false}
-        teacherResources={book.teacherResources}
-        document={content?.document}
-        linkedAssets={content?.linkedAssets}
-        activities={content?.activities}
-        worksheets={content?.worksheets}
-        media={content?.media}
-        sections={content?.sections}
-        knowledgeDefinitions={content?.knowledgeDefinitions}
-        resourceUrls={content?.v2ResourceUrls}
-      />
+      <V2PublisherAssessmentInstantiationProvider value={{ sectionId, sectionSubjectId: data.sectionSubjectId, bookId: book.id, teachingPeriodId: period?.id ?? null, returnHref: teachReturnHref }}>
+        <SmartBookReader
+          role="TEACHER"
+          bookId={book.id}
+          title={book.title}
+          initialPage={initialPage}
+          contents={contents}
+          backHref={backHref}
+          showBackLink={false}
+          teacherResources={book.teacherResources}
+          immutableRelease={Boolean(content?.releaseVersionId)}
+          document={content?.document}
+          linkedAssets={content?.linkedAssets}
+          activities={content?.activities}
+          worksheets={content?.worksheets}
+          media={content?.media}
+          sections={content?.sections}
+          knowledgeDefinitions={content?.knowledgeDefinitions}
+          resourceUrls={content?.v2ResourceUrls}
+        />
+      </V2PublisherAssessmentInstantiationProvider>
     </TeachModeShell>
   );
 }

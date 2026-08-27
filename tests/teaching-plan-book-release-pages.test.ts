@@ -85,34 +85,25 @@ test("a module without a usable page range exposes no BOOK pages", () => {
   });
   assert.deepEqual(filtered?.pageLayout?.pages, []);
 });
-
-test("teacher discovery uses one published BOOK read and never requires module releases", () => {
+test("teacher discovery uses one published V2 BOOK read and never requires module releases", () => {
   const loader = service.slice(service.indexOf("async function loadModuleDocuments"), service.indexOf("function normalizePageTargets"));
-  assert.match(loader, /targetType: "BOOK"/);
+  assert.match(loader, /resolvePublishedSmartBookContent/);
   assert.doesNotMatch(loader, /targetType: "MODULE"/);
-  assert.equal((loader.match(/loadPublishedContentDocument/g) ?? []).length, 1);
-  assert.doesNotMatch(loader, /rows\.map\(async/);
-  assert.match(loader, /published: true/);
-  assert.match(loader, /approved: true/);
-  assert.match(loader, /archived: false/);
-  assert.match(loader, /chapter: \{ bookId: context\.book\.id/);
-  assert.match(loader, /startPage: true/);
-  assert.match(loader, /endPage: true/);
+  assert.equal((loader.match(/resolvePublishedSmartBookContent/g) ?? []).length, 1);
+  assert.doesNotMatch(loader, /bookModule\.findMany|bookChapter\.findMany|rows\.map\(async/);
+  assert.match(loader, /manifest/);
+  assert.match(loader, /restrictPublishedBookDocumentToModuleRange/);
 });
-
 test("composer hierarchy validation rejects unpublished, unapproved, archived, or wrong-book nodes", () => {
   assert.match(service, /where: \{ id, bookId: context\.book\.id, published: true, approved: true, archived: false \}/);
   assert.match(service, /chapter: \{ bookId: context\.book\.id, published: true, approved: true, archived: false \}/);
   assert.match(service, /bookId: context\.book\.id/);
 });
-
 test("missing BOOK release is not replaced by mutable draft content for teacher reads", () => {
-  assert.match(delivery, /requirePublishedRelease\?: boolean/);
-  assert.match(delivery, /if \(!publishedDocument && input\.requirePublishedRelease\) return null/);
-  assert.match(service, /requirePublishedRelease: true/);
-  assert.match(readFileSync("lib/teacher-smart-book-runtime.ts", "utf8"), /requirePublishedRelease: true/);
+  assert.match(delivery, /resolvePublishedSmartBookContent/);
+  assert.doesNotMatch(delivery, /normalizeContentDocument\(book\.content/);
+  assert.match(readFileSync("lib/teacher-smart-book-runtime.ts", "utf8"), /resolvePublishedSmartBookContent/);
 });
-
 test("persisted page refs retain pageId and Teach Mode uses the saved absolute page", () => {
   assert.match(service, /pageId: candidate\.page\.id/);
   assert.match(service, /teachingPeriodPageRef\.createMany/);

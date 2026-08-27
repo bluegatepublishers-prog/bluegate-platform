@@ -20,9 +20,9 @@ import type {
   NarrationSegment,
 } from "@/lib/content-narration";
 
-import StructuredContentRenderer from "@/components/content/StructuredContentRenderer";
-
 import V2FrameContent from "@/components/content/v2/V2FrameContent";
+
+import StructuredContentRenderer from "@/components/content/StructuredContentRenderer";
 
 import type {
   ContentRenderMode,
@@ -128,6 +128,7 @@ export default function V2ContentDocumentRenderer({
   assessmentPreview = false,
   pageNumber,
   overlayOnly = false,
+  immutableRelease = false,
 }: {
   document:
     ContentDocument;
@@ -198,40 +199,11 @@ export default function V2ContentDocumentRenderer({
 
   overlayOnly?:
     boolean;
+
+  immutableRelease?:
+    boolean;
 }) {
-  if (
-    getContentLayoutVersion(
-      document,
-    ) !== 2
-  ) {
-    return (
-      <StructuredContentRenderer
-        document={
-          document
-        }
-        mode={mode}
-        className={
-          className
-        }
-        linkedAssets={
-          linkedAssets
-        }
-        activities={
-          activities
-        }
-        worksheets={
-          worksheets
-        }
-        media={media}
-        sectionDefinitions={
-          sectionDefinitions
-        }
-        knowledgeDefinitions={
-          knowledgeDefinitions
-        }
-      />
-    );
-  }
+  if (getContentLayoutVersion(document) !== 2) return null;
 
   return (
     <V2DeliveryDocument
@@ -279,6 +251,7 @@ export default function V2ContentDocumentRenderer({
       assessmentPreview={
         assessmentPreview
       }
+      immutableRelease={immutableRelease}
       pageNumber={
         pageNumber
       }
@@ -306,6 +279,7 @@ function V2DeliveryDocument({
   studentWorkHighlights,
   pageNumberOffset,
   assessmentPreview,
+  immutableRelease,
   pageNumber,
   overlayOnly,
 }: {
@@ -371,6 +345,9 @@ function V2DeliveryDocument({
     number;
 
   assessmentPreview:
+    boolean;
+
+  immutableRelease:
     boolean;
 
   pageNumber?:
@@ -521,6 +498,7 @@ function V2DeliveryDocument({
             assessmentPreview={
               assessmentPreview
             }
+            immutableRelease={immutableRelease}
             overlayOnly={
               overlayOnly
             }
@@ -551,6 +529,7 @@ function V2DeliveryPage({
   studentWorkPageActions,
   studentWorkHighlights,
   assessmentPreview,
+  immutableRelease,
   overlayOnly,
 }: {
   page:
@@ -595,6 +574,9 @@ function V2DeliveryPage({
     StudentWorkHighlightTarget[];
 
   assessmentPreview:
+    boolean;
+
+  immutableRelease:
     boolean;
 
   overlayOnly:
@@ -754,6 +736,7 @@ function V2DeliveryPage({
                 assessmentPreview={
                   assessmentPreview
                 }
+                immutableRelease={immutableRelease}
               />
             ),
           )}
@@ -930,6 +913,7 @@ function V2DeliveryPage({
                   assessmentPreview={
                     assessmentPreview
                   }
+                  immutableRelease={immutableRelease}
                 />
               ),
             )}
@@ -956,6 +940,7 @@ function V2DeliveryFrame({
   studentWorkOverlay,
   studentWorkHighlights,
   assessmentPreview,
+  immutableRelease,
 }: {
   frame:
     LayoutV2Frame;
@@ -1011,6 +996,9 @@ function V2DeliveryFrame({
     StudentWorkHighlightTarget[];
 
   assessmentPreview:
+    boolean;
+
+  immutableRelease:
     boolean;
 
   activeSegment?:
@@ -1245,7 +1233,7 @@ function V2DeliveryFrame({
                 ? "PREVIEW"
                 : "DELIVERY"
             }
-            deliveryMode={
+        deliveryMode={
               mode ===
               "TEACHER"
                 ? "TEACHER"
@@ -1301,6 +1289,7 @@ function V2DeliveryFrame({
                 assessmentPreview={
                   assessmentPreview
                 }
+                immutableRelease={immutableRelease}
               />
             )}
           />
@@ -1490,6 +1479,7 @@ function V2DeliveryFrame({
             assessmentPreview={
               assessmentPreview
             }
+            immutableRelease={immutableRelease}
           />
         )}
       />

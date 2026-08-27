@@ -8,6 +8,7 @@ import { validatePublisherAdminBookRelations } from "@/lib/publisher-admin-data"
 import { parseBookFormData, toBookPersistenceData } from "@/lib/book-form-data";
 import { isPublisherStorageValue } from "@/lib/storage/upload-policy";
 import { inspectPublisherBookPdf } from "@/lib/book-pdf";
+import { ensureBookPdfVersion } from "@/lib/book-pdf-version";
 import { publisherAdminAuditActor, recordTrustedFailureAudit, writeSecurityAuditEvent } from "@/lib/security-audit";
 
 function generateSlug(title: string) {
@@ -69,6 +70,14 @@ export async function POST(request: NextRequest) {
         data: { ...toBookPersistenceData(form), ...(fullBookInspection ? { pages: fullBookInspection.pageCount } : {}), board: selectedBoard?.name ?? null, slug, publisherId: access.actor.publisherId },
         include: { class: true, subject: true, series: true, boardRecord: true },
       });
+      if (fullBookInspection && form.fullBookPdf) {
+        await ensureBookPdfVersion(tx, {
+          bookId: created.id,
+          objectKey: form.fullBookPdf,
+          pageCount: fullBookInspection.pageCount,
+          activate: true,
+        });
+      }
       await writeSecurityAuditEvent(tx, {
         actor: publisherAdminAuditActor(access.actor), action: "publisher.book.create",
         targetType: "Book", targetId: created.id, outcome: SecurityAuditOutcome.SUCCESS,

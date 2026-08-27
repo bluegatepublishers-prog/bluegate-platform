@@ -6,7 +6,7 @@ const read = (path: string) => readFileSync(path, "utf8");
 
 const sidebar = read("components/admin/AdminSidebar.tsx");
 const route = read("app/admin/qr/page.tsx");
-const ribbon = read("components/admin/books/editor/WordRibbon.tsx");
+const ribbon = read("components/admin/books/editor/V2DocumentWorkspace.tsx");
 const manuscriptEditor = read("components/admin/books/ContentManuscriptEditor.tsx");
 const contentPage = read("app/admin/books/[id]/content/page.tsx");
 const tree = read("lib/content-studio-tree.ts");

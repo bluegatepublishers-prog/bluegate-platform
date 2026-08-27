@@ -12,6 +12,8 @@ import { canLaunchBookQuestionPractice } from "@/lib/normalized-question";
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as {
+      bookId?: unknown;
+      releaseVersionId?: unknown;
       exerciseId?: unknown;
       groupId?: unknown;
       questionType?: unknown;
@@ -45,6 +47,8 @@ export async function POST(request: Request) {
 
     const result =
       await startStudentBookQuestionsPractice({
+        bookId: typeof body.bookId === "string" ? body.bookId : undefined,
+        releaseVersionId: typeof body.releaseVersionId === "string" ? body.releaseVersionId : undefined,
         exerciseId: body.exerciseId,
         groupId: body.groupId,
         questionType: body.questionType as

@@ -17,6 +17,8 @@ export type V2AssessmentLauncherTarget = {
 };
 
 export type V2QuestionAssessmentLauncherPayload = {
+  bookId?: string;
+  releaseVersionId?: string;
   kind: "assessment-launcher";
   launcherType: "question";
   target: V2AssessmentLauncherTarget & { questionType: V2PracticeQuestionType };
@@ -24,6 +26,8 @@ export type V2QuestionAssessmentLauncherPayload = {
 };
 
 export type V2PublisherAssessmentLauncherPayload = {
+  bookId?: string;
+  releaseVersionId?: string;
   kind: "assessment-launcher";
   launcherType: "publisher-assessment";
   version: 1;
@@ -98,6 +102,8 @@ export function getV2AssessmentLauncherPayload(
       launcherType: "publisher-assessment",
       version: 1,
       assessmentId,
+    ...(typeof value.bookId === "string" && value.bookId.trim() ? { bookId: value.bookId.trim() } : {}),
+    ...(typeof value.releaseVersionId === "string" && value.releaseVersionId.trim() ? { releaseVersionId: value.releaseVersionId.trim() } : {}),
       display: { label: typeof display.label === "string" && display.label.trim() ? display.label.trim() : "ASSESSMENT" },
     };
   }
@@ -118,6 +124,9 @@ export function getV2AssessmentLauncherPayload(
   return {
     kind: "assessment-launcher",
     launcherType: "question",
+
+    ...(typeof value.bookId === "string" && value.bookId.trim() ? { bookId: value.bookId.trim() } : {}),
+    ...(typeof value.releaseVersionId === "string" && value.releaseVersionId.trim() ? { releaseVersionId: value.releaseVersionId.trim() } : {}),
     target: { exerciseId, groupId, questionType, ...(questionIds.length ? { questionIds } : {}) },
     display: { label: typeof display.label === "string" && display.label.trim() ? display.label.trim() : LABELS[questionType] },
   };

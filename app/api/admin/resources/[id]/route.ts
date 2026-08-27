@@ -42,23 +42,24 @@ function readNullableId(
   return trimToNull(payload[key]);
 }
 
-async function removeIfUnreferencedFileUrl(resourceId: string, fileUrl: string | null) {
+async function removeIfUnreferencedFileUrl(resourceId: string, fileUrl: string | null, publisherId: string) {
   if (!fileUrl) return;
   const count = await prisma.resource.count({
     where: { fileUrl, id: { not: resourceId } },
   });
-  if (count === 0) await removeManagedResourceFile(fileUrl);
+  if (count === 0) await removeManagedResourceFile(fileUrl, { publisherId });
 }
 
 async function removeIfUnreferencedThumbnail(
   resourceId: string,
   thumbnail: string | null,
+  publisherId: string,
 ) {
   if (!thumbnail) return;
   const count = await prisma.resource.count({
     where: { thumbnail, id: { not: resourceId } },
   });
-  if (count === 0) await removeManagedResourceFile(thumbnail);
+  if (count === 0) await removeManagedResourceFile(thumbnail, { publisherId });
 }
 
 export async function PUT(
@@ -276,10 +277,10 @@ export async function PUT(
     if (!resource) return publisherAdminNotFound();
 
     if (newFileUploaded) {
-      await removeIfUnreferencedFileUrl(resource.id, existing.fileUrl);
+      await removeIfUnreferencedFileUrl(resource.id, existing.fileUrl, actor.publisherId);
     }
     if (newThumbnailUploaded) {
-      await removeIfUnreferencedThumbnail(resource.id, existing.thumbnail);
+      await removeIfUnreferencedThumbnail(resource.id, existing.thumbnail, actor.publisherId);
     }
 
     return NextResponse.json(toResourceJson(resource));

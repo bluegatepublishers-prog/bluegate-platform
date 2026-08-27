@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 
 import V2ContentDocumentRenderer from "@/components/content/V2ContentDocumentRenderer";
 import V2NarrationProvider from "@/components/content/V2NarrationProvider";
+import { V2PublisherAssessmentInstantiationProvider } from "@/components/content/v2/V2PublisherAssessmentInstantiationContext";
 import { buildV2NarrationManifest, mergeV2NarrationManifests } from "@/lib/content-narration";
 import { loadTeacherChapterStructuredContent } from "@/lib/content-delivery";
 
@@ -44,8 +45,9 @@ export default async function TeacherStructuredChapterPage({
         </header>
 
         {data.items.length ? (
-          <V2NarrationProvider manifest={narrationManifest} audioUrls={narrationAudioUrls}>
-            <section className="space-y-6">
+          <V2PublisherAssessmentInstantiationProvider value={{ sectionId, sectionSubjectId: data.subject.id, bookId: data.bookId }}>
+            <V2NarrationProvider manifest={narrationManifest} audioUrls={narrationAudioUrls}>
+              <section className="space-y-6">
               {data.items.map((item) => (
                 <article key={item.id} className="rounded-[2rem] bg-white p-6 shadow-sm ring-1 ring-slate-200">
                   <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">{item.type}</p>
@@ -61,12 +63,14 @@ export default async function TeacherStructuredChapterPage({
                       sectionDefinitions={item.sections}
                       knowledgeDefinitions={item.knowledgeDefinitions}
                       resourceUrls={item.v2ResourceUrls}
+                      immutableRelease={item.immutableRelease}
                     />
                   </div>
                 </article>
               ))}
-            </section>
-          </V2NarrationProvider>
+              </section>
+            </V2NarrationProvider>
+          </V2PublisherAssessmentInstantiationProvider>
         ) : (
           <section className="rounded-3xl bg-white p-8 text-slate-600 shadow-sm ring-1 ring-slate-200">Structured module content is not available yet.</section>
         )}

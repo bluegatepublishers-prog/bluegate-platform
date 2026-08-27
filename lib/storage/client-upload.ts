@@ -71,6 +71,7 @@ export async function uploadFileToR2(input: {
     uploadUrl: string;
     objectKey: string;
     requiredHeaders: Record<string, string>;
+    uploadToken: string;
   }>(initResponse, "UPLOAD_INIT_FAILED", failurePrefix);
   onProgress?.(20);
 
@@ -83,6 +84,7 @@ export async function uploadFileToR2(input: {
         "X-Upload-Object-Key": initialized.objectKey,
         "X-Upload-File-Name": encodeURIComponent(file.name),
         ...(targetId ? { "X-Upload-Target-Id": targetId } : {}),
+        "X-Upload-Intent": initialized.uploadToken,
       },
       body: file,
       signal,

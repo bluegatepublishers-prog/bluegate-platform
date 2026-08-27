@@ -2,7 +2,9 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import Link from "next/link";
 import { useV2OverlayPortalTarget } from "@/components/content/v2/V2OverlayPortalContext";
+import type { V2PublisherAssessmentInstantiationContextValue } from "@/components/content/v2/V2PublisherAssessmentInstantiationContext";
 
 import { InteractiveQuestionRenderer } from "@/components/questions/InteractiveQuestionRenderer";
 import type { InteractiveQuestion } from "@/lib/normalized-question";
@@ -24,10 +26,12 @@ type PreviewAssessment = {
 export default function V2PublisherAssessmentLauncherOverlay({
   assessmentId,
   mode,
+  teacherContext,
   onClose,
 }: {
   assessmentId: string;
-  mode: "PREVIEW" | "STUDENT";
+  mode: "PREVIEW" | "STUDENT" | "TEACHER";
+  teacherContext?: V2PublisherAssessmentInstantiationContextValue | null;
   onClose: () => void;
 }) {
   const portalTarget = useV2OverlayPortalTarget();
@@ -36,6 +40,9 @@ export default function V2PublisherAssessmentLauncherOverlay({
   const [assessment, setAssessment] = useState<PreviewAssessment | null>(null);
   const [loading, setLoading] = useState(mode === "PREVIEW");
   const [message, setMessage] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [createdAssessmentId, setCreatedAssessmentId] = useState("");
+  const [createdAssessmentStatus, setCreatedAssessmentStatus] = useState("");
 
   useEffect(() => {
     const previousOverflow = globalThis.document.body.style.overflow;
@@ -65,16 +72,56 @@ export default function V2PublisherAssessmentLauncherOverlay({
     return () => { cancelled = true; };
   }, [assessmentId, mode]);
 
+  async function createDraft() {
+    if (!teacherContext || creating) return;
+    setCreating(true);
+    setMessage("");
+    try {
+      const response = await fetch("/api/teacher/smart-book/publisher-assessments/instantiate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sectionId: teacherContext.sectionId,
+          sectionSubjectId: teacherContext.sectionSubjectId,
+          bookId: teacherContext.bookId,
+          publisherAssessmentId: assessmentId,
+          teachingPeriodId: teacherContext.teachingPeriodId ?? null,
+        }),
+      });
+      const body = await response.json() as { ok?: boolean; assessmentId?: string; status?: string; message?: string };
+      if (!response.ok || !body.ok || !body.assessmentId) throw new Error();
+      setCreatedAssessmentId(body.assessmentId);
+      setCreatedAssessmentStatus(body.status ?? "");
+    } catch {
+      setMessage("This assessment is unavailable in this Smart Book release.");
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  const assessmentHref = createdAssessmentId && teacherContext
+    ? "/teacher-dashboard/classes/" + encodeURIComponent(teacherContext.sectionId) + "/assessments/" + encodeURIComponent(createdAssessmentId) + "?subject=" + encodeURIComponent(teacherContext.sectionSubjectId) + (teacherContext.returnHref ? "&returnTo=" + encodeURIComponent(teacherContext.returnHref) : "")
+    : "";
+
   if (typeof globalThis.document === "undefined" || !portalTarget) return null;
   return createPortal(
     <div data-v2-publisher-assessment-overlay role="presentation" className="pointer-events-auto fixed inset-0 z-[130] flex items-center justify-center bg-slate-950/70 p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
       <section role="dialog" aria-modal="true" aria-labelledby={titleId} className="w-full max-w-3xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
         <header className="flex items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-5 py-4">
-          <div><p className="text-xs font-bold uppercase tracking-wide text-violet-700">{mode === "PREVIEW" ? "Publisher Preview" : "Assessment"}</p><h2 id={titleId} className="text-lg font-bold text-slate-950">{assessment?.heading ?? "ASSESSMENT"}</h2></div>
+          <div><p className="text-xs font-bold uppercase tracking-wide text-violet-700">{mode === "PREVIEW" ? "Publisher Preview" : mode === "TEACHER" ? "Create Assessment" : "Assessment"}</p><h2 id={titleId} className="text-lg font-bold text-slate-950">{assessment?.heading ?? "ASSESSMENT"}</h2></div>
           <button ref={closeRef} type="button" aria-label="Close assessment" onClick={onClose} className="rounded-lg px-3 py-1 text-xl font-bold leading-none text-slate-600 hover:bg-slate-200">x</button>
         </header>
         <div className="max-h-[75vh] space-y-5 overflow-y-auto p-5">
           {mode === "STUDENT" ? <p className="rounded-xl bg-slate-50 p-5 text-sm text-slate-700">Publisher assessment delivery is coming next. No student attempt has been created.</p> : null}
+          {mode === "TEACHER" ? <section className="rounded-xl bg-slate-50 p-5 text-sm text-slate-700">
+            {createdAssessmentId ? <>
+              <p className="font-semibold text-emerald-800">{createdAssessmentStatus === "DRAFT" ? "The immutable released assessment is ready as a draft." : "This immutable released assessment already has a canonical class assessment."}</p>
+              <Link href={assessmentHref} className="mt-4 inline-flex rounded-lg bg-violet-700 px-4 py-2 font-bold text-white">Review assessment in Question Builder</Link>
+            </> : <>
+              <p>Create a canonical draft from this exact published Smart Book release. You can review it before publishing to Students.</p>
+              <button type="button" disabled={!teacherContext || creating} onClick={() => void createDraft()} className="mt-4 rounded-lg bg-violet-700 px-4 py-2 font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">{creating ? "Creating..." : "Create assessment draft"}</button>
+            </>}
+          </section> : null}
           {loading ? <p className="rounded-xl bg-slate-50 p-5 text-sm text-slate-500">Loading assessment...</p> : null}
           {message ? <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm font-semibold text-rose-800">{message}</p> : null}
           {mode === "PREVIEW" && assessment ? <>

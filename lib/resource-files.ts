@@ -1,9 +1,11 @@
 import "server-only";
 import { deleteFile, deleteStoredObject, isManagedFileUrl } from "@/lib/storage";
 import { normalizeAndValidateObjectKey } from "@/lib/storage/object-key";
-export async function removeManagedResourceFile(url: string | null | undefined) {
+import { isObjectKeyProtectedByRelease } from "@/lib/release-asset-retention";
+export async function removeManagedResourceFile(url: string | null | undefined, context?: { publisherId?: string }) {
   if (!url) return;
   try {
+    if (context?.publisherId && await isObjectKeyProtectedByRelease({ publisherId: context.publisherId, objectKey: url })) return;
     if (isManagedFileUrl(url) && isResourceUrl(url)) {
       await deleteFile(url);
       return;

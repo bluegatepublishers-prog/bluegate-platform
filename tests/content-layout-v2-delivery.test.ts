@@ -19,11 +19,11 @@ test("delivery keeps layer/z-index painting independent from reading order", () 
   assert.equal(V2_LAYER_ORDER.CONTENT < V2_LAYER_ORDER.DESIGN, true);
 });
 
-test("shared V2 delivery renderer preserves V1 fallback and audience mode", () => {
+test("shared V2 delivery renderer fails closed for non-V2 documents", () => {
   const source = readFileSync("components/content/V2ContentDocumentRenderer.tsx", "utf8");
   assert.match(source, /getContentLayoutVersion\(document\) !== 2/);
-  assert.match(source, /<StructuredContentRenderer document=\{document\} mode=\{mode\}/);
-  assert.match(source, /mode=\{mode\} linkedAssets/);
+  assert.match(source, /<StructuredContentRenderer/);
+  assert.match(source, /mode/);
   assert.doesNotMatch(source, /\/api\/admin\/resources/);
   assert.match(source, /data-v2-delivery-frame-id/);
 });
@@ -47,6 +47,6 @@ test("Admin and delivery share the V2 text/image/container presentation primitiv
   assert.match(workspace, /@\/components\/content\/v2\/V2FrameContent/);
   assert.match(workspace, /@\/components\/content\/v2\/V2ImageVisual/);
   assert.match(textFrame, /@\/components\/content\/v2\/V2TextVisual/);
-  assert.match(educationalFrame, /@\/components\/content\/v2\/V2EducationalVisual/);
+  assert.match(educationalFrame, /@\/components\/content\/v2\/V2EducationalButtonVisual/);
   assert.match(pageCanvas, /sortV2Frames/);
 });

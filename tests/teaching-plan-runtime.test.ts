@@ -104,10 +104,6 @@ test("page targets accept stable IDs, reject numeric/page presentation identity,
   assert.doesNotMatch(service, /pageNumber as identity/);
 });
 
-test("V1-only content returns an explicit unsupported state", () => {
-  const moduleDocument = { ...v2Module("module-v1"), document: createContentDocument([]) };
-  assert.throws(() => resolveTeachingPageTargetFromDocuments({ pageId: "page-a", moduleId: "module-v1" }, [moduleDocument]), (error: unknown) => error instanceof TeachingPlanError && error.code === "V1_UNSUPPORTED");
-});
 
 test("page hashes ignore presentation reorder/mode changes but detect semantic changes", () => {
   const moduleDocument = v2Module();

@@ -3,9 +3,8 @@ import "server-only";
 import { Prisma, TeachingPeriodStatus } from "@prisma/client";
 
 import { isLayoutV2Document, type LayoutV2Page, type LayoutV2VisualMode } from "@/lib/content-layout-v2";
-import { loadSmartBookStructuredContent } from "@/lib/content-delivery";
+import { loadSmartBookStructuredContent } from "@/lib/content-delivery";import { resolvePublishedSmartBookContent } from "@/lib/smart-book-release-runtime";
 import type { ContentDocument } from "@/lib/content-document";
-import { loadPublishedContentDocument } from "@/lib/content-release";
 import {
   assertTeachingPlanScope as assertScope,
   buildTeachingPageDeepLink,
@@ -51,7 +50,7 @@ export type TeachingPlanContextInput = { sectionSubjectId: string; bookId: strin
 export type TeachingPlanBookOption = { id: string; title: string };
 export type TeachingPlanChapterOption = { id: string; chapterNumber: number; title: string };
 export type TeachingPlanPageAvailability = {
-  state: "V2_AVAILABLE" | "V1_ONLY" | "NO_DIGITAL_CONTENT";
+  state: "V2_AVAILABLE" | "NO_DIGITAL_CONTENT";
   pages: TeachingPageMetadata[];
 };
 export type TeachingPageResolutionState = "CURRENT" | "SOURCE_CHANGED" | "MISSING_PAGE";
@@ -529,8 +528,7 @@ export async function getTeachingPlanPageAvailability(input: TeachingPlanContext
     return orderedPages(document).map((page) => pageMetadata(pageCandidate(module, document, page), context.book.id));
   });
   if (pages.length) return { state: "V2_AVAILABLE", pages };
-  const hasV1Content = modules.some((module) => Boolean(module.document && !isLayoutV2Document(module.document) && module.document.blocks.length));
-  return { state: hasV1Content ? "V1_ONLY" : "NO_DIGITAL_CONTENT", pages: [] };
+  return { state: "NO_DIGITAL_CONTENT", pages: [] };
 }
 
 export type TeachingPeriodComposerChapter = {
@@ -1287,47 +1285,36 @@ function pageMetadata(candidate: TeachingPageCandidate, bookId: string): Teachin
   };
 }
 async function loadModuleDocuments(context: TeachingContentContext, moduleIds?: string[], strictModules = true): Promise<TeachingModuleDocument[]> {
-  const rows = await prisma.bookModule.findMany({
-    where: {
-      bookId: context.book.id,
-      published: true,
-      archived: false,
-      chapter: { bookId: context.book.id, published: true, approved: true, archived: false },
-      ...(moduleIds ? { id: { in: moduleIds } } : {}),
-    },
-    select: {
-      id: true,
-      title: true,
-      displayOrder: true,
-      chapterId: true,
-      startPage: true,
-      endPage: true,
-      chapter: { select: { title: true, startPage: true, endPage: true } },
-    },
-    orderBy: [{ displayOrder: "asc" }, { id: "asc" }],
+  const release = await resolvePublishedSmartBookContent({ publisherId: context.publisherId, bookId: context.book.id });
+  if (!release) return [];
+  const requested = moduleIds ? new Set(moduleIds) : null;
+  const hierarchy = release.manifest.hierarchy;
+  const chapters = new Map(
+    hierarchy.filter((node) => node.kind === "CHAPTER").map((node) => [node.sourceId, node]),
+  );
+  const modules = hierarchy
+    .filter((node) => node.kind === "MODULE" && (!requested || requested.has(node.sourceId)))
+    .sort((left, right) => left.displayOrder - right.displayOrder || left.sourceId.localeCompare(right.sourceId));
+  if (strictModules && requested && modules.length !== requested.size) {
+    throw new TeachingPlanError("INVALID_MODULE", "The selected module is not part of this book's published Smart Book release.");
+  }
+  return modules.map((moduleNode) => {
+    const chapter = moduleNode.chapterSourceId ? chapters.get(moduleNode.chapterSourceId) : undefined;
+    return {
+      id: moduleNode.sourceId,
+      title: moduleNode.title,
+      displayOrder: moduleNode.displayOrder,
+      chapterId: moduleNode.chapterSourceId,
+      chapterTitle: chapter?.title ?? null,
+      document: restrictPublishedBookDocumentToModuleRange(release.document, {
+        moduleStartPage: moduleNode.startPage,
+        moduleEndPage: moduleNode.endPage,
+        chapterStartPage: chapter?.startPage,
+        chapterEndPage: chapter?.endPage,
+      }),
+    };
   });
-  if (strictModules && moduleIds && rows.length !== new Set(moduleIds).size) throw new TeachingPlanError("INVALID_MODULE", "The selected module is not part of this book.");
-  const bookDocument = await loadPublishedContentDocument({
-    publisherId: context.publisherId,
-    bookId: context.book.id,
-    targetType: "BOOK",
-    targetId: context.book.id,
-  });
-  return rows.map((row) => ({
-    id: row.id,
-    title: row.title,
-    displayOrder: row.displayOrder,
-    chapterId: row.chapterId,
-    chapterTitle: row.chapter?.title ?? null,
-    document: restrictPublishedBookDocumentToModuleRange(bookDocument, {
-      moduleStartPage: row.startPage,
-      moduleEndPage: row.endPage,
-      chapterStartPage: row.chapter?.startPage,
-      chapterEndPage: row.chapter?.endPage,
-    }),
-  }));
 }
-
 function normalizePageTargets(value: unknown): TeachingPageTarget[] {
   if (!Array.isArray(value) || value.length > TEACHING_PLAN_LIMITS.pageTargets) invalidInput("Select a valid number of pages.");
   return value.map((entry) => {
@@ -1384,7 +1371,7 @@ async function resolvePersistedPageRefs(
         deepLink: metadata.deepLink,
       };
     } catch (error) {
-      if (error instanceof TeachingPlanError && ["INVALID_PAGE", "INVALID_MODULE", "V1_UNSUPPORTED"].includes(error.code)) {
+      if (error instanceof TeachingPlanError && ["INVALID_PAGE", "INVALID_MODULE"].includes(error.code)) {
         return {
           refId: ref.id,
           pageId: ref.pageId,

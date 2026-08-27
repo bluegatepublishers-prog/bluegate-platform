@@ -7,7 +7,7 @@ export const TEACHING_PLAN_POLICY_LIMITS = { identifier: 128 } as const;
 export type TeachingPlanErrorCode =
   | "UNAUTHORIZED" | "INVALID_INPUT" | "ACADEMIC_YEAR_INVALID" | "SECTION_SUBJECT_INVALID"
   | "BOOK_NOT_ENTITLED" | "PLAN_NOT_FOUND" | "PERIOD_NOT_FOUND" | "PAGE_REF_NOT_FOUND"
-  | "INVALID_PAGE" | "V1_UNSUPPORTED" | "INVALID_MODULE" | "DUPLICATE_PAGE"
+  | "INVALID_PAGE" | "INVALID_MODULE" | "DUPLICATE_PAGE"
   | "DATE_INVALID" | "DATE_CLOSED" | "STATUS_INVALID" | "CHAPTER_INVALID" | "FEATURE_DISABLED"
   | "CONFLICT" | "SAVE_FAILED" | "ACTIVITY_NOT_FOUND";
 
@@ -293,10 +293,5 @@ export function resolveTeachingPageTargetFromDocuments(target: TeachingPageTarge
   const selected = target.moduleId ? modules.filter((module) => module.id === target.moduleId) : modules;
   const matches = selected.flatMap((module) => v2Pages(module).filter((candidate) => candidate.page.id === pageId));
   if (matches.length === 1) return matches[0];
-  if (target.moduleId) {
-    const selectedModule = selected[0];
-    if (selectedModule?.document && !isLayoutV2Document(selectedModule.document)) throw new TeachingPlanError("V1_UNSUPPORTED", "This module does not contain V2 page layout.");
-  }
-  if (!matches.length && selected.some((module) => module.document && !isLayoutV2Document(module.document))) throw new TeachingPlanError("V1_UNSUPPORTED", "This module does not contain V2 page layout.");
   throw new TeachingPlanError("INVALID_PAGE", "The selected V2 page was not found.");
 }

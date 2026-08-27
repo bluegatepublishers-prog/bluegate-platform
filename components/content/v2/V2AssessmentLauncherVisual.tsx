@@ -10,6 +10,7 @@ import {
 import type { LayoutV2Frame } from "@/lib/content-layout-v2";
 import { getV2AssessmentLauncherPayload } from "@/lib/v2-assessment-launcher";
 import V2PublisherAssessmentLauncherOverlay from "@/components/content/v2/V2PublisherAssessmentLauncherOverlay";
+import { useV2PublisherAssessmentInstantiationContext } from "@/components/content/v2/V2PublisherAssessmentInstantiationContext";
 import V2AssessmentLauncherOverlay, { type V2AssessmentLauncherOverlayMode } from "@/components/content/v2/V2AssessmentLauncherOverlay";
 
 export default function V2AssessmentLauncherVisual({
@@ -17,16 +18,25 @@ export default function V2AssessmentLauncherVisual({
   openable = false,
   mode = "STUDENT",
   adminControls = false,
+  immutableRelease = false,
   onEdit,
 }: {
   frame: LayoutV2Frame;
   openable?: boolean;
   mode?: V2AssessmentLauncherOverlayMode;
   adminControls?: boolean;
+  immutableRelease?: boolean;
   onEdit?: () => void;
 }) {
   const payload =
     getV2AssessmentLauncherPayload(frame);
+  const teacherInstantiationContext = useV2PublisherAssessmentInstantiationContext();
+  const canInstantiatePublisherAssessment =
+    immutableRelease &&
+    mode === "TEACHER" &&
+    payload?.launcherType === "publisher-assessment" &&
+    Boolean(teacherInstantiationContext) &&
+    (!payload.bookId || payload.bookId === teacherInstantiationContext?.bookId);
 
   const [open, setOpen] =
     useState(false);
@@ -60,6 +70,10 @@ export default function V2AssessmentLauncherVisual({
 
   const buttonClass =
     "relative inline-flex min-h-8 min-w-[58px] items-center justify-center rounded-[10px] border border-violet-800/80 bg-gradient-to-b from-fuchsia-500 via-violet-600 to-indigo-700 px-3 py-1 text-[11px] font-black uppercase tracking-[0.06em] text-white shadow-[0_4px_0_#4c1d95,0_7px_12px_rgba(76,29,149,0.28)] transition-transform hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 active:translate-y-[2px] active:shadow-[0_2px_0_#4c1d95,0_4px_8px_rgba(76,29,149,0.24)]";
+
+  if (immutableRelease && !canInstantiatePublisherAssessment) {
+    return <div className={shellClass}><div data-v2-assessment-launcher-unavailable className={`${buttonClass} cursor-default opacity-60`} aria-label={`${payload?.display.label ?? "Assessment"} unavailable`}>{payload?.display.label ?? "Assessment"} unavailable for this release</div></div>;
+  }
 
   if (!payload) {
     return (
@@ -153,7 +167,8 @@ export default function V2AssessmentLauncherVisual({
       {open && payload.launcherType === "publisher-assessment" ? (
         <V2PublisherAssessmentLauncherOverlay
           assessmentId={payload.assessmentId}
-          mode={mode === "PREVIEW" ? "PREVIEW" : "STUDENT"}
+          mode={mode === "PREVIEW" ? "PREVIEW" : canInstantiatePublisherAssessment ? "TEACHER" : "STUDENT"}
+          teacherContext={canInstantiatePublisherAssessment ? teacherInstantiationContext : null}
           onClose={close}
         />
       ) : null}
@@ -166,6 +181,8 @@ export default function V2AssessmentLauncherVisual({
           key={`${payload.target.exerciseId}:${payload.target.groupId}:${payload.target.questionType}:${payload.target.questionIds?.join(",") ?? "all"}:${overlayKey}`}
           exerciseId={payload.target.exerciseId}
           groupId={payload.target.groupId}
+          bookId={payload.bookId}
+          releaseVersionId={payload.releaseVersionId}
           questionType={payload.target.questionType}
           questionIds={payload.target.questionIds}
           mode={mode}

@@ -13,12 +13,13 @@ import {
   uploadPrefixForScope,
 } from "@/lib/storage/upload-policy";
 import { normalizeAndValidateObjectKey } from "@/lib/storage/object-key";
+import { resolvePublishedSmartBookContent } from "@/lib/smart-book-release-runtime";
 import { proxyLegacyBlob } from "@/lib/storage/legacy-proxy";
 
 const ALLOWED_ROLES = ["ADMIN", "TEACHER", "SCHOOL", "STUDENT"];
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ bookId: string }> },
 ) {
   const user = await getApiUser(ALLOWED_ROLES);
@@ -54,15 +55,53 @@ export async function GET(
     },
   });
 
-  if (!book?.fullBookPdf || !book.publisherId) {
+  if (!book?.publisherId) {
     return NextResponse.json(
       { message: "The book file is not available yet." },
       { status: 404 },
     );
   }
 
+  let release: Awaited<ReturnType<typeof resolvePublishedSmartBookContent>> = null;
+  try {
+    release = await resolvePublishedSmartBookContent({ publisherId: book.publisherId, bookId });
+  } catch {
+    return NextResponse.json(
+      { message: "This Smart Book release is unavailable." },
+      { status: 409 },
+    );
+  }
+
+  const requestedReleaseVersionId = new URL(request.url).searchParams.get("releaseVersionId");
+  let pdfObjectKey: string;
+  if (release) {
+    if (requestedReleaseVersionId && requestedReleaseVersionId !== release.releaseVersionId) {
+      return NextResponse.json({ message: "The requested Smart Book release is unavailable." }, { status: 409 });
+    }
+    const pdfVersion = await prisma.bookPdfVersion.findFirst({
+      where: {
+        id: release.manifest.pdf.bookPdfVersionId,
+        bookId,
+        objectKey: release.manifest.pdf.objectKey,
+        book: { publisherId: book.publisherId },
+      },
+      select: { objectKey: true, pageCount: true },
+    });
+    if (!pdfVersion || pdfVersion.pageCount !== release.manifest.pdf.pageCount) {
+      return NextResponse.json({ message: "The Smart Book release PDF is unavailable." }, { status: 409 });
+    }
+    pdfObjectKey = pdfVersion.objectKey;
+  } else {
+    if (user.role !== "ADMIN" || requestedReleaseVersionId || !book.fullBookPdf) {
+      return NextResponse.json({ message: "This Smart Book release is unavailable." }, { status: requestedReleaseVersionId ? 409 : 404 });
+    }
+    // Publisher authoring/preview may inspect the current source PDF. Teacher
+    // and Student delivery can only reach the immutable PDF in the V2 manifest.
+    pdfObjectKey = book.fullBookPdf;
+  }
+
   const legacy = isPublisherUploadUrl(
-    book.fullBookPdf,
+    pdfObjectKey,
     book.publisherId,
     ["book-full"],
   );
@@ -73,7 +112,7 @@ export async function GET(
    */
   if (legacy) {
     return proxyLegacyBlob({
-      url: book.fullBookPdf,
+      url: pdfObjectKey,
       filename: `${book.title}.pdf`,
       disposition: "inline",
     });
@@ -82,7 +121,7 @@ export async function GET(
   let key: string;
 
   try {
-    key = normalizeAndValidateObjectKey(book.fullBookPdf);
+    key = normalizeAndValidateObjectKey(pdfObjectKey);
   } catch {
     return NextResponse.json(
       { message: "The book file is unavailable." },
