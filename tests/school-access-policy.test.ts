@@ -71,3 +71,14 @@ test("Publisher Admin navigation excludes school operations", () => {
   assert.doesNotMatch(sidebar, /admin\/teachers|academic-years|teacher-assignments|attendance|guardians/);
   assert.match(schoolDetail, /read-only for operational school records/);
 });
+
+
+test("school request review synchronizes the school access subscription", () => {
+  const approvals = read("lib/onboarding-approvals.ts");
+  const updateIndex = approvals.indexOf("const updated = await tx.school.updateMany");
+  const syncIndex = approvals.indexOf("await syncSchoolAccessLifecycle(tx, {");
+  assert.ok(updateIndex >= 0 && syncIndex > updateIndex);
+  assert.match(approvals, /status: status === SchoolOnboardingStatus\.APPROVED[\s\S]*?SchoolAccessStatus\.ACTIVE/);
+  assert.match(approvals, /status === SchoolOnboardingStatus\.REJECTED[\s\S]*?SchoolAccessStatus\.EXPIRED/);
+  assert.match(approvals, /SchoolAccessStatus\.SUSPENDED/);
+});

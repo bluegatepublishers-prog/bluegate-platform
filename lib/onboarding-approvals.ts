@@ -1,6 +1,6 @@
 import "server-only";
 
-import { SchoolOnboardingStatus, SchoolStaffMembershipStatus, SecurityAuditOutcome, TeacherOnboardingStatus, UserRole } from "@prisma/client";
+import { SchoolAccessStatus, SchoolOnboardingStatus, SchoolStaffMembershipStatus, SecurityAuditOutcome, TeacherOnboardingStatus, UserRole } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requirePublisherAdmin } from "@/lib/publisher-context";
 import { requireSchool } from "@/lib/school-dashboard";
@@ -8,6 +8,7 @@ import { cleanText } from "./onboarding-policy";
 import { generateActivationCode, activationCodeHash, OnboardingError } from "./onboarding";
 import { sendOnboardingNoticeBestEffort } from "./onboarding-mail";
 import { accountAuditActor, publisherAdminAuditActor, writeSecurityAuditEvent } from "./security-audit";
+import { syncSchoolAccessLifecycle } from "./school-access";
 
 export async function getPublisherSchoolRequests() {
   const { publisher } = await requirePublisherAdmin();
@@ -24,6 +25,15 @@ export async function reviewSchoolRequest(input: { schoolId: string; status: str
     if (!school || school.status === status) throw new OnboardingError("This request changed before review.");
     const updated = await tx.school.updateMany({ where: { id: school.id, publisherId: publisher.id }, data: { status } });
     if (updated.count !== 1) throw new OnboardingError("This request changed before review.");
+    await syncSchoolAccessLifecycle(tx, {
+      schoolId: school.id,
+      publisherId: publisher.id,
+      status: status === SchoolOnboardingStatus.APPROVED
+        ? SchoolAccessStatus.ACTIVE
+        : status === SchoolOnboardingStatus.REJECTED
+          ? SchoolAccessStatus.EXPIRED
+          : SchoolAccessStatus.SUSPENDED,
+    });
     await tx.schoolOnboardingReview.create({ data: { schoolId: school.id, publisherId: publisher.id, reviewerUserId: user.id!, fromStatus: school.status, toStatus: status, reason } });
     await writeSecurityAuditEvent(tx, {
       actor: publisherAdminAuditActor(actor), action: "publisher.school.status.set",
