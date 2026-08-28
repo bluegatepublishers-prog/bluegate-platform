@@ -66,7 +66,7 @@ export default async function ChapterWorkspacePage({
           {chapter.activities.length > 0 ? <Action href="#activity" icon={Activity} label="Activity" /> : null}
           {hasPractice ? <Action href="#practice" icon={Brain} label="Practice" /> : null}
           {chapter.summary || chapter.keywords.length || notes.length ? <Action href="#notes" icon={FileText} label="Notes" /> : null}
-          <Action href="#ask-ai" icon={Sparkles} label="Ask AI" />
+          <Action href="#ask-ai" icon={Sparkles} label="Ask My Book" />
         </nav>
 
         <Section id="read" title="Read">
@@ -185,10 +185,10 @@ export default async function ChapterWorkspacePage({
           </Section>
         ) : null}
 
-        <Section id="ask-ai" title="Ask AI">
+        <Section id="ask-ai" title="Ask My Book">
           <p className="text-slate-600">Ask questions grounded in this approved chapter.</p>
           <Link href={`/student-dashboard/books/${chapter.bookId}/chapters/${chapter.id}/assistant`} className="mt-4 inline-flex rounded-xl bg-purple-600 px-4 py-2 font-semibold text-white">
-            Open learning assistant
+            Open Ask My Book
           </Link>
         </Section>
       </div>

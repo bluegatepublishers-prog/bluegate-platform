@@ -363,7 +363,7 @@ test("Revision Hub exposes locked, disabled, unavailable, and open states safely
 
   assert.match(
     page,
-    /Learning Assistant is available with Premium/,
+    /Ask My Book is available with Premium/,
   );
 
   assert.match(
@@ -373,12 +373,12 @@ test("Revision Hub exposes locked, disabled, unavailable, and open states safely
 
   assert.match(
     page,
-    /This learning assistant is not available for this chapter/,
+    /Ask My Book is not available for this chapter/,
   );
 
   assert.match(
     page,
-    /Open Learning Assistant/,
+    /Open Ask My Book/,
   );
 });
 

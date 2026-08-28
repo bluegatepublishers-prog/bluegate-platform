@@ -6,6 +6,7 @@ import { requireStudent } from "@/lib/student-dashboard";
 import { getStudentBook } from "@/lib/student-books";
 import { getPremiumFeatureEntitlementForAuthenticatedUser } from "@/lib/entitlements/features";
 import { retrieveStudentSmartBookAiGrounding } from "@/lib/ai/student-smart-book-retrieval";
+import { extractStudentImmutableVocabulary } from "@/lib/ai/student-immutable-vocabulary";
 import { buildImmutableStudentLearningPrompt } from "@/lib/ai/prompt-builder";
 import { validateStudentAiProviderContent } from "@/lib/ai/response-validator";
 import { getAiProvider, resolveProviderId } from "@/lib/ai/runtime/provider-registry";
@@ -164,8 +165,8 @@ export async function getStudentAiPageData(
   /*
    * Student UI selections are intentionally bounded to immutable
    * release-derived hierarchy labels. Mutable chapter summary,
-   * keywords, outcomes, questions and activities are no longer used
-   * as Student AI educational context.
+   * keywords, outcomes, questions and activities are not used as
+   * Student AI educational context.
    */
   const moduleTitles = unique(
     scope.grounding.chunks.map(
@@ -177,6 +178,15 @@ export async function getStudentAiPageData(
     scope.grounding.chapter.title,
     ...moduleTitles,
   ]);
+
+  /*
+   * Vocabulary is derived deterministically from the exact same
+   * bounded STUDENT-safe immutable release grounding used by the
+   * AI request. No mutable BookChapter keywords or live vocabulary
+   * records are consulted.
+   */
+  const keywords =
+    extractStudentImmutableVocabulary(scope.grounding);
 
   return {
     bookTitle: scope.grounding.book.title,
@@ -197,12 +207,7 @@ export async function getStudentAiPageData(
     ),
 
     selections,
-
-    /*
-     * Retain the existing UI contract while preventing mutable
-     * BookChapter keywords from becoming AI grounding.
-     */
-    keywords: [] as string[],
+    keywords,
 
     history: history.map(toSafeHistoryMessage),
   };
@@ -261,7 +266,7 @@ export async function runStudentAiRequest(
     }
 
     throw new StudentAiError(
-      "You have reached today's Learning Assistant limit.",
+      "You have reached today's Ask My Book limit.",
       429,
     );
   }
@@ -385,7 +390,7 @@ export async function runStudentAiRequest(
       error.code === "LIMIT_REACHED"
     ) {
       throw new StudentAiError(
-        "You have reached today's Learning Assistant limit.",
+        "You have reached today's Ask My Book limit.",
         429,
       );
     }
@@ -436,15 +441,21 @@ function validateStructuredRequest(
   ]);
 
   /*
-   * Mutable BookChapter keywords are intentionally not supplied.
-   * A structured reference must match the immutable chapter/module
-   * labels exposed by this exact release.
+   * The browser-submitted vocabulary reference is never trusted.
+   *
+   * Re-derive the permitted vocabulary from the exact authorised
+   * immutable Student grounding and require an exact policy match.
+   * This keeps the server authoritative even if a client tampers
+   * with the dropdown value.
    */
+  const keywords =
+    extractStudentImmutableVocabulary(grounding);
+
   if (
     !validateStudentAiReference(
       request,
       selections,
-      [],
+      keywords,
     )
   ) {
     throw new StudentAiError(
@@ -551,13 +562,16 @@ function toSafeHistoryMessage(
   return {
     id: message.id,
     intent: message.intent,
+
     mode:
       STUDENT_AI_INTENT_METADATA[
         message.intent
       ].label,
+
     question: message.question,
     answer: message.answer,
     refused: message.refused,
+
     createdAt:
       message.createdAt.toISOString(),
   };

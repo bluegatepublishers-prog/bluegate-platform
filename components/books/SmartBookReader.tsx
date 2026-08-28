@@ -1,16 +1,19 @@
 "use client";
 
 import Link from "next/link";
+
 import {
   useCallback,
   useEffect,
   useMemo,
   useState,
 } from "react";
+
 import {
   ArrowLeft,
   BookOpen,
   Library,
+  MessageCircleQuestion,
   Volume2,
   X,
 } from "lucide-react";
@@ -21,18 +24,47 @@ import V2ContentDocumentRenderer from "@/components/content/V2ContentDocumentRen
 import V2ReadAloudPlayer from "@/components/content/V2ReadAloudPlayer";
 import { useTeachModeClassroom } from "@/components/teacher/TeachModeShell";
 
-import type { ContentDocument } from "@/lib/content-document";
-import { getContentLayoutVersion } from "@/lib/content-layout-v2";
+import type {
+  ContentDocument,
+} from "@/lib/content-document";
+
+import {
+  getContentLayoutVersion,
+} from "@/lib/content-layout-v2";
+
 import type {
   ContentSectionDefinitionSummary,
   ResolvedLinkedAsset,
 } from "@/lib/content-linked-asset-types";
-import type { ResolvedMediaBlock } from "@/lib/content-media-types";
-import type { ResolvedActivityBlock } from "@/lib/activity-studio-types";
-import type { ResolvedWorksheetBlock } from "@/lib/worksheet-studio-types";
-import type { KnowledgeDefinitionSummary } from "@/lib/content-knowledge-types";
-import type { SmartBookContentsNode } from "@/lib/smart-book-contents";
-import type { BookNarrationManifest } from "@/lib/content-narration";
+
+import type {
+  ResolvedMediaBlock,
+} from "@/lib/content-media-types";
+
+import type {
+  ResolvedActivityBlock,
+} from "@/lib/activity-studio-types";
+
+import type {
+  ResolvedWorksheetBlock,
+} from "@/lib/worksheet-studio-types";
+
+import type {
+  KnowledgeDefinitionSummary,
+} from "@/lib/content-knowledge-types";
+
+import type {
+  SmartBookContentsNode,
+} from "@/lib/smart-book-contents";
+
+import type {
+  BookNarrationManifest,
+} from "@/lib/content-narration";
+
+import {
+  buildStudentAskMyBookHref,
+  resolveStudentAskMyBookChapter,
+} from "@/lib/student-smart-book-assistant";
 
 type TeacherResource = {
   id: string;
@@ -185,10 +217,13 @@ export default function SmartBookReader({
       ),
     );
 
-  const classroom = useTeachModeClassroom();
+  const classroom =
+    useTeachModeClassroom();
 
   useEffect(() => {
-    if (classroom) classroom.setCurrentPage(page);
+    if (classroom) {
+      classroom.setCurrentPage(page);
+    }
   }, [classroom, page]);
 
   const [totalPages, setTotalPages] =
@@ -196,14 +231,20 @@ export default function SmartBookReader({
       initialTotalPages,
     );
 
-  const [contentsOpen, setContentsOpen] =
-    useState(false);
+  const [
+    contentsOpen,
+    setContentsOpen,
+  ] = useState(false);
 
-  const [resourcesOpen, setResourcesOpen] =
-    useState(false);
+  const [
+    resourcesOpen,
+    setResourcesOpen,
+  ] = useState(false);
 
-  const [readAloudOpen, setReadAloudOpen] =
-    useState(false);
+  const [
+    readAloudOpen,
+    setReadAloudOpen,
+  ] = useState(false);
 
   const [viewMode, setViewMode] =
     useState<ReaderViewMode>(
@@ -212,7 +253,9 @@ export default function SmartBookReader({
 
   const hasV2 = Boolean(
     document &&
-      getContentLayoutVersion(document) === 2,
+      getContentLayoutVersion(
+        document,
+      ) === 2,
   );
 
   /*
@@ -225,7 +268,9 @@ export default function SmartBookReader({
         return initialMaximum;
       }
 
-      if (initialMaximum === null) {
+      if (
+        initialMaximum === null
+      ) {
         return totalPages;
       }
 
@@ -237,6 +282,45 @@ export default function SmartBookReader({
       initialMaximum,
       totalPages,
     ]);
+
+  /*
+   * Ask My Book derives its chapter claim only
+   * from the already delivered released contents
+   * hierarchy and the reader's current PDF page.
+   *
+   * Front matter before the first released chapter
+   * intentionally has no AI chapter context.
+   */
+  const askMyBookChapter =
+    useMemo(
+      () =>
+        role === "STUDENT"
+          ? resolveStudentAskMyBookChapter(
+              contents,
+              page,
+            )
+          : null,
+      [
+        contents,
+        page,
+        role,
+      ],
+    );
+
+  const askMyBookHref =
+    useMemo(
+      () =>
+        askMyBookChapter
+          ? buildStudentAskMyBookHref(
+              bookId,
+              askMyBookChapter.chapterId,
+            )
+          : null,
+      [
+        askMyBookChapter,
+        bookId,
+      ],
+    );
 
   /*
    * Student reading position remains
@@ -317,9 +401,13 @@ export default function SmartBookReader({
         return (
           <V2ContentDocumentRenderer
             document={document}
-            immutableRelease={immutableRelease}
+            immutableRelease={
+              immutableRelease
+            }
             mode={role}
-            linkedAssets={linkedAssets}
+            linkedAssets={
+              linkedAssets
+            }
             activities={activities}
             worksheets={worksheets}
             media={media}
@@ -343,6 +431,7 @@ export default function SmartBookReader({
         activities,
         document,
         hasV2,
+        immutableRelease,
         knowledgeDefinitions,
         linkedAssets,
         media,
@@ -365,7 +454,9 @@ export default function SmartBookReader({
    */
   const currentReadAloudText =
     useMemo(() => {
-      if (!document?.pageLayout) {
+      if (
+        !document?.pageLayout
+      ) {
         return "";
       }
 
@@ -415,9 +506,20 @@ export default function SmartBookReader({
       ],
     );
 
-  const backPath = backHref ?? (role === "TEACHER" ? "/teacher-dashboard/books" : "/student-dashboard/books");
-  const resolvedBackLabel = backLabel ?? "My Books";
-  const resolvedPdfUrl = pdfUrl ?? `/api/books/${encodeURIComponent(bookId)}/full-pdf`;
+  const backPath =
+    backHref ??
+    (role === "TEACHER"
+      ? "/teacher-dashboard/books"
+      : "/student-dashboard/books");
+
+  const resolvedBackLabel =
+    backLabel ?? "My Books";
+
+  const resolvedPdfUrl =
+    pdfUrl ??
+    `/api/books/${encodeURIComponent(
+      bookId,
+    )}/full-pdf`;
 
   const setSafePage =
     useCallback(
@@ -443,7 +545,10 @@ export default function SmartBookReader({
         {showBackLink ? (
           <Link
             href={backPath}
-            aria-label={"Close book and return to " + resolvedBackLabel}
+            aria-label={
+              "Close book and return to " +
+              resolvedBackLabel
+            }
             className="inline-flex h-10 shrink-0 items-center gap-2 rounded-xl border border-white/15 bg-white/5 px-3 text-sm font-semibold text-white transition hover:bg-white/10"
           >
             <ArrowLeft className="h-4 w-4" />
@@ -514,8 +619,7 @@ export default function SmartBookReader({
           type="button"
           onClick={() =>
             setReadAloudOpen(
-              (value) =>
-                !value,
+              (value) => !value,
             )
           }
           aria-expanded={
@@ -548,6 +652,42 @@ export default function SmartBookReader({
             Contents
           </span>
         </button>
+
+        {/* Student-only Ask My Book */}
+        {role === "STUDENT" ? (
+          askMyBookHref ? (
+            <a
+              href={askMyBookHref}
+              target="_blank"
+              rel="noreferrer"
+              title={
+                askMyBookChapter
+                  ? `Ask My Book about ${askMyBookChapter.title}`
+                  : "Ask My Book"
+              }
+              className="inline-flex h-10 shrink-0 items-center gap-2 rounded-xl border border-indigo-300/40 bg-indigo-500/15 px-3 text-sm font-bold text-indigo-100 transition hover:bg-indigo-500/25 sm:px-4"
+            >
+              <MessageCircleQuestion className="h-4 w-4" />
+
+              <span className="hidden sm:inline">
+                Ask My Book
+              </span>
+            </a>
+          ) : (
+            <button
+              type="button"
+              disabled
+              title="Ask My Book becomes available when you reach a released chapter."
+              className="inline-flex h-10 shrink-0 cursor-not-allowed items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 text-sm font-bold text-white/40 sm:px-4"
+            >
+              <MessageCircleQuestion className="h-4 w-4" />
+
+              <span className="hidden sm:inline">
+                Ask My Book
+              </span>
+            </button>
+          )
+        ) : null}
 
         {/* Teacher-only resources */}
         {role === "TEACHER" ? (
