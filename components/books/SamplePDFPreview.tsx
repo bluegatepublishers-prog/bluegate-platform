@@ -2,6 +2,7 @@
 
 import { BookOpen } from "lucide-react";
 import { Book } from "@/types/book";
+import PublicSamplePdfViewer from "./PublicSamplePdfViewer";
 
 interface SamplePDFPreviewProps {
   book: Book;
@@ -49,19 +50,10 @@ export default function SamplePDFPreview({
           </div>
 
           {book.publicPreviewPdf ? (
-            <div
-              className="h-[72vh] min-h-[560px] overflow-hidden bg-slate-100"
-              onContextMenu={(event) =>
-                event.preventDefault()
-              }
-              onCopy={(event) =>
-                event.preventDefault()
-              }
-            >
-              <iframe
-                src={`${book.publicPreviewPdf}#toolbar=0&navpanes=0&scrollbar=1&view=FitH`}
-                title={`${book.title} sample preview`}
-                className="h-full w-full border-0"
+            <div className="h-[72dvh] min-h-[420px] max-h-[760px] overflow-hidden bg-slate-100 sm:min-h-[560px]">
+              <PublicSamplePdfViewer
+                pdfUrl={book.publicPreviewPdf}
+                title={book.title}
               />
             </div>
           ) : (
