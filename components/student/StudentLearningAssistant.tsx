@@ -246,7 +246,7 @@ export default function StudentLearningAssistant({
 
             <p className="mt-3 text-blue-100">
               {initialData.bookTitle}
-              {" · "}
+              {" Â· "}
               Chapter{" "}
               {initialData.chapterNumber}
             </p>
@@ -421,7 +421,7 @@ export default function StudentLearningAssistant({
             )}
 
             {busy
-              ? "Thinking…"
+              ? "Thinkingâ€¦"
               : "Ask My Book"}
           </button>
 

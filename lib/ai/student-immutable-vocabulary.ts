@@ -163,7 +163,7 @@ export function extractStudentImmutableVocabulary(
 
 function tokenize(text: string): string[] {
   return text.match(
-    /[\p{L}][\p{L}\p{M}'’-]*/gu,
+    /[\p{L}][\p{L}\p{M}'â€™-]*/gu,
   ) ?? [];
 }
 
@@ -171,8 +171,8 @@ function normalizeTerm(
   value: string,
 ): string {
   return value
-    .replace(/^[’'-]+|[’'-]+$/g, "")
-    .replace(/[’]/g, "'")
+    .replace(/^[â€™'-]+|[â€™'-]+$/g, "")
+    .replace(/[â€™]/g, "'")
     .trim();
 }
 
