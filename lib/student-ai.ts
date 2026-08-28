@@ -6,6 +6,10 @@ import { requireStudent } from "@/lib/student-dashboard";
 import { getStudentBook } from "@/lib/student-books";
 import { getPremiumFeatureEntitlementForAuthenticatedUser } from "@/lib/entitlements/features";
 import { retrieveStudentSmartBookAiGrounding } from "@/lib/ai/student-smart-book-retrieval";
+import {
+  getStudentLearningStateProjection,
+  toStudentAiLearningStateContext,
+} from "@/lib/ai/student-learning-state";
 import { extractStudentImmutableVocabulary } from "@/lib/ai/student-immutable-vocabulary";
 import { buildImmutableStudentLearningPrompt } from "@/lib/ai/prompt-builder";
 import { validateStudentAiProviderContent } from "@/lib/ai/response-validator";
@@ -213,6 +217,33 @@ export async function getStudentAiPageData(
   };
 }
 
+async function resolveOptionalStudentLearningState(input: {
+  userId: string;
+  studentId: string;
+  academicYearId: string;
+  publisherId: string;
+  schoolId: string;
+  bookId: string;
+  chapterId: string;
+}) {
+  try {
+    const projection =
+      await getStudentLearningStateProjection(input);
+
+    return toStudentAiLearningStateContext(
+      projection,
+    );
+  } catch {
+    /*
+     * Learning-state personalisation is optional enrichment.
+     * Failure here must not weaken or replace the independently
+     * authorised immutable Smart Book grounding. Ask My Book may
+     * continue without personalisation.
+     */
+    return null;
+  }
+}
+
 export async function runStudentAiRequest(
   rawInput: unknown,
   options: { provider?: AiProvider } = {},
@@ -317,6 +348,26 @@ export async function runStudentAiRequest(
   }
 
   try {
+    const studentUserId =
+      scope.identity.student.userId;
+
+    if (!studentUserId) {
+      throw new StudentAiError(
+        STUDENT_AI_UNAVAILABLE,
+        404,
+      );
+    }
+
+    const learningState =
+      await resolveOptionalStudentLearningState({
+        userId: studentUserId,
+        studentId: scope.identity.student.id,
+        academicYearId: scope.identity.academicYear.id,
+        publisherId: scope.identity.publisher.id,
+        schoolId: scope.identity.school.id,
+        bookId,
+        chapterId,
+      });
     const request = buildImmutableStudentLearningPrompt({
       request: parsed.value,
       grounding: scope.grounding,
@@ -324,6 +375,7 @@ export async function runStudentAiRequest(
         question: message.question,
         answer: message.answer,
       })),
+      learningState,
     });
 
     const provider =
