@@ -151,6 +151,11 @@ export async function loadTeacherChapterStructuredContent(input: {
     subject,
     bookId,
     chapter,
+    release: {
+      releaseId: release.releaseId,
+      releaseVersionId: release.releaseVersionId,
+      versionNumber: release.versionNumber,
+    },
     items: buildImmutableChapterModuleContent({ release, chapterId: chapter.id, moduleId: input.moduleId, mode: "TEACHER" }),
   };
 }
