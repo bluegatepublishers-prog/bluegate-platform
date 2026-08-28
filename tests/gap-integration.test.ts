@@ -22,11 +22,30 @@ test("review actions append audit events and do not mutate source evidence or ma
   assert.match(source, /studentLearningGapReview\.create/); assert.match(source, /activeKey/); assert.doesNotMatch(source, /assessmentResponse\.(update|delete)/); assert.doesNotMatch(source, /studentLearningGapEvidence\.(update|delete)/);
 });
 
-test("successful learning flows trigger best-effort learning support after their source transaction", async () => {
-  for (const file of ["lib/student-books.ts", "lib/student-revision.ts", "lib/student-practice.ts", "lib/student-assessments.ts"]) {
-    const source = await read(file); const transactionEnd = source.indexOf("prisma.$transaction"); const trigger = source.lastIndexOf("refreshLearningSupportBestEffort");
+test("successful learning flows trigger best-effort learning support only after eligible evidence becomes final", async () => {
+  for (const file of ["lib/student-books.ts", "lib/student-revision.ts", "lib/student-practice.ts"]) {
+    const source = await read(file);
+    const transactionEnd = source.indexOf("prisma.$transaction");
+    const trigger = source.lastIndexOf("refreshLearningSupportBestEffort");
     assert.ok(transactionEnd >= 0 && trigger > transactionEnd, `${file} must trigger after its transaction call`);
   }
+
+  const studentAssessments = await read("lib/student-assessments.ts");
+  assert.match(studentAssessments, /provisional:\s*true/);
+  assert.match(studentAssessments, /scorePercent:\s*null/);
+  assert.doesNotMatch(studentAssessments, /refreshLearningSupportBestEffort/);
+
+  const teacherAssessments = await read("lib/teacher-assessments.ts");
+  assert.match(teacherAssessments, /processPublishedAssessmentAnalytics/);
+  assert.match(teacherAssessments, /refreshLearningSupportBestEffort/);
+
+  const analytics = teacherAssessments.lastIndexOf("processPublishedAssessmentAnalytics");
+  const trigger = teacherAssessments.lastIndexOf("refreshLearningSupportBestEffort");
+  assert.ok(
+    analytics >= 0 && trigger > analytics,
+    "assessment learning support must refresh only after published assessment analytics are processed",
+  );
+
   const orchestration = await read("lib/learning-support.ts");
   assert.match(orchestration, /recomputeStudentGapsBestEffort/);
   assert.match(orchestration, /generateRemedialsBestEffort/);
