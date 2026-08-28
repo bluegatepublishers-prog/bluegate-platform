@@ -960,4 +960,3 @@ function difficultyDistribution(
     fourth: 0,
   };
 }
-
