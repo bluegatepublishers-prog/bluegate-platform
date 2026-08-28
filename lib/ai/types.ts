@@ -28,6 +28,49 @@ export type StudentChapterKnowledge = {
   policy: "APPROVED_CHAPTER_ONLY";
 };
 
+export type StudentImmutableGroundingCitation = {
+  sourceType: "SMART_BOOK_RELEASE";
+  releaseVersionId: string;
+  bookId: string;
+  chapterId: string;
+  moduleId: string;
+  moduleTitle: string;
+  blockId: string;
+  blockType: string;
+  label: string;
+};
+
+export type StudentImmutableGrounding = {
+  audience: "STUDENT";
+
+  release: {
+    releaseId: string;
+    releaseVersionId: string;
+    versionNumber: number;
+  };
+
+  book: {
+    id: string;
+    title: string;
+  };
+
+  chapter: {
+    id: string;
+    title: string;
+    number: number;
+  };
+
+  sectionSubjectId: string;
+
+  chunks: Array<{
+    id: string;
+    text: string;
+    citation: StudentImmutableGroundingCitation;
+  }>;
+
+  text: string;
+};
+
 export type StudentAiConversationTurn = {
   question: string;
   answer: string;

@@ -111,8 +111,13 @@ export async function loadStudentChapterStructuredContent(
   if (!release) return null;
   const rendered = buildImmutableChapterModuleContent({ release, chapterId, moduleId, mode: "STUDENT" });
   return {
-    workspace,
-    items: rendered.map((item) => ({
+  workspace,
+  release: {
+    releaseId: release.releaseId,
+    releaseVersionId: release.releaseVersionId,
+    versionNumber: release.versionNumber,
+  },
+  items: rendered.map((item) => ({
       ...item,
       linkedAssets: remapStudentLinkedAssets(item.linkedAssets, sectionSubjectId, chapterId),
       worksheets: remapStudentWorksheets(item.worksheets, sectionSubjectId, chapterId),
