@@ -190,63 +190,66 @@ export async function loadReleaseSummary(input: {
   let snapshot: ReleaseSnapshot | SmartBookReleaseManifestV2;
   let effectiveValidation = validation;
   const storedSnapshot = current?.snapshot;
-  const currentSnapshotIsV2 = isRecord(storedSnapshot) && storedSnapshot.schemaVersion === 2;
+  const currentSnapshotIsV2 =
+    isRecord(storedSnapshot) && storedSnapshot.schemaVersion === 2;
 
-  if (currentSnapshotIsV2) {
-    try {
-      parseSmartBookReleaseManifest(storedSnapshot);
-      const preparedV2 = input.targetType === "BOOK"
-        ? await prepareSmartBookReleaseManifest({ publisherId: input.actor.publisherId, bookId: input.bookId })
-        : null;
-      if (preparedV2?.status === "READY") {
-        snapshot = parseSmartBookReleaseManifest(preparedV2.manifest);
-      } else {
-        snapshot = await buildTargetSnapshot(input.actor.publisherId, input.bookId, input.targetType, input.targetId);
-        if (preparedV2?.status === "BLOCKED") {
-          effectiveValidation = {
-            ...validation,
-            errors: [
-              ...validation.errors,
-              {
-                severity: "ERROR",
-                code: "SMART_BOOK_READINESS_BLOCKED",
-                message: preparedV2.issues[0]?.message ?? "Smart Book publication readiness failed.",
-              },
-            ],
-          };
-        }
-      }
-    } catch {
-      snapshot = await buildTargetSnapshot(input.actor.publisherId, input.bookId, input.targetType, input.targetId);
+  if (input.targetType === "BOOK") {
+    const preparedV2 = await prepareSmartBookReleaseManifest({
+      publisherId: input.actor.publisherId,
+      bookId: input.bookId,
+    });
+
+    if (preparedV2.status === "READY") {
+      snapshot = parseSmartBookReleaseManifest(preparedV2.manifest);
+    } else {
+      snapshot = await buildTargetSnapshot(
+        input.actor.publisherId,
+        input.bookId,
+        input.targetType,
+        input.targetId,
+      );
+
       effectiveValidation = {
         ...validation,
         errors: [
           ...validation.errors,
           {
             severity: "ERROR",
-            code: "STORED_SMART_BOOK_MANIFEST_INVALID",
-            message: "The stored Smart Book release is invalid. Publish a new valid release after correcting the source.",
+            code: "SMART_BOOK_READINESS_BLOCKED",
+            message:
+              preparedV2.issues[0]?.message ??
+              "Smart Book publication readiness failed.",
           },
         ],
       };
     }
-  } else {
-    snapshot = await buildTargetSnapshot(input.actor.publisherId, input.bookId, input.targetType, input.targetId);
-  }
 
-  const currentSnapshotIsV1 = isRecord(storedSnapshot) && storedSnapshot.schemaVersion === 1;
-  if (input.targetType === "BOOK" && currentSnapshotIsV1) {
-    effectiveValidation = {
-      ...effectiveValidation,
-      errors: [
-        ...effectiveValidation.errors,
-        {
-          severity: "ERROR",
-          code: "SMART_BOOK_V1_UNSUPPORTED",
-          message: "Republish this Smart Book to use the current release format.",
-        },
-      ],
-    };
+    if (currentSnapshotIsV2) {
+      try {
+        parseSmartBookReleaseManifest(storedSnapshot);
+      } catch {
+        effectiveValidation = {
+          ...effectiveValidation,
+          errors: [
+            ...effectiveValidation.errors,
+            {
+              severity: "ERROR",
+              code: "STORED_SMART_BOOK_MANIFEST_INVALID",
+              message:
+                "The stored Smart Book release is invalid. " +
+                "Publish a new valid release after correcting the source.",
+            },
+          ],
+        };
+      }
+    }
+  } else {
+    snapshot = await buildTargetSnapshot(
+      input.actor.publisherId,
+      input.bookId,
+      input.targetType,
+      input.targetId,
+    );
   }
   const checksum = checksumJson(snapshot);
   return {
