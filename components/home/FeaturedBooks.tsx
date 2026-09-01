@@ -99,6 +99,7 @@ export default async function FeaturedBooks() {
                     width={180}
                     height={255}
                     className="h-auto w-[180px] max-w-full rounded-xl shadow-xl"
+                    unoptimized
                   />
 
                 </div>

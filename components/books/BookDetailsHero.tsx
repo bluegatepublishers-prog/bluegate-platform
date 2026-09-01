@@ -59,6 +59,7 @@ export default function BookDetailsHero({ book }: Props) {
                 width={300}
                 height={420}
                 className="mx-auto rounded-2xl shadow-lg"
+                unoptimized
               />
             </div>
 

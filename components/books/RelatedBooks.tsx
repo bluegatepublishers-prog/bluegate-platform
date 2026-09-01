@@ -67,6 +67,7 @@ export default function RelatedBooks({
                   width={180}
                   height={250}
                   className="transition duration-500 group-hover:scale-105"
+                  unoptimized
                 />
 
                 {book.featured && (

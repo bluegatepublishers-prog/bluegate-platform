@@ -26,6 +26,7 @@ export default function BookCard({ book }: BookCardProps) {
             width={180}
             height={255}
             className="rounded-2xl shadow-2xl"
+            unoptimized
           />
         </div>
       </div>
